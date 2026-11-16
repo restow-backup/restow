@@ -108,4 +108,28 @@ describe("MessageIdDuplicates", () => {
     expect(await none.existing("INBOX", lookup)).toEqual([]);
     expect(lookups).toBe(1);
   });
+  it("finds the copy an unanswered create made, never one the folder had or another message wrote", async () => {
+    const a = mail("INBOX/1", "<x@example.org>");
+    const b = mail("INBOX/2", "<x@example.org>");
+    const duplicates = new MessageIdDuplicates<number>([a, b], folderOf);
+    const inbox = [10];
+    const lookup = async () => [...inbox];
+
+    const first = duplicates.slot(a);
+    await first.existing("INBOX", lookup);
+    inbox.push(11);
+    first.wrote("INBOX", 11);
+    first.settle();
+
+    const second = duplicates.slot(b);
+    await second.existing("INBOX", lookup);
+    // Nothing new yet: the create made nothing.
+    expect(await second.findOwnWrite("INBOX", lookup)).toBeUndefined();
+    inbox.push(12);
+    expect(await second.findOwnWrite("INBOX", lookup)).toBe(12);
+    // Without a Message-ID nothing can be found.
+    const anonymous = duplicates.slot(mail("INBOX/3"));
+    await anonymous.existing("INBOX", lookup);
+    expect(await anonymous.findOwnWrite("INBOX", lookup)).toBeUndefined();
+  });
 });

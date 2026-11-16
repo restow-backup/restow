@@ -91,6 +91,20 @@ describe("the settings draft", () => {
     expect(changedSections(server(), draftFromDetail(server(), "UTC"))).toEqual([]);
   });
 
+  it("sends the shadow copy switch for a Windows machine only", () => {
+    const windows = {
+      ...server(),
+      os: "windows" as const,
+      config: { ...server().config, useVss: true },
+    };
+    const off = { ...draftFromDetail(windows, "UTC"), useVss: false };
+    expect(buildPatch(windows, off)).toEqual({ config: { useVss: false } });
+    expect(changedSections(windows, off)).toEqual(["useVss"]);
+    // A Linux machine never sends it, whatever the draft says.
+    const linux = { ...server(), os: "linux" as const };
+    expect(buildPatch(linux, { ...draftFromDetail(linux, "UTC"), useVss: true })).toBeNull();
+  });
+
   it("sends only the part that changed", () => {
     const draft = { ...draftFromDetail(server(), "UTC"), timeOfDay: "03:30" };
     expect(buildPatch(server(), draft)).toEqual({

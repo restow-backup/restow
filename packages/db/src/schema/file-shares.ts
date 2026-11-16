@@ -160,6 +160,10 @@ export const fileShares = pgTable(
       onDelete: "set null",
     }),
     repositoryReadyAt: timestamp("repository_ready_at", { withTimezone: true }),
+    // The storage prefix of the share's repository when it began under a fresh one
+    // (`file-shares/<id>.chain-<n>/`, @restow/core endpoints/repository-prefix.ts): what lay at
+    // its prefix could not be cleared (a write-once target). Null: `file-shares/<id>/`.
+    repositoryPrefix: text("repository_prefix"),
     repositoryBytes: bigint("repository_bytes", { mode: "number" }),
     repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
     // The share's storage budget in GiB; null = none (7.4).
@@ -227,6 +231,11 @@ export const fileShareRuns = pgTable(
     // The run credential (5.1): SHA-256 only, valid until the deadline.
     tokenHash: text("token_hash"),
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    // The storage target the run's credential was issued for (a target id, or
+    // `installation_default`) and the tenant's storage generation then (docs/STORAGE.md,
+    // "Runs and storage changes"): the run reads and writes exactly this target.
+    storageTarget: text("storage_target"),
+    storageGeneration: text("storage_generation"),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
@@ -363,6 +372,14 @@ export type FileShareReportSummary = {
   repositoryBytes?: number;
   unrecordedSnapshots?: number;
   futureSnapshots?: number;
+  /** How the prune of this run went: restic's normal prune, or one that only deleted (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Why it only deleted: too little free space for the repack, or the normal prune ran out of it. */
+  pruneReason?: "low_space" | "storage_full";
+  /** A prune is still due (repacking deferred, or a prune that failed): the next run prunes. */
+  prunePending?: boolean;
+  /** Retention could not free space: the storage target is full (docs/STORAGE.md, "A full target"). */
+  targetFull?: boolean;
   removedLocks?: number;
   errorMessage?: string;
   [key: string]: unknown;

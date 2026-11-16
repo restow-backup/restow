@@ -52,6 +52,7 @@ import { ChainCheck } from "./chain-check.js";
 import { useArchiveSearch, useTenantScope } from "./hooks.js";
 import {
   ARCHIVE_PAGE_SIZE,
+  ARCHIVE_SOURCE_KEYS,
   type ArchiveFilters,
   invertedRange,
   isFiltered,
@@ -66,13 +67,6 @@ import {
  * the full one for the detail. A new capture path has to name itself here;
  * an unknown source from a newer API shows its code instead of a wrong label.
  */
-const SOURCE_KEYS: Readonly<Record<ArchiveSource, { list: string; detail: string }>> = {
-  journal: { list: "table.sources.journal", detail: "detail.sourceJournal" },
-  smtp_forward: { list: "table.sources.smtp_forward", detail: "detail.sourceSmtpForward" },
-  graph_sync: { list: "table.sources.graph_sync", detail: "detail.sourceGraphSync" },
-  imap_sync: { list: "table.sources.imap_sync", detail: "detail.sourceImapSync" },
-  file_import: { list: "table.sources.file_import", detail: "detail.sourceFileImport" },
-};
 
 const ALL_MAILBOXES = "all";
 
@@ -167,7 +161,7 @@ export function ArchivePage() {
   };
 
   const sourceLabel = (source: ArchiveSource | undefined, view: "list" | "detail") => {
-    const keys = source ? SOURCE_KEYS[source] : undefined;
+    const keys = source ? ARCHIVE_SOURCE_KEYS[source] : undefined;
     return keys ? t(keys[view]) : (source ?? "—");
   };
 

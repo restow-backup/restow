@@ -32,6 +32,7 @@ function row(overrides: Partial<StorageTarget>): StorageTarget {
     bytesUsed: 0,
     immutability: null,
     immutabilityState: null,
+    spaceRule: null,
     createdAt: CREATED,
     updatedAt: CREATED,
     ...overrides,
@@ -236,6 +237,7 @@ describe("toInstallationDefaultDto", () => {
       copyLocation: "/mnt/copy",
       misconfigured: false,
       onSystemDisk: false,
+      writeOnce: null,
     });
     expect(toInstallationDefaultDto(defaults, true, { isProviderAdmin: false })).toMatchObject({
       location: null,

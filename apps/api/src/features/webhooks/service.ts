@@ -23,6 +23,7 @@ import {
   type WebhookFormat,
 } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { type WebhookHealthDto, webhookHealthOf } from "../reports/matrix.js";
 import { toCsv } from "../stats/csv.js";
 import { decodeDeliveryCursor, encodeDeliveryCursor } from "./cursor.js";
 import { type DeliveryErrorDto, parseDeliveryError } from "./delivery-error.js";
@@ -72,6 +73,8 @@ export interface WebhookStatsDto {
   lastDelivery: LastDeliveryDto | null;
 }
 
+export type { WebhookHealthDto };
+
 export interface WebhookDto {
   id: string;
   name: string | null;
@@ -91,6 +94,8 @@ export interface WebhookDto {
   createdAt: string;
   updatedAt: string;
   stats: WebhookStatsDto;
+  /** Whether its deliveries keep failing, and since when (0.5.0). */
+  health: WebhookHealthDto;
 }
 
 /** Returned on creation and rotation only: the signing secret, shown this one time. */
@@ -161,6 +166,7 @@ export function toWebhookDto(row: WebhookRow, stats: WebhookStatsDto = EMPTY_STA
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     stats,
+    health: webhookHealthOf(row),
   };
 }
 

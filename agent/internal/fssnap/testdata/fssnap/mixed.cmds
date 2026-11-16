@@ -1,0 +1,10 @@
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[/run/restow-agent/btrfs/f1/.restow-snapshots/run-1] -- btrfs subvolume snapshot -r /run/restow-agent/btrfs/f1/root /run/restow-agent/btrfs/f1/.restow-snapshots/run-1/257
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[/run/restow-agent/btrfs/f1/.restow-snapshots/run-1] -- btrfs subvolume snapshot -r /run/restow-agent/btrfs/f1/home /run/restow-agent/btrfs/f1/.restow-snapshots/run-1/256
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[/run/restow-agent/btrfs/f1/.restow-snapshots/run-1] -- btrfs subvolume snapshot -r /run/restow-agent/btrfs/f1/root/var/lib/machines /run/restow-agent/btrfs/f1/.restow-snapshots/run-1/258
+lvcreate -s -L 10737418240b -n srv_restowsnap --addtag restow-agent-snapshot data/srv
+-- remove
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[] -- btrfs subvolume delete /run/restow-agent/btrfs/f1/.restow-snapshots/run-1/257
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[] -- btrfs subvolume delete /run/restow-agent/btrfs/f1/.restow-snapshots/run-1/256
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[] -- btrfs subvolume delete /run/restow-agent/btrfs/f1/.restow-snapshots/run-1/258
+lvremove -y data/srv_restowsnap
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/nvme0n1p3:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[] -- rmdir /run/restow-agent/btrfs/f1/.restow-snapshots/run-1

@@ -35,6 +35,9 @@ export const FAILURE_TEXT_PARAMS = {
   ageHours: 0,
   ageDays: 0,
   exitCode: 0,
+  // The calendar view window a group calendar was read through (graph.group_calendar_windowed).
+  windowStart: "",
+  windowEnd: "",
 } as const satisfies Record<string, string | number>;
 
 export type FailureTextParam = keyof typeof FAILURE_TEXT_PARAMS;

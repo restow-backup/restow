@@ -14,7 +14,8 @@
     "notifications": "Benachrichtigungen",
     "integrations": "Integrationen",
     "members": "Benutzer",
-    "masterData": "Stammdaten"
+    "masterData": "Stammdaten",
+    "branding": "Branding"
   },
   "descriptions": {
     "overview": "{scope, select, organisation {Ihre Organisation auf einen Blick: was geschützt ist, ob es nachweislich wiederherstellbar ist und wo welche Einstellung liegt.} other {{tenant} auf einen Blick: was geschützt ist, ob es nachweislich wiederherstellbar ist und wo welche Einstellung liegt.}}",
@@ -28,7 +29,8 @@
     "notifications": "Wer was erfährt: die Empfänger und die Regeln, die Alarme und Berichte senden.",
     "integrations": "API-Schlüssel und Webhooks für RMM-, PSA- und Ticketsysteme.",
     "members": "Wer sich anmelden darf, und mit welcher Rolle.",
-    "masterData": "Name, Kundennummer, Sprache, Zeitzone, Adresse und Ansprechpartner."
+    "masterData": "Name, Kundennummer, Sprache, Zeitzone, Adresse und Ansprechpartner.",
+    "branding": "Eigenes Logo, Absender und Farben des Mandanten in seinen Mails, Chat-Nachrichten und Kundenberichten, statt Ihrer."
   },
   "access": {
     "role": "Ihre Rolle im Provider-Team darf diese Seite ansehen, aber nicht ändern. Einstellungen ändern braucht die Rolle Administrator oder höher.",
@@ -218,5 +220,40 @@
       "defaultStorageUsed": "Hier in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} speichert auf dem Standard der Installation ({kind, select, s3 {S3} other {lokaler Speicher}}).",
       "defaultStorageUnused": "Hier nicht in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} hat ein eigenes Repository."
     }
+  },
+  "branding": {
+    "loadError": "Das Branding konnte nicht geladen werden.",
+    "locked": {
+      "title": "Eigenes Branding des Mandanten",
+      "description": "Ein eigenes Logo, Absender und Farben für die Mails, Chat-Nachrichten und Kundenberichte dieses Mandanten."
+    },
+    "inherit": "Branding des Providers verwenden",
+    "inheritHint": "Nachrichten zu {tenant} tragen Ihr Branding.",
+    "ownHint": "Nachrichten zu {tenant} tragen das Branding unten. Schalten Sie dies ein, um zu Ihrem zurückzukehren.",
+    "inherited": "Der Mandant verwendet wieder Ihr Branding.",
+    "inheritsNamed": "Die Nachrichten dieses Mandanten kommen von „{name}“, Ihrem Branding.",
+    "inheritsProduct": "Die Nachrichten dieses Mandanten tragen {appName}, bis Sie ein Branding einrichten."
+  },
+  "customerReport": {
+    "title": "Monatlicher Kundenbericht",
+    "description": "Einmal im Monat ein Bericht in Ihrem Branding an die Kontakte dieses Mandanten, die ihn erhalten: was geschützt ist, die Erfolgsquote der Sicherungen, die Wiederherstellungsprüfungen, Wiederherstellungen und Speicher. Keine Preise.",
+    "loadError": "Der Kundenbericht konnte nicht geladen werden.",
+    "saved": "Kundenbericht gespeichert.",
+    "never": "nie",
+    "enabled": "Monatsbericht senden",
+    "runs": "Nächster: {next} · Letzter: {last}",
+    "sendDay": "Tag des Monats",
+    "day": "Am {day}.",
+    "sendHour": "Um",
+    "timezone": "Zeitzone: {zone}",
+    "language": "Sprache",
+    "languageTenant": "Sprache des Mandanten",
+    "recipients": "Empfänger",
+    "noRecipients": "Noch erhält ihn kein Kontakt. Haken Sie unter Stammdaten bei einem Kontakt „Erhält den Monatsbericht“ an.",
+    "openContacts": "Stammdaten öffnen",
+    "previewPdf": "Vorschau herunterladen (PDF)",
+    "test": "Test an mich senden",
+    "testSent": "Der Bericht ist für {to} eingereiht.",
+    "lastDelivery": "Zuletzt gesendet {at}: {status}"
   }
 }

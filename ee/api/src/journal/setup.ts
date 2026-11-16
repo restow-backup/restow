@@ -15,7 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { archiveItems, tenants } from "@restow/db";
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Config } from "../../../../apps/api/src/config.js";
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { audit } from "../../../../apps/api/src/lib/audit.js";
@@ -245,12 +245,13 @@ async function readToken(tx: Transaction, tenantId: string, lock = false): Promi
 async function ensureToken(tx: Transaction, tenantId: string, actor: ArchiveActor) {
   const existing = await readToken(tx, tenantId);
   if (existing !== null) {
+    await confirmIssued(tx, tenantId);
     return existing;
   }
   const token = generateJournalToken();
   const [issued] = await tx
     .update(tenants)
-    .set({ journalToken: token })
+    .set({ journalToken: token, journalAddressIssuedAt: sql`now()` })
     .where(and(eq(tenants.id, tenantId), sql`${tenants.journalToken} is null`))
     .returning({ journalToken: tenants.journalToken });
   if (!issued) {
@@ -262,6 +263,25 @@ async function ensureToken(tx: Transaction, tenantId: string, actor: ArchiveActo
   }
   await auditAddress(tx, tenantId, actor, JOURNAL_AUDIT_ACTIONS.created, token);
   return token;
+}
+
+/**
+ * Stamps an address issued before 0.5.0 when the journal setup is opened: from then on it
+ * counts as journaling set up (`tenants.journal_address_issued_at`, apps/api
+ * archive/availability.ts). Up to 0.4.12 the tenant page issued the address on its first view,
+ * so an old address alone says nothing. Writes once; the address stays as it is.
+ */
+async function confirmIssued(tx: Transaction, tenantId: string) {
+  await tx
+    .update(tenants)
+    .set({ journalAddressIssuedAt: sql`now()` })
+    .where(
+      and(
+        eq(tenants.id, tenantId),
+        isNotNull(tenants.journalToken),
+        isNull(tenants.journalAddressIssuedAt),
+      ),
+    );
 }
 
 async function auditAddress(
@@ -369,6 +389,22 @@ async function describeSetup(
   };
 }
 
+/** The journal host as the tenant page shows it (GET /archive/journal/host). */
+export interface JournalHostDto {
+  hostname: string | null;
+  hostnameIssue: HostnameIssue | null;
+}
+
+/**
+ * The journal host the installation configured, without the tenant's address: it reads and
+ * issues nothing, so the tenant page can show the host without issuing the journal address,
+ * which counts as journaling set up for the menu (apps/api archive/availability.ts).
+ */
+export function journalHost(env: JournalSetupEnvironment): JournalHostDto {
+  const { hostname, issue } = normalizeJournalHostname(env.journal.hostname);
+  return { hostname, hostnameIssue: issue };
+}
+
 /** The tenant's journal setup; issues the address on the first call (audited). */
 export async function getJournalSetup(
   db: DbExecutor,
@@ -397,7 +433,10 @@ export async function rotateJournalAddress(
   return withTenantTx(db, tenantId, async (tx) => {
     const previous = await readToken(tx, tenantId, true);
     const token = generateJournalToken();
-    await tx.update(tenants).set({ journalToken: token }).where(eq(tenants.id, tenantId));
+    await tx
+      .update(tenants)
+      .set({ journalToken: token, journalAddressIssuedAt: sql`now()` })
+      .where(eq(tenants.id, tenantId));
     await auditAddress(
       tx,
       tenantId,

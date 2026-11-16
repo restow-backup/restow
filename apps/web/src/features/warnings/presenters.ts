@@ -6,6 +6,7 @@ import type {
   FailedItemLocation,
   RunOutcome,
   WarningDetail,
+  WarningList,
   WarningRef,
   WarningState,
   WarningSummary,
@@ -18,6 +19,15 @@ import type {
  */
 
 export const WARNINGS_ROLES = ["provider_admin", "tenant_admin"] as const;
+
+/**
+ * What the menu entry counts: everything the page asks the admin to look at. That is more than
+ * the open warnings; failed backups (machines, mail, shares and guests) and objects that wait
+ * for a confirmation sit in hints above the list and used to be missing from the number.
+ */
+export function attentionCount(counts: WarningList["counts"]): number {
+  return counts.open + counts.failed + (counts.failedGuests ?? 0) + (counts.toConfirm ?? 0);
+}
 
 export function stateTone(state: WarningState): StatusTone {
   switch (state) {

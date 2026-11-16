@@ -5,9 +5,15 @@ import {
   decideCreate,
   decideDelete,
   decidePromote,
+  decidePromotion,
   decideReplacePrimary,
   decideUpdate,
+  idOnCopy,
+  matchOnCopy,
   movesLocation,
+  type PromotionFacts,
+  type RepositoryCopyFacts,
+  repositoryCopyReadiness,
   type StorageSituation,
 } from "./rules.js";
 
@@ -270,5 +276,175 @@ describe("credentialsBoundElsewhere", () => {
     ).toBe(true);
     expect(credentialsBoundElsewhere(null, bucket("a"))).toBe(true);
     expect(credentialsBoundElsewhere(bucket("a"), nas)).toBe(false);
+  });
+});
+
+describe("repositoryCopyReadiness", () => {
+  const at = (iso: string) => new Date(iso);
+  const copy = (row: Partial<NonNullable<RepositoryCopyFacts["row"]>> = {}) => ({
+    state: "current" as const,
+    missingSnapshots: 0,
+    lastAttemptAt: at("2026-11-10T00:00:00Z"),
+    lastCheckOk: true,
+    ...row,
+  });
+  const facts = (overrides: Partial<RepositoryCopyFacts> = {}): RepositoryCopyFacts => ({
+    created: true,
+    row: copy(),
+    newestBackup: at("2026-11-09T00:00:00Z"),
+    ...overrides,
+  });
+
+  it("is current only after a successful, checked copy that started after the newest restore point", () => {
+    expect(repositoryCopyReadiness(facts())).toBe("current");
+    expect(repositoryCopyReadiness(facts({ newestBackup: null }))).toBe("current");
+    expect(repositoryCopyReadiness(facts({ newestBackup: at("2026-11-10T00:00:01Z") }))).toBe(
+      "outdated",
+    );
+  });
+
+  it("lets a repository being created through while no restore point refers to it", () => {
+    // Nothing to copy: its first backup creates it on whichever target is the primary then.
+    expect(repositoryCopyReadiness(facts({ created: false, newestBackup: null }))).toBe("empty");
+    expect(repositoryCopyReadiness(facts({ created: false }))).toBe("not_created");
+  });
+
+  it("names why a copy is not complete", () => {
+    expect(repositoryCopyReadiness(facts({ row: null }))).toBe("pending");
+    expect(repositoryCopyReadiness(facts({ row: copy({ state: "pending" }) }))).toBe("pending");
+    expect(repositoryCopyReadiness(facts({ row: copy({ lastAttemptAt: null }) }))).toBe(
+      "requested",
+    );
+    expect(repositoryCopyReadiness(facts({ row: copy({ state: "failed" }) }))).toBe("failed");
+    expect(repositoryCopyReadiness(facts({ row: copy({ lastCheckOk: false }) }))).toBe("failed");
+    expect(repositoryCopyReadiness(facts({ row: copy({ state: "behind" }) }))).toBe("behind");
+    expect(repositoryCopyReadiness(facts({ row: copy({ missingSnapshots: 2 }) }))).toBe("behind");
+  });
+});
+
+describe("decidePromotion", () => {
+  const current: RepositoryCopyFacts = {
+    created: true,
+    row: { state: "current", missingSnapshots: 0, lastAttemptAt: new Date(2), lastCheckOk: true },
+    newestBackup: new Date(1),
+  };
+  const facts = (overrides: Partial<PromotionFacts> = {}): PromotionFacts => ({
+    isProviderAdmin: false,
+    target: { role: "copy", kind: "s3", status: "ok" },
+    migrationInProgress: false,
+    activeEndpoints: false,
+    runningRepositoryRun: false,
+    repairActive: false,
+    writeJobQueues: [],
+    copyPassRunning: false,
+    repositories: [],
+    files: { complete: true },
+    ...overrides,
+  });
+
+  it("allows a verified, complete copy, with or without restic repositories", () => {
+    expect(decidePromotion(facts())).toEqual([]);
+    expect(decidePromotion(facts({ repositories: [current, current] }))).toEqual([]);
+  });
+
+  it("allows a tenant with complete repository copies (once refused for any repository)", () => {
+    // The PVE homelab case: containers whose `restic copy` on the target is current.
+    expect(decidePromotion(facts({ repositories: [current] }))).toEqual([]);
+    // A file share still being created, with no restore point: nothing to copy.
+    const empty = { created: false, row: null, newestBackup: null };
+    expect(decidePromotion(facts({ repositories: [current, empty] }))).toEqual([]);
+    expect(
+      decidePromotion(facts({ repositories: [{ ...empty, newestBackup: new Date(1) }] })),
+    ).toEqual([{ code: "repository_copies_incomplete", repositories: 1 }]);
+  });
+
+  it("stops at what makes a promotion impossible for this target", () => {
+    expect(
+      decidePromotion(facts({ target: { role: "copy", kind: "local", status: "ok" } })),
+    ).toEqual([{ code: "local_requires_provider_admin" }]);
+    expect(
+      decidePromotion(
+        facts({ target: { role: "primary", kind: "s3", status: "ok" }, migrationInProgress: true }),
+      ),
+    ).toEqual([{ code: "already_primary" }]);
+    expect(
+      decidePromotion(facts({ target: { role: "previous", kind: "s3", status: "ok" } })),
+    ).toEqual([{ code: "not_a_copy" }]);
+  });
+
+  it("lists every other reason at once, in a fixed order", () => {
+    expect(
+      decidePromotion(
+        facts({
+          target: { role: "copy", kind: "s3", status: "error" },
+          migrationInProgress: true,
+          activeEndpoints: true,
+          runningRepositoryRun: true,
+          repairActive: true,
+          writeJobQueues: ["backup", "scrub"],
+          copyPassRunning: true,
+          repositories: [current, { ...current, row: null }],
+          files: { complete: false },
+        }),
+      ),
+    ).toEqual([
+      { code: "migration_in_progress" },
+      { code: "not_verified" },
+      { code: "active_endpoints" },
+      { code: "switch_blocked_by_runs" },
+      { code: "switch_blocked_by_repair" },
+      { code: "storage_jobs_running", queues: ["backup", "scrub"] },
+      { code: "copy_pass_running" },
+      { code: "repository_copies_incomplete", repositories: 1 },
+      { code: "copy_incomplete" },
+    ]);
+    expect(decidePromotion(facts({ files: "unreachable" }))).toEqual([{ code: "unreachable" }]);
+  });
+
+  it("holds only for a storage check without restic repositories (the old primary stays a copy)", () => {
+    expect(decidePromotion(facts({ writeJobQueues: ["backup", "retention"] }))).toEqual([]);
+    expect(decidePromotion(facts({ writeJobQueues: ["backup", "scrub"] }))).toEqual([
+      { code: "storage_jobs_running", queues: ["scrub"] },
+    ]);
+    // A copy pass concerns repositories only.
+    expect(decidePromotion(facts({ copyPassRunning: true }))).toEqual([]);
+  });
+
+  it("leaves the file comparison out until it ran", () => {
+    expect(decidePromotion(facts({ files: null }))).toEqual([]);
+  });
+});
+
+describe("idOnCopy", () => {
+  const id = (tag: string) => tag.padEnd(64, "0");
+  const copies = [
+    { id: id("c1"), original: id("a1") },
+    { id: id("c2"), original: id("a2") },
+    { id: id("c3"), original: id("b3") },
+  ];
+
+  it("finds a recorded id by the copy's original, full or abbreviated", () => {
+    expect(idOnCopy(copies, id("a1"))).toBe(id("c1"));
+    expect(idOnCopy(copies, id("a2").slice(0, 8))).toBe(id("c2").slice(0, 8));
+  });
+
+  it("finds nothing for a restore point the copy lacks, or an ambiguous abbreviation", () => {
+    expect(idOnCopy(copies, id("a9"))).toBeNull();
+    expect(idOnCopy(copies, "a")).toBeNull();
+    expect(idOnCopy(copies, "")).toBeNull();
+  });
+
+  it("takes a snapshot made on the copy itself by its own id", () => {
+    expect(idOnCopy([{ id: id("d1"), original: null }], id("d1"))).toBe(id("d1"));
+  });
+
+  it("finds a copy of a promoted copy by the persistent id an earlier promotion recorded", () => {
+    // P1 held a1; C1 copied it as c1 (original a1) and was promoted, so the records name c1.
+    // C2 copied it from P1 or from C1: restic keeps the first original, a1, either way.
+    const onC2 = [{ id: id("e1"), original: id("a1") }];
+    expect(idOnCopy(onC2, id("c1"))).toBeNull();
+    expect(idOnCopy(onC2, id("c1"), id("a1"))).toBe(id("e1"));
+    expect(idOnCopy(onC2, id("c1").slice(0, 8), id("a1"))).toBe(id("e1").slice(0, 8));
+    expect(matchOnCopy(onC2, id("c1"), id("a1"))).toEqual(onC2[0]);
   });
 });

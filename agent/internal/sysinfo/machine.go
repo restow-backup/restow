@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/restow-backup/restow/agent/internal/api"
 )
 
 // Virtualization kinds reported to the server.
@@ -30,8 +32,11 @@ type Machine struct {
 	// Desktop is true when a graphical session is installed.
 	Desktop bool
 	// DataFolders are the entries of DataFolderCandidates that exist and hold
-	// at least one file; nil on systems without candidates (macOS).
+	// at least one file; nil on systems without candidates (macOS, Windows).
 	DataFolders []string
+	// Windows are the facts of a Windows machine (windows_facts.go); nil on
+	// other systems.
+	Windows *api.WindowsFacts
 }
 
 // DataFolderCandidate is one folder the agent checks for data.
@@ -71,6 +76,9 @@ const (
 // files and lists at most a bounded number of directory entries; it never
 // fails, an unreadable fact is reported as unknown.
 func DetectMachine() Machine {
+	if runtime.GOOS == "windows" {
+		return detectWindowsMachine()
+	}
 	if runtime.GOOS != "linux" {
 		return Machine{Virtualization: VirtNone}
 	}

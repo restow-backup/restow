@@ -8,7 +8,2925 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.5.0] - 2026-11-16
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.0 restores whole Linux machines onto new hardware from a recovery ISO and proves it
+first: a boot probe starts each backed up machine on other hardware in a lab and only then calls
+it green. Alongside come restic repositories on copy targets that can become the primary, a
+billing API for PSA tools, branded mails and reports, Proxmox VE selection by node, SQL Server
+backups of Windows machines (preview) and many fixes. The update runs thirty-two database
+migrations, and owners of the provider team receive critical events by e-mail from now on: read
+Breaking Changes and Upgrade Notes before you update.
+
+### Breaking Changes
+
+- Phones are no longer a supported surface: on a smartphone every page shows a block page
+  instead of the app (see Changed). Use a computer or a tablet.
+- "Delete every backup" of a revoked machine is now delayed by seven days and may be requested
+  only by an owner of the provider team, with a reason (see Changed). Scripts that called the
+  removal with mode `delete` as a tenant administrator now get a refusal; the backups are no
+  longer deleted at once.
+- The agent no longer backs up its own state file, and LUKS key files are hidden from restore
+  operators (see Changed): a restore of `/etc/restow-agent/state.json` from an older snapshot is
+  refused with `endpoint-restore-path-locked`.
+- Every owner of the provider team receives the critical events and the installation's own events
+  by e-mail without opting in; an installation without a mail transport shows a lasting delivery
+  failure alert until one is configured or the notification mail is marked as not needed.
+- Whole machine backups of Linux machines are offered at once (the job switch "Whole machine");
+  `RESTOW_BAREMETAL_PREVIEW=false` for the api hides them again.
+- The integration API contract moves from 1.9.0 to 1.10.0; every change is additive (new
+  endpoints, scopes and fields), and a tenant key can no longer carry the new provider-only scope
+  `billing:read` (`api-key-scope-provider-only`).
+
+### Added
+
+- Billing figures for PSA and billing tools: `GET /api/v1/provider/billing` (integration API
+  contract 1.10.0, additive; Service Provider) with the new scope `billing:read`, which only a
+  provider key can carry (a tenant key with it is refused, `api-key-scope-provider-only`). Per
+  tenant (not those being deleted): its customer number, status, one line per priced quantity
+  (protected mailboxes, stored data, servers, clients, VMs, containers, file shares) with
+  quantity, unit, unit price, the price's source (the tenant's own or the installation's) and
+  amount, and its total, in the installation's currency; `complete: false` when a tenant's
+  figures could not be read. It is the estimate of the web UI's price cards, so both always
+  agree, live as of `generatedAt`; `?tenant=` or `?customerNumber=` (without case) narrows it to
+  one tenant. Every read is recorded in the audit log of each tenant it contains
+  (`api.provider.billing.read`). In the web UI the scope "Billing" is offered for provider keys
+  only. A fixed monthly close with a webhook follows with 0.6.0.
+- Emergency disk reserve and "Disk full" recovery without a shell (#98). When the disk under the
+  database filled up to the last byte, PostgreSQL could not start and getting it back needed a
+  shell or a rescue console. The api now keeps a file of real (random, never sparse) blocks on
+  the volume `restow-data`, `restow-disk-reserve`, 2 GiB by default (`RESTOW_DISK_RESERVE_MB`,
+  `0` = off). Below 1 GiB free on its disk (`RESTOW_DISK_RESERVE_FLOOR_MB`) the api frees it by
+  itself, checked every 30 seconds and, without the database, every time the api container
+  starts (before the migrations), so PostgreSQL has room to start again. Once the disk has room
+  for the low-space threshold plus the reserve, it is written again. New installation events
+  `installation.disk_reserve_released` (critical) and `installation.disk_reserve_restored`; a
+  release while the database was down is announced once it is back. The low disk space warning
+  names the reserve and the command that frees it; Installation › Database shows its state.
+  New `restow disk-reserve status|release|create [--initial]|guard` (needs no database);
+  `install.sh` writes the reserve right after the first start of a new server (0.5.0 and newer;
+  on an existing one only under the api's own room rule). Only a file that begins with the
+  reserve's mark is ever replaced or deleted (never a link or another file at the path), one
+  writer at a time, and the check at the container's start gives up after 30 seconds. Without the opt-in updater
+  the database's disk is now watched too, read on `restow-data` next to the named volume
+  `pgdata` (not for a database moved to a host directory). The bell names the system disk in its
+  low-space line. One disk, one warning: where the database, the local repository and the system
+  disk lie on the same device (the standard installation), a low disk raises one warning that
+  names every place on it (`details.disks`) and the reserve once, instead of up to three;
+  Installation › Database shows them as one disk. Known limits: the reserve protects only its own disk (not a database moved
+  elsewhere), a snapshot of a copy-on-write file system keeps its blocks, and a disk that fills
+  within 30 seconds can still reach 0 bytes until the next check. docs/DATABASE.md, "Disk full"
+  (safe cleanup, what never to delete, freeing the reserve by hand).
+- Size and space guard of backup runs (#99). By default Restow only warns about an unusually
+  large run and holds a run only for space: a run that passes its size limit goes on and raises
+  the notice `backup.unusually_large_notice` once per run (a warning, not critical, no hold; on
+  Warnings with "Hold such runs" for its object), unless the size check of the tenant or the
+  object is set to `hold` (new setting `mode`, `warn` by default; `run_size_runs.noticed_at` and
+  `notice`, migration 0098). One run that adds far more than usual (an 879 GB
+  recycle bin) no longer goes unnoticed, and no run fills the storage: every run is measured while it writes, restic runs of
+  machines, file shares and Proxmox VE containers at the server's restic endpoint before every
+  upload, mailbox, OneDrive, SharePoint and IMAP runs before every pack. A run is flagged when it
+  passes 10 times the median of its object's last 10 runs (at least 10 GiB, or the object's own
+  limit; first backups are not checked unless a limit for them is set), or when it would leave a
+  target that reports its space less free than it keeps (the index and snapshot that finish a run
+  excepted): 5 % of its size, at least 20 GiB, at most 500 GiB, never more than a quarter of a
+  small target, adjustable for the installation (Installation › Database, owner), a tenant
+  (Warnings, "Size check", on its own targets; on the shared default target the installation's
+  rule applies) and a storage target (its card; `/api/v1/run-size/targets`), audited
+  `backup.space_rule_changed` (`settings.run_space_rule`, `storage_targets.space_rule`,
+  migration 0097). A run that begins a new repository is a first run, and the history starts with it.
+  A machine backed up as a whole is compared with its whole machine runs only, so its first whole
+  machine backup after the switch is a first run as well.
+  What the guard knows of a run (bytes stored, "continue once" used) survives an api restart and
+  a retry (`run_size_runs`, migration 0096); a database error is a 503 restic retries, never a
+  refusal. A hold for space ends by itself once the target has room, or when its space rule is
+  switched off; "continue once" lifts the size rule only and is refused for a hold for space. A
+  hold of a removed object ends, and a settings change ends the holds it no longer makes. A held run (for space, or for its
+  size in `hold` mode) ends without a restore point
+  (restic: 403 `run-size-held`; mail: failure `storage.run_held`), the new critical event
+  `backup.unusually_large` goes out once, and every further run of the object waits. Under
+  Warnings, "Held backups", an administrator lets it continue once, raises the object's limit or
+  switches the check off for it; the tenant's settings (warn or hold, factor, minimum, first
+  backups, the space rule) are there too. New tables `run_size_holds` and `run_size_settings` (migration 0095,
+  tenant isolated), `/api/v1/run-size` (holds, continue, raise, settings), audit events
+  `backup.size_hold_continued`, `backup.size_limit_raised`, `backup.size_guard_changed`. Proxmox VE
+  VM block backups are measured too: before every pack the server stores from a run's blocks, in
+  new chunk bytes after deduplication, against the guest's earlier VM runs; a VM run without a
+  base restore point (the first backup, bases removed, every disk resized) begins a new chain and
+  is never flagged, and a full read after a lost dirty bitmap counts only what changed. A held VM
+  run gets 403 `run-size-held` at its next frame and ends `storage.run_held`. Not yet: the largest
+  new folders of a held run, and per-job settings for a job of several objects (the setting is
+  per object). docs/STORAGE.md, "Unusually large runs".
+- Repository copies: the restic repositories of machines (`endpoints/<id>/`), Proxmox VE
+  containers (`pve-guests/<id>/`) and file shares (`file-shares/<id>/`) are now kept on every
+  copy target of the tenant, not only on the primary. Until now a copy received only the chunk
+  store (mail, Microsoft 365, the archive, VM disks), so servers, containers and file shares had
+  no second copy inside Restow. The worker creates a repository at the same prefix on each copy
+  target (`restic init --copy-chunker-params`, the same repository password) and fills it with
+  `restic copy`: after each backup run (several runs between two passes are one copy) and at
+  least once a day, so a copy target that was down or was added later catches up. Only restore
+  points the server recorded are copied. Retention on the copy follows the primary's (a
+  machine's grouped retention, the pruned restore points of containers and file shares, holds on
+  suspicion) under the new deletion pass `repository_copy_retention`: restore mode stops
+  deletions on a copy while copying goes on, a write-once copy target keeps everything, and the
+  prune is the one for a full target. After every copy `restic check` reads the copy's structure,
+  once a week a sample of its data. New table `repository_copies` (migration 0093, tenant
+  isolated); `GET /api/v1/storage/repository-copies` (per copy target: "x of y repositories
+  current") and `GET /api/v1/storage/repository-copies/objects/:id` (per machine, container or
+  file share: "Copy on <target>: current / n behind / failed (reason)"), both shown in the web
+  interface. New catalog event `storage.copy_behind` (warning) when a copy is not current for
+  more than two days. When the primary lost a repository, the snapshot list, browsing, file
+  downloads and full restores read it from the copy: a machine's restore through its agent
+  (for the run of such a restore task the restic endpoint serves the machine from the copy
+  and takes its lock there; every other upload is refused, a backup never lands in a copy), a container's restore, restore check and boot
+  test on the Proxmox VE node, and a file share's restore back into the share. The server hands
+  restic the id under which the copy holds the restore point (`restic copy` keeps the recorded
+  one as `original`), so nodes, runners and agents need no update; a restore point the copy
+  does not hold is refused with `storage-restore-point-not-on-copy`. The run says which target
+  it read (`stats.readFrom`, shown in the run's details and on the guest's page), and the audit
+  log too (`readFrom` on `endpoint.restore.requested`/`.finished`, new actions
+  `pve.restore.read_from_copy` and `file_share.restore_read_from_copy`). The server's own
+  repository checks stay on the primary and are red or incomplete, never green, while it does
+  not hold the repository. A `move` and the repository repair leave repository copies on copy
+  targets out
+  (docs/STORAGE.md, "restic repositories on copies", "Restoring from a copy" and "Known
+  limitations"). The first pass
+  after the update copies every repository once, 25 repositories per pass, and needs their size
+  on each copy target. Purging a file share now also deletes its repository copies.
+- "Make primary" for a tenant with containers, machines or file shares (docs/STORAGE.md,
+  "Promoting a copy"). A copy target can become the primary once it holds everything the
+  primary holds: every pack, manifest, key and archive record, and the repository copy of
+  every restic repository (its last copy succeeded, passed its check and started after the
+  object's newest restore point). Before, a tenant with any restic repository could not
+  promote at all and had to "move". The dialog asks the server first
+  (`GET /api/v1/storage/targets/:id/promotion`) and lists every reason it would refuse, each with
+  what to do: an active machine, a running backup, storage jobs, a repository repair, a running
+  copy pass, every repository whose copy is not complete with its state, missing files. "Catch
+  up now" (`POST /api/v1/storage/targets/:id/catch-up`, audit `storage.target.catch_up_started`)
+  queues a storage check that mirrors the copies and asks the worker for the copy of every
+  repository behind (picked up within 30 seconds); the dialog shows the progress, and "Make
+  primary" is enabled once the server says the copy is ready. The promotion lists the
+  repository copies, checks that every restore point the server keeps is there, rewrites the
+  recorded snapshot ids to the copy's in the switching transaction, and retires the old primary
+  read-only (`previous`), as a `move` does. New problem types `storage-switch-blocked-by-jobs`,
+  `storage-copy-pass-running` and `storage-repository-copies-incomplete`. Active machines still
+  block every change of the primary (`storage-active-endpoints`), now shown before the click.
+  The promotion keeps restic's persistent id of every restore point it carries over (new table
+  `restic_snapshot_origins`, migration 0099, tenant isolated), so another copy target still
+  finds them once the promoted primary is lost, and can be promoted in turn. A machine's
+  promotion requires every snapshot a record still names and the primary holds (held ones, SQL
+  backups); the copy pass copies everything while a hold, a revoked machine or a write-once
+  primary keeps more than the retention rules, and a machine's retention and removal jobs no
+  longer run beside a promotion, nor do a file share's retention and purge or the retention of
+  containers (they hold the tenant's repository-copy lock shared; queued jobs wait up to half an
+  hour). A machine's snapshot no run dated that a record still names is copied too. When the
+  primary cannot list a machine's repository, the promotion checks it against the records and
+  the copy's state and names it (`primaryUnreadable`); each listing is limited to five minutes.
+  The listing comparison moved to
+  `POST /api/v1/storage/targets/:id/promotion/check` (right to operate).
+- Modules of the installation: the setup wizard of a new installation asks "What do you want to
+  protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,
+  Proxmox VE; all ticked to begin with, at least one), and Installation › Server & operation ›
+  Modules switches them on and off later (`GET`/`PUT /api/v1/settings/modules`, owners and
+  administrators, audited as `settings.modules.updated`). A module that is off is only hidden: its
+  menu entries and command palette commands, its cards on the overview, its sections of the tenant
+  and the installation page, and its entries where something new is created (the tabs of
+  Connections, the job type under "New job"). Nothing is deleted, no job stops and no API route
+  refuses anything. The Modules page says what a hidden module still holds across all tenants,
+  with counts, and its pages stay reachable by their address, with a discreet line that the module
+  is hidden in the navigation. An installation that updates keeps every module on (migration 0094
+  stores only the modules switched off); a restore from a dump and a worker node are not asked.
+  `GET /api/v1/me` carries the enabled modules as `modules`.
+
+- Machines: a scheduled deletion of a revoked machine's backups can be cancelled until the worker
+  starts (Cancel deletion on the machine's page and in File restore, `POST
+  /api/v1/endpoints/:id/remove/cancel`, provider owners, audited as `endpoint.removal.cancelled`).
+  Two new catalog events: `endpoint.backups_deletion_scheduled` (critical, so it always reaches
+  the bell and the provider's mandatory recipients at once) when the deletion is requested, and
+  `endpoint.backups_deleted` (info) when the worker has deleted them, with the number of files and
+  snapshots and the last measured size, also recorded in `endpoint.removal.completed`.
+- Optional prices per protected unit and month next to the mailbox and storage prices
+  (Installation › Prices, and per tenant with Service Provider like the other tenant prices): per
+  server, per client (the agent machines by their profile), per Proxmox VE VM, per container and
+  per file share. A unit counts while it is protected: a machine that is active, not removed and
+  in a backup job; a guest in an active PVE job (not retired, excluded, a template or a restored
+  copy outside a job); a file share that is not retired and is in an active share job. An empty
+  price bills nothing. `GET /api/v1/settings/pricing/estimate` adds the counts, the prices and an
+  amount per line (existing fields unchanged); the price cards list a line per priced type and the
+  capacity table names the units under each tenant's amount. The audit log redacts the new prices
+  for tenant readers like the existing ones.
+
+- The setup wizard and `install.sh` ask first, after the language, what to set up: a new
+  installation, a restore of an installation from a database dump, or a worker for an existing
+  installation on another host (with the note that real replication, a second server that takes
+  over, is in development).
+
+- Restore an installation from a database dump (docs/DATABASE.md, "Restore an installation from
+  a dump"), in the setup wizard (upload the dump in parts or pick one the updater kept) and with
+  `install.sh --restore <dump> [--env-from <old .env>]`. The dump goes into a database of its own
+  while worker and scheduler stay stopped; `restow restore prepare` migrates it, switches restore
+  mode on in it before anything else (source `setup`), checks that `RESTOW_MASTER_KEY` opens
+  every tenant key and the installation's secrets (a wrong key is refused and nothing changes;
+  install.sh exit code 11) and compares the storage targets of the restored configuration; after
+  the report and a confirmation `restow restore activate` makes it the live database, and only
+  then worker and scheduler start. The setup token is still required; the first admin and the
+  other steps of a new installation are skipped, the dump brings its users. Installation ›
+  Restore mode lists what to check before ending it, and an administrator who is not the owner
+  sees the switch closed with the reason. Without the updater the wizard shows the restore by
+  hand on that server (`install.sh --restore` is for a fresh host); when an activation does not
+  finish, its last step shows the updater's reason and the commands to finish or undo it, and a
+  plain `install.sh` run over an interrupted `install.sh --restore` starts nothing (`--restore`
+  again undoes it and starts over).
+
+- Installation › Cluster and worker nodes on other hosts (docs/SIZING.md, "Several hosts: worker
+  nodes"): the nodes with their processes and releases, what a node needs per storage target,
+  how the database is reachable, and one-time join tokens (shown once, single use, short-lived,
+  revocable, audited) for `install.sh --join` on the new host, which runs only a worker (and a
+  standby scheduler with `--standby-scheduler`) from the new signed release asset
+  `docker-compose.worker.yml`. A node gets database logins of its own (removed with the node),
+  the master key and the storage settings, never the owner's credentials: its installation login
+  switches to a node role without the sign-in tables, the provider team, the join tokens or
+  CREATE on the database, and join tokens are stored as a hash keyed with a secret no node gets.
+  `install.sh --allow-worker <address>` on the main host publishes PostgreSQL with TLS for that
+  host only (by default it is not published); `install.sh --update-worker` updates a node. The
+  worker and the standby scheduler of a node check every 30 seconds and do no work, and take or
+  keep no scheduler leadership, while the database is newer than their image or an update to
+  another release is under way on the main host.
+
+- Restore mode after restoring a database dump (docs/STORAGE.md, "Restore mode and progress
+  markers"): while it is on, Restow deletes nothing (no retention, no clean-up, no purge, no
+  restic forget or prune), holds every job created before the restore instead of resuming it,
+  and keeps running new backups and checks. A banner on every page tells provider
+  administrators; Installation › Restore mode compares every tenant's storage targets with the
+  database, lists refused deletions, held jobs, key versions found in storage and wrapped keys
+  that differ, imports those key versions and lets a provider owner end it with a recent
+  sign-in, a description of what was checked and a choice what happens to data only storage
+  knows (kept for good by default). The command line has `restow restore-mode status`, `on`,
+  `check`, `import-keys` and `off`, to be run before the worker starts after a rollback. The
+  alerts `installation.restore_mode` and `installation.key_mirror_conflict` can be put into
+  notification rules by provider administrators.
+
+- Notification recipients of the provider (docs/NOTIFICATIONS.md): Installation › Notifications
+  lists who receives alerts about every tenant and about the installation itself, each with a
+  column of events, the summary reports it wants and a delivery mode per severity. The owners of
+  the provider team are recipients of their own and cannot be removed; an owner can mark further
+  recipients as mandatory, and only an owner can change a mandatory recipient's address or remove
+  it (the API refuses an administrator's list that leaves one out or redirects it, 403
+  `owner-required`). Owners and mandatory recipients are the floor: they always receive the
+  critical events and failed deliveries, whatever their column says, so such an alert can never
+  end with nobody. The provider's deliveries carry no tenant, and Row Level Security keeps them
+  (and the provider's addresses) from every tenant session (`GET`/`PUT
+  /api/v1/settings/notification-recipients`, `POST …/:id/test`).
+- Critical events: `backup.suspicious`, `endpoint.suspicious_snapshot`, `scrub.corrupt`,
+  `verify.red` and `installation.disk_low` are marked critical in the catalog: always sent at
+  once, always to the floor, always in the bell.
+- Alerts about failed deliveries (`notification.delivery_failed`): a mail the server refused for
+  good, a mail that failed after every retry, the mail transport being down, or a webhook that
+  keeps failing (at once on a final answer, else after three failed attempts over at least 15
+  minutes) raises one alert per episode. It always reaches the bell and the floor and is never
+  sent through the channel that failed; the mail transport being down reaches the tenants'
+  webhooks that listen for it and names no tenant's rule nor carries the server's answer, and a
+  sender the SMTP server refuses (5xx at MAIL FROM, or at RCPT TO or DATA with an answer that
+  names the sender, new reason `smtp_sender_rejected`) counts as the transport being down, not
+  as every recipient failing; an alert about a failed delivery never raises another
+  one. Recipients show a failure badge, webhooks their health (`health` in the webhook API, the
+  matrix and `deliveryProblems` on the rules), and every episode ends with the next delivery that
+  gets through. Asynchronous bounces are not detected (the notification mail has no inbox).
+- Digests: every e-mail recipient chooses per severity whether alerts come at once, in an hourly
+  digest (at the next full hour) or in a daily digest (07:00 in the tenant's time zone, else the
+  installation's as chosen in the setup wizard or under Installation › Server, whichever process
+  raised the alert). Critical
+  events and failed deliveries always come at once; webhooks and the bell never collect. The
+  delivery log shows held rows with the time their digest goes out.
+- Summary reports daily, weekly and monthly (Business): a schedule rule takes a calendar cadence
+  (the previous day, Monday to Sunday or calendar month in its time zone) and can attach the PDF
+  statistics report. Tenant notification recipients can choose the daily and the monthly report
+  next to the weekly one. The provider gets its own daily, weekly or monthly summary across every
+  active tenant, with the PDF (`/api/v1/settings/summary-reports`).
+- Customer monthly report (Service Provider): an HTML mail and a PDF for a tenant's contacts that
+  receive it (contacts gain "Receives the monthly report"), on the day and hour the provider
+  chooses, in plain language and without prices: what is protected, backup success, proven
+  restorability, restores, storage used, the most frequent causes of failed backups and the
+  suspicious findings (`/api/v1/tenants/:id/customer-report`, with a preview and a test send).
+- Branding (Business for the provider, Service Provider for a tenant's own): logo (PNG or JPEG,
+  at most 512 KiB, metadata removed, every SVG refused; a PNG's header must be valid and its
+  image data must inflate to exactly the size the header announces, so a decompression bomb is
+  refused without being inflated, and every row must name a filter type the specification
+  defines, so a damaged logo cannot crash the PDF reports later), accent colour (contrast-checked against white and dark text),
+  sender name, From (SMTP: only the configured sender or an allowed sender address, checked on
+  save and again for every mail, so a From the mail settings no longer allow falls back to the
+  configured sender; Microsoft 365 and Google Workspace keep their mailbox), Reply-To and a
+  footer with the imprint. Mails carry the logo as an inline attachment (nothing is loaded from outside, no
+  tracking); the PDF reports carry logo, accent and name. Discord posts with the brand as sender
+  and avatar, Teams cards get the logo and an accent band, Slack the name (newer Slack apps ignore
+  it). The logo and the band are served from `/api/v1/public/branding/…` on the public https
+  address, by an unguessable token and nothing else (`/api/v1/settings/branding`,
+  `/api/v1/tenants/:id/branding`). Community keeps the product name only; stored branding is
+  ignored while its edition is not in effect.
+- Allowed sender addresses for the SMTP transport (`mail.allowedSenders`, exact addresses or
+  `@domain`, at most 20).
+- The web interface of these: Installation › Notifications (the provider's recipients with
+  Owner and Mandatory badges, a matrix whose floor cells are locked, a delivery mode per
+  severity, the summary report rows with their PDF switch, a test send and a failure badge per
+  recipient) and Installation › Branding (logo upload checked for type and size before it goes
+  out, contrast readout that keeps the save closed below 4.5:1, From checked against the allowed
+  senders and locked for Microsoft 365 and Google Workspace, a preview of alert, digest and
+  summary in a frame without any permission, a test mail). The tenant page gains Branding
+  (provider administrators only: use the provider's branding, or the tenant's own) and, under
+  Notifications, the delivery modes, the daily, weekly and monthly reports and failure badges per
+  recipient plus the customer monthly report card; contacts gain "Receives the monthly report".
+  The notification matrix shows locked bell cells, digest chips and a warning sign on failing
+  channels; webhooks show a failing badge and a health banner; the report dialog offers the
+  calendar cadence and "Attach PDF statistics"; the delivery log says which digest a row waits
+  for and, across tenants, whose audience it is. A locked feature names the edition that adds it.
+- Windows machine facts (W1, docs/BAREMETAL-WINDOWS.md): a Windows agent reports its version
+  with build and update revision (the operating system line of the machine now reads e.g.
+  "Windows Server 2022 Standard 21H2 (build 20348.2340)"), the product and installation type,
+  the domain, the roles that need more than a file backup (domain controller, DFS replication,
+  Exchange, Hyper-V, SQL Server), its SQL Server instances and the drive encryption state of its
+  volumes. The machine page shows them in a card of their own.
+- Fixed app warnings (W1): a Windows machine with SQL Server, Exchange, Active Directory or
+  Hyper-V shows on its page, and each of its backup runs carries as a notice, that the file
+  backup holds the files of open databases but is no restorable backup of these applications.
+  The SQL Server part disappears once the native SQL Server backup covers every database.
+- Native SQL Server backup (W2a, preview): a machine job can switch it on for its Windows
+  members. After the file backup the agent makes a copy-only full backup (COPY_ONLY, CHECKSUM,
+  NO_COMPRESSION) of each database of each instance into a staging folder and stores it in a
+  restic snapshot of its own per instance (one `sql` run each); the customer's own backup chain
+  stays untouched. The agent signs in with its service SID `NT SERVICE\RestowAgent` and
+  integrated authentication; no SQL credential is stored anywhere. The machine page has a SQL
+  Server tab: the instances with the sign-in state and the T-SQL block a DBA runs once
+  (sysadmin or a small set of rights), "Check sign-in", and every database with its recovery
+  model, the newest backup and a rating (not backed up, not checked yet, checked, damage found,
+  check overdue). New tables `endpoint_sql_databases` and `endpoint_sql_backups` (migration
+  0092, Row Level Security); the LSNs of each backup come from `RESTORE HEADERONLY` of the
+  agent's own file. The staging files are deleted after the snapshot and on every other way out
+  of the run (a failed or half-written backup, a stop, a failed snapshot). A job's own staging
+  folder must be new or empty below a folder only administrators can change; the agent takes it
+  over and marks it, and refuses a folder that already holds other files.
+- Restore under a new name (W2a): a backup of a database is restored next to the existing one,
+  which is never replaced; the agent fetches the file from the repository, checks its SHA-256,
+  moves every file into the default folders of the target instance and optionally runs DBCC
+  CHECKDB on the copy. The name is checked again in the batch of the RESTORE; after a restore
+  that failed or did not end, the agent drops the new name only while it is still restoring,
+  and the run names anything left behind with its files. Requested and finished restores are
+  audited.
+- Restore script for another machine (W2a): for each backup the SQL Server tab offers a
+  PowerShell script that fetches exactly that file with restic, checks its SHA-256 and restores
+  it under a new name with fixed T-SQL and parameters only, without this server. It works in a new
+  folder of its own (below `-StagingDir` or TEMP) that only SYSTEM, the administrators, the user
+  and the SQL Server service of the target instance can open, and deletes only that folder; since
+  restic restores the permissions stored with the backup (which grant only the SQL Server service
+  of the source instance), the script sets that access again on everything it fetched before the
+  file is read, and refuses links. The download is audited and carries no secret.
+- CHECKDB verification (W2a): once a week at the job's check slot (default Sunday 03:00 in the
+  zone of its schedule) the server plans a `sql_verify` task per instance; the agent restores the
+  newest full of each database from the repository under a check name, runs DBCC CHECKDB on it
+  and drops it. The server judges: green only after a clean CHECKDB of the backup fetched from
+  the repository, red only with evidence (CHECKDB consistency errors, a damaged backup, another
+  SHA-256), incomplete otherwise (no space, a time limit, a CHECKDB that stopped because tempdb or
+  its log ran full, memory ran out or the connection broke). A copy of `master` under a check
+  name reports the server-level entries of its catalog as CHECKDB errors (8992); when those and
+  the lines that count them (8990, 8991) are its only errors, the check of `master` is incomplete
+  (`sql_verify_system_db`), not red. A failed check names the numbers of all CHECKDB errors.
+  Restore and check leave a reserve
+  free on the volumes they write to, at least 1 GiB and a tenth of the volumes of the data and
+  log files, so the live databases there can keep growing. New alerts `endpoint.sql_red`,
+  `endpoint.sql_recovered` and `endpoint.sql_overdue` (more than 8 days without a clean check).
+  The job editor keeps the check slot at least an hour off a daily backup.
+- CI for the SQL path (`.github/workflows/sql-server.yml`): the T-SQL of the agent against the
+  SQL Server Linux container (Developer edition, which has the backup compression the
+  NO_COMPRESSION check needs), the multi-volume shadow copy finding on a Windows runner with plain
+  files and again with the data and log files of a SQL Server database under load, and the whole
+  path (sign-in, backup under load, verification green and red, restore under a new name, the
+  rendered restore script on a second instance with its default staging folder) with SQL Server
+  Express 2019 and 2022 on Windows runners. Release builds call it strictly.
+
+- Installation › Capacity planning (`/resources`, formerly announced as "Soon"): utilisation and
+  growth per tenant and per repository, with a plain forecast such as "full in about 120 days".
+  Provider admins only; a member of the provider team limited to some tenants sees those. Key
+  figures on top: what is stored in total, the growth per day, the free space of the server's
+  system disk with the day it runs out at its trend, the repository that runs full first, and
+  the tenants near their quota. The table below has one row per tenant with what it stores (the
+  chunk store plus the restic repositories of machines, file shares and containers, as on the
+  start page), its growth per day over 7, 30 and 90 days, the free space of its repository, the
+  day it runs full and its quota. It sorts by the day it runs full (soonest first when the page
+  opens), by growth, by what is stored and by name, and the filter "Near quota or full" keeps
+  the tenants whose machine or file share quota is near or used up or whose repository runs full
+  within 90 days. A row opens in place and shows how the figures come about (what the growth is
+  read from, the estimate, the limit) and the tenant's repositories: the chunk store's targets
+  (primary and copies, with their kind, status and bytes) and each machine, file share and VM or
+  container with its bytes, its budget, its quota level and its growth.
+- The forecast is never shown as a fact, and never in green. It is the estimate of the start
+  page's storage growth chart (a straight line through the history, from 90 days of history on a
+  band between the slowest and the fastest week) and says "about" and "estimate". A day appears
+  only where a limit is known: a local repository that the tenant has to itself. Where there is
+  none the cell says why: "S3: no limit known", "Shared default repository", "Not enough
+  history", "Limit unknown", or that machines, file shares or containers write there as well and
+  a week of daily measurements is still missing. The free space of a repository is the
+  provider's disk and appears on this page only.
+- Daily size samples: once a day and tenant the worker writes down the bytes of the chunk store
+  (the sum of its packs) and of every restic repository (`repository_bytes` of each machine,
+  file share and container) to the new table `storage_samples` (migration 0073, Row Level
+  Security like the other tenant tables, kept 400 days; the endpoint monitor does it with its
+  five-minute pass, a tenant at most once per UTC day). A restic repository keeps no history of
+  its size, so its growth is known from the day this version is installed; the growth of the
+  chunk store no longer shrinks afterwards when packs are pruned. Until a tenant has a week of
+  samples, its growth is read from the dates of its packs (the chunk store's net growth, as the
+  start page does), and the day it runs full is then not given while machines, file shares or
+  containers write to the same repository. Nothing existing is rewritten by the migration.
+- The api answers `GET /api/v1/capacity` (the tenants with the installation's figures) and
+  `GET /api/v1/capacity/:tenantId` (one tenant's repositories) for provider admins. The list of
+  every tenant needs `dashboard.allTenants`, like the provider view of the start page; without
+  it the answer is the installation's one tenant (the oldest the viewer may enter) and the page
+  says that the comparison comes with Service Provider. A tenant's figures are read in its own
+  transaction, a few tenants at a time, and kept for 30 seconds for every viewer.
+- A new release is easy to see now. For provider administrators a small blue dot (the accent
+  colour, never green) appears beside "Version x.y.z" in the sidebar footer, on the menu entry
+  "Server & operation" and on "Updates" in the list of sections of the installation page. Its
+  tooltip and its text for assistive technology read "Update to x.y.z available"; it breathes
+  gently unless the system asks for reduced motion. The provider team's owner, who may install
+  the update, also sees a slim blue bar above the top bar: "Restow x.y.z is available", with
+  links to the release notes and to Updates. It can be closed; this browser remembers that for
+  that version only, so a newer release shows it again. Tenant users see neither the dots nor
+  the bar. An announced, running or planned update, a pause for one and a failed one keep the
+  place of the bar.
+- Windows agent (preview), groundwork: `agent/build.sh` builds a fifth target, `windows-amd64`,
+  with `restow-agent.exe` and the pinned `restic.exe` 0.19.1 (from restic's `.zip`, SHA-256 in
+  `agent/tools.env`, checked before unpacking), and the image serves it under
+  `/srv/agent/<version>/windows-amd64/`. There is no Windows on ARM. The plan is
+  docs/WINDOWS-AGENT.md.
+- Windows agent (preview), the parts that depend on the system: the Windows service
+  `RestowAgent` under LocalSystem, set up through the service control manager (delayed start,
+  restart after a failure and after a self-update, a reduced list of privileges, its own
+  service SID), with `restow-agent run --service`; the state in `C:\ProgramData\Restow` behind
+  a folder only SYSTEM and Administrators may open, the agent secret and the repository
+  password additionally encrypted with DPAPI; the trust check reads owners and permissions
+  (no folder anyone else can change, no link, junction or mount point); the run lock, the
+  power state, the privilege check (SYSTEM or an elevated administrator), the event log
+  (source `Restow`); restic and every hook run in a Job Object, restic is asked to stop with
+  CTRL_BREAK, hooks run in Windows PowerShell with an exit code you can rely on; the
+  self-update replaces the running `restow-agent.exe` by renaming it to `.prev`; restores go
+  to `C:\Restow-Restore-<time>` unless a target is given, never into Windows, Program Files or
+  the agent's own folders.
+- `GET /install/windows.ps1`: the installer for Windows PowerShell 5.1. It checks the release
+  signature itself, with its own Ed25519 check written in PowerShell (no other tool needed),
+  before anything is run, shows the fingerprint of the release key and takes a pin
+  (`RESTOW_RELEASE_KEY_FINGERPRINT`); it stages the download in a folder only SYSTEM and
+  Administrators may open, refuses `C:\ProgramData\Restow` or `C:\Program Files\Restow` when
+  someone else prepared them, starts itself again as 64-bit from a 32-bit host and refuses
+  Windows on ARM and Smart App Control. `-Uninstall` removes everything. `restow-agent.exe` and
+  the script carry no Authenticode signature in this preview.
+- Windows agent (preview) with shadow copies: Windows machines on x64 can be enrolled (the
+  dialog offers Windows labelled "Preview" and shows the PowerShell command, the fingerprint of
+  the release key and the SHA-256 of `windows.ps1` for the way without `iex`; the machine list
+  and the machine page mark a Windows machine "Preview" as well). Backups run from a volume
+  shadow copy (VSS) through restic's `--use-fs-snapshot`, with removable, FAT and exFAT volumes
+  read live. The shadow copy is a switch in the machine's settings, on by default.
+  Windows on ARM is refused by the installer and the server.
+- Agent policy "When the file system snapshot fails" (`snapshotOnFailure`), on the levels of the
+  installation, the tenant and the job and lockable like the others: back up without the
+  snapshot and end partial with a clear run error (the default), or stop the backup. The same
+  setting will serve LVM, btrfs and APFS snapshots. Every backup report carries a new field
+  `consistency` (method, state, the volumes read live), and the run shows it as "Shadow copy
+  (file consistent)", "Partly without a shadow copy" or "Without a shadow copy". New run errors
+  `snapshot_failed`, `snapshot_unavailable` and `snapshot_cleanup_failed`, with explanations
+  and steps in German and English. restic ends with exit code 0 when a shadow copy fails; the
+  agent reads restic's own error entries, and when VSS cannot be used at all it backs up a
+  second time without it.
+- Restores onto Windows machines: the dialog takes `D:\Restore` and checks the Windows rules
+  before the request is sent (local drive, no network path, not in Windows, Program Files or
+  the agent's data), the API checks them again, and snapshot paths read `C:\Users\...`.
+  Mixed backup jobs: each agent takes only the folders written for its system and logs the
+  others once.
+- Windows defaults: the browser, thumbnail and Windows caches and the data of Defender, Search
+  and error reporting are excluded; the agent itself always leaves out the paging and
+  hibernation files, System Volume Information, the recycle bin and its own folder, compares
+  patterns without case and does not download online-only OneDrive files.
+- CI: a job on a Windows runner runs gofmt, `go vet` and the agent's unit tests natively, and
+  the agent job vets every package for Windows and checks that `restic.exe` still prints the
+  snapshot error texts the agent will recognise. The release runs `restow-agent.exe` and
+  `restic.exe` on a Windows runner before the checksum list goes on the draft for signing; the
+  request to sign names the SHA-256 of both and reminds of the Defender submission, and the
+  release notes list them. The Windows job also creates and deletes a test service, checks
+  DPAPI, the trust check on real folders, Job Objects and the exit codes of PowerShell hooks,
+  and runs the installer tests: its Ed25519 check against Go's on the RFC 8032 vectors and
+  some hundred mutated signatures, the signature fixtures, and a full installation against a
+  test instance.
+- Proxmox VE, "New data per backup" (#58): a guest's page shows above its restore points a bar
+  chart of what each of its newest 30 backups added to the repository, oldest left, coloured by
+  type (first backup, incremental, full read) from the categorical chart palette, never green.
+  A first backup far above the follow-ups (more than four times the largest) is cut at the top
+  of the scale so the follow-ups stay readable, and the chart names it with its real size.
+  Screen readers get a sentence with the range and the newest figure, and "Show as table" lists
+  every bar with its time, type and size. A machine's Snapshots tab shows the same chart over
+  its newest 30 snapshots that carry what they added, from the snapshot list the tab loads
+  anyway (restic runs once). A machine's snapshots carry no type, so there a backup is cut when
+  it stands more than four times above the next smaller one (its first backup, typically) and at
+  least two backups remain below it; it is named with its real size like a guest's. The chart is
+  a kit part (`NewDataChart`) on the shared chart card.
+
+- Updater: after an update succeeded (the new version answers and the run is recorded as
+  succeeded), it removes the images of earlier releases and keeps those of the version that runs
+  now and of the version before it, for a rollback by hand. Only Restow's own images go: every
+  name of the image must be in a repository of the installation (application and web image, the
+  other build's twins, the local names of `source` mode, the images Compose resolves for api,
+  worker, scheduler, updater and mounter; the edge image is only kept, as an override may run a
+  stock Caddy there), its release must be older than the previous one (by its version label or
+  `RESTOW_VERSION`; by a version tag only in the Restow repositories), no container may use it
+  (running or stopped, of any project) and the project must not be configured with it. It is
+  removed by its image ID, never forced; an image with several names first loses the others,
+  each only while it still names that image. The command runners refuse `docker image rm` with
+  anything but image IDs or one name with a tag or digest, `--force`, `rmi`, `image`, `builder`
+  and `system prune` and `--rmi`. Nothing is
+  removed after a failed, rolled back or interrupted run, and a removal that fails is logged and
+  leaves the update succeeded. The run's log says how many images went and their size, the finish
+  step carries the numbers. docs/UPDATING.md, "Old images".
+- Public demo: in follow mode `reset.sh` checks the free space on Docker's data root before it
+  pulls a release (`RESTOW_DEMO_MIN_FREE_MB`, default 4096, `0` turns it off) and stops with a
+  log line while the demo keeps running when it is short or cannot be measured. After a
+  successful reset it removes the images of the releases it followed before, except the one
+  before the current release (in SemVer order, `rc.10` after `rc.9`), and after every
+  successful reset the demo's own earlier images that have no name any more (by ID, never
+  `docker image prune`, which would also take a co-hosted production stack's) and the build
+  cache older than a day, host-wide (`RESTOW_DEMO_PRUNE_BUILD_CACHE=false` leaves it alone;
+  deploy/demo/README.md, "Disk space").
+
+- Restore explorer: a person's entry has a new area "Teams & sites" (#89) under Mail, Calendar,
+  Contacts and OneDrive. It lists the SharePoint sites and Microsoft 365 group mailboxes (Teams
+  included) the person owns or belongs to, owned ones first, each with the role (Owner or Member,
+  neutral, never green), its kind, its newest restore point, and "No backup yet" or "Removed"
+  where that applies. A click opens the site or group mailbox on its own restore points; it stays
+  listed under "SharePoint & Teams" as well, and a restore started from here follows exactly the
+  rules of that section. The area is shown to restore operators and administrators only, like
+  sites and group mailboxes everywhere else. Listed are objects that are protected or have a
+  restore point; a group nobody chose to back up that never was has nothing to restore. The list
+  comes from the api a page at a time (25 per page, "Show N more"), so a person in hundreds of
+  Teams does not load them all at once.
+- The directory sync stores who belongs to which Microsoft 365 group in the new table
+  `directory_memberships` (migration 0074, Row Level Security like the other tenant tables): the
+  owners (`/groups/{id}/owners`) and direct members (`/groups/{id}/members`) of every group,
+  users only, ids only, 999 per page and the rest on the next links, together with the group's
+  site (`/groups/{id}/sites/root`), three reads per group sent through `$batch` (throttled
+  answers waited out with Retry-After like every other Graph call). A group-connected site gets
+  the same rows as its group; someone listed as owner and member is an owner. A group that is
+  read again has its rows replaced: a person who left loses the row, a changed role is updated.
+  Every group is read on a full sync (at least every 24 hours) and on the first run with this
+  version; in between the groups the groups delta reports (a changed membership alone does not
+  show up in it) and the groups an earlier run could not finish: refused, throttled past the
+  retries, or whose site the sites listing did not have yet (a Team created a moment ago). Those
+  are read again on every following run until they succeed, not only by the next full sync; with
+  more than 1000 of them the next run reads every group. What a run reads is written at the end
+  of each chunk of 50 groups and as soon as it holds 20,000 rows, as the difference to the stored
+  rows in statements of at most 5000 rows, so an "All employees" group with tens of thousands of
+  members neither fills the memory nor becomes one huge statement. Rows of a group or site deleted at the source stay as last known,
+  next to its restore points, and go with the object or the person. Communication sites without
+  a group have none: Graph v1.0 does not expose their SharePoint groups.
+- No new permission: `Group.Read.All`, which the app has always required, covers owners and
+  members, and `Sites.Read.All` (or `Sites.ReadWrite.All`) the group's site. When Graph refuses
+  the membership (403 without the consent) or keeps throttling a group past the retries, the sync
+  does not fail: the stored rows stay, and the source shows one warning naming how many groups
+  could not be read ("Owners and members of the Microsoft 365 groups are not read: the tenant has
+  not granted Group.Read.All …"). When a whole chunk is refused with 401/403 the run stops asking
+  for the rest, so a missing consent costs one chunk per run. A site Graph does not name keeps its
+  rows. Until every group has been read, and while groups wait to be read again, a person's
+  "Teams & sites" says that the list may be incomplete ("… that is no proof" when it is empty)
+  instead of presenting it as a complete result; the api answers `complete: false` for it.
+- The api answers `GET /api/v1/snapshots/people/memberships?key=user:<id>&after=&limit=`: one
+  page of a person's group mailboxes and sites with the role and each object as the explorer's
+  other lists return it (restore points, readiness, status), owned first, then by name, with a
+  keyset cursor. One query reads the page over the index on `(user_id, protected_object_id)`,
+  however many groups the tenant has, and one more loads its objects; for a viewer who does not
+  see sites the answer is an empty list. Each membership is one button whose accessible name is
+  its content (name, kind, role, "No backup yet" or "Removed"), and the area is labelled by its
+  heading.
+- Restore explorer: "From the archive" (#48). Below the folders of a mailbox or IMAP account,
+  administrators find the mail that reached the archive after the account's newest backup, the
+  gap between two backups that the archive already holds. It counts the archived items of the
+  account (its own captures and the journal reports and copies assigned to it) captured from the
+  start of the newest completed backup on, newest first, 50 a page; superseded captures, imported
+  mail files and the one-time takeover are left out (they did not arrive after the backup). The
+  capture time sets the boundary, so a mail that was in the mailbox just before the backup began
+  but reached the archive just after is listed rather than missed; it is marked "Already in the
+  backup" (not green) when the newest backup holds a mail with the same Message-ID (as the header
+  spells it, with or without angle brackets), and putting it back makes a second copy. The list
+  reads the account's own captures and assignments, and looks the page's Message-IDs up in the
+  backup, through indexes (migration 0075), never the whole archive of the tenant or every mail
+  of the backup. A message opens in the archive's reading pane and downloads as its original
+  `.eml`; selected
+  messages go back into the account as a restore job through the same worker and engines as a
+  restore from a restore point, always into a new folder "From the archive <date>" (below it
+  `INBOX` on IMAP), never over anything there. Each message is read from the chunk store and
+  checked against the size and SHA-256 recorded at capture before it reaches the mailbox. The
+  archive stays as it is: a copy goes back, the item, its retention and any legal hold do not
+  change. The restore shows under "Recent restores" as "From the archive". An archived message
+  that is gone between the request and the run is reported as failed, never left out quietly.
+- The source follows the archive's rules. The archive is for tenant administrators (provider
+  admins from the provider team role "Technician" on), so is the source: restore operators and
+  end users use the explorer as before, do not see the entry, and nothing is asked of the
+  archive on their behalf. Every listing is audited as `archive.searched` with
+  `details.view = "restore_gap"` and, for someone else's mailbox, on their behalf; reading and
+  downloading keep their audit entries; putting messages back is a `restore.requested` with
+  `details.source = "archive"` and the items, and needs a reason for another person's mail like
+  every restore of their data; the worker then writes one `archive.item.restore_read` per message
+  it reads for the restore (the restore job and who asked for it), before reading its content. Only the original account is a target (an orphaned one is
+  refused, 409); the demo does not put mail back into a mailbox.
+- The api answers `GET /api/v1/archive/gap?object=<id>` (the gap, tenant admins) and
+  `POST /api/v1/restore/archive` (`objectId`, `itemIds` up to 500, `reason`,
+  `options.restoreFolderName`; tenant admins). It takes only what the list shows: a superseded
+  capture, an imported file, the one-time takeover or mail from before the newest backup is
+  refused (422 `urn:restow:problem:archive-not-in-gap`). Each gap item carries `inBackup`. A
+  restore's `source` is `snapshot` or `archive` in `GET /api/v1/restore` and
+  `GET /api/v1/restore/:id`; a restore from the archive has no `snapshotId`. The engines take
+  archived messages as their source through `RestoreRequest.source` (core
+  `restore/archive-source.ts`); the stored request keeps them in
+  `restore_jobs.source_selection.archiveItemIds` (no new column).
+- `GET /api/v1/navigation` tells the web which menu entries the active tenant offers beyond roles
+  and the installation's features; today `offers.archive` (always false for someone who is not an
+  administrator of the tenant).
+- Whole machine backups (preview, Linux): a backup job switch backs up every local file system,
+  every btrfs subvolume and every local fstab entry, with its disk layout. The agent records the
+  layout (partition tables, RAID, LUKS metadata without secrets, LVM, file systems and their
+  features, mounts and fstab, firmware and Secure Boot state, boot loader, initramfs generator and
+  its keyboard layout, driver chain of the boot disks) as a layout manifest inside the snapshot and
+  reports it; backups run with `--one-file-system` and `--group-by host`. The server checks the
+  manifest (`restow-layout-v1`, the same schema and canonical encoding in Go and TypeScript, held
+  to the agent's own test data), keeps it once per machine and content in the new table
+  `endpoint_layouts` (migration 0100, Row Level Security like the other tenant tables) and links
+  the run to it (`endpoint_runs.layout_id`); a refused manifest leaves the run as reported with the
+  hint `layout_rejected`. The machine's page shows a card "Bare-metal restore (preview)" with the
+  captured layout (disks with their partitions, the storage stack, firmware, boot loader,
+  distribution, encryption), its assessment with what is not supported, and how much to leave free
+  in a volume group without room for snapshots; a run says "Layout captured". The job lists why a
+  member backs up its folders instead (container, Windows, macOS later, agent before 0.5.0) or what
+  it should know (BIOS boot needs CSM, arm64 restore later). The switch is on by default;
+  `RESTOW_BAREMETAL_PREVIEW=false` hides and refuses it again (409 `baremetal-preview-off`) as an
+  emergency brake.
+- File system snapshots on Linux: LVM (thick and thin) and btrfs snapshots under the policy 'When
+  the file system snapshot fails'; snapshot paths stay the real paths. Thin pools above 80 % get
+  no snapshot, and a backup stops its snapshot before a pool runs full. A volume group without free
+  space is read live without a warning on every run. The machine's settings offer "File system
+  snapshot (LVM, btrfs)" (on, off or the default: on for a whole machine backup, off otherwise);
+  `GET /agent/v1/config` sends it as `fsSnapshot`, and a run's consistency names LVM, btrfs or
+  both. A backup of folders reads the file systems and btrfs subvolumes mounted below them from
+  their own snapshots, or live when they have none, and lists those in its consistency. The agent
+  never kills `lvcreate`, `lvchange` or `lvremove`: a cancelled run, a stop of the service or an
+  update lets them finish, at their time limit they get SIGTERM, and a snapshot that a failed
+  `lvcreate` left behind is removed at once.
+- The worker's endpoint monitor removes layouts no run points at any more, keeping each machine's
+  newest.
+- Layout check after every whole machine backup (preview, Linux): the server validates the
+  layout, plans the restore with the agent's own planner (sandboxed, without the server's
+  environment), computes restore sizes, and checks that the snapshot holds the layout, every
+  mounted file system and fstab entry and the boot chain (kernels, initramfs, boot loader, fstab,
+  crypttab and LVM device entries). The finish of a run with a layout queues the new worker job
+  `endpoint-baremetal-check` at once, the scheduler catches up a snapshot without one; it reads
+  the snapshot under the shared repository lock (`restic ls` once, `restic dump` for at most 80
+  small files) and writes a report of the new kind `baremetal_check` (migration 0101) with the
+  checks L1 to L8, each with its findings and evidence, the restore sizes per mount point, the
+  minimum disk and file system sizes, the planner's answers for the same hardware, the smallest
+  possible disks and another disk controller, and the boot chain fingerprint. Red only with proof;
+  a repository read that proves nothing is retried, a planner that cannot answer makes the check
+  incomplete; a snapshot retention has forgotten gets a report without a rating and is not
+  queued again. Hard links are recognised with bounded memory (past one million files a size is
+  an upper bound, never too small). The machine's card shows the check report and the minimum
+  sizes; its state is "Layout checked" (or "Restore check failed"), never green, until a later
+  version adds the boot probe that proves a restored machine starts.
+- `restow-agent baremetal plan --manifest <file|-> [--facts <file|->] --target
+  <same|minimal|other-controller|file> [--choices file] [--snapshot id] --json`: the restore
+  planner of the agent (`restow-plan-v1`): disk mapping with intact parts kept, sizes in bytes and
+  sectors, partitions, RAID, LUKS, LVM (LVM RAID LVs sized by all their images and created with
+  their type and image count on the physical volumes the plan chose; a RAID LV whose geometry is
+  unknown blocks the plan), file systems with their features, the driver check against
+  the backed-up kernel's module lists and the Secure Boot check against the target's keys, as an
+  ordered list of steps; nothing is executed. It starts no program, reads only its arguments and
+  on Linux limits itself (512 MiB data, 30 s CPU). The worker runs it from `/usr/local/lib/restow/restow-agent`
+  (`RESTOW_PLANNER_BIN`) with only `PATH` and `LC_ALL`, in an empty folder, under `prlimit`, for
+  at most 45 seconds and 4 MiB of output.
+- Recovery codes (preview, Linux): a one-time code for one machine, bound to this instance's
+  address, valid 4 hours (up to 48), audited, approved by an admin after it is redeemed,
+  read-only access to that machine's backups for a bare-metal restore. An admin issues it after a
+  recent sign-in (`POST /api/v1/endpoints/:id/recovery-codes`): 25 symbols without look-alikes,
+  shown once with the address to type and the instance check value (the first 80 bits of the
+  SHA-256 of the instance's TLS public key, `RESTOW_PUBLIC_TLS_SPKI` behind a load balancer). The
+  recovery ISO sends only a proof bound to the address it actually reaches, and the server keeps
+  only the hash of that proof; a session secret made in the ISO is known to the server as its
+  hash, and both sides show a six-digit match number before the admin releases the session.
+  The ISO's API (`/agent/v1/recovery/*`) exchanges the code, waits for the release, hands out the
+  repository credentials once (and once more within five minutes), takes progress, a redacted
+  log of at most 2 MiB, events, the end of its repository access and the result; it reads
+  through its own restic route `/agent/recovery/restic/:sessionId` as the read-only principal
+  (120,000 requests per 10 minutes), which ends within five seconds of a cancel or the release.
+  Codes and sessions run out on their own: unredeemed, not released within 30 minutes, or silent
+  30 minutes past their expiry. At most three codes per machine are open; every transition is
+  audited once. Failed exchanges count per address in their own limit (20 in 10 minutes), apart
+  from the agents'. Migrations 0101 and 0102. The code dialog and the bare metal wizard stay hidden
+  until a release ships a verified recovery ISO (`GET /api/v1/recovery-iso`); until then issuing a
+  code is refused with `baremetal-not-available` (`iso_unverified`).
+- Rebind a restored machine: a separate, short-lived token that gives an existing machine a new
+  agent secret and keeps its backups and history; revoked machines stay revoked unless chosen.
+  The machine's page has "Reconnect machine…" in its danger zone (an own dialog with the warning
+  that the token gives lasting access and the previous installation loses its connection; valid 1
+  hour, up to 24). The token works with the existing install command (`POST /agent/v1/enroll`
+  answers `rebound: true`) and from the recovery ISO after a successful restore; the operating
+  system must match, pending uninstall orders end, and the first good backup afterwards is the
+  new baseline of the ransomware signals. Pending tokens list rebind tokens as "Reconnect".
+- Recovery ISO (preview): a signed, reproducible Debian 13 live image
+  (`restow-recovery_<v>_amd64.iso`, GPL-3.0-or-later build recipe in `integrations/recovery`)
+  that boots with UEFI Secure Boot and legacy BIOS and restores a Linux machine from Restow onto
+  new disks: GPT and MBR, mdadm, LVM including thin, LUKS, ext4, XFS, btrfs, separate /boot and
+  EFI system partition, smaller and larger disks, 4Kn; intact data disks can be kept; the boot
+  chain, drivers and Secure Boot state are checked before anything is erased; initramfs and boot
+  loader are set up again with the restored system's own tools in an isolated environment (own
+  namespaces, a `/dev` with only the target devices, the restored tree and all its mounts
+  `nodev` and `nosuid` so that device nodes from the backup cannot be opened, a reduced capability
+  set and a seccomp filter that also refuses the device-mapper commands that change mappings, the
+  md commands that change arrays, NVMe passthrough, freezing, thawing and shutting down a file
+  system (`FIFREEZE`, `FITHAW`, `FS_IOC_SHUTDOWN`), sockets other than Unix, IPv4, IPv6 and
+  netlink (AF_VSOCK is not network-namespaced and reaches the hypervisor of a VM), io_uring,
+  `open_tree_attr` and system calls newer than its table; `CAP_SYS_ADMIN` only for the boot loader
+  and LVM tools on device-mapper volumes, and only while no device-mapper device outside the target
+  disks that could hold a key is open: the kernel reads the table of any mapping to such a program,
+  and the table of a LUKS1 or plain dm-crypt volume carries its key. The ISO names such a volume
+  (for example an old disk opened in the shell) before anything is erased and offers a shell to
+  close it; one opened while such a program runs stops the recovery with
+  `foreign_mapping_open`). The ISO mounts the target file systems `nodev` and `nosuid` for the
+  recovery and never opens a file of the restored system that is not a regular file. After every
+  program of the restored system it thaws the target file systems: one the program left frozen
+  fails the step before the ISO writes again (a write to a frozen file system waits for good and
+  cannot be killed), and a program that does not end after `SIGKILL` fails its step after a grace
+  period instead of leaving the recovery hung.
+  Such programs also lose `CAP_SYSLOG` and the other capabilities that act on the whole machine
+  (`CAP_SYS_RESOURCE`, `CAP_SYS_NICE`, `CAP_IPC_LOCK`, `CAP_SYS_TTY_CONFIG`, the audit and MAC
+  capabilities and a few more), and the filter refuses `syslog(2)`: with it a program could
+  raise the console log level and have the kernel print text it chose, escape sequences included,
+  on the operator's console (a serial BMC console passes them on unchanged). Unattended answers
+  from a medium (`restow.answers=media`) are read only when exactly one device carries the label
+  `RESTOWANS` and it is a removable or USB medium other than the ISO's; a file system of the
+  restored system with that label is no longer taken for the operator's medium, the medium's
+  disk is never a target, and the console names the medium and the instance before anything is
+  typed. The planner refuses a layout that labels a file system, swap area, LUKS volume or md
+  array `RESTOWANS`. Switching remote access from the one-time password to the administrator's
+  keys now also ends the SSH sessions already open with the password (and what they started),
+  not only the listening `sshd`, and is not reported until none is left.
+  Resuming a started recovery now reads the marker on the target's root file system before the
+  ISO writes anything there: before, the ISO wrote its own marker right after mounting the root
+  and then checked that one, so the check always passed and any disk carrying the backed-up
+  machine's disk GUID (its own disks, for example) was restored over in place without the erase
+  confirmation, keeping files that are not in the snapshot and reporting success. Without a
+  marker of a started recovery of the chosen snapshot the run now stops at the mount of the root
+  before restoring anything and explains that after a new start that declines the offer the ISO
+  asks what to do with each disk, and that a disk chosen as a target is erased after the
+  confirmation; the offer names the chosen snapshot and says the marker decides.
+  The disks that are erased are the disks that were confirmed: the ISO reads the hardware a
+  second time after the last dialog (and after the shell it may offer) and stops when any device
+  differs from what was shown (another identity or size behind a name, a disk that came or went,
+  new content on a disk); it then keeps every mapped disk open, so that its name is not given
+  to another disk meanwhile, and before every step checks again that each name still leads to
+  the confirmed disk. Before, the disks were read once and addressed by their kernel name from
+  then on, so a disk that was pulled, plugged or enumerated again between the confirmation and
+  the erase could have been erased in place of the confirmed one. The scan of the disks no longer
+  writes to any of them (it wrote the first and last MiB back to every disk without a known
+  signature, before any confirmation and also to disks the plan never uses); the write probe now
+  runs after the confirmation, on the disks to erase only. A disk identity confirms a disk only
+  when it names that disk alone: when two disks report the same serial number (USB bridges,
+  clones), each is known by its bus path instead, answers that name the shared identity in
+  `diskMapping` or `confirmErase` are refused with the identities that name each disk, a disk
+  without any identity cannot be confirmed for erasing, and the automatic mapping no longer
+  picks one of two disks by an identity both report. The 30 second countdown of an unattended
+  run from a medium now ends with any single key (it needed a whole line before) and with
+  Ctrl+C; Ctrl+C before the first step now really ends the run, and "Nothing was erased" is
+  printed only when that is true (before, Ctrl+C during the countdown printed it and the erase
+  went on). A `snapshotId` in the answers must match exactly one snapshot the code may restore;
+  otherwise the run fails before anything is planned (before, the snapshot of the code was
+  restored in its place without a word). A recovery that was interrupted after partitioning and
+  before the first file can be started again: the ISO asks what becomes of the half-written disk
+  and erases it after the usual confirmation (before, the plan tried to keep the disk, could not
+  run, and no dialog led to the erase). A resumed recovery continues on the disks that carry the
+  identities of the backup, whichever disk was chosen in the first run and however many free
+  disks are attached (before, it mapped the disks anew and failed, or could pick another disk),
+  and it keeps data disks that the first run kept out of the restore: the marker records what
+  was done with each disk. Resuming with a kept LUKS volume is not possible yet; the run then
+  stops when opening it and writes nothing.
+  The plan: before the partition table of a disk is removed, the signatures on every partition
+  the disk has now are wiped, and `sfdisk` wipes the areas of the new partitions
+  (`--wipe-partitions always`); before, a file system, LUKS header or md superblock that began
+  beyond the first 16 MiB of the old disk survived and could show again in a new partition at
+  the same place. A bind mount of a folder (`mount --bind /srv/data /var/www/data`) is no longer
+  planned as a second mount of the whole file system at the bind target (the manifest records
+  the mounted root of each mount in `mounts[].root`; for older manifests the `bind` option in
+  fstab decides). A swap file now counts for the minimum size of its file system, so a smaller
+  or minimal target no longer fails at the swap file after the whole restore. The disk signature
+  of an MBR disk is compared without its `0x`, so an old MBR disk that is still attached is
+  found as an identity conflict before anything is erased. A manifest whose partition table
+  cannot exist (overlapping partitions, one behind the end of the disk, a logical partition
+  without an extended one and the like) is refused by the plan with the reason instead of
+  failing at `sfdisk` after the erase.
+  The result is honest: the server no longer takes the recovery ISO's word for a successful
+  bare metal recovery. A finish that reports `succeeded` is stored as such only when the
+  `restow-verify-v1` report it carries bears that out: it parses, none of its checks failed, all
+  ten checks are there, and it names a whole machine backup of the machine. Otherwise the
+  recovery is stored as failed with the reason (`success_report_missing`,
+  `success_checks_failed`, `success_checks_missing` or `success_snapshot_unknown`, shown on the
+  recovery page and kept in the audit entry), the alert "recovery failed" is raised, the answer
+  to the ISO says `status: failed` with `reported` and `reason`, and rebinding from the ISO stays
+  locked. The ISO follows that answer: its console and its result line say failed with the
+  reason in the operator's language, and it does not offer to connect the machine again. A
+  recovery session that has ended (succeeded, failed or cancelled) takes nothing more from the
+  ISO: progress, log, event, release and finish answer 409 `recovery-state-conflict`. Before, the
+  session secret could rewrite the progress of a finished session and write audit entries until
+  the code expired. The first refused call of a session is audited once
+  (`endpoint.recovery.report_refused`), later ones are not; the ISO sends nothing after the end
+  and shows no error about it. The credentials of a recovery session now carry the layout of the
+  code's snapshot also when the machine has made more than 50 newer backups since the code was
+  issued; before, `layoutSha256` was empty and the restore stopped with a manifest mismatch.
+  When the backup a code was issued for no longer exists with a layout, the credentials request
+  answers 409 `baremetal-not-available` (`snapshot_unknown`) instead of handing out the
+  repository password, and counts no fetch; the ISO says so in its own words and asks for a new
+  code. The checks after the restore prove more: restore errors beyond the hundred that restic
+  lists by path stop the run like missing system files, because a file without a known path may
+  be one (before, a full disk in `/home` could hide errors in `/usr` behind a warning); an
+  initramfs of the default kernel that was not rebuilt fails the check (it was a warning), a
+  unified kernel image is checked instead of passed over, and the image must hold `cryptsetup`,
+  `mdadm` and `lvm` when the storage under `/` needs them; a UEFI machine without any boot
+  entry and without the fallback path fails, as does a boot entry whose loader is not on the EFI
+  system partition (a loader the backup has no check value for is a warning); a crypttab entry
+  with a random key counts as plain dm-crypt whatever its options say and must name exactly the
+  planned partition. What a check could not look at is a warning, never a silent pass. Two
+  reported problems have codes of their own instead of "a step failed": `disks_changed` (the
+  disks are not the confirmed ones any more) and `snapshot_id_unmatched` (the `snapshotId` of
+  the answers matches no single snapshot).
+  The console says what it is about to do: the snapshot that will overwrite the disks is shown
+  with its time and the state of its check before the plan and again before the erase, with a
+  warning when the check did not pass (before, a single snapshot was taken without a word).
+  The erase confirmation lists every disk with path, model, size and identity right above the
+  erase word, and every disk is confirmed by the last four characters of its identity, also one
+  without a recognised signature; the German prompt names `ERASE` beside `LÖSCHEN`. The question
+  about shrinking shows the proposal (which volume, from which size to which) with the volume
+  group and the target disk, and Enter means no (it meant yes, and the proposal was not shown).
+  The Secure Boot question no longer reads as if the ISO switched Secure Boot off: it asks
+  whether the findings of the boot chain shall be warnings only and says that the operator must
+  switch Secure Boot off in the firmware setup, as do the warning in the plan and the hint
+  afterwards. Steps, check results and findings appear in the language of the console (the plan's
+  reasons and the report for the server stay English), German texts address the operator
+  formally throughout, and a second operating system in dual boot is no longer called by its
+  vendor's name. The layout capture no longer leaves out a mounted file system whose type udev
+  has not recorded (a file system made a moment ago, or a system without udev): it reads the
+  type from the device, and says so when it cannot. On the recovery page the checks of a
+  recovery are green only when the server stored it as succeeded, and the check of a snapshot's
+  layout (stage 1) is never green: it shows that a restore can work, not that one did. The
+  planner no longer asks more of a target disk than a small btrfs had: its metadata reserve is
+  1 GiB per device but at most a fifth of the device, so a btrfs of 1 GiB plans onto a disk of
+  the same size again.
+  Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
+  `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
+  only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in
+  `integrations/recovery/firmware.md`). The image is built from one snapshot.debian.org time with
+  every package pinned in `packages.lock`, twice on two runner images; only when both builds are
+  equal does the release list it in `agent-SHA256SUMS` (`recovery/restow-recovery_<v>_amd64.iso`),
+  and the maintainer rebuilds it before signing (`scripts/release/sign-agent.sh --iso`). The
+  source code of every package is a release attachment (`restow-recovery_<v>_sources.tar`, in
+  parts when large, and `restow-recovery_<v>_sources.txt`). On the ISO, `restow-agent recover`
+  asks for the address and the code, waits for the release of the session, plans, shows every
+  command before it erases, restores, sets the boot chain up again and reports a verification of
+  ten checks (`restow-verify-v1`) and its warnings; `--answers` runs it unattended. With the
+  preview on, the code dialog and the bare metal wizard appear once a release carries the ISO.
+- The bare metal wizard: the whole machine snapshots with their check and whether their layout
+  is the newest one's (the newest that passed is chosen first), the full hardware guide of the
+  chosen backup (firmware mode and CSM, Secure Boot and the CA the firmware must trust, disks with
+  their minimum sizes, memory, the disk controllers the backed-up kernel has drivers for, what may
+  and may not change, hardware RAID, the keyboard layout of the passphrase at boot, TPM bindings,
+  old disks), where the ISO comes from with the GPL sources and firmware licences, and afterwards
+  the ISO's hints (MOK enrolment with the password of the recovery console, network names, boot
+  disk, degraded RAID, kernels not adapted, TPM). The live view shows the verification check by
+  check, with findings and evidence as text, and the finish warnings by code. The machine list
+  marks a machine "Being restored", its page says so on top. `GET /api/v1/endpoints/:id/baremetal`
+  adds `snapshots`, `hardware`, `hardwareByLayout` and `activeRecovery`; the machine list and page
+  add `recovery`; `GET /api/v1/endpoints/capabilities` says whether bare metal is on.
+- Recovery end-to-end tests in QEMU/KVM: E1 (Debian 12, BIOS, RAID1) and E2 (Ubuntu 24.04, UEFI
+  Secure Boot, LUKS2 and LVM) on every pull request that touches the restore, E1b and E3 to E10
+  every night and before each release (`scripts/recovery-e2e`, `.github/workflows/recovery-nightly.yml`).
+- The boot probe of bare metal (M5, docs/BAREMETAL.md 12.3, 12.4): a machine is "green" only when
+  the recovery lab restored its newest whole machine backup onto other hardware and the restored
+  system started, at most 8 days ago, for the same layout and boot chain. The lab is an optional
+  image, `restow-lab` (Debian's QEMU, OVMF, SeaBIOS and virt-firmware; compose profile
+  `recovery-lab`, `install.sh --with-recovery-lab`), on a main host with KVM; without it a machine
+  stays "Layout checked" and its card says why (no lab, no KVM). The lab runs the same recovery a
+  person runs: the worker plans the probe (at once for a new layout or boot chain, weekly, six hours
+  after a probe that proved nothing, or "Probe now"), hands the lab a one-time code bound to the
+  instance through its lab API (port 8095 on the compose network, `RESTOW_LAB_TOKEN`) and never a
+  repository credential; the ISO in the lab's VM exchanges the code, restores through the reader
+  route (the session keeps retention away) and reports its verification; its VM reaches only the
+  instance's TLS edge through the lab's CONNECT proxy. Once the ISO released its access the lab
+  cuts the VM's network for good: `recover` then writes its finish to the serial console as a
+  block with length and SHA-256 (`RESTOW-PROBE-FINISH-BEGIN` ... `-END`), the lab checks it and
+  hands it in with the result together with the end of the restore console, and the worker
+  stores it by the API's rules (one schema, one redaction, a success the verification report does
+  not bear out is stored as failed), only for a session that is still finishing, audited
+  `endpoint.recovery.finished` with the lab as actor. Probe hardware differs from the source
+  (the other disk controller, serial numbers, the other network card), firmware as backed up with
+  Secure Boot against the current revocation list (DBX); disks are encrypted with a key only the
+  lab holds. Data file systems are created empty, and above `RESTOW_LAB_MAX_RESTORE_GIB` (64) the
+  largest folders under /var/lib, /srv and /home stay empty, never the package or systemd
+  databases. For diagnostics only, `RESTOW_LAB_SCREEN_DIR` (off by default) keeps a picture of
+  the VGA screen of a probe whose start ran out of time. `restow-agent recover` gains a probe mode (answers `probe` only from fw_cfg in QEMU):
+  the restored copy logs to the serial console and reports `RESTOW-PROBE-OK`. A probe is red only
+  with evidence (a fixed failure pattern of the boot, a failed verification, a problem of the
+  backup); anything else is repeated. New report kind `boot_probe` and recovery kind `probe`
+  (migration 0104). New alarms `baremetal.red` (once per episode), `baremetal.recovered` and
+  `baremetal.overdue`, `job.failed` with queue `endpoint_baremetal_check` or `endpoint_boot_probe`
+  for every red report, failure codes `endpoint.baremetal_check_failed` and
+  `endpoint.boot_probe_failed`. `POST /api/v1/endpoints/:id/baremetal/probe` plans a probe;
+  `GET /api/v1/endpoints/:id/baremetal` adds `probe`; `GET /api/v1/verify/latest` adds
+  `baremetal`, the bare metal state of every machine backed up as a whole, counted apart from
+  its files. Recovery end-to-end tests P1 (green) and P2 (red, the emergency target) on every
+  pull request that touches the restore or the lab, P3 (size limit, NVMe source) every night.
+  The opt-in updater moves the lab along where `.env` names its image (`RESTOW_LAB_IMAGE`): it
+  verifies the lab image of the target version like the other images (the release workflow's
+  signature by the new `restow-lab:` digest line of the release notes, then the pulled digest),
+  pulls it before anything is stopped, writes the line with the other two, recreates the
+  `recovery-lab` service after the web edge and puts the previous line back on a rollback
+  (docs/UPDATING.md, "The recovery lab"; `RESTOW_UPDATER_LAB_IMAGE_REPOSITORY` for a mirror).
+  An installation without the lab is untouched.
+- Write-once (WORM) storage (docs/STORAGE.md, "Write-once storage"): a repository that takes new
+  files but refuses to delete, overwrite or rename existing ones, such as an NFS share of a NAS
+  with a WORM lock (EPERM, "Operation not permitted"). Every test of a repository (adding it,
+  "Test", a change of its location, the test and the saving of the installation default) now also
+  overwrites and deletes its probe object; a refusal (EPERM, EACCES, EROFS, S3 AccessDenied, Object
+  Lock, or an overwrite that changed nothing) makes it write-once. The test still passes, with the
+  warning "write-once", and the finding is kept with the test (`storage_targets.config.lastProbe`,
+  for the installation default `settings.default_storage_write_once`). A later test that fails
+  before its overwrite and delete step (a network error, a timeout, a share briefly unmounted)
+  keeps the finding of the last test that got there; only new addressing or credentials drop it.
+  Before, such a share failed
+  its test at the delete step. The repository's card on the Repositories page says what changes
+  there: no retention, repositories only grow, lock files stay, a new backup chain begins in a
+  fresh folder, backups, restores and restore checks work as usual. On a write-once repository:
+  - retention is not applied: no restore point is pruned (Microsoft 365, IMAP, VMs and
+    containers, file shares, machines), no `restic forget` or `prune`, no garbage collection in
+    the scrub (a re-pack would only write the surviving chunks again). The pages of VMs and
+    containers, file shares and machines, the retention settings of their jobs and the retention
+    policies page say "Retention is not applied" (`GET /api/v1/storage/write-once`, every member
+    of the tenant); the settings are kept for when the backups go elsewhere;
+  - a container repository that must begin a new chain (after "Reset repository", or after the
+    repository repair found it lost) cannot move the old one aside or clear its prefix: the new
+    repository begins under a fresh prefix next to it, `pve-guests/<id>.chain-<n>/`, recorded on
+    the guest (`pve_guests.repository_prefix`, and `prefix`/`previousPrefix` in its newest chain,
+    shown on the guest page) and audited as `pve.repository.fresh_prefix`. This is the way out
+    for a container whose repository holds data without config and keys (CT 109 of the field
+    report): reset it, and its next backup begins a whole new chain. The same when a storage not
+    yet known as write-once refuses the move or the removal. A file share whose prefix holds data
+    without config that no restore point refers to begins under `file-shares/<id>.chain-<n>/`
+    (`file_shares.repository_prefix`). Every reader uses the recorded prefix: the restic routes
+    of nodes and runners, restores and browsing, checks, retention, the size measurement, a
+    storage "move", the repository repair, the renewal of immutable backups and the check before
+    an old location is removed. The old chain stays where it was, readable with its sealed
+    password file;
+  - nothing is deleted: the repository repair leaves a lost repository in place, and purging a
+    file share's backups removes only Restow's records (the audit entry counts what was `kept`).
+- Proxmox VE job form: guests by node, "Select all" and a search. Putting 40 guests into a job
+  no longer means 40 ticks: the form lists the guests grouped by node, with "Select all" per node
+  and for every guest shown, and a search by name or VMID. "Select all" never ticks the Restow
+  server's own guest (it is ticked on its own, with the confirmation as before) and skips what
+  cannot be backed up. The form says how many guests move from other jobs. Saving sends every
+  changed guest at once (new route `POST /api/v1/pve/jobs/:id/guests` with `add`, `remove` and
+  `confirmSelfBackup`), in one transaction: either every change lands or none does, where one
+  request per guest could stop half-way. A failed save no longer creates the job twice when it is
+  saved again. docs/PVE.md, "Jobs, backups, retention".
+- Proxmox VE: the Restow server in a container (LXC) is found by itself. Up to now only a VM was
+  found (by its SMBIOS UUID); a container had to be marked by hand. The api now reads the VMID its
+  volumes name from the mount table (`/proc/self/mountinfo`, also inside its Docker container):
+  ZFS `<pool>/.../subvol-<vmid>-disk-<n>`, LVM and LVM-thin `/dev/mapper/<vg>-vm--<vmid>--disk--<n>`
+  and `/dev/.../vm-<vmid>-disk-<n>` (for example Ceph RBD), and decides only when exactly one VMID
+  results (a container on directory storage shows none). New `RESTOW_HOST_PVE_VMID` overrides it,
+  as `RESTOW_HOST_SMBIOS_UUID` does for a VM (both now in `.env.example`). A container is marked
+  only while no other connected cluster, of any tenant, has a container with that VMID; otherwise
+  none is, and each says "Possibly the Restow server" (`restowServerAmbiguous` of the guest, shown
+  to the provider's staff only) until an admin marks the right one by hand. "Select all" in the job form leaves such a container out
+  too. A VM is never matched by its VMID. docs/PVE.md, "The Restow server's own VM".
+
+### Changed
+
+- Public demo: Postgres is set up for its 512M limit (`max_connections=64`, `shared_buffers=64MB`,
+  small `work_mem` and `maintenance_work_mem`, two autovacuum workers), and api, worker and
+  scheduler open smaller pools, 48 connections in all instead of the default 90
+  (deploy/demo/README.md, "Resource limits").
+- The agent no longer backs up its own state file (`/etc/restow-agent/state.json`) with the agent
+  secret and the repository password, on any system; the restore dialog hides it in older
+  snapshots, and LUKS key files are no longer downloadable for the restore role. The browser hides
+  the state file from everybody and the key files that a machine's layout names from restore
+  operators; selecting one is refused (422 or 403 `endpoint-restore-path-locked`), a folder ZIP
+  leaves them out, and an administrator gets a key file only after a recent sign-in, audited as
+  `endpoint.repository.secret_file_revealed`.
+- With `RESTOW_BAREMETAL_PREVIEW` on, the machine list and the enroll dialog no longer say there is
+  no bare-metal restore: Linux machines can be restored as a whole on new hardware (preview);
+  there are still no disk images.
+- The recovery ISO now comes from the instance itself: the worker fetches the ISO of the
+  installation's own release from the GitHub release once per installation and release (queue
+  `endpoint-recovery-iso`, every six hours, resumable, at most 2 GiB, honouring `HTTPS_PROXY` and
+  `NO_PROXY`), checks the signature of the release's `SHA256SUMS` itself with the release key of
+  the image (the same SSHSIG check as the agent, no new trust root) and the ISO's SHA-256, keeps it
+  in the data volume (`RESTOW_RECOVERY_ISO_STORE_DIR`, default `/data/recovery-iso`) and offers it
+  to tenant administrators at `GET /api/v1/recovery-iso/file/<file>`; the GitHub release stays the
+  fallback link. `GET /api/v1/recovery-iso` adds `rebuild`, `githubUrl`, `sumsUrl`,
+  `signatureUrl` and `local` (not fetched, fetching with bytes, verified, failed with a reason,
+  disabled), and the bare metal wizard shows that state in English and German. `verified` now
+  means the server checked the signature itself; before, a `.sig` file next to the checksums was
+  enough. The download needs the rest of the ISO plus 1 GiB free in the store and keeps that
+  reserve while it runs; short of it, or on a full disk, it removes its partial file and reports
+  `store_full` without retrying until the next pass. One pass works at a time (a lock file in the
+  store), and a pass ends itself half an hour before the queue's eight-hour expiry so the retry
+  continues the partial file instead of writing it at the same time. Installations without
+  internet access drop the ISO into `<store>/import/` or `RESTOW_RECOVERY_ISO_DIR`; the same check
+  applies, an unreachable release page is then no problem and no reason to retry, and the wizard
+  says the copy was put there rather than fetched. `RESTOW_RECOVERY_ISO_FETCH=false` turns the
+  download off. `GET /install/recovery/<v>/<file>` (10 downloads per address and hour) serves the
+  same selection. The check commands name the arguments of `verify-agent-signature.sh` in their
+  right order and the checksum file the ISO is listed in.
+- Rebuilds of the recovery ISO: a tag `recovery-v<v>.<n>` (`.github/workflows/recovery-rebuild.yml`)
+  rebuilds only the ISO of the published release `<v>` against a newer Debian snapshot (security
+  updates), with the agent of that release, twice and through every end-to-end case, and publishes
+  `restow-recovery_<v>.<n>_amd64.iso` with `recovery-SHA256SUMS`, which the maintainer signs with
+  the release key (`scripts/release/sign-agent.sh recovery-v<v>.<n> --iso <rebuilt ISO>`). The
+  list binds the rebuild to the release (`release/agent-SHA256SUMS` with the SHA-256 of the
+  release's signed checksums); installations of `<v>` take the newest rebuild that verifies and
+  never one for another release. `integrations/recovery/build.sh` and `sources.sh` take
+  `--rebuild <n>`.
+- The explanations of `snapshot_failed` and `snapshot_unavailable` no longer speak of the shadow
+  copy only: they name it, LVM and btrfs, and the steps cover Windows and Linux.
+- The agent's systemd unit allows mount namespaces (`RestrictNamespaces=mnt`) so the snapshot
+  helper can build the LVM and btrfs snapshot tree in a private one; every other namespace type
+  stays blocked.
+- Machines: "Delete every backup" of a revoked machine (Remove from Restow, mode `delete`) is now
+  delayed and owner-only. The backups are deleted seven days after the request, not at once; the
+  machine stays listed as revoked until then, and its page and File restore show "Backups will be
+  deleted on <date>" with who asked and why. Only an owner of the provider team may request it,
+  with a reason (kept in the audit entry `endpoint.removal.scheduled`); tenant administrators and
+  provider members below owner can still remove a machine and keep its backups until they expire.
+  The refusals under a legal hold, an unresolved suspicious restore point and restore mode, and
+  the deferral of objects write-once storage still locks, stay as they were (docs/AGENT.md,
+  "Rechner entfernen"). Once deleted, the machine stays hidden as before.
+- Machines and File restore: when the restore points of a machine cannot be read, the message
+  now says which of three causes it is and what to do next: the repository is on no storage
+  target of the tenant, the stored password does not open it, or no password is stored. The API
+  answers with `endpoint-repository-not-found` (409), `endpoint-repository-password-rejected`
+  (500) or `endpoint-repository-password-missing` (409) instead of the shared
+  `endpoint-repository-unavailable`, which each of them carries as `category` for clients that
+  matched it (docs/AGENT.md, "Problem types").
+- The bell always shows the critical events and failed deliveries: its column can no longer
+  switch them off (a column saved earlier keeps everything else as it was).
+- The weekly report of the tenants' notification recipients covers the calendar week (Monday
+  00:00 to Sunday 24:00 in the tenant's time zone) instead of the seven days up to Monday 07:00.
+- An SMTP 550, 551, 553 or 554 answer to RCPT TO or DATA (and Microsoft Graph
+  `ErrorInvalidRecipients`) is final: the mail is no longer retried four times, and the address
+  raises a delivery failure alert. A refused sender is not: a refused MAIL FROM, or an answer to
+  RCPT TO or DATA that names the sender ("Sender address rejected", "not owned by user",
+  `5.2.252 SendAsDenied`), is the transport's `smtp_sender_rejected`, retried like the other
+  transport failures.
+- The delivery log across tenants (and its CSV export) lists the provider's own deliveries as
+  "Installation", with the tenant an alert is about.
+- Every owner of the provider team is now an e-mail recipient of the critical events and the
+  installation's own events, without opting in. An installation without a mail transport
+  therefore raises one delivery failure alert (bell and webhooks) that lasts until a transport
+  is configured, instead of staying silent; with the notification mail marked as not needed (the
+  Start checklist) it stays quiet as before and no mail is planned for the provider's
+  recipients.
+- A new schedule rule starts on the calendar week ("Previous week (Monday to Sunday)") instead
+  of an own weekly cron; an own interval or cron stays available as "Own interval or cron".
+- Tenant administrators can put "Notification could not be delivered" into an alert rule; the
+  System group of the rule dialog shows it, the installation's own events stay with the provider.
+- The tenant page's Branding section is closed in the public demo, like the other settings this
+  release adds.
+- Empty Microsoft 365 objects need no confirmation when Microsoft 365 says so as well: a backup of
+  a OneDrive or a mailbox now records what Microsoft 365 itself reports, before and after the run
+  (the OneDrive's root folder `size`, the `totalItemCount` of the mail folders the backup reads;
+  the quota is recorded for display only, it counts recycle bin, versions and system lists). When
+  the backup holds only default folders and 0 bytes and Microsoft 365 reports the object empty
+  both times, the restore check rates it "Empty according to Microsoft 365 and to the backup"
+  (`snapshot_empty_confirmed_by_source`): neutral like an object an admin confirmed as empty, not
+  needing attention, not in the tenant rating, never overdue, and it raises no alert. A never-used
+  OneDrive next to a backed-up mailbox no longer reads "Attention". Without such a signal (IMAP,
+  SharePoint, items only in hidden folders, an online archive, a count that changed during the
+  run, backups made before this version) nothing changes: the object stays yellow and can be
+  confirmed as empty. Existing ratings follow with the next backup and check; there is no
+  migration. See docs/MICROSOFT.md, "Leere Objekte: Nachweis durch Microsoft 365".
+- An empty backup of an object Microsoft 365 reports content for, before and after the run, is
+  red: "Microsoft 365 reports content, the backup holds none" (`backup_missing_source_content`).
+  It cannot be confirmed as empty, and it ends an existing confirmation.
+- Ratings and alerts name the service with the object, since a person's mailbox and OneDrive
+  share the person's name: the readiness table reads "OneDrive · msp@contoso.example", the
+  person's entry in the restore explorer shows one rating per service ("Mailbox: Ready",
+  "OneDrive: Empty") instead of one merged badge, and the bell, the alert mails and the stored
+  alert texts of restore checks, finished jobs and overdue backups say "OneDrive · …" or
+  "Mailbox · …" (`details.objectKind` on job and overdue alerts as well), and so do the lines of a
+  digest mail, the Teams, Slack and Discord messages of finished jobs and restore checks, the
+  delivery log (`targetKind`, additive) and the samples of the branding preview. The statistics
+  behind the summary reports, the provider's report and the customer monthly report rate an
+  empty object by the same rule as the readiness page: green, never needing attention. The check
+  report shows what Microsoft 365 reported under "Reported by Microsoft 365". The state "empty"
+  now reads "Empty" ("Leer"), since it is no longer only a confirmation.
+- Retention of a machine's repository applies its keep rules per group: the snapshots of file
+  backups and those of the native SQL Server backup of each instance are counted on their own, so
+  neither pushes the other out. SQL snapshots are recorded by their runs and their backup rows and
+  never flagged as "not reported by any backup run"; a backup whose snapshot was forgotten is
+  marked pruned and no longer offered.
+- Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
+  ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
+  "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
+  backups)"); the tooltip adds the first backup's full time and what the newest restore point
+  contains. It all comes with the overview, nothing is loaded per row. `GET /api/v1/pve` names
+  the `sequence` of `backups.first` and `backups.last` (additive), so the newest point counts as
+  a follow-up by its place, not by its time; the web interface still reads older servers.
+- The menu entry "Archive" stays in Mail & SaaS but shows only where the tenant has an archive:
+  the archive holds mail of the tenant (from any edition, a file import with "archive at the same
+  time" included, and after a change of edition), or the edition includes a capture
+  (`archive.mailboxCapture` or `archive.smtpCapture`) and a capture is set up in the tenant: a
+  mail job archives (paused or with its way still to be chosen included), the journal address
+  was issued, an account has an active forwarding address, or a capture stream is not switched
+  off, so journaling shows before its first report arrives. Elsewhere it is hidden: in an edition
+  without capture while nothing is archived, and in a tenant where no capture is set up yet. Saving a
+  job, the first read of the journal address and issuing a forwarding address ask again, so the
+  entry appears once a capture is set up. The journal host note on the tenant page reads the host
+  alone (`GET /api/v1/archive/journal/host`, every provider role that sees the tenant) and no
+  longer issues the journal address, so looking at the tenant page does not bring the entry. It is hidden until the answer is in,
+  so nothing appears and vanishes again; the page stays reachable by its address, and the
+  tenant page keeps its archive sections. The same rule decides on the explorer's source "From
+  the archive". docs/ARCHIVE.md describes it in "Eintrag „Archiv“ im Menü".
+- docs/ARCHIVE.md: the status section is checked against 0.5.0. It now says that a hold on a
+  mailbox protects every archived item of that mailbox, not only journal reports: its own
+  captures (Graph, IMAP, copies forwarded to the account's archive address, file imports) and
+  the journal reports and copies assigned to it; only items without any assignment rely on a
+  tenant-wide hold (#48). The retention line says that 8 years is the default no API or page
+  can change, and hold scopes by search are not evaluated.
+- The storage growth chart of the start page and the capacity page share one module for what
+  they have in common (the figures of a series, the estimate, the day a repository runs full and
+  what limits a repository). The chart looks as before.
+- The menu entry "Capacity planning" no longer carries the "Soon" badge; the placeholder page is
+  gone.
+- Phones are no longer a supported surface. On a smartphone (a touch device without hover whose
+  smaller screen side is under 600 pixels) every page shows a block page instead of the app:
+  the sign-in, the setup, the authenticator enrolment and the app itself. It says that Restow
+  is too sensitive to administer from a phone and offers a button that copies the address, so
+  it can be opened on a computer; there is no "continue anyway". Two pages keep working on a
+  phone because people open them from a mail: the page of a reset mail and the page of the
+  link to set a password. After setting or resetting the password they show "Password set" and
+  "Sign in on a computer" instead of signing in, so the app is not entered on a phone. A
+  customer invitation needs a sign-in and cannot work on a phone; it shows its own text, "Open
+  this invitation on a computer", and copies the invitation link. Tablets, narrow desktop
+  windows and the public demo are not affected, and neither is the layout for them. The block
+  page is a design decision, not an access control: the check runs in the browser and the API
+  is unchanged. Restow also no longer offers itself for installation on a phone's home screen
+  (the web manifest opens in the browser, the touch icon is gone).
+- Warnings: the number on the "Warnings" menu entry counts everything the page asks to look at,
+  not only the open warnings: also failed backups (machines, mail, file shares, VMs and
+  containers) and objects that wait for a confirmation. It reads "n items need attention". The
+  three hints above the list lead to their cause with a button, like the hints on the start
+  page.
+- Controls follow the shared parts: the refresh buttons of Protected objects, Exports, Imports,
+  Restore jobs, Manage tenants and the webhook deliveries are the shared icon button (named and
+  with a tooltip, busy while it loads); the drop-down lists, check boxes and date and time
+  fields of the Proxmox VE job and guest pages, the file share restore and add dialogs, the
+  update planning and the price settings have the border, the dark fill and the focus ring of
+  the other fields. Icon-only buttons that only had a browser tooltip (remove a file, copy a
+  link, remove a member, cancel an invitation, clear the selection) show their name on focus
+  too. Every spinning icon stands still when the system asks for reduced motion.
+- Texts: the red count on the bell uses the destructive text colour of the theme (readable in
+  dark mode); the command of the "Lost your authenticator app" help, the mount example of the
+  import wizard and the level badge of the notification matrix are no longer set in 11 px
+  type; and the English texts say "organisation" throughout (five places used the American
+  spelling).
+- The start page under "All tenants" is laid out like the Status tab of a tenant. The readiness
+  card of all tenants and the price card stand side by side in the first row (the readiness card
+  wider, both as high as the row), "Running now" follows under them, then the figures, the
+  alerts and the table. The widths follow the widget area, not the window, so a collapsed
+  sidebar counts: from 68rem the price card takes a third of the row, from 42rem two fifths,
+  and below that it sits under the readiness card. The six figure tiles use the same
+  measure (two columns from 26rem, three from 56rem). Without a price the readiness card keeps
+  the whole row, as before.
+- The price card under "All tenants" no longer grows with the number of tenants. It shows the
+  monthly total, the five dearest tenants in a compact list (long names are cut short and
+  complete in the tooltip, the amounts stand on the right), "+N more" and the link "All
+  tenants". The link opens Capacity planning by price: the table has a column "Price per month"
+  there (after "Stored", sortable, dearest first), for provider admins once a price is set.
+  Your own organisation is no customer: like in the card it has no amount there ("Not
+  billed") and does not rank among the dearest.
+- The update check runs every six hours instead of once a day (four requests a day for the
+  release list, far below the limit of GitHub without a token), so a release is known the same
+  day. It still runs shortly after the api starts when the last check is older than that, and a
+  failed check is tried again after an hour at the earliest, not before a rate limit lifts. The
+  browser reads the version again every 15 minutes, so an open tab shows a new release without a
+  reload. In the sidebar footer the version of a provider administrator stays "Version x.y.z"
+  and carries the dot, instead of turning into the button "Update to x.y.z available".
+- Agent self-update, all systems: every file of a release (license notices, restic, agent) is
+  downloaded and checked before the first one replaces an installed file. Before, restic was
+  already replaced when the new agent then failed its version check. Should the agent's own
+  file then fail to move into place, restic and the notices get their previous content back.
+- The license notices cover the restic of every target: `licenses/restic-deps/` holds 82 Go
+  modules (79 or 80 per target; three only in `restic.exe`, FUSE and xattr only on Linux and
+  macOS), and `scripts/restic-licenses.mjs check` compares each restic binary with the modules
+  listed for its target.
+- Dependencies: better-auth and its passkey plugin 1.7.15, `@better-auth/utils` 0.5.1, hono
+  4.13.16, `@aws-sdk/client-s3` 3.1161.0, i18next 26.6.0, react-i18next 17.1.10,
+  `@tanstack/react-query` 5.105.1, react-hook-form 7.91.0, react-resizable-panels 4.16.0,
+  lucide-react 1.66.0 and cn 0.5.1 (Dependabot #95), and two major updates: `@hono/node-server`
+  2 (2.1.6, Dependabot #87), the HTTP server of the api, the updater and the mounter, and unpdf 2
+  (2.0.1, Dependabot #90), which reads the rendered PDF reports back in the tests only. With
+  `@hono/node-server` 2 a request whose path holds a raw backslash is answered with 400 before it
+  reaches a route, and a response without a body no longer carries `Content-Type: text/plain`;
+  the advisory GHSA-rmxm-3fg6-px4f (its static file middleware, which Restow does not use) is
+  closed with it.
+- Dependencies, second round: better-auth and its passkey plugin 1.7.18, `@aws-sdk/client-s3`
+  3.1163.0, mailparser 3.14.2, i18next 26.7.2, i18next-icu 2.7.0, react-i18next 17.1.13,
+  `@tanstack/react-query` 5.106.1, react-resizable-panels 4.18.1, lucide-react 1.69.0 and cn
+  0.5.2 (Dependabot #104), unpdf 2.1.0 (tests only, Dependabot #103), and for development vite
+  8.3.6, `@vitejs/plugin-react` 6.2.1, tailwindcss and `@tailwindcss/vite` 4.3.4, vitest 5.1.0
+  and Biome 2.6.5 (Dependabot #102). The workflows use docker/login-action 4.8.0,
+  pnpm/action-setup 6.1.1 and sigstore/cosign-installer 4.1.3 (Dependabot #101). Since the
+  passkey plugin 1.7.16 the `userVerification: "required"` Restow has always set applies to
+  signing in as well: the browser asks for the passkey's PIN or biometrics there too, and a
+  registration or sign-in without that check is refused. The origin a passkey ceremony is
+  checked against comes from `RESTOW_PUBLIC_URL`, no longer from the request's `Origin` header.
+
+### Fixed
+
+- Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
+  ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
+  taint mode, and the storage plugin handed the archive directory from restow-pve to
+  pve-container unchecked. Every value the plugin hands back to PVE (archive directory, the NBD
+  address and disk sizes of a VM restore, names, sizes of the listing) is now checked against
+  what restow-pve sends and untainted, or the call is refused naming the value. `pct restore`
+  and `qmrestore` on a shell were not affected.
+- Retention frees space on a full storage target (#100). restic's normal prune writes repacked
+  packs before it deletes the old ones, so on a full directory, NFS or SMB share, or an S3 bucket
+  at its quota it failed and freed nothing. Every server-side prune (machines, file shares,
+  Proxmox VE containers) now follows one policy: where the target reports its free space, a dry
+  run checks that the repack fits; otherwise, and whenever a prune fails for lack of space, a
+  prune that only deletes unused packs runs (`--max-unused unlimited --max-repack-size 0
+  --no-cache`), and the repack follows in a later run once there is room. The maintenance
+  listener answers an upload the full storage refuses with 403, so restic stops at once instead
+  of retrying for a quarter of an hour. A machine's retention report says "Retention could not
+  free space: target full" with the next step instead of a generic prune failure
+  (docs/STORAGE.md, "A full target").
+
+- File restore of a Proxmox VE container or VM: restoring the guest as a whole is now a button in the title row of the chosen restore point ("Restore whole container …"), which opens the restore dialog for exactly that point on the guest's page. Before, the only way there was a link under the file list.
+- The calendar behind "Jump to date" marks every day with a restore point with a dot; bold text alone was hard to see.
+- Dialogs no longer cut off their right side when a line inside cannot wrap (a long mail subject, an address): the dialog's grid columns may shrink below their content.
+
+- Data safety: after restoring a database dump (the documented rollback with migrations, a host
+  move from an online dump), the database knew less than the storage, and several passes
+  deleted by the database's view without asking: the orphan sweep after every storage check
+  removed every pack file without a row older than 24 hours on the primary and on every copy,
+  overdue retention ran on the first scheduler tick without the legal holds and suspicion holds
+  set after the dump, the clean-up removed staging and export areas without a row, the
+  comparison of container repositories forgot restic snapshots no restore point named after 6
+  hours, repository repairs and resets moved chains aside, and jobs that were running in the dump
+  (restores into mailboxes, storage migrations, the file share purge, which the update pause did
+  not stop) were put back into their queues two minutes after the start. Backups written after
+  the dump could be lost. Now every deletion pass asks the deletion guard first, the storage
+  backends refuse a delete outside one while restore mode is on, restore mode is switched on by
+  the command line in the rollback procedure or by the worker itself when a storage target shows
+  progress the database does not have (progress markers written next to the data), and jobs from
+  before the restore are held: queued jobs, file share runs (restores into a share, mirror copies)
+  and the tasks machines and Proxmox VE nodes fetch with their heartbeat (restores over a guest,
+  uninstalls), while backups queued after the restore still run. The key mirror could also
+  overwrite `tenants/<tid>/keys/<v>` in storage with another key when the restored database
+  handed out a version again; it now never overwrites a stored key that differs (it reports it,
+  always), the copy mirror and storage migrations neither, and a new key version is allocated
+  above every version in storage. The same holds for the sealed repository password next to a
+  restic repository: a file share whose first backup ran after the dump got a new password and
+  its stored password was replaced, which made those backups unreadable; now the stored password
+  is never replaced and the share begins a new repository next to the old one.
+- Restore mode: snapshot and Proxmox VE retention now take the deletion permit before changing
+  anything in the database and stop the run as soon as deleting is paused, so restore points due
+  when restore mode (or a storage that cannot be compared) comes on mid-run stay active and keep
+  their chunk references instead of being pruned in the database and losing their chunks to
+  garbage collection after restore mode.
+- Restore mode: EML and MBOX exports no longer fail when a copy storage target is unreachable or
+  when restore mode is on: an export only resets its own leftover segments, and only when there
+  are some. A failed machine enrollment likewise removes the repository it began under its new
+  machine id in either case, under its permit, instead of retrying the removal outside it.
+- Restore mode now also stops jobs from the restored database dump that were already running or
+  waiting for a tenant slot when it came on (for example a mail restore or an archive backfill):
+  they end cancelled (`job.restore_mode_hold`) within a few seconds, without a retry, instead of
+  running to the end and writing into mailboxes.
+- Restore mode now also refuses pointing a tenant's primary storage target at another location
+  (`PATCH /api/v1/storage/targets/:id`) and moving or removing the installation default storage,
+  and agent and Proxmox VE heartbeats no longer hand out tasks from the restored dump when the
+  restore mode cannot be read (they answer 503 instead).
+- Restore from a dump: `restow restore activate` could end with an unhandled database error
+  half way through the swap, when ending the scratch database's other sessions also ended the
+  connection its own check was still closing. Such a connection is now dropped quietly.
+- The storage deletion-sites check now resolves aliased imports, namespace and element access,
+  bound and destructured deletes and raw SQL on `archive_items` through the TypeScript checker,
+  and counts each delete separately, so a second delete in a registered function is no longer
+  missed.
+- The restore explorer and the directory ignored a confirmation as empty: an object an admin had
+  confirmed as empty still read yellow there while the readiness page showed it neutral. Both now
+  read "empty" by the same rule as the readiness page. So do `/api/v1/users` and
+  `/api/v1/objects`: an empty object (confirmed by an admin, or empty according to Microsoft 365
+  and to the backup) is green there and never overdue, as `/api/v1/verify` and `/api/v1/status`
+  already counted it, so a person with a backed-up mailbox and an empty OneDrive no longer reads
+  yellow in `recoveryReadiness`.
+- Hook documentation: a pre hook with `sqlcmd -Q "BACKUP DATABASE ..."` was documented as the
+  way to application consistency on Windows. It fails on a default installation, because hooks
+  run as SYSTEM and SQL Server 2012 and later give neither SYSTEM nor the administrators sysadmin.
+  docs/AGENT.md, docs/WINDOWS-AGENT.md and agent/README.md now point to the native SQL Server
+  backup and name the login the agent's service SID needs.
+- The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
+  the path, the error's name and message (with secrets masked) and the first frames of its stack.
+  Until now such a request failed in the browser while `docker compose logs api` showed nothing,
+  so the cause could not be found without a debugger.
+- Data safety: container repositories split across storage targets, a promotion that dropped
+  the installation default, silent new backup chains and the HTTP 500 that followed. What
+  happened on one installation: on 16 October 2026 (0.4.1) a copy target was promoted to primary
+  while a container's first backup ran. Nothing pinned a run to one target, so its config, keys
+  and first packs landed on the installation default and its later packs, index and snapshot on
+  the new primary; the restore point looked fine and cannot be restored. The promotion also
+  dropped the installation default from the tenant's targets (no placeholder was kept, unlike
+  "keep" and "move"), so every repository that lay only there became invisible. The container's
+  next backups failed with "get the restic credential of this run: Restow server answered 500"
+  (`restic init` refused a prefix that already held a snapshot), also after "Reset repository",
+  and each attempt left an orphan secret; from 0.4.2 on, every other container whose repository
+  was not on the new primary silently began a new chain and its restore points became
+  unavailable, although the repository was intact on the installation default. Now:
+  - A container backup, a container restore and a file share run are pinned to the target their
+    credential was issued for (`pve_runs.storage_target`, `file_share_runs.storage_target`).
+    Credential issue, machine enrollment and every change of the primary take one lock per
+    tenant; promoting a copy and "keep" refuse while a Proxmox VE backup (container or VM) or a
+    file share run is running (`storage-switch-blocked-by-runs`), the switch of a "move" waits. A backup whose target stops being the primary anyway gets
+    `403 storage-switched-during-run` for its writes and fails cleanly instead of finishing on
+    another target. Caches of the tenant's targets (API and worker) compare the tenant's storage
+    generation instead of only running out after one or five minutes.
+  - "Keep" is refused while the tenant has any restic repository, now counting machines
+    (revoked ones included) and file shares whose repository is being created (a container's
+    first backup counts through its running run). Promoting a copy waits until every one of
+    them is complete on the copy (see "Make primary" under Added). A promotion away from the
+    installation default keeps it attached read-only (`previous`).
+  - Before a backup, a container's repository must be complete on the primary (config and a
+    key). Otherwise every target and the installation default are searched and the backup is
+    refused with `pve-repository-elsewhere`, `pve-repository-split` or `pve-repository-missing`;
+    the guest page explains it and the way out. A new chain begins without asking only when the
+    repository is nowhere and no restore point refers to it. Data without a config is never
+    passed to `restic init` (no more 500), the password is stored only after `restic init`
+    succeeded, and after a reset whatever is left at the prefix is moved aside
+    (`pve-guests/<id>.orphaned-<time>/`), never deleted (0.4.x deleted a leftover with a config);
+    on write-once storage, where it cannot be moved, the new chain begins under a fresh prefix
+    instead (see Added, "Write-once (WORM) storage").
+    Retention and check of a container search the same places, the installation default
+    included, and refuse with the same problems instead of "unable to open config file"; they
+    also refuse while an active restore point's snapshot lies only on another target, where a
+    prune on the primary would have removed the data it needs. No restore test of the container
+    is planned while the guest records such a problem, and the guest page says that its restore
+    check waits for the repository problem. File share
+    runs check their repository the same way (`share.repository_unavailable`) and restores read
+    from the target that holds it.
+  - A "move" collects each repository from every target (primary, copies, retired targets, the
+    installation default) and merges the halves of a split one; a repository that cannot be
+    copied whole rejects the migration with a list, and restic checks every copied repository
+    on the destination before the switch. Previously a data-only half was skipped silently.
+  - Removing a retired location is refused while it holds any file of a repository no other
+    target has, not only a `config`, and while it is the only place with a moved-aside folder
+    (`previous-holds-moved-aside`; a "move" does not copy those), including a chain under a fresh
+    prefix that was moved aside (`<id>.chain-<n>.orphaned-<time>/`). A directory target lists only
+    the folder a prefix lies in.
+  - New: Repositories › Repository repair (docs/STORAGE.md, "Repository repair"). A scan shows
+    every repository of the tenant on every target and what each holds (`ok`, `elsewhere`,
+    `split`, `data_only`, `password_only`, `missing`, `conflict`); the repair (recent sign-in,
+    typed `REPAIR`) rebuilds split and misplaced repositories on the primary, verified by hash
+    and by `restic check`; `config` and the keys are copied last, and taken away again when a
+    file or the check fails (the container then refuses backups and retention with
+    `pve-repository-repair-failed` until a repair succeeds or it is reset). It works only while
+    no backup, file share run or storage migration of the tenant is active (backups wait for it
+    meanwhile, and the primary cannot change), only on a scan that read every place (a directory
+    whose folder is empty or missing counts as not read: a share that is not mounted), only on
+    what still looks as in that scan, and under each repository's lock. Restore points whose
+    snapshot is in none of a repository's parts become unavailable; a container repository with
+    data but no config or key anywhere is moved aside and its restore points become unavailable
+    ("lost"). A repository on no target is never marked lost by the repair: "Reset repository"
+    is the deliberate way. An old location can be attached read-only for it ("Attach an old
+    location read-only"). Audited as `storage.repositories.scanned`, `storage.repository.merged`
+    and `storage.repository.lost`.
+
+  **After updating, check:** run Repositories › Repository repair › Scan for every tenant that
+  ever changed its primary (promoted a copy, "keep", "move"), with every storage share mounted.
+  A container shown as `split` or `elsewhere` can be rebuilt; one shown as `data_only` (like a
+  container whose config and keys lay only in a folder that is gone) cannot be opened without
+  its config and keys: if an earlier location or a restored copy of it still has them, attach it
+  read-only and scan again before you repair. Look in the audit log for
+  `pve.repository.reinitialized` with `reason: "missing"` after a storage change: each one is a
+  container whose old chain may still lie on an earlier location (for a promotion of 0.4.1, the
+  installation default, by default the volume `/data/chunks`). The repair does not bring those
+  restore points back (the new chain on the primary is complete, so the scan shows `ok`); they
+  stay unavailable. Keep that location attached read-only so its data is not removed while only
+  it has it; the old chain can be restored by hand with restic from there (its password is
+  sealed next to it in `restow-repository-password.json`). What was checked about a missing
+  `/data/chunks/pve-guests`: from 0.4.1 to 0.4.12 every delete on a directory target, restic's
+  own included (it reaches storage through Restow's REST listener), removes single files and
+  never a folder, so a `pve-guests` folder that does not exist at all (not merely empty) was not
+  removed by those versions; check the host's shell history and volume restores.
+- The page "Restow is temporarily unavailable" (the edge's page while the server restarts or is
+  updated) speaks the language the app shows. It followed only the browser's language, so a
+  German browser got it in German even where Restow was set to English, as on the public demo,
+  which starts in English. The app now keeps its language in a cookie `restow_lang` that the
+  edge reads first; without it the browser's language counts as before.
+- Retention: a tenant with more than 65,535 active restore points (about 500 protected objects
+  under the default tiers) could not run retention at all. The run and its preview asked for the
+  checked restore points with one bind parameter per restore point, which PostgreSQL refuses past
+  65,535; since nothing was pruned, the count only grew and every daily run failed. The failure
+  also stopped every task after it: the mail-file sweep, the renewal and check of Object Lock
+  and the archive deletion run. The checked restore points are now read by a join, the per-object
+  check states take one array parameter, and each retention task runs on its own: a failing task
+  is recorded with its error, the others still run, and the job ends failed instead of succeeded.
+  The job keeps what every task did in `payload.result` (items deleted, records deferred, Object
+  Lock renewals), also when it ends failed; before, a failed job carried only "retention tasks
+  failed: snapshots".
+- Mail archive: a request to look at a mailbox now, made while a pass over it was still running,
+  was overwritten by the pass's own next time when the pass ended. It happened when the IDLE
+  watch of an IMAP account began during the account's pass, when new mail was announced by IDLE
+  or by a change notification during a pass, and on a resync asked for meanwhile. The account
+  then showed "polled" and new mail waited for the next scheduled pass, up to half an hour for a
+  watched account. A resync asked for during a pass lost its request as well, so the next pass
+  was an ordinary one instead of the full rescan. The end of a pass (and a checkpoint during it)
+  now keeps both: the earlier of the two due times and a resync request that is newer than the
+  one the pass started with.
+  This was the cause of the IMAP test that failed now and then ("shows a watched account as
+  IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Mail restore: a message, contact, folder or attachment could be created twice in the target
+  mailbox when Microsoft Graph answered late. The Graph client sent every request again after a
+  504, a 503 or no answer within five minutes, also a POST that creates something, although
+  Exchange often has already stored the item when the gateway gives up; the report then counted
+  one item while the mailbox held two. A request that creates something is now sent again only
+  after an answer that proves nothing happened (429, or 503 with Retry-After). After a 504, a 503
+  without Retry-After or a timeout it fails with the new cause "Microsoft did not confirm whether
+  the change was carried out" (`graph.outcome_unknown`), and the next attempt checks the target
+  first. Reads, PATCH, PUT and DELETE are retried as before; inside a `$batch` a creating
+  sub-request answered 504 is handed back instead of being sent again.
+- Mail backup: a mailbox folder whose subfolder listing was missing from Microsoft Graph's
+  `$batch` answer counted as a folder without subfolders. The backup then removed the mail of
+  the whole subtree from the new restore point, forgot its delta links and reported success. A
+  `$batch` now hands back one answer per request: a read Graph left out is asked again and,
+  if it is still missing, comes back as a 502; a 200 that is not Graph's envelope (a proxy's
+  page, a body without `responses`) is an error. A folder whose subfolders could not be listed
+  (left out, server error, throttled) keeps its stored subtree and is recorded as a failure.
+- Mail backup: two quick HTTP 500 answers from Microsoft for a message's MIME export stored that
+  message as JSON for good. It then had no original file for EML, MBOX or PST export, and no
+  later incremental run asked for its MIME again. A plain 500 (without a conversion code) is
+  now asked again twice with backoff; if it stays, the message is an item failure that the next
+  run retries, and only after three runs in a row is its content kept as JSON. When five
+  messages in a row get nothing but a 500 (an outage of the mailbox's backend), the run stops
+  waiting for each further message: they fail at once and are retried on the next run, and a
+  single request a minute checks whether Microsoft answers again. Every JSON copy
+  now records why (too large, conversion refused, server error) and is logged. A copy stored
+  after server errors ends the run with a warning on the message, in every run until its MIME
+  arrives, since it has no original file for export yet. Such a copy, and one stored by an
+  earlier version without a reason, gets its MIME asked for again on the next runs and is
+  replaced by it when Microsoft hands it out.
+- Mail backup: one message that a Dovecot or Gmail server cannot read blocked the whole folder
+  over IMAP, on every run. Such servers refuse a whole `UID FETCH` ("Some messages could not be
+  FETCHed") when one message of the set is broken; the metadata request for all new messages
+  failed, the folder was retried once and then reported as failed with nothing new stored, and
+  on a first backup the folder was missing from the restore point altogether. The request is now
+  split until the unreadable messages are found: each of them is an item failure naming the
+  message, and the rest of the folder, new mail included, is backed up, also when a long run of
+  messages is damaged. Gmail's "Account exceeded command or bandwidth limits" is recognised as
+  the account's download limit: it is not split into further requests, and the folder fails
+  once (retried on the next run) instead of once per message.
+- Mail backup: an IMAP folder that failed during a full read (a requested full backup, or after
+  the server changed its UIDVALIDITY, for example after a migration) kept only what that attempt
+  had downloaded, often nothing, although the previous restore point held all of its mail. In a
+  requested full backup the previous messages that were not read again are now carried forward
+  with their current flags. After a UIDVALIDITY change the messages already read under the new
+  UIDs are kept together with the previous copy of every message not read again yet, and the
+  next run goes on with the rest instead of starting over, so a folder larger than a daily
+  download limit gets through after a few runs; once it is read completely, the previous
+  copies go.
+- Mail backup: when an interrupted IMAP backup was resumed after a folder had been renamed or
+  deleted in between, the restore point kept the folder the earlier attempt had already stored
+  next to its new name, so a restore brought back a folder that no longer existed and every
+  message of a renamed folder twice. Folders the server no longer lists are now dropped from
+  the resumed restore point, also a folder the earlier attempt was still in.
+- Mail backup: on an IMAP server that reports a NIL hierarchy delimiter (a flat namespace) or
+  leaves out UIDNEXT when a folder is opened, the folder's state could not be read back, so
+  every run downloaded the whole folder again, every night, which can hit the server's download
+  limits. Such folders are now backed up incrementally. A folder the server opens without
+  UIDVALIDITY made the whole run fail; now only that folder fails and keeps its previous copy.
+- Mail backup: IMAP runs are faster and upload far less. After every folder, also one in which
+  nothing had changed, and during a download every 250 messages, the run rewrote its whole
+  object list to every storage target; a nightly run over a large mailbox without new mail
+  uploaded about as many partial manifests as it had folders, and a first backup grew with the
+  square of the mailbox size. A folder without changes now writes no checkpoint, and checkpoints
+  after a folder and during a download come at most once a minute, during a download also less
+  often as the restore point grows.
+- Mail backup: a Gmail or Google Workspace account was downloaded and stored once per label plus
+  once more in All Mail, because Gmail shows every label as an IMAP folder. A first backup
+  transferred several times the mailbox size against Gmail's daily download limit, every newly
+  labelled message was downloaded again per label, and a restore to another provider created a
+  copy per label. Messages are now downloaded once, from All Mail, Spam and Trash, and their
+  labels are kept with each message. INBOX, Sent and every label folder still hold their
+  messages in the restore point, so they can be browsed, exported and restored on their own as
+  before; their copies take the content of the All Mail message without a download. If All Mail
+  is hidden from IMAP in the Gmail settings, the account is still backed up folder by folder and
+  every run says so in a warning.
+- Mail backup: a Microsoft 365 mailbox with an online archive (In-Place Archive) gave no sign
+  that the archive is not backed up. Mail that a retention policy or the user moved there was
+  reported as removed by Graph, left the new restore points, and the run stayed green. Every run
+  now asks Microsoft whether the mailbox has an online archive and, if it has one, ends with a
+  warning that it is not covered (Graph offers no generally available way to read it). When
+  Microsoft does not answer that question (a missing permission, the beta interface not
+  available), the run also ends with a warning, saying that Restow could not check, and the next
+  run asks again; only a proven "no archive" leaves the run green.
+- Mail backup: when the consent was revoked or an Application Access Policy was added while a
+  Microsoft 365 mailbox backup was running, every further folder became a warning and the run
+  committed a restore point that carried those folders forward without reading them, shown as
+  "completed with warnings". Once the mailbox itself refuses access, the run now fails with the
+  access cause and keeps no such restore point; a refusal of a single folder stays a warning.
+- Mail backup: a Microsoft 365 message whose content changed while its subject and preview stayed
+  the same kept its old copy in the backup: an attachment removed from a received mail in
+  Outlook, or its text edited after the first 255 characters. The backup now also compares the
+  message's text and its list of attachments and downloads the message again when they changed.
+  Flag, read-state, category and retention changes still download nothing. When Microsoft does
+  not answer that check for a changed message, the stored copy is kept, the run ends with a
+  warning instead of green, and the next run checks the message again. A copy stored before this
+  version is downloaded once more on its next change.
+- Mail backup: a Microsoft 365 message stored as JSON (too large or not convertible to MIME) lost
+  the Content-ID of its inline attachments, so after a restore the images in its HTML body were
+  broken. The Content-ID is now backed up and restored. Messages stored as JSON by earlier
+  versions do not have it and cannot be repaired.
+- Mail backup: attachments of calendar events (an agenda attached to a meeting, for example)
+  were not backed up and nothing said so. They are now backed up with each event of a user's
+  calendars, also those attached to a single moved occurrence of a series, and read again only
+  when the event changes; an attachment that cannot be read is reported as a failed item. The first run after the update adds them for all events that still
+  exist. Group calendars do not hand attachments to Restow: a run whose group calendar has
+  events with attachments now ends with a warning that says so.
+- Group backup: when Microsoft Graph refused the attachments of group conversation posts to
+  Restow, the posts were backed up without their files and the run was green. Such a run now
+  ends with a warning naming the number of posts concerned, and the posts are marked as backed
+  up without attachments. Once Graph hands the attachments out, the next run adds them. A mail
+  forwarded as an attachment to a post, and a file Graph lists without its content, were left
+  out silently as well; they are now read on their own and kept with the post, a OneDrive or
+  SharePoint link attachment is recorded by name, and an attachment that cannot be read ends
+  the run with a warning and is read again on the next run.
+- Group backup: when Microsoft Graph refused the full event list of a group calendar and Restow
+  read it through the calendar view (five years back to two years ahead), every backed-up event
+  outside that window was removed from the new restore point, although it still existed. Such
+  events are now kept as last backed up, and the run ends with a warning that the group calendar
+  was read within a time window only.
+- OneDrive and SharePoint backup: a file or shortcut that one run could not read (a checked-out
+  file, for example) lost its author, its last editor and its sharing when the next run fetched
+  it again: the snapshot showed a shared file as not shared, and a shortcut was dropped without a
+  word. Such items are now stored as completely as any other, and a file whose content is
+  unchanged keeps what the earlier backup knew about it.
+- OneDrive and SharePoint backup: a file or folder whose only change was its sharing (shared
+  with the organisation or through a link after its last edit, or no longer shared) kept its old
+  sharing in every later restore point, because the incremental backup never heard of the
+  change. Restow now asks Microsoft for sharing changes too, with the sharing each item inherits
+  from its folder, and records the current sharing without downloading the file again; a sharing
+  change that cannot be read is reported as a failed item and read again on the next run.
+- OneDrive and SharePoint backup: an item that Microsoft listed without saying whether it is a
+  file, a folder or a shortcut was skipped with a line in the log only, and the run was green; a
+  new file that arrived this way was missing from every restore point until it changed again.
+  Restow now asks Microsoft for the item itself and backs it up; an item that still cannot be
+  told apart is reported as a failed item and tried again on the next run.
+- OneDrive and SharePoint backup: a downloaded file was checked only for its length, so bytes
+  of the right length but the wrong content were stored as a good copy, and restore checks
+  confirmed them (they compare with what was stored). When the server announced no length, the
+  bytes were not checked at all. Restow now compares every downloaded file with the QuickXorHash
+  Microsoft reports for it (files of another size than reported, such as Office documents
+  SharePoint rewrites on download, carry no hash to compare with) and, without an announced
+  length, with the reported size; such a rewritten Office document is then taken when its
+  bytes form a complete ZIP, so it does not fail on every run. A file that changed while it was read is stored as its newer
+  version; any other mismatch keeps the last good copy, is reported as a failed item and is read
+  again on the next run.
+- OneDrive and SharePoint backup: a file that could not be read and was deleted later in the
+  same run (or a file in a folder deleted later in the same run) stayed in the run's failed
+  items and was tried again on the next run, although it no longer existed. Such failures are
+  now taken back; a folder moved out of the deleted one in the same run keeps its files' failures.
+- SharePoint backup: a document library that Microsoft refused to Restow (403, 404, 423) kept its
+  files from the previous run in the new restore point, with nothing in the restore point saying
+  so; it looked as current as the libraries that were read. The library folder is now marked as
+  carried forward from an earlier run, with the time its files were last read, and `site.json`
+  says the library was not read in this run. The run still reports the library as a failed item.
+- Mail restore: a message backed up in the JSON format (Graph had refused its MIME export: larger
+  than about 150 MB, protected with IRM or not convertible) could not be restored into a mailbox.
+  The backup stores the message with its transport headers (Received, DKIM-Signature, Message-ID
+  and the like), the restore sent them back, and Graph refuses every header that does not start
+  with `x-` on a new message (400 `InvalidInternetMessageHeader`), so each such message failed.
+  The restore now sends only custom `x-` headers (at most 5, without the ones Exchange stamps on
+  delivery) and says how many transport headers stay in the backup. A message that was not a
+  draft also comes back as received mail with its own received and sent dates instead of a draft
+  dated the day of the restore (the properties `PidTagMessageFlags`,
+  `PidTagMessageDeliveryTime` and `PidTagClientSubmitTime` are set when it is created); if
+  Exchange still shows it as a draft or with other dates, the message is "Not confirmed" with the
+  reason.
+- Mail restore: no message larger than about 3 MB could be restored into a mailbox. The restore
+  sent every message as one base64 MIME upload, Graph takes at most 4 MB in one request and
+  refused it (413), and the item failed with "restore it as a download (EML) instead"; an ordinary
+  mail with a 5 MB PDF was enough. Before Graph refused it, a 100 MB message also took about
+  230 MB of memory. A message whose base64 MIME is larger than 3.5 MiB is now created from its
+  header and body, and its attachments are added one by one (from 3 MB through an upload
+  session, up to 150 MB each), with inline images and attached messages (as .eml); the backup
+  is read twice as a stream and no attachment is held in memory. Afterwards the message's
+  attachments are listed and compared by name and size. What does not come back (transport
+  headers such as Received and References, the exact MIME) is said on the item; an attachment
+  that could not be added or that the message does not list, or a different Message-ID, makes it
+  "Not confirmed". Images an HTML body carries inline as `data:` URIs (a newsletter) become inline
+  attachments so the body fits one request; a text that is larger than 4 MB on its own still
+  cannot go into a mailbox and fails with "restore it as a download (EML)". A message of this
+  size without a recorded draft state (a group conversation post) is created as what its MIME
+  import would be, received mail when its header has Date and From, instead of a draft dated the
+  day of the restore that still counted as confirmed; a message from the JSON fallback whose
+  draft state the backup does not record and that Exchange shows as a draft is "Not confirmed".
+  An encrypted (S/MIME, PGP/MIME), opaquely signed or rights-protected (Purview) message of this
+  size is not rebuilt, since Exchange could not open or check the result: it fails with the hint
+  to restore it as a download (EML). A signed message (multipart/signed) is restored readable,
+  with its signature file attached, but "Not confirmed", because the signature no longer
+  matches. Up to that size such messages are imported as they are and keep their protection.
+- Mail restore: when Exchange carried out a create but its answer was lost (the gateway answered
+  504, no answer came in time, or the connection broke), nothing checked whether the item already
+  existed. A message was then reported as failed although it was in the folder, or, sent again,
+  ended up there twice; a folder whose create was sent again failed the message with 409; a
+  contact or an attachment could be duplicated. The restore now looks first: a message by its
+  Message-ID in the target folder (a copy the folder did not have before the restore is the one
+  the create made), a folder by its name (also after a 409), an attachment by name and size on
+  its message, a contact by name and address. Exchange may still be working on the request when
+  the gateway gives up (a large import into a throttled mailbox commits a minute later), so it
+  keeps looking for about two minutes before anything is sent again. What it finds is kept and
+  the item says so (it counts as restored, without the confirmation a matching item gets); only
+  what none of the looks found is sent once more, and when the first create still made its copy
+  after all, the message or attachment is "Not confirmed" with both copies named. An event is
+  sent once more
+  with the same `transactionId`, so Exchange returns the one it made. A message without
+  Message-ID and a contact that is not found are never sent again but reported, so that no second
+  copy is made.
+- Mail restore: a restore job that was retried (after an update's drain, an expired attempt or a
+  lost IMAP connection) only had the target to tell what its earlier attempt had done, and that was
+  not enough. Into a server that re-renders what it stores (Exchange over IMAP) every message the
+  first attempt had appended was appended again, as was every message without Message-ID; in
+  Exchange a message whose create had gone through but whose attachments or flags never followed
+  was skipped as "already restored", without its attachments and without a failure. A restore job
+  now keeps its own record of what it restored (a finished message, or one that exists but still
+  waits for its attachments), one database row per item, written in batches of only what is new,
+  so the record of a mailbox with a million messages costs no more per batch than that of a small
+  one; it is dropped when the job ends. An attempt that restored nothing writes nothing, so a
+  restore stuck on one item until its time limit still uses up its retries and fails instead of
+  continuing for free for up to 21 days. A retry reports what an earlier attempt
+  restored as "restored by an earlier attempt of this job" with that attempt's verdict, finishes a
+  message that still lacks attachments (only the missing ones are added) and never restores a
+  message twice. For the moments the record does not cover yet, a rename-mode retry now also takes
+  a copy that the server re-rendered (only for a Message-ID that occurs once in the restore, so two
+  different messages with the same Message-ID are still both restored), finds an IMAP message
+  without Message-ID by size and SHA-256 within a day of its date (a server judges the day in its
+  own time zone, so a message from late in the evening is on the next day there), and adds missing
+  attachments to an Exchange message it finds in its restore folder. In "skip" mode such an
+  identical message in the original mailbox is skipped as already there, not reported as restored
+  by an earlier attempt, since the mailbox may have held it before the job.
+- Mail restore: an imported mailbox (PST, MBOX, EML) or an IMAP backup restored into a Microsoft
+  365 mailbox lost its read state, follow-up flags and keywords, yet every message counted as
+  confirmed. The restore only read Exchange's own properties; the IMAP flags were ignored. `\Seen`
+  now sets the read state (unread without it), `\Flagged` the follow-up flag, keywords become
+  categories, and flags Microsoft 365 has no counterpart for (`\Answered`, `$Forwarded`) are
+  named on the item. Folder names came from the escaped path ("100%" became "100%25", "A/B"
+  became "A%2FB"); they are now the real mailbox names, and in "skip" mode `INBOX` goes into the
+  target's inbox and a mailbox with a SPECIAL-USE (`\Sent`, `\Drafts`, `\Trash`, `\Junk`,
+  `\Archive`) into the matching folder, instead of new top-level folders "INBOX" and "Sent".
+- Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
+  or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
+  no draft in the backup and Outlook shows it as an unsent draft. The draft state of every
+  restored message is now compared with the backup (`isDraft` of an Exchange backup, `\Draft` of
+  an IMAP backup or import); a difference makes it "Not confirmed" with the reason.
+- Mail restore of a Gmail or Google Workspace backup: every message came back once per label and
+  once more for "All Mail". Gmail shows a message in every mailbox that is one of its labels, and
+  each mailbox was restored on its own, so a whole-account restore into another server or into
+  Microsoft 365 (a migration, or after the account was lost) wrote a message with three labels
+  four times; into Gmail itself it also came back as separate copies. Each message is now restored
+  once, into the folder its labels point to (Inbox, then Sent, Drafts, Trash, Spam, then its first
+  own label, else the archive), and its other labels follow: into Gmail as labels again, on
+  another IMAP server as keywords, in Microsoft 365 as categories; Starred becomes the flag. A
+  server that keeps no new keywords is not sent any, and the result names the labels that are
+  lost, as it does when Microsoft 365 refuses the categories and the flag of a message. A retried
+  restore into Gmail that finds a message its earlier attempt appended adds the labels as well,
+  in case that attempt ended before them. The objects of the backup that stood for the other labels are listed as skipped with
+  what became of their label, and Gmail's Important and Starred are not created as folders on
+  another server.
+- Mail restore: an event that had attachments counted as confirmed although nothing of its
+  attachments came back. Backed-up event attachments are now added to the restored event (from
+  3 MB through an upload session, up to 150 MB each) and confirmed on it by name and size; those
+  of a moved occurrence of a series go onto that occurrence once its changes are applied again,
+  and an attached item (a forwarded mail, an event) comes back as a file with its content as
+  JSON. An event whose attachments the backup does not hold (a backup that did not save them, a
+  group calendar) is "Not confirmed" with the note that its attachments were not part of the
+  backup.
+- Group conversations: a post whose attachments Microsoft did not hand out to the app (or some of
+  which could not be read at the backup) came back from a restore or a ZIP download as
+  confirmed, and the restore explorer showed it like any other post, although its files were
+  never backed up. Such a post is now "Not confirmed" with the attachments it lacks, and the
+  explorer shows "Not all attachments backed up" on it, naming both causes. An EML ZIP or
+  MBOX export of such posts reported every one of them as exported and finished clean; they are
+  now listed with the status `incomplete` and the reason in `MANIFEST.csv`, counted and named
+  on the export page ("Mails without all their attachments"), and the export shows "Completed
+  with issues".
+- Restore job page: the explanation of a skipped item did not always fit. An event attachment
+  read "Belongs to a message that was not restored", also when its event was skipped because the
+  calendar already had it; an attachment inside a restored message's MIME, a Gmail message under
+  a further label, and Gmail's Important and Starred folders read "The target already holds this
+  item", although the target held no such item. Such items now say that they belong to an item
+  (a message or an event) that was not restored, belong to an item that already exists, were
+  restored with another item, or are no item of their own in the target (carried as a label,
+  category or flag).
+- Restore into another IMAP account: the target was stored as the bare login and looked up without
+  order, source or status, so with two IMAP sources that know the same login (an old and a new
+  server during a migration) a restore could write into the wrong server while the job reported
+  success, and it could even pick an account that is no longer protected. The dialog now sends the
+  chosen account itself (its suggestions name each account's source), the API records the
+  account's id and the worker resolves exactly that active account. A login that more than one
+  active account has is refused with the sources named ("Choose the account from the
+  suggestions"); a login that only one account has, as sent by older API clients or jobs queued
+  before the update, still works. A restore of an imported mailbox into a Microsoft 365 mailbox
+  whose address two mailboxes of the tenant share is refused the same way instead of picking one.
+  The job list, the job page and the audit entry name the target account by its login and source
+  ("Into info@contoso.test · New mail server"), not by its id.
+- OneDrive/SharePoint restore: in "rename" mode an Office file of a SharePoint or OneDrive for
+  Business library came back as a numbered copy ("Report 1.docx") next to the unchanged original,
+  and every retry of the job (after an update's drain or a restart) added one more ("Report
+  2.docx", ...). SharePoint rewrites the document properties of an Office file on download, so the
+  backup holds other bytes than the library, and the duplicate check compared the library's size
+  and hash with the backup's. The unchanged original is now recognised by the size and hash the
+  library reported at backup time, the backup's own hash is used for everything else, and the job
+  records which item it uploaded for which file, so a retry never uploads it again. Such files
+  were also marked "Not confirmed" after every restore because the sent bytes were compared with
+  the hash the library reported at backup time, which belongs to the library's rewritten copy;
+  that comparison is gone. A library that rewrites the uploaded file as well (the usual case for
+  SharePoint document properties) still reports another size or hash than was sent, and the file
+  stays "Not confirmed" with that size or hash as the reason: Restow cannot check what the
+  library made of it.
+- OneDrive/SharePoint restore: a OneNote section could not be restored into its notebook while
+  the notebook was still there (the usual case: one section deleted or damaged). OneDrive lists a
+  notebook as a package, not as a folder, and the restore stopped at it with "a file with that
+  name exists", so the notebook and every section below it failed in every mode. A notebook in the
+  target is now treated as the folder it is, and the sections go into it.
+- SharePoint restore: a library Graph refused at a backup keeps the files of the last run that
+  could read it, but a restore and the restore explorer showed them as if they were that backup's
+  state. The library and every file restored from it now say that the library could not be read
+  at this backup and from when its files are, and the explorer shows "Library not readable at
+  this backup" with that date on the library. The files keep their normal verification.
+- OneDrive/SharePoint restore and mail restore: a large file started again from its first byte
+  after any hiccup on one of its fragments. A 500 or 502 from SharePoint, a connection that broke
+  while a fragment was sent, or a fragment sent once more after a timeout (which the session then
+  refused with 416) failed the whole file, and the half-finished upload session was left open on
+  the target; a retry of the job uploaded it again from 0. A 40 GB file needed some 4,000
+  fragments in a row without a single error. The restore now asks the session what it holds and
+  sends only what it lacks, up to six times per fragment with a growing pause; a file reads that
+  part again from its backup, also one the session lost. When it gives up, the upload session is
+  cancelled. The same applies to attachments from 3 MB that are added to restored messages.
+- Mail archive: a resync asked for while a pass ran that a change notification or IDLE had
+  started was still lost. The end of that pass cleared the mailbox's "new mail" mark, and the
+  next pass then counted as a scheduled one because the request was only looked at when the mark
+  was set: Graph skipped the full catch-up, IMAP did not rescan, and the request was removed as
+  if it had been carried out. A resync request now decides the next pass by itself, keeps the
+  mailbox marked until it ran, and only the pass that ran as that resync clears it (a request
+  made during that pass stays for the next one).
+- Mail archive (security): any mail that carried an `X-MS-Journal-Report` header, or whose first
+  part merely looked like a journal report's envelope (`Sender:`, `Message-ID:`, a recipient
+  line), was processed as an Exchange journal report, also at the archive address of an IMAP
+  account. An outsider who mailed an archived user whose provider copies mail to the archive
+  could so plant an item labelled `journal` into every mailbox of the tenant the forged envelope
+  named, and the mail the user actually received was replaced by its attachment. Only a mail
+  with the header sent to the tenant's journal address alone is now taken as a journal report;
+  everything else, a copy to an account address always, is archived as received (source
+  `smtp_forward`) and, when it is built like a report, flagged `journal-shaped`. docs/IMAP.md
+  describes how to restrict port 25 to Exchange Online.
+- Mail archive: capture from a mailbox (Graph and IMAP) skipped every mail whose Message-ID the
+  archive already held for the mailbox, before downloading it. A second mail with the same
+  Message-ID and other content (a ticket or notification system that reuses its ids, a resend
+  with edited content, a sender who copies an archived mail's id on purpose) was therefore never
+  archived and only counted as skipped, although the archive's own rule keeps both and flags
+  `message-id-conflict`. A Message-ID now skips the download only together with a cheap check
+  that it is the same mail: for IMAP the size (RFC822.SIZE) or the Date header (ENVELOPE),
+  for Graph the Date header (`sentDateTime`). Anything else is downloaded and decided by the
+  append, which merges a true duplicate and keeps a different mail. A rescan after a
+  UIDVALIDITY change still downloads nothing that is archived already, also on Exchange, whose
+  RFC822.SIZE is an estimate unless `EnableExactRFC822Size` is set (by size alone it would have
+  downloaded the whole mailbox again after every mailbox move).
+- Mail archive: the one-time takeover of a mailbox's existing mail (the backfill) could restart
+  forever or never run. Its position lived only in the job's cursor, and a continuation after the
+  time budget (2 hours for Graph, 30 minutes for IMAP, the latter only checked between folders)
+  is a new job with an empty cursor, so every continuation started again with the first folder:
+  quadratic work, and for a large mailbox a backfill that never got past its biggest folder. The
+  backfill was also queued exactly once, at activation: a failed enqueue, a job that used up its
+  retries during an outage, or a run skipped while the stream was off left the stream
+  "taking over" for good with no alert, and its older mail never reached the archive. The
+  position is now kept on the capture stream (migration 0080 `backfill_cursor`), IMAP also stops
+  inside a large folder, every capture pass queues the backfill again when none is queued or
+  running (after a failed job, and after one that ended waiting to retry what the server
+  refused, once an hour: before, such a job ended plainly completed and the next pass queued a
+  new one at once, hitting an account under Gmail's cap again on every pass; it now lists what
+  waits as failed items), a failed backfill job can be retried under Jobs,
+  and a takeover not done after 48 hours or whose last job failed is shown as stuck on the
+  archive page and raises the capture alert `backfill_stalled`.
+- Mail archive: IMAP capture dropped mail with only a warning in the log, and the account stayed
+  "live". The takeover of the existing mail marked a folder done on any NO to EXAMINE, a
+  throttling cap such as Gmail's "[OVERQUOTA] Account exceeded command or bandwidth limits"
+  included, and gave up a message the server listed but did not deliver after one try; live
+  capture never reads below that point, so the folder's or message's older mail never reached
+  the archive. The catch-up skipped folders whose STATUS or EXAMINE failed and dropped the count
+  of messages it gave up on. Now a server limit stops the takeover and the catch-up without
+  counting against any folder (on STATUS, EXAMINE or FETCH; Gmail's cap lasts hours while a
+  takeover downloads the account, and every live pass would have counted it), the next job or
+  pass resumes; a folder refused otherwise and an undelivered message are tried again by the
+  next jobs and only given up after three. The takeover counts a folder as a gap of its own (`backfill_folder`,
+  migration 0087), apart from the live capture's: a live pass that only asked STATUS no longer
+  resets its attempts (a folder that refuses EXAMINE was never given up), and failures of both
+  no longer add up, so a folder refused for two passes is not given up and then marked done by
+  the next live pass with its older mail missing; only a takeover of that older mail (the
+  backfill, or a resync that reads the folder from the start) resolves it. Whatever is given up,
+  by the takeover or the catch-up, is kept as a
+  capture gap (migration 0081 `archive_capture_gaps`): the archive page shows the way and the
+  mailbox as incomplete with the count, `GET /api/v1/archive/capture/mailboxes/:objectId/gaps`
+  lists them, the capture alert `capture_gap` names them, and a gap that is taken in later is
+  resolved.
+- Mail archive: Graph capture lost old mail that a user moved into a folder made while the
+  takeover of the existing mail ran. The takeover fixed its folder list when it started, and the
+  catch-up's first look at the new folder left every mail received before capture started to the
+  takeover, then stored the folder's delta link, so nobody ever read those mails again (certain
+  without change notifications). The catch-up now remembers the folders the mailbox had when
+  capture started and reads a folder made later in full, and the takeover lists the folders again
+  before it reports completed and takes over the new ones.
+- Mail archive: the takeover of a Microsoft 365 mailbox's existing mail skipped one older mail
+  for every mail the user deleted or moved out of the part of a folder already read. It paged
+  each folder with Graph's nextLink, which for a folder's messages is an offset (`$skip`), over
+  hours or days of continuations; each removal shifted the rest by one, and the catch-up leaves
+  mail received before capture started to the takeover, so those mails never reached the
+  archive (an Inbox of 80,000 mails with 40 newer mails deleted meanwhile lost about 40). The
+  takeover now pages by received time, oldest first, and asks each page afresh from the last
+  one's time; a takeover in progress pages its current folder again from the start (held mail
+  is skipped without a download).
+- Mail archive: Graph capture dropped for good every message whose MIME export failed and logged
+  it as "too large for a MIME export". Two transient HTTP 500 on `$value` in a row, and items
+  Exchange cannot convert to MIME (IRM, corrupt items), ended up there as well as mail over
+  ~150 MB, and the message was marked handled, so no later pass asked for it again. A 5xx now
+  keeps the message pending (a catch-up and the takeover put it into the pending list) and it is
+  fetched again on the next passes, given up only after three failures; a message too large or
+  not convertible is recorded as an open capture gap at once (`too_large`, `not_convertible`,
+  `export_failed`), shown on the archive page and named by the capture alert.
+  Attempts counted once per pass, with no time between them, so an outage of minutes still lost
+  mail for good: with a full batch of 500 announced messages passes ran back to back, and
+  Exchange answering 500 on `$value` for two minutes during a backlog made 600 fetchable messages
+  gaps nobody asked for again; an IMAP folder or message the takeover gave up after three jobs
+  (about half an hour) was just as final. An attempt now counts at most once an hour (migration
+  0088), so a gap opens after two hours of failures at the earliest; a pending message that
+  failed or whose export failed waits before its next fetch (10 minutes, doubling, at most an
+  hour; the mailbox is due again then), also when passes run back to back; and an open gap that
+  may succeed later is asked for again once a day: an undelivered IMAP message, the older mail
+  of a folder the takeover gave up (read from its first UID), a Graph message whose export or
+  fetch failed. One too large or not convertible is not.
+- Mail archive: a captured mail could be committed with a chunk that existed nowhere. Capture
+  reuses a chunk the store already holds, also one an expired backup left unreferenced, and
+  scrub's garbage collection does not wait for continuous capture or the journal receiver: when
+  it collected such a chunk between the upload and the commit, the reference landed on nothing
+  and the item could never be read back. The commit now checks after taking its references that
+  every chunk still exists; if one is gone it releases them, stores the mail again (the missing
+  chunks are written anew) and commits then.
+- Mail archive and storage: the sealed record of each archived mail
+  (`tenants/<tid>/archive/`) was never copied after it was written. A copy target added later
+  never received the records written before it, a `move` of the primary left them only on the
+  old location, the completeness check before promoting a copy did not count them, and the old
+  location could be removed while it held the only copy of years of records with their Object
+  Lock retention. The copy mirror of the storage check, the migration and the completeness
+  check now include them, each written with the item's retention (records of items deleted
+  after their retention are left out), and removing an old location is refused while it holds
+  a record no current target has. The copy dialog lists "Sealed archive records". The storage
+  check's mirror reads the records from the catalog, a page at a time, instead of listing the
+  whole archive prefix and looking up every record's retention on every check (for a tenant
+  with millions of archived mails: a listing of several hundred MB in the worker, thousands of
+  catalog queries and a check of every record on every copy each time, so the check ran for
+  hours and the pack mirror and garbage collection after it were delayed): a scheduled check
+  copies only the records written since the last one reached, a full check and the first check
+  after a copy is added or changed go through every record.
+- Mail archive: the deletion run after the retention period read the legal holds and every
+  due item of a tenant once (a whole capture year under the default "end of year" rule) and
+  then deleted item by item. A legal hold placed while it ran did not stop it for the items it
+  had not reached yet, the list of all due items sat in the worker's memory, and a cancelled
+  job did not stop. The run now reads the due items in batches of 500 in retention order (an
+  index, migration 0082), checks the legal hold inside the delete statement itself and writes
+  the audit entries in the same transaction, and stops between batches when the job is
+  cancelled.
+- Mail archive: the first deletion after the retention period made the archive check report a
+  broken chain for good. The deletion run removed the item and with it its chain link, so the
+  check recomputed the next entry against a predecessor that was gone, and every daily anchor
+  after the deletion pointed at a shifted position; a real deletion by hand could no longer be
+  told apart. The run now keeps the link of each deleted item as a tombstone (hash, time,
+  previous and own chain hash, position; no content; migration 0083, append-only), written in
+  the same statement as the delete. The check walks items and tombstones together, counts them
+  for the anchors (so do the nightly anchors) and reports "deleted after the retention period"
+  separately from a break; a row removed without a tombstone is still a break. The next capture
+  after a deleted newest item links to its tombstone.
+- Mail archive: the deletion run after the retention period removed only the item's row in the
+  database. The chunk references the item held were never released, so storage only grew, and
+  its sealed record stayed on the primary and every copy, so the "deleted" mail could still be
+  rebuilt, while the audit log said it was deleted. The run now releases exactly the item's
+  references in the same transaction (chunks a backup or another item still uses keep theirs;
+  garbage collection decides), and deletes the sealed record on the primary and every copy. A
+  target that refuses (Object Lock still active, an outage) keeps the record queued (migration
+  0084) for the next run; the run reports it as deferred and audits it, never as deleted.
+- Restore check: the attachments of Exchange messages stored as JSON with separate attachments
+  (messages too large for a MIME export) and the earlier versions of OneDrive files were never
+  read back, not by the weekly check and not by a health check, although the health check is
+  described as reading every object. A message whose attachment chunk was missing from the
+  chunk index was rated green. A sampled message now has its attachments read with it and a
+  sampled file three of its versions (the newest, the oldest and one at random; OneDrive keeps
+  up to 500, and reading all of a sampled 1 GB file would read hundreds of GB and run the weekly
+  check into its deadline); a failing attachment or version counts against the message or
+  file with its cause ("items missing" and so on). The health check reads every attachment and
+  version, also one whose message is not in the snapshot, and the versions of a file emptied to
+  0 bytes (they hold its real data; the empty file itself is no item to read).
+- Restore check: a backup whose run could not back up some items (a folder denied on every run,
+  hundreds of failed messages) was rated green as long as what it held read back fine, on the
+  readiness page, in the tenant rating, the statistics and the `verify.completed` webhook; only
+  the run in History said "partial". The rating now takes the failed items of the run that made
+  the checked backup into account: yellow ("the backup is incomplete") while items failed, red
+  for items that failed in each of the last three runs. Green needs an intact read-back of a
+  complete backup. The `job.completed` webhook of a backup now carries `failedItems`.
+- Restore check: a backup whose manifest was deleted on every storage target (a lifecycle rule
+  on the manifests prefix, a cleanup by hand) kept its last green rating for good. Every check
+  ended "not completed", which rates nothing, and the storage check read only packs; an object
+  no longer backed up (removed from its source, in no job) stayed green forever, although
+  nothing could be restored from that backup. A manifest that no target has, while the same
+  targets still hold the tenant's keys or other manifests, is now evidence: red "the index of
+  the latest backup is gone" (`manifest_missing`); an emptied or unmounted target still leaves
+  the check incomplete. The storage check asks every target for the manifest of each active
+  backup (a sample run: the newest of each object) and files the same red finding, named by the
+  `scrub.corrupt` alert. Three checks of the same backup in a row that could not complete now
+  rate it yellow ("the last checks could not complete", `check_incomplete`) with a "needs
+  attention" alert, so an old green no longer counts as proof while nobody can read the backup.
+- Restore check: a mailbox whose backups stopped right after a green check (an expired Entra
+  secret, say) stayed green on the readiness page, in the tenant rating, the integration API and
+  the statistics until the next weekly check, although the check itself rates a backup older
+  than 48 hours yellow and one older than 7 days red. The age of the newest backup was rated only
+  when a check ran. It is now judged when the view is built, the worse of the check's rating and
+  the age counts, and the reason ("the latest backup is n hours old") is listed with the current
+  age. Objects removed from their source or in no backup job are still rated without it. The
+  same rule applies wherever an object's rating is shown: the integration API (`/v1/objects`,
+  `/v1/users`), the directory's mailbox list and a backup job's members, which still showed the
+  stored green until the next check.
+- Restore check: a rating that stayed red or yellow raised nothing when its cause got worse. A
+  mailbox red only because its newest backup was too old ("Backup too old") gave no new alert
+  when the next check found messages missing, unreadable or different, its manifest unreadable
+  or the test restore failing, so the operator kept acting on "merely too old"; a yellow that
+  gained a new cause (a pack the storage check cannot read, items the backup could not back up,
+  an unconfirmed test restore, checks that could not complete) was just as quiet. Such a check
+  now raises `verify.red` again with the "a restore would not be complete" wording
+  (`previousRedReason: "outdated"` in its details), or `verify.yellow` for the new cause. Damage
+  the storage check finds still raises `scrub.corrupt`.
+- History: a restore check that rated a backup red (a pack the storage check found damaged, a
+  backup more than seven days old, a failed test restore) was listed as a neutral "Completed"
+  whenever none of its sampled items failed, next to "Completed with failed items" for a red
+  check that did fail items; the rating was only in the run's detail. A finished mail restore
+  check now takes its state from its rating: red reads "Check failed: not restorable" (state
+  `failed`), yellow "Check needs attention" (`partial`), green "Restorable"; the run carries
+  `checkReadiness`. A check that could not complete still reads "Not completed, will be
+  repeated".
+- Mail archive: an announced Graph message that could not be fetched other than with 404 (a
+  403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
+  queue. A pass in which no announced message could be fetched failed and skipped the
+  catch-up, so a single such message could put the mailbox's capture into error with backoff,
+  and 500 of them blocked every newer notification. Such a pass now succeeds and runs the
+  catch-up; each pending message counts its failed attempts (migration 0085), those tried least
+  come first, and after five failures the message is recorded as an open capture gap
+  (`fetch_failed`) and left to the catch-up. The catch-up and the takeover no longer fail on
+  such a message either: a 403 (or 400, 409, 422) on its MIME export failed the catch-up at
+  that message on every pass, its delta position was never saved and newer mail of the folder
+  was blocked; it is now counted like a failed export and given up as a gap (`fetch_failed`)
+  after three attempts, and the run goes on.
+- Mail archive: IMAP capture left out every folder whose name was a Drafts name (Drafts,
+  Entwürfe, Brouillons, Borradores, Bozze, Concepten) wherever it sat, so the received mail a user
+  filed under "Kunden/Bozze" or "Projekte/Acme/Drafts" never reached the archive, without a
+  warning. Only the folder marked `\Drafts` is now left out; a server that marks none has a
+  folder skipped by its name only at the top level or directly under INBOX. Drafts in any other
+  folder are still skipped by their `\Draft` flag.
+- Mail archive: a journal report Exchange sent again, because Restow's 250 was lost or came
+  after Exchange's timeout, became a second item: search, export and archive restore showed the
+  mail twice for every mailbox it belonged to. Each journal item now keeps the hash of its report
+  as delivered, transport fields (Received, Return-Path, DKIM and ARC signatures) left out
+  (migration 0086 `report_hash`, unique per tenant); the same report again is answered with 250
+  before it is parsed and adds nothing, also when both deliveries arrive at once. Another report
+  for the same mail (other recipients, another journal rule) stays an item of its own.
+- Mail archive: the archive check with a content sample counted a storage outage as failed
+  integrity. Every read error, a 503 or a timeout of the storage and a reader that could not
+  be opened included, made the sampled messages content failures ("Check not passed"), and the
+  audit entry `archive.chain.verified` recorded `ok: false` with their ids; a chunk really
+  missing or damaged got the same label "Not readable from storage". Only evidence now fails
+  the sample, each with its cause: missing, damaged or different from its checksum. A message
+  storage did not deliver is not checked; the check then reads "Not checked, please run again"
+  (`ok: null`) instead of failed, and the audit entry records the cause per failed item and the
+  number not checked.
+- Old images filled the disk: neither the updater nor the demo reset ever removed the images of
+  earlier releases, the updater only refused an update when the space was short. A demo host
+  that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
+  its disk ran full and PostgreSQL stopped. Both now clean up after a successful update or reset
+  (see Added). For updates by hand (`docker compose pull` and `up -d`, `install.sh`),
+  docs/UPDATING.md gives the commands that remove old Restow images safely (only version tags
+  older than the previous release, in the repositories of `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`
+  from `.env`), and its duplicated heading "Disk space" is gone.
+- Servers & clients › Jobs: the detail panel of a running Proxmox VE job showed only how many
+  guests of its round were done, run and wait, with no live progress and no speed graph, unlike
+  a mail, machine or file share job's panel. It now lists the guests the round backs up at this
+  moment, each with its progress bar, what its node has read and its speed, and the small line
+  of that speed over the last minutes (sampled as on the start page's "Running now"), and a
+  boot test the job started, marked as one (it reports no progress, so it has no bar); the
+  panel of a backup asked for by hand shows the same for its guest. The percent beside the
+  job's state in the list moves with the running backups' progress instead of only when a guest
+  finishes (a boot test is not part of the round), and a backup asked for by hand shows its own
+  percent there. The live channel's Proxmox VE runs (and "Running now" of the start page) carry
+  the job that started a run as `jobId`, and as `jobName` the job of the round for a guest that
+  a job over all guests covers (it was empty there). The live channel now carries up to 500
+  running Proxmox VE runs of a tenant instead of 51, so the panel of a busy tenant's job lists
+  every guest of its round; the start page still lists 50 and says that more go on. The web app
+  matches the runs of an older server by the job's name, and then only backups while the job's
+  round runs guests: such a server cannot tell a backup asked for by hand from the round's.
+- Servers & clients › Jobs: the schedule of a Proxmox VE job on chosen weekdays, monthly or with
+  a cron expression read "every 0 h" in the list and in the detail panel, and a daily one showed
+  its time unformatted. Both now use the words of every other schedule ("Monday to Friday at
+  01:30", "Monthly on day 1 at 03:00", "Custom: …"), as on the Proxmox VE page; the time zone is
+  shown for clock times only.
+- The detail panel and the row of a copy job showed no progress while it copied: its runs are
+  restores of what it copies and were not counted as the job's.
+- Proxmox VE: a restore or a restore check that failed showed as succeeded (green), with the
+  node's error only as a warning, and set the guest's "Last backup" to that moment though no
+  backup ran. This happened for every failure the node reported (PVE refusing a bind mount
+  point to the API token, a full target storage, a restore that ended with an error) and for a
+  restore task the server closed because it expired. The server took the restore point a
+  restore reads for one a backup had committed. Such a run now ends failed with the node's
+  error, or cancelled when it was stopped, and "Last backup" moves only for backups.
+- Proxmox VE: a restore, restore check or boot test whose result never came (restow-pve was
+  restarted while it ran or waited, or the node was offline) showed as succeeded after 48
+  hours, and until then it kept the guest's checks and the node's boot tests waiting. Such a
+  run now ends failed ("The node never reported the result"), a boot test with the outcome
+  "error", which rates nothing, and its task is closed with it. restow-pve from 0.5.0 reports
+  in every heartbeat which tasks it holds: a restore, restore check or boot test it no longer
+  holds fails within minutes instead of 48 hours, and a backup that waits in the node's queue
+  behind a long one no longer expires after 12 hours while it still runs later (a failed
+  backup, a false alert and a second backup the same night). A task the server closed this way
+  is withdrawn from the node. A restore or boot test that never reached the node now expires as
+  well.
+- Proxmox VE: a restore or restore check that succeeded showed plain green, whatever it
+  reported beside it. Nothing read what the node sent: mount points left out of a container
+  (bind and device mount points are not in a backup), raw LXC options PVE skipped for the
+  node's token, the restore task's warnings, host devices the copy shares with the original, a
+  temporary guest the check could not remove, or a start that was asked for and did not
+  happen (a check, which never starts its copy, and a restore without "Start after the restore"
+  are never "not started"). Such a run is now
+  amber with what it was ("Checked without 1 mount point", "Restored with warnings", "Temporary
+  guest 105 could not be removed", "Restored, not started"), and the guest's page and panel
+  list each line with what to do: the commands that put the mount points back as root and the
+  warning that a bind mount put back shares the original's live data. Green is left for a
+  restore that ran to `OK` with nothing to report; docs/PVE-PROTOCOL.md ("Task `restore`")
+  lists each field restow-pve sends and what it does to the run. The restore dialog says that IP addresses
+  stay the same and only the MAC addresses are new.
+- Proxmox VE: every boot test of a container, and every container restore started in the PVE
+  UI, opened a run "Restore" that nothing ended. For 48 hours the guest counted as busy, so its
+  restore points were not checked; with boot tests after every backup that was always the case.
+  Then the run turned green, also when the restore had failed. A boot test now reads under its
+  own run and opens none. A restore started in the PVE UI gets one run however often PVE asks
+  for the credential (never the run of a check or boot test of another restore point of the
+  guest that waits on the node meanwhile), keeps the guest's checks out for two hours at most, and ends as PVE ended
+  it once restow-pve from 0.5.0 reports it: green only for `OK`, amber for `WARNINGS: n`, failed
+  otherwise. Without a report it fails, never green: ten minutes after it started when it never
+  got its credential (it cannot have read anything), else after 48 hours.
+- Proxmox VE: the monthly restore check of a job was planned for the first due guest whatever
+  its node could do, and the guest counted as checked at once. On a node with restores switched
+  off it ended red every month; on a node that was off it waited and expired; with one target
+  storage for VMs and containers (often a VM-only NFS storage) every container's check failed
+  and blamed a backup that was fine; the other guests of the job waited behind it. The worker
+  now takes the guest that waits longest among those whose node allows restores and reported
+  in the last ten minutes, with no restore or boot test waiting and no run going; a guest passed
+  over is not counted as checked, and its page says why. A check restow-pve skips because of the
+  target storage (missing, inactive, without the guest's content type, too small) reads "Not
+  checked" in grey, neither red nor green, and is tried again after a day; skipped again for
+  the same reason, after 2 and 4 days, then weekly, so a storage that stays missing does not
+  add a run "Not checked" to the history every day.
+- Proxmox VE: the list of VMs and containers showed a guest as green "Restore check passed" when
+  its newest restore point had passed the read-back but failed its boot test, while Recovery
+  readiness showed the same restore point red; the filter "OK" listed it too. The row now rates
+  the restore point by both checks, as readiness does: "Boot test failed" (red) for a boot test
+  that did not boot, "Boot test without proof" (amber) for one that started without an answer,
+  and green only when neither stands against it.
+- Proxmox VE: a boot test skipped for a reason that passes (a backup ran on the node, memory or
+  space was short at that moment) or one the node could not carry out was not tried again: after
+  every backup the restore point counted as tested, weekly the next try came a week later, and
+  nobody was told. Such a test is now tried again after 30 minutes, then with a doubling wait (at
+  most 6 hours, five attempts per restore point). A guest whose boot tests came to no result for
+  longer than its schedule allows (two days after every backup, eight days weekly) raises the new
+  event "No boot test result" (`boot_test.skipped`) once, with the last reason, as soon as its
+  newest restore point is no longer being tried (a reason that stays, or five attempts used up)
+  or the skips have gone on that long; a first skip whose retry is still due raises nothing.
+  Rules and the bell can pick it like the other boot test events.
+- Proxmox VE: a boot test whose temporary guest could not be removed left no trace in Restow.
+  When the test failed on the way (isolating the guest or waiting for its restore went wrong),
+  the server discarded the whole result, the VMID and "not removed" included, and the node's log
+  with it; after a rated test the fact was stored but shown nowhere, so a green run could leave
+  a VM taking memory and disk on the node. The server now reads the temporary guest from every
+  result. Its run names it ("The temporary guest 9007 on local-zfs could not be removed"), is
+  amber instead of green or grey, the restore point's boot test says it, and the guest gets the
+  state "Boot test guest left over" with a notice on its page, until an inventory of the node no
+  longer lists that VMID or a later boot test there removed it.
+- Proxmox VE: a container backup that ran longer than 24 hours always failed. Its restic
+  credential expired a day after it was issued, so after that every request of restic (and its
+  progress reports) got 401, and the first backup of a large container over a slow link or with
+  a bandwidth limit started again from the beginning every day. The credential now lives as
+  long as its run: while the run is open and younger than 48 hours (when the worker closes it as
+  stale). A run that ended or was stopped keeps the 24 hours to release its lock.
+- Proxmox VE: the check of a container restore point passed although its restic snapshot was
+  gone from the storage (a lifecycle rule, a cleanup by hand, a move that missed the file):
+  `restic check` checks only the snapshots it finds, and restoring or browsing the point then
+  failed with "no matching ID". The check now first makes sure the snapshot is in the
+  repository's list and carries the tag of the restore point's run; a missing or foreign one
+  fails the check. A list the network or the storage did not deliver this time postpones the
+  check instead of failing it; a restic that cannot be started (missing, not executable) or a
+  damaged repository fails it with restic's words.
+- Proxmox VE: the restic repository of a container grew for good. Retention marked restore
+  points pruned and then ran `restic forget` and `prune` once; when that failed (another run's
+  lock, a file restore reading the repository, the storage, a restart) it was only logged and
+  never tried again, and the snapshots of runs that never committed (a cancel at the end, a
+  refused commit, vzdump failing after the archive step) were never forgotten at all. The worker
+  now compares each container repository with its restore points after a prune and once a
+  day, and forgets every snapshot no active restore point holds: those of pruned points (also
+  ones pruned before this release), and after six hours those of runs that never committed and
+  no longer run (never the snapshot of a run that commits while the comparison reads). A pass
+  that does not get through is repeated an hour later (at once when a restore point was pruned
+  meanwhile); forget and prune wait two minutes for another run's lock. Retention now also
+  leaves a guest alone while a run of it is going.
+- Proxmox VE: a storage whose clock lags the server's by more than 30 minutes (a NAS set to
+  local time as UTC) made every live restic lock of a container repository look stale, and the
+  worker removed it and pruned while the node's restic was restoring, testing or backing up. A
+  lock of a container repository now counts as stale only when the time restic wrote into it is
+  30 minutes old as well; a lock whose own time could not be read at that moment (a timeout of
+  the storage, restic failing) is kept for the next pass and removed unread only once the
+  storage received it more than a day ago; the warning about such a lock says which of the two
+  happens to it. A disagreement of the two clocks is logged as a warning. Endpoint repositories keep the storage rule, where an agent could plant a lock dated
+  in the future.
+- Proxmox VE: guests in the pool `restow-restore` (a restored copy not yet accepted, a leftover
+  temporary guest of a restore check or boot test) were taken by a job for "all guests": a
+  restored copy was backed up as a second guest with the original's name, a boot test's guest
+  got a backup planned that failed once it was gone, and both counted as unprotected or "in no
+  job". Such a guest in no job is now left out of the job for all guests and every count, and
+  the list shows it as "Restored, in restow-restore (move it out of the pool to protect it)". A
+  guest put into a job by hand is still backed up.
+- Proxmox VE: a guest that moved (HA, a migration) to a node of the cluster without restow-pve
+  silently dropped out of backups and of every count: the node it left no longer listed it, so
+  it read "No longer reported" and no job, unprotected count or overdue warning took it. With
+  restow-pve from 0.5.0, which sends the cluster's whole guest list with its inventory, such a
+  guest stays in the list with its node, reads "Node without restow-pve" (amber) and counts as
+  unprotected; only a guest the cluster no longer has is absent. An older node keeps the
+  previous behaviour.
+- Proxmox VE: a restore, restore check or boot test could take the VMID of a guest deleted in
+  PVE whose restore points Restow keeps (PVE hands out the lowest free VMID), and the next
+  inventory turned the copy into that guest: its restore points, job and repository, a backup
+  of the copy into the old guest's chain, and during a check the old guest briefly read present
+  under the temporary name. Restores, checks and boot tests now give the node the VMIDs to
+  leave alone (used by restow-pve from 0.5.0), a VMID typed into the restore dialog that
+  belonged to such a guest needs a confirmation, and another guest that still turns up under
+  such a VMID gets its own row while the old one stays absent with its restore points: another
+  kind, a temporary or restored guest, a container with another hostname, a VM with another
+  SMBIOS UUID and another name. A VM restored with "Unique" into its own VMID (a new SMBIOS
+  UUID, the same name) is the same guest back and keeps its history and job.
+- Proxmox VE: a backup stopped after it had committed its restore point, or whose vzdump failed
+  afterwards (removing the fleecing image, for example), ended "Cancelled" or "Failed" next to a
+  valid new restore point; a cancelled one did not move "Last backup", so the guest could turn
+  overdue. Such a run now ends "Succeeded with warnings" with the node's message, its task done,
+  and "Last backup" moves. A run without a restore point still ends cancelled or failed.
+- Proxmox VE: browsing the files of a VM restore point could show an ext4 file system as it was
+  before its last committed changes, or with blocks in the wrong places, while it said that the
+  journal was replayed. The replay in memory took the revoke records of a last transaction that
+  never committed (the usual state of a running guest's restore point) and so dropped a
+  committed write of the same block; it read the tags of a journal with checksum v3 on a file
+  system without the 64bit feature as 12 bytes instead of 16; and it skipped a block whose first
+  bytes looked like the journal's magic number, keeping an older copy. It now replays as the
+  kernel and e2fsck do, tested against journals written by debugfs.
+- Proxmox VE: the server took no consistency from a VM backup, so a restore point whose
+  fs-freeze failed or was skipped looked like a frozen one. It now records the `vmConsistency`
+  restow-pve 0.5.0 sends with the commit (completed from the task log when the commit could not
+  tell), shows it with each VM restore point on the guest page ("Freeze failed" and "Guest agent
+  did not answer" amber, the others neutral, none green) and makes a failed freeze or thaw a
+  warning of the run: "Succeeded with warnings" instead of plain green.
+- Proxmox VE: the job settings `bandwidthKbps` and `verifyReadEvery` were taken by the API and
+  stored, but never applied: backups uploaded without a limit and the full read stayed every
+  30th backup, and nothing said so. A job that sets either is now refused with 422 and a text
+  that names it ("not supported for Proxmox VE jobs yet"); a job saved with them before no
+  longer shows them and can be edited as it is. The web app never offered either.
+- Proxmox VE: the listing of restore points that restow-pve keeps for PVE's storage view stopped
+  at the newest 10,000 of the cluster. In a large cluster (700 guests with the default retention
+  hold about 11,900) the older restore points vanished from "Storage > restow > Backups" and from
+  each guest's Backup tab, though they were active and restorable in Restow, and PVE asking for
+  the size of one got "volume not found". The server now lists every restore point of one VMID
+  on request and the cluster's in pages (docs/PVE-PROTOCOL.md); restow-pve from 0.5.0 uses both.
+  An older node gets the newest 10,000 as before.
+- Proxmox VE: whether a container's restore point could be restored was decided by what the
+  guest is now, not by the restore point: after a container was converted, an old restore point
+  of the privileged container was allowed (and its files with ids above 65535 and device nodes
+  would not have restored), a newer unprivileged one was refused. The refusal blamed PVE, though
+  the rule is Restow's own (it restores containers only as unprivileged), and the monthly restore
+  check skipped such a container for good without a word. The restore point's own configuration
+  decides now, for the restore, the restore check and the boot test; the text says that Restow
+  restores containers only as unprivileged and why, and the guest's page says "Not checked:
+  privileged container".
+- Windows agent (preview), run details: a run that saved no snapshot (the shadow copy of C:\
+  failed under the policy "stop the backup") still showed a consistency line such as "Partly
+  without a shadow copy: C:\", which read as if data had been backed up that way. The line is
+  left out for a run without a snapshot; its errors say why the shadow copy failed. A run read
+  from a shadow copy with some volumes read live (an exFAT or removable disk beside C:\) showed
+  only "Shadow copy (file consistent)"; it now names them: "Shadow copy (file consistent); read
+  live: E:\".
+- Servers and clients: a machine whose newest backup recorded no sample files (every Windows
+  backup before agent 0.5.0) was never restore-checked, and nothing said so: it stayed
+  "Unverified" for good, the worker only logged it, and "Check now" was accepted and ended
+  without a result. The machine now shows "No restore check possible" in amber, the readiness
+  overview says "No sample files recorded; restore check not possible for this backup", and a
+  check asked for is refused with that reason (`endpoint-no-samples`). It is never green.
+- Proxmox VE: after the first VM restore on a node (a restore into a new guest, a restore check or
+  a VM boot test) the node counted as busy until it rebooted. The restore server's log stayed in
+  `/run/restow-pve/restore`, and restow-pve took any file there for a running restore. Every
+  later boot test on the node was skipped with "A backup or a restore runs on this node", and the
+  self-update (the automatic one, **Update now** and `restow-pve update`) was refused with "a
+  backup or restore is running; the update waits". The node now counts only live work: a restore
+  server whose pid file names a running `restow-pve serve-restore` of that disk, and an open
+  backup job (with a running provider, or while a vzdump task runs on the node); the job file of
+  a backup whose provider was killed (OOM, a crash of the node) no longer holds back boot tests
+  and the self-update for two days. The cleanup of a restore
+  removes the log as well, and a restore server that fails to start, ends early or whose call is
+  cancelled is stopped and its files removed, so it no longer serves for up to two days. A pid
+  file is checked against `/proc/<pid>/cmdline` before restow-pve signals it, so a stale one
+  never stops another process that has the pid since.
+- Proxmox VE: one failed status call of the PVE API failed a running backup or restore. During a
+  long vzdump or restore pveproxy restarts now and then (an upgrade of pve-manager, a renewed
+  certificate); restow-pve then reported the task failed, the server closed the backup's run,
+  and the backup vzdump went on with was refused at its commit after hours of upload. A restart
+  of restow-pve itself (`systemctl restart restow-pve`, which `restow-pve config` asks for, the
+  installer, a self-update) did the same with "context canceled". The wait now asks again for
+  up to ten minutes while the PVE API does not answer (no connection, a timeout, 5xx including
+  595 and 596) and ends at once only on an answer of PVE itself. A stop of the service reports
+  nothing: the node keeps the running PVE task in `/var/lib/restow-pve/inflight.json`, waits for
+  it again when the service starts and reports how it really ended. Every `qm` and `pct` call
+  of a boot test has a deadline now (a hung storage blocked the node's only task worker, and
+  every backup of the node waited behind it), and so has the boot as a whole.
+- Proxmox VE: a restore task that PVE ended with `WARNINGS: n` counted as failed. PVE ends so a
+  restore by the node's API token of a container with raw `lxc.*` lines (GPU or Coral
+  passthrough, `/dev/net/tun` for Docker or Tailscale, a custom idmap): it skips those lines,
+  which it restores only for root@pam, and creates the container completely. Every restore of
+  such a container failed although the container was there, its restore checks failed and left
+  their restored copy behind, and its boot tests were red with "restore_failed". A restore with
+  warnings now succeeds with them (`result.warnings`, the warning lines of the task log) once the
+  guest's configuration can be read; the skipped lines are listed (`skippedLxc`, to add as root),
+  a restore check goes on to remove its guest, and a boot test goes on to the boot. Any other
+  exit status but `OK` still fails; a failed restore of a container with a custom `lxc.idmap`
+  says that the default map was used.
+- Proxmox VE: a container restored as a new guest kept the original's MAC addresses and
+  `onboot`. Only VMs were restored with `unique=1`. "Start after restore" brought up a copy with
+  the production container's MAC (and, with a static configuration, its IP) beside the running
+  original, and a copy without the start came up so at the next reboot of the node; the same held
+  for the copies restore checks left behind. Container restores, checks and boot tests now ask
+  PVE for new MAC addresses (`unique=1`) and `onboot=0`; the result says when the original
+  started with its node (`onbootCleared`). IP addresses stay the same, which docs/PVE.md now
+  says.
+- Proxmox VE: restore tests left their restored guest behind, and boot tests could remove the
+  wrong guest. A restore test removed its guest only on the happy path: not after a restore with
+  warnings, an error or a failed wait, not when the copy was protected (PVE copies `protection`
+  from the backup), and it said "deleted" even when the delete task failed. Nothing found these
+  copies again; they kept the original's `onboot` and network and came up at the next reboot of
+  the node. The delete also sent `purge` and `destroy-unreferenced-disks` in the body of a
+  DELETE, where PVE does not read them. A boot test's marker, on the other hand, destroyed
+  whatever guest had its VMID by then. Restore tests and boot tests now share one lifecycle: a
+  marker per guest in `/var/lib/restow-pve/tempguests` written before the restore, tag and name
+  (`restow-restorecheck-<vmid>`, `onboot 0`, `protection 0`) right after it, removal on every way
+  out only with proof that the guest is ours (tag and name in `restow-restore`, the marker's
+  running restore task, or the creation time the marker recorded), with a running restore task
+  stopped first, the lock and the protection cleared, and the removal counted only when the
+  guest is gone (`deleted: false` with `leftoverVmid` otherwise). Leftovers go when the service
+  starts, also with boot tests or restores switched off. When PVE cannot be asked (the node
+  boots and pveproxy is not up yet, pveproxy restarts), the marker stays and the service tries
+  again between tasks until the guest is gone, instead of forgetting a guest it could not yet
+  prove its own. A restore task of root@pam (a VM restored as root) is stopped as root with
+  `pvesh`, which the node's token may not do, and nothing is destroyed while the restore may
+  still run. A VMID that another restore got at the
+  same moment is asked for again instead of failing, and a boot test whose restore PVE never ran
+  ends with an error, never red. DELETE parameters go into the query string.
+- Proxmox VE: a restore into a new guest of a container with a bind or device mount point still
+  failed with "restoring 'mp0' to bind mount is only possible for root" (the known issue of
+  0.4.10): only checks and boot tests named the mount points themselves. Every container
+  restore now names rootfs and its volume mount points (same options, new volumes on the target
+  storage) and leaves bind and device mount points out, whose data is not in the backup. The
+  result lists them as configuration lines (`omittedMounts`) with the commands to put them back
+  as root (`remountCommands`), and such a copy is never started by the restore. A volume
+  without a size (`size=0T`, a ZFS or directory subvolume without a quota) broke the checks and
+  boot tests of such containers; it is now restored as a subvolume where the target storage has
+  them (zfspool, dir, btrfs), else with the size the restore point knows; with nothing to size it
+  the restore fails before it starts and names the storage type (a boot test: an error, not
+  red). A privileged container restored unprivileged says so (`madeUnprivileged`).
+- Proxmox VE: VMs with PCI or USB passthrough (`hostpci0: 0000:01:00.0`, `usb0: host=1-2`), a
+  device mapping (`hostpci0: mapping=gpu`), virtiofs, serial or parallel ports on host devices
+  or raw `args` could not be restored by the node's API token: PVE's restore permission check
+  lets only root@pam restore these (a mapping needs `Mapping.Use`, which the token does not
+  hold). Every restore into a new guest, restore test and boot test of such a VM failed, and the
+  boot tests were red although the backup was fine (the isolation that removes the devices came
+  only after the restore). restow-pve now restores such a VM as root with `qmrestore ...
+  --unique 1 --pool restow-restore` (never `--force`, never `--start`) and follows root's restore
+  task like any other (wait, stop, removal, restart of the service). The result says so
+  (`restoredAsRoot`); a copy restored with the original's host devices (`keptDevices`) is never
+  started by the restore. A boot test removes the devices, and now also raw `args`, before the
+  start. The node's role is not widened.
+- Proxmox VE: "Start after restore" was never verified. PVE starts the guest of a restore with
+  `start=1` in a task of its own, so the restore read succeeded although the start failed (a
+  bridge or VLAN missing on another node, a busy passthrough device), and the start may need
+  `VM.PowerMgmt`, which the node's role does not hold. restow-pve now always restores without
+  start and, when asked, starts the copy as root afterwards and waits until it runs: the result
+  says `started`, or `started: false` with `startError`, and the restore stays successful. A
+  copy that may not run is not started, with the reason (`startSkipped`): mount points the
+  restore left out, the original's host devices, or a static IP in the configuration while the
+  original runs in the cluster, a container's `ip=` ("the original CT 113 runs with
+  192.168.1.20; change the IP, then start it") or a VM's cloud-init `ipconfig0: ip=` (the copy's
+  new MAC makes cloud-init configure the same address again). An address set inside the guest
+  cannot be seen from the node.
+- Proxmox VE: the boot test's isolation left keys in place that reach out of the guest, and
+  trusted the isolated bridge blindly. A VM with raw QEMU `args` (`-netdev user`, `-device
+  vfio-pci`, `-drive file=/dev/disk/by-id/...`) could boot with its own network or open the disk
+  the running original uses; `ivshmem`, `audio0`, `rng0`, `hugepages`, `keephugepages` and the
+  NUMA binding (`numa0: ...,hostnodes=1,policy=bind`) stayed, so a VM with 1 GiB pages beside its
+  running original often failed to start and the restore point read red. The read-back looked
+  at the NICs only. A VM whose `args` do more than tune the CPU, SMBIOS or the clock is now
+  skipped (`custom_qemu_args`) before anything is restored, a restored disk on a host path skips
+  the test (`host_disk`), the other keys are removed before the start, and the read-back fails
+  (the guest is never started) when any removed key, a device or bind mount point or a raw
+  `lxc.net`, `lxc.mount.entry` or `lxc.hook` line is still there. With `--boot-test-bridge` the
+  bridge may have only ports of guests (`tap`, `veth`, `fwpr`); a network card, bond, VLAN or
+  tunnel on it skips the test (`bridge_not_isolated`). A start that fails because the node
+  cannot allocate the memory is skipped (`node_resources`), not red.
+- Proxmox VE: the boot test's space check counted only the restore point's data, also on thick
+  storage. On a `lvm` storage or a `zfspool` without "Thin provision" (zvols with a
+  refreservation of their full size) a VM with a 500 GiB disk and 40 GiB of data passed the
+  check, the restore then failed with "insufficient free space", and the boot test was red
+  (`restore_failed`, the notification `boot_test.failed`), which blamed the restore point. The
+  check now asks for the full size of the disks on thick storage (for a container its rootfs
+  and volume mount points) and for the data on thin storage, reading `sparse` and
+  `preallocation` from `/etc/pve/storage.cfg`; an unknown storage counts as thick. A restore
+  that runs out of space anyway is skipped (`storage_space`), never red.
+- Proxmox VE: the boot test's evidence was weaker than its colours said. A container was green
+  as soon as `pct exec -- cat /proc/1/comm` answered, which `pct start` alone proves, also for a
+  container whose systemd dropped to emergency mode; OCI and minimal containers without `cat`
+  were never green. A VM in a BSOD loop or a kernel panic was yellow with "its QEMU guest agent
+  did not answer (not installed?)", although its configuration had the agent enabled, and a VM
+  paused by an I/O error of the boot test storage was yellow as well. On ZFS nodes the
+  reclaimable ARC was not counted, so larger VMs were skipped for "not enough memory". Now a
+  container's PID 1 is read from the host (`lxc-info`, `/proc`); with systemd the node asks
+  `systemctl is-system-running`: `running` is green, `degraded` green only when the failed
+  units are network units (the test takes the network away) and yellow with the failed units
+  otherwise, emergency or rescue mode is red, still starting is yellow. Another init is yellow
+  (`init_running_unverified`), no longer green. A VM's `qm status --verbose` makes
+  `guest-panicked` and `internal-error` red and `io-error` skipped; the yellow text blames a
+  missing agent only when the test switched it on, and otherwise says that the agent of the
+  guest did not answer within the wait. The ARC above `zfs_arc_min` counts as available memory,
+  and the skip text names it. The server and the web app know every reason the node sends
+  (`system_running`, `agent_not_answering`, `guest_paused`, `system_degraded`,
+  `system_starting`, `system_unknown`, `guest_internal_error`, `system_maintenance`,
+  `storage_io_error` beside the older ones; a test checks the server's list against the
+  node's), and each one that is not a proof has its own text in English and German: a red
+  reason is red whatever outcome came with it, and a test skipped for `storage_io_error` is
+  tried again like one skipped for space.
+- Proxmox VE: the six-hourly self-update of restow-pve did not look at the service's own task.
+  It reloaded pvedaemon, pveproxy, pvestatd and pvescheduler and restarted the service in the
+  middle of a boot test (while the guest booted), a restore check, a container restore or a
+  backup whose vzdump had not called the provider yet: the result was never sent, and the boot
+  test's temporary guest waited for the next start. Only **Update now** checked for a running
+  task. Both now install only while no task of the service runs or waits, no `vzdump` task runs
+  and no backup or restore is open, and the service starts no task from that check until the
+  restart. An offer that waited is tried again after 15 minutes instead of six hours.
+- Proxmox VE: a container restore (also a restore check, a boot test and a restore from the PVE
+  UI) unpacked the whole restore point into `/var/tmp/restow-pve` on the node's root file system
+  without looking at its free space, and without `--sparse`. A 300 GB container on a default
+  install filled `/`, where pmxcfs, the journal and vzdump keep their files, and failed after
+  hours with a bare restic error. The restore did not wait for the repository lock the server
+  holds while it checks or prunes, typical right after a backup, so a boot test after every
+  backup was red (`restore_failed`). Two restores of one restore point shared one folder: the
+  second deleted the tree the first one's PVE was copying, and either cleanup removed the
+  other's. Now the node checks the folder before restic starts (the restore point's size and a
+  tenth, 5% of the file system stay free) and refuses with the free space and
+  `restow-pve config --restore-tmp`; restic runs with `--sparse` and `--retry-lock 15m` and says
+  "the Restow server is checking or pruning this container's repository; try again in a few
+  minutes" when the lock stays; every restore gets its own folder, which the shim names to the
+  cleanup, and a folder whose PVE worker is gone is removed by the next restore. `restow-pve
+  diagnose` shows the restore folder and its free space, and a running container restore holds
+  back the self-update and boot tests.
+- Proxmox VE: two restores of one VM restore point at the same time (a boot test or restore
+  check beside a restore from the PVE UI, two GUI restores of one backup as clones) killed each
+  other's restore servers. The server was keyed by the volume and the disk only: the second
+  restore's init stopped the first one's server mid-copy, and either cleanup stopped every
+  server of the volume, so `qemu-img convert` failed with an NBD error. A restore server now
+  belongs to the PVE worker that restores, and a cleanup stops only its own worker's servers;
+  an init stops another worker's server only when that worker is gone. The restore server also
+  stopped after 48 hours whatever it was doing and fetched one batch of blocks at a time, so
+  disks of many terabytes could not be restored: it now stops after an hour without a request
+  (30 days at most), keeps two batches in flight, and the init waits up to ten minutes for a
+  server that is still loading the hash list of a large disk.
+- Proxmox VE: a restart of the Restow server (an update applies its migrations for a minute or
+  two) or one bad block read failed a running VM restore or VM boot test. The restore server's
+  block reads had five attempts, about 30 seconds, where the calls of a backup wait five
+  minutes, and the first failed read stayed with the restore server for good: every later read
+  of every block failed, `qemu-img convert` stopped, and PVE removed the half-written disks of a
+  restore that had copied for hours (a boot test was red). The block reads, the lookup of the
+  restore point and a container's restic credential now ride out a server restart like a
+  backup's calls, and a failed read fails only the reads waiting for it: the blocks are fetched
+  again (three attempts), and a fetch that keeps failing still ends the restore with its error.
+- Proxmox VE: after an upload failed for good (a run closed or cancelled on the server, a quota,
+  the end of the outage window), the VM backup went on reading, hashing and copying every
+  remaining block of the disk, possibly for hours on a disk of several TB, and only then
+  reported the error. All that time vzdump held the backup access open and no block was trimmed
+  any more, so every guest write went into the fleecing image, which can fill the thin pool it
+  shares with the guests' disks. The read loop now stops at the first failed upload, and the
+  backup ends at once with the upload's error.
+- Proxmox VE: every backup of an unprivileged container with an ext4 volume mount point ended
+  "Last backup incomplete" ("Succeeded with gaps", "could not read .../srv/data/lost+found") when
+  vzdump backed it up in suspend or stop mode, its fallback on storage without snapshots (dir,
+  NFS, CIFS, thick LVM). In those modes PVE copies or mounts every mount point below the backup
+  folder and names only `.`, so only the root file system's `lost+found` was left out. The node
+  now takes the mount points with `backup=1` from the container's configuration and leaves out
+  each one's `lost+found` in every mode; bind and device mount points are not in the backup.
+- Proxmox VE: a container backed up in suspend or stop mode was read and hashed completely on
+  every run, hours for a large container, and every file counted as new or changed, which made
+  the change rate (the ransomware signal) meaningless for it. PVE hands over its copy in a folder
+  that is new on every run (`/var/tmp/vzdumptmp<pid>_<vmid>`), and restic chooses its parent
+  snapshot by host and path, so it never found one. The node now backs such a copy up through
+  the same folder every time, `/run/restow-pve/ctroot-<vmid>`, mounted in a mount namespace only
+  restic sees, and compares the copy's files by size and modification time; the restore point
+  records that folder, and older restore points restore as before. Where the mount namespace is
+  not possible the task log says so and the backup reads everything, as before.
+- Proxmox VE: every container backup started with an empty restic cache in `/run/restow-pve`,
+  a tmpfs of a tenth of the node's RAM, and downloaded the repository's index and the parent's
+  trees again, which for a container with millions of files could fill `/run` during the backup.
+  The cache now stays between backups in `/var/cache/restow-pve/ct-<vmid>`, owned by the uid the
+  backup runs as (handed to the new uid after a change of the ID map), and goes when the
+  container is no longer on the node; with less than 1 GB free there restic runs without a cache.
+- Proxmox VE: a container backup or restore that was stopped (cancelled in Restow, a stopped
+  vzdump or restore task) killed restic with SIGKILL, which left its lock in the container's
+  repository: the server's check and retention of it waited until the lock was stale, 30
+  minutes. restic is now asked to stop with SIGINT and removes its lock; it is killed only
+  after 15 seconds. restic's error output is also read while it runs, in bounded memory: after
+  a change of the ID map, with millions of unreadable files, the provider kept every error line
+  and could use gigabytes on the node; it now counts them and keeps the first 20, and a line
+  longer than 1 MiB no longer stops the reading.
+- Proxmox VE: stopping in Restow a container backup that a PVE backup job started did not stop
+  it, and the node logged "no backup of it runs on this node" while restic went on reading. The
+  provider of an unprivileged container runs as the mapped container root and could not write
+  its pid file into the root-only `/run/restow-pve/providers`, a vzdump task of several guests
+  has no guest id to match, and stopping the task of a PVE job (root@pam) needs `Sys.Modify`,
+  which the node's token does not hold. The provider now records itself in its run folder,
+  which root prepares for it, and the node stops it there; the record counts only for a
+  container provider that holds that guest's backup open, so another container's provider is
+  never stopped. The node stops only vzdump tasks of its own, and when it finds no provider the
+  log says that the backup ends at its next upload, which the server refuses.
+- Proxmox VE: a restore or restore check that the server withdrew (cancelled in Restow, or
+  closed by the server) ran on to its end on the node, which logged "it will not start" or "its
+  PVE task is stopped when the node takes it up again" although nothing stopped it: only backups
+  had their PVE task recorded. A check still restored, tested and removed its guest. restow-pve
+  now stops the restore task of a running restore or check, also of one it waits for again after
+  a restart, as its token or, for a VM restored as root, as root; one cancelled before PVE was
+  asked never starts. The task ends failed with "cancelled in Restow", and a check still removes
+  its guest.
+- Proxmox VE: a backup of a guest that had just migrated to another node (live migration, HA,
+  maintenance mode, between two inventories) failed with "PVE API answered 400 ... unable to
+  parse worker upid". vzdump answers `OK` and starts nothing for a guest that is not on its
+  node, and restow-pve waited for a task called "OK". A call that should start a PVE task (a
+  backup, a restore) and answers anything but a UPID now fails at once. For a backup the node
+  looks the guest up in the cluster and says "guest 101 now runs on node pve2; Restow backs it
+  up there after the next inventory" (and sends its inventory at once), "guest 101 was not found
+  in the cluster", or, when the cluster cannot be read, that the guest is probably no longer on
+  the node; it never stops a task that does not exist, and a full read asked for with the
+  backup is not left over for the next one.
+- Proxmox VE: a Restow backup that started while a Proxmox VE backup job ran on the same node
+  waited up to three hours for vzdump's lock of the node (`lockwait`) without a word, and then
+  failed with `vzdump ended with "can't acquire lock '/var/run/vzdump.lock' - got timeout"`. The
+  node now reads the task's log while it waits; the service's log says "waiting for another
+  backup on node pve1 (a Proxmox VE backup job holds vzdump's lock)", and the run's log says from
+  when the backup waited. A lock timeout fails with "another Proxmox VE backup job held the
+  backup lock of node pve1 for all of vzdump's lock wait ...; move the schedule of the Restow job
+  or of the PVE backup job". PVE's own lock wait stays as configured.
+- Proxmox VE: a VM restore point did not say whether PVE froze the guest's file systems. With
+  the guest agent configured but not running, or a freeze that failed (a Windows VSS writer
+  error, a timeout), vzdump went on crash-consistent and the restore point looked like a frozen
+  one; the failed freeze's ERROR line was not among the task's warnings. The node now reads
+  vzdump's log of the backup and records with the restore point whether it was frozen, taken
+  from a stopped guest, without an answering agent, crash-consistent (no agent enabled or the
+  freeze switched off), with a failed freeze, or unknown (`vmConsistency`, with a line for the
+  restore point where it is not frozen). A failed freeze, a failed thaw and a freeze without a
+  logged thaw are warnings in the task log.
+- Proxmox VE: a PVE backup job onto the Restow storage with retention settings (the Retention
+  tab, `prune-backups`) failed every guest after Restow had committed its restore point: the
+  storage plugin died when vzdump pruned, so the PVE task ended with an error and the job mail
+  said failed while Restow showed the backup green. PVE's prune is now a no-op that removes
+  nothing and logs "restow: retention is managed in Restow; PVE's retention settings are
+  ignored", as the notes update does; `pvesm prune-backups` on the Restow storage lists nothing.
+  Retention stays Restow's.
+- Proxmox VE: every backup Restow started sent a Proxmox VE notification. From PVE 8.1 on,
+  vzdump without `mailto` notifies after every backup, also a successful one, and the default
+  matcher mails it to root@pam: an hourly job for 30 guests meant about 720 mails a day, and
+  admins who muted them lost PVE's real alerts as well. restow-pve now starts vzdump on PVE 8.1
+  and newer with `notification-mode=legacy-sendmail` and no `mailto`, so PVE sends nothing for
+  it; Restow reports the outcome itself. A PVE that refused the parameter would get the backup
+  started again without it, never a failed backup. Backups started in PVE notify as before.
+- Proxmox VE: the guest's disk list showed a container's bind or device mount point with
+  `backup=1` (`mp0: /srv/media,mp=/media,backup=1`) as backed up. PVE never backs those up,
+  whatever the flag says, so /media looked protected although none of it is in any restore
+  point. The node now reads the mount point's options one by one (`backup=1`, `yes`, `true` or
+  `on`; a path such as `mp=/backup=1` no longer counts) and reports a bind or device mount point
+  as not backed up, with the reason "not part of the backup", as the server's file view of a
+  restore point does.
+- Proxmox VE: the temporary guests of boot tests and restore checks (`restow-boottest-<vmid>`,
+  `restow-restorecheck-<vmid>` in the pool `restow-restore`) were reported in the node's
+  inventory as ordinary guests. They counted as unprotected or "in no job", a job for all guests
+  could plan a backup of one that failed once the guest was gone, and as they take the lowest
+  free VMID they could take over the guest row (name, kind, restore points, job) of a deleted
+  guest with that VMID. The node now leaves them out: guests tagged and named so, and guests in
+  `restow-restore` with that tag, that name or a marker of the node (a restore still running).
+  A real restore in `restow-restore` is still reported.
+- Proxmox VE: docs/PVE.md said that container restore points are plain restic repositories, as
+  if a container could be recovered without Restow with restic alone. It could not as written:
+  the snapshot holds no `pct` configuration (the configuration is kept by the Restow server),
+  and files restored with restic belong to the ids as the container sees them, so copied into
+  a new unprivileged container they are owned by the host's root and read as nobody:nogroup.
+  The section "Without Restow" now says where the configuration is, that `restow-restore
+  endpoint-password` does not open a container's password in this release, and how to recover
+  a container: `restic restore` as root, then `tar --numeric-owner -cpf - . | pct restore
+  <vmid> - --unprivileged 1 --rootfs <storage>:<GiB>`, which lets PVE map the ids, with notes for
+  privileged containers and a custom `lxc.idmap`. docs/PROXMOX.md no longer plans the
+  configuration as a file in the snapshot.
+- Windows agent (preview): a backup recorded no sample files for restore tests and no entropy for
+  the ransomware signals. The agent looked for `/C/Users/a.txt` from the snapshot at
+  `\C\Users\a.txt` instead of `C:\Users\a.txt`, found none of the files and wrote "No sample
+  files could be recorded", so a Windows machine never got a restore test.
+- Windows agent (preview): a backup path on a drive that is locked by BitLocker, offline or not
+  ready, or that the agent may not read, was logged as "does not exist" and the run stayed
+  green while the drive was never backed up. Only a path that really does not exist is skipped
+  that way now; any other error is the run error `source_unreadable` with the system's text,
+  and the run ends partial (failed when no path is left). The run details word it and
+  `source_is_mount_point` in both languages, and the run's explanation names the folder and
+  what to do (unlock the drive, give the volume a drive letter) before a single unreadable file.
+- Windows agent (preview): a junction (`mklink /J`) or a folder a volume is mounted at,
+  configured as a backup path, was backed up as a bare link without its files, and the run was
+  green. The agent now backs up the junction's target and the mounted volume by its drive
+  letter, and says so in the log; a volume without a drive letter is the run error
+  `source_is_mount_point` (the run ends partial). A backup in which restic read no file at all
+  from such a linked folder that holds files ends partial as well; a plain folder whose files
+  the job's exclusions leave out is no error.
+- Windows agent (preview): a backup that read no volume from a shadow copy reported the
+  consistency "Shadow copy (file consistent)", for example a job with only an exFAT disk or a
+  volume whose snapshot provider does not support it. Such a backup is now "Without a shadow
+  copy: E:\" with the volumes read live; "used" needs at least one volume that really came from
+  a shadow copy and lists the others it read live. A volume VSS cannot do by design (exFAT,
+  FAT32, a removable drive) is no failure, also when it is all the backup has: the run stays
+  succeeded, as it does for such a disk next to a snapshotted C:\.
+- Windows agent (preview): a short network or server failure while restic opened the
+  repository (exit code 1 before any progress) was put down to the shadow copy. The agent backed
+  up again without it, so a backup with a shadow copy became a live one, and the run was
+  explained as "File system snapshots cannot be used on the machine"; when the second attempt
+  failed too, the error said the backup ran without a shadow copy although none was made. Only
+  restic's own messages of the Volume Shadow Copy setup lead to the backup without it now
+  ("restic could not initialise the Volume Shadow Copy service: ..."), and only a backup that
+  was made reports that; any other early failure is an ordinary failure whose retry uses the
+  shadow copy again.
+- Windows agent (preview): removing the agent with `restow-agent.exe uninstall` or a server
+  uninstall task marked `restow-agent.exe` (and `restic.exe` when it was in use) for deletion at
+  the next restart of Windows under their fixed names. An agent installed again before that
+  restart was then deleted by it, and the service did not start any more. Such a file is now
+  renamed to `<name>.old-<random>` first, and only that name is deleted at the restart.
+- Windows agent (preview): on a computer where an administrator owns what it creates (UAC
+  switched off, the built-in Administrator account, the policy "Default owner for objects
+  created by members of the Administrators group: Object creator"), the installer refused its
+  own folder: "C:\Program Files\Restow is owned by S-1-5-21-..., someone else may have
+  prepared it". The same held for `service install`, for hook scripts after
+  `restow-agent hooks scripts`, and for the service after `restow-agent update` run by an
+  administrator, which then did nothing and the machine showed as offline. The installer and
+  the agent now make Administrators the owner of every folder and file they create, keeping
+  the inherited permissions. Hook scripts you copy into `hooks.d` yourself belong to you on
+  such a computer; `icacls <file> /setowner *S-1-5-32-544` makes them usable.
+- Windows agent (preview): the documented alternative to `iex`, downloading `windows.ps1` and
+  running it with `powershell -File`, failed on Windows PowerShell 5.1 without strong
+  cryptography (Windows Server 2016, older Windows 10) against an instance that speaks TLS 1.2
+  only, and so did the restart of a 32-bit host in 64-bit PowerShell: only the `iex` command
+  line enabled TLS 1.2, in the caller's own session. The installer enables TLS 1.2 itself now,
+  and a download that fails while setting up TLS says that TLS 1.2 is needed instead of
+  asking to check the network.
+- Windows agent (preview): a PowerShell hook that ran a program which writes warnings or its
+  progress to stderr, such as `mysqldump` ("Using a password on the command line"), `git` or
+  `pg_dump --verbose`, failed with exit code 1 under Windows PowerShell 5.1 although the program
+  succeeded, and a pre hook then stopped the backup. The hook wrapper no longer sets
+  `$ErrorActionPreference = 'Stop'`, which turned the first stderr line into a terminating error;
+  a failing cmdlet still stops the hook with exit code 1 and its error text in the run log, and
+  a program's own exit code decides for the program.
+- Windows agent (preview): when the Volume Shadow Copy service was disabled, or Windows denied
+  the agent access to it, every backup reported a "snapshot_failed" for each volume, which reads
+  as a passing problem (a busy VSS writer, another backup taking a shadow copy); under the policy
+  "stop the backup" every run then failed with that wording, and the service was never named.
+  restic only notices this at the first volume and still ends with exit code 0. The agent now
+  recognises the texts that concern the whole machine (service disabled, not installed or not
+  starting, a wrong restic architecture or an unknown provider; access denied only when every
+  volume of the backup got it) and reports one "snapshot_unavailable" with the cause, under
+  both policies, and its run log points to the service "Volume Shadow Copy" in services.msc. A
+  volume whose shadow copy failed while another one got its shadow copy stays a
+  "snapshot_failed" of that volume, with the consistency "partly without a shadow copy" and the
+  volume listed.
+- Agent: `restow-agent enroll` used up the one-time token before it created the agent's folders
+  and stored the credentials. A state folder that someone else had prepared (refused on
+  Windows), a full disk or an unusable DPAPI then ended with "The token is used up" and an
+  endpoint on the server that no machine could use; every retry left another one. The agent now
+  creates its folders, protects a test secret and writes it next to the state file before it
+  contacts the server, and stops with "The token was not used" when that fails; an existing
+  enrollment stays untouched until the new one is stored. Should storing fail afterwards all the
+  same, the message names the new endpoint to delete in the UI.
+- Windows agent (preview): a service that started before the machine was enrolled (an expired
+  token, then a restart of Windows) wrote `agent.log` before it protected its folders, so
+  `C:\ProgramData\Restow\logs` got the permissions of `C:\ProgramData`: every user could read
+  the log and create `C:\ProgramData\Restow\state` themselves, which the next enrollment then
+  refused. `restow-agent service install` and the service now create `C:\ProgramData\Restow`
+  with `state`, `data` and `logs` protected before anything is written, `agent.log` and its
+  rotated copies are reset to SYSTEM and Administrators whenever they are opened, and an empty
+  folder that a user created there is replaced (one with files is still refused, with the advice
+  to delete it).
+- Windows agent (preview): the installer run from a 32-bit host (Intune, many RMM tools), which
+  starts itself again in 64-bit PowerShell, could stop in the middle of the installation, for
+  example after the enrollment and before the service was started, when the 64-bit run printed
+  a warning on stderr; Windows PowerShell 5.1 turned that line into an error of the 32-bit run.
+  Only the exit code of the 64-bit run counts now, and the options no longer stay behind in the
+  session's environment. A token file that the 32-bit program wrote to
+  `C:\Windows\System32\config\systemprofile` (where Windows puts it into `SysWOW64`) was reported
+  as missing after the service had been installed; the installer now hands the 64-bit run the
+  path it is really at, and a missing token file stops it before anything is installed, naming
+  the copy in `SysWOW64` if there is one.
+- Agent installers: every failed enrollment ended with "Create a new token in the Restow UI (the
+  old one may have expired or been used)", also when the agent never reached the instance, for
+  example on a Windows computer whose proxy comes from Internet Options or a PAC file: the
+  installer's downloads used it, the agent does not read it. `restow-agent enroll` now ends with
+  exit code 4 only when the instance itself refused the token (HTTP 401 with its problem type),
+  5 when it could not be reached or a proxy asked for a login (HTTP 407), and 1 with a note on
+  the address, reverse proxy and firewall for any other answer (a 404 of a wrong URL, a 403 of
+  a web application firewall); the installers ask for a new token only on 4. On 5 they point to
+  the network and the proxy, and the Windows installer names the proxy Windows uses for the
+  instance (`-Proxy <proxy>`, never taken over unasked).
+- Agent installers: on a machine that was already enrolled, a failing `restow-agent hooks` (for
+  `-Hooks`/`--hooks`) was reported as done on Windows, and an existing state file counted as an
+  enrollment even when the agent could no longer read it; the installer then said "installed
+  and enrolled" while the service waited for an enrollment. The installers now stop with the
+  agent's error, decide "enrolled" with `restow-agent status --json`, and for an enrollment that
+  cannot be read name the reason, ask for a new token and enroll again (`enroll --force`).
+  `restow-agent hooks scripts` also fails now when `hooks.d` exists as a file instead of a folder.
+- Windows agent (preview): when the agent stopped with an error, the service ended with the
+  Windows exit code 1, and the event log and the services console said "Incorrect function",
+  which pointed administrators to the wrong cause. The service now ends with its own
+  service-specific code: 536870913 (0x20000001) for an error, whose reason is in `agent.log`,
+  and 536870914 (0x20000002) for a usage or configuration error; codes from this range have no
+  Windows text, so the event shows the number, which docs/WINDOWS-AGENT.md (section 9.2)
+  explains. The restart after an update keeps the code 3.
+- Windows agent (preview): an uninstall while a backup or a post hook was still ending went on
+  after the service had not stopped within 90 seconds. It deleted the enrollment and the data
+  while the agent still ran, and the installer's `-Uninstall` then failed with a PowerShell
+  error on the running `restow-agent.exe`, leaving the computer half removed. A service that
+  does not stop now removes nothing ("the Restow agent is still running ...; nothing was
+  removed"); the installer waits for the agent's process to end, tries once more, retries a
+  file that is still in use for a moment, and otherwise stops with a clear message to run the
+  uninstall again later. Without a usable agent binary it stops the service with a time limit
+  instead of waiting without an end.
+- Windows agent (preview): a volume mounted in a folder below a backup path (for example an
+  exFAT disk at `C:\Data\Archive`) that the shadow copy cannot cover was read from the live file
+  system without a word, and the run reported "Shadow copy (file consistent)" for its files too.
+  The agent now looks at the folders volumes are mounted at below each backup path, tells restic
+  to read a removable, FAT32 or exFAT one live and names it among the volumes read live. When
+  restic made such a folder's shadow copy but cannot use it ("VSS error:
+  GetSnapshotProperties() for mount point ..."), the run ends partial with `snapshot_failed` for
+  that folder instead of green with a file error beside it.
+- Windows agent (preview): under the policy "stop the backup" for a failed shadow copy, a restic
+  that had already saved its snapshot when the agent stopped it (a small backup set) left that
+  snapshot, with files read from the live file system, in the repository without the failed run
+  naming it; the server then flagged it as "Not reported by any backup" and retention never
+  removed it. The same held for a snapshot saved just before an interruption or the time limit.
+  The failed run now reports the snapshot with its figures, its error says that the snapshot
+  stays in the repository but is no backup the policy accepts, and the run details say so beside
+  the snapshot of a failed run and of a run cancelled in Restow.
+- Windows agent (preview): the installer stopped only when Smart App Control was on, and
+  installed without a word when it was in evaluation mode, which a freshly installed Windows 11
+  starts in. Windows may switch Smart App Control on later by itself; it then blocks the unsigned
+  `restow-agent.exe`, `restic.exe` and every agent update, the service no longer starts, and the
+  Restow UI only shows the computer as offline. The installer now warns clearly at its start and
+  at its end in evaluation mode, and both its texts say how to switch Smart App Control off and
+  that this is for good (only a reset or a new installation of Windows switches it on again).
+- Proxmox VE: restore checks of VMs and containers stayed "Check queued" for good, with no
+  explanation, when the containers' repositories were on a write-once share (an NFS share that
+  takes new files but refuses to delete or overwrite them). Before a check the worker removed
+  stale lock files and then ran `restic unlock`; the share refused the deletion, the server's
+  restic listener answered restic with HTTP 500, and restic tried each lock file again for up to
+  a quarter of an hour. That `restic unlock` had no time limit and held the worker's whole PVE
+  pass: no further check, no retention, no restore test or boot test was planned, and no new
+  backups either, with nothing in the log but a misleading "the locks of a container repository
+  could not be listed". Now:
+  - A deletion the storage refuses for good (EPERM, EACCES, EROFS) reaches restic as 403, which
+    it takes as final, on the server's own listener and on the agents' restic routes.
+  - When stale lock files cannot be removed, the log says so ("cannot be removed: the storage
+    refuses deletes (write-once storage)"), `restic unlock` is not run, and retention leaves
+    `restic forget` and `prune` out for that container instead of failing on every pass. Once a
+    test of the repository found it write-once, retention is not applied there at all and the
+    pages say so (see Added, "Write-once (WORM) storage").
+  - The restore check of a container runs `restic check --no-lock`: nothing else writes
+    meanwhile (the server's own repository lock, and no run of the guest going), so it never
+    waits for a lock, and on a write-once share it can run at all and leaves no lock behind
+    that would block the next backup.
+  - Every restic run of the PVE pass has a time limit (unlock 2 minutes, the snapshot list and
+    reading a lock's own time 10, check 60 minutes, forget 15, prune 60; `restic unlock` of
+    machines and file shares 2 minutes as well). A
+    check that runs out of time is tried again later and after two hours reads "could not
+    check", never "failed".
+  - Each step of the pass runs on its own, so one that fails no longer skips the others, and
+    the checks run last, after the planning; a restore test or boot test is not planned for a
+    guest whose check is due and can run (it would keep the guest busy until the test is over),
+    it follows on the next pass. One restore point whose check cannot start (its
+    repository password, the storage) is postponed with the new reason "the check could not
+    start" instead of failing the pass on every run and holding up the queue behind it. No new
+    check starts after 20 minutes in one pass, and whether a guest is busy is asked again right
+    before its check. A pass that runs longer than ten minutes says so in the log while it
+    runs, with its step; every pass logs its duration.
+- Proxmox VE: restore and boot test runs that nothing would close any more kept their guest
+  "busy", so its checks waited up to 48 hours: the extra restore run the server opened when a
+  container boot test restored through the storage, restores without a task that never got
+  their restic credential, and restore checks or boot tests whose task was over. The worker now
+  ends such a run the way it ends every run whose result never came (failed with "The node never
+  reported the end of this run", cancelled when it was stopped in the UI, a boot test with the
+  outcome "error"; never succeeded) once its task is over, once a restore without a task turns
+  out never to have got its credential, or once the boot test whose restore it was has ended. A
+  restore with a credential is not ended early: its credential lives as long as its run, so it
+  may still be reading. Runs left open by earlier versions end on the first pass after the
+  update.
+- Recovery readiness: a restore check of a VM or container that has been due for more than 30
+  minutes without running reads "Check overdue" instead of "Check queued", with the reason when
+  one is known (a run of the guest still recorded as running without a sign of life for two
+  hours, and since when), and the summary no longer says such checks wait "for the next pass".
+  A check that waits behind a run that is going (a long backup, a boot test) stays "Check
+  queued" and names that run on hover.
+
+### Security
+
+- Repository pruning waits while a recovery runs; redeeming a code, trying a dead code and
+  rebinding a machine alert the tenant admins. Retention and the removal of a machine's backups
+  check for a running recovery session before and after they take the repository's lock, and a
+  session is released only under the shared lock, so neither order prunes beneath a restore; a
+  session that waits for its release holds nothing. Removing a machine (or scheduling the deletion
+  of its backups) is refused while a recovery session reads it, and its unredeemed codes are
+  revoked; the deletion that starts seven days later waits for a running session as well. The new alerts
+  `endpoint.recovery.started`, `endpoint.recovery_code.rejected`, `endpoint.rebound` and
+  `endpoint.recovery.failed` are errors of the group "Recoverability" and go to the bell and to
+  every rule that lists them. Recovery codes, rebind tokens and the 64-digit hex values of a
+  session are removed from every stored log and failure text.
+- The download of the recovery ISO takes over a stale lock of its store atomically: the old lock is
+  renamed aside and dropped only when it is still the stale one, so two passes that both find it
+  stale never both write the partial file, and a pass checks that the lock is still its own before
+  every write and stops without writing once it is not.
+
+### Upgrade Notes
+
+Thirty-two database migrations (0073 to 0104) run on start: 0073 creates the new table `storage_samples` and 0074
+the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
+explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
+index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
+assignment, a partial index on the Message-IDs of `manifest_versions` (mail only), and the new
+column `tenants.journal_address_issued_at`, empty for every tenant. Building the indexes reads the
+archive's rows, its assignments and the backup index's mail rows once, and new captures and
+backups wait for it meanwhile; nothing is rewritten. A journal address issued before 0.5.0 no
+longer brings the menu entry "Archive" on its own: up to 0.4.12 the tenant page and the Archive
+page issued it when they were first opened, also where journaling was never set up. Such a
+tenant gets the entry once a journal report arrives, a mail job archives, or an administrator
+opens the journal setup on the Archive page (it stays reachable by its address) or issues a new
+address there; the address itself keeps working. 0076 adds three nullable columns to `pve_guests`
+(`repository_reconciled_at`, `smbios_uuid`, `retired_at`) without a rewrite and rebuilds the
+unique index on cluster and VMID once, now for guests that are not retired; every container's
+repository is compared with its restore points once after the update. 0077 adds nullable
+columns to `pve_runs`, `file_share_runs`, `pve_guests` and `pve_snapshots` and creates the table
+`storage_repository_repairs` without rewriting a table; after the update, scan the repositories
+of every tenant that ever changed its primary (see Fixed). 0078 adds the nullable columns
+`pve_guests.repository_prefix`, `file_shares.repository_prefix` and
+`settings.default_storage_write_once`, empty for every row, without a rewrite. A repository counts
+as write-once only once a test of this version found it so: after the update, run "Test" on every
+repository (and on the installation default) that lies on a WORM share, so that retention stops
+trying to delete there and a reset begins its new chain under a fresh prefix at once. 0079
+creates the new table `job_cursor_entries` (a restore job's record of what it restored) and a
+trigger on `jobs` that empties it for a job that ends; nothing is rewritten. 0080 to 0088 serve
+the mail archive: 0080 adds the nullable column `archive_capture_streams.backfill_cursor`; 0081
+creates the type `archive_capture_gap_kind` and the table `archive_capture_gaps`, 0083 the table
+`archive_chain_tombstones` and 0084 the table `archive_record_deletions`, all new and empty; 0082
+adds a partial index on `archive_items` (tenant, end of retention, id) for the items with an end
+of retention, and 0086 the nullable column `archive_items.report_hash` with a unique partial index
+on it; 0085 adds the columns `attempts` (0 for the existing rows), `last_error` and
+`last_attempt_at` to `archive_capture_pending`; 0087 adds the value `backfill_folder` to
+`archive_capture_gap_kind`, and 0088 the column `archive_capture_gaps.last_attempt_at`, taken from
+`last_seen_at` for gaps already recorded. Building the two indexes reads the rows of
+`archive_items` once, and new captures wait for it meanwhile; no table is rewritten. 0089 creates
+the new tables `installation_restore_mode` (installation-level) and `storage_progress`,
+`storage_progress_checks`, `restore_mode_refusals` and `key_mirror_findings` (under Row Level
+Security like every tenant table); it changes no existing table and writes no row (a tenant
+without a row in `storage_progress` counts as 0). 0090 creates the new tables
+`cluster_join_tokens` and `cluster_nodes` (installation-level, no Row Level Security) and widens
+the check on `installation_restore_mode.source` by `setup`; both are new and empty. 0091 serves
+the notifications and branding of 0.5.0 (see below). 0092 creates the new tables
+`endpoint_sql_databases` and `endpoint_sql_backups` (Row Level Security) for SQL Server backups of
+Windows machines and adds values to the enums of endpoint run, task and report kinds; both tables
+are new and empty. 0093 creates the new table `repository_copies` (Row Level Security), which is
+empty until the first copy pass, and 0094 adds the defaulted column `settings.modules`; neither
+rewrites a table. 0095 to 0098 are those of the size and space guard (see Added). 0099 creates
+the table `restic_snapshot_origins` (Row Level Security), empty until the first copy of a restic
+repository. 0100 creates the table `endpoint_layouts` and adds the empty column
+`endpoint_runs.layout_id`; 0101 adds the value `baremetal_check` to the report kinds of machines;
+0102 creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the empty columns
+`endpoint_id`, `purpose` and `unrevoke` (false) to `endpoint_enrollment_tokens` and
+`endpoint_runs.activity_baseline` (false); 0103 adds `endpoint_recoveries.log_in_key_block`
+(false); 0104 adds the values `boot_probe` (report kinds) and `probe` (recovery kinds) and the
+empty column `settings.recovery_lab`. None of them rewrites a table. The recovery lab is not
+started by an update: turn it on with `install.sh --with-recovery-lab` on a new installation, or
+on an existing one with `RESTOW_LAB_TOKEN` (at least 32 characters), `RESTOW_LAB_IMAGE` and
+`RESTOW_LAB_KVM_GID` in `.env` and `docker compose --profile recovery-lab up -d`; from then on
+the opt-in updater moves the lab's image with every update (docs/UPDATING.md, "The recovery
+lab"). The first directory sync after the
+update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
+`$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
+incomplete. Whole machine backups are offered at once; `RESTOW_BAREMETAL_PREVIEW=false` for the
+api hides them again. Agents before 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the
+release key keeps the fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`. Once the
+release carries a recovery ISO, the worker downloads it (under 900 MiB, leaving at least 1 GiB
+free) into the data volume once, in the background, and again only for a newer rebuild; set
+`RESTOW_RECOVERY_ISO_FETCH=false` to keep it from doing so.
+
+Migration 0091 (0.5.0 notifications and branding) creates the tables `report_events`,
+`provider_notification_recipients`, `provider_report_rules`, `provider_branding`,
+`tenant_branding` and `branding_images`, makes `report_deliveries.tenant_id` nullable and adds
+nullable or defaulted columns to `report_deliveries`, `report_rules`,
+`tenant_notification_recipients`, `tenant_contacts`, `webhooks` and `settings`; no table is
+rewritten. It moves the weekly report rule of the tenants' notification recipients to the
+calendar week (also when the migrating owner is bound by Row Level Security). After the update
+the owners of the provider team receive the critical events and the installation's own events by
+e-mail; an installation without a mail transport shows a lasting "notification mail cannot be
+sent" alert until a transport is configured, unless the notification mail is marked as not
+needed. Before you brand a From address on SMTP, add it (or its `@domain`) to the allowed
+sender addresses of the notification mail and let your mail server send as it.
+
+From this release on every storage target gets small progress markers under
+`tenants/<tid>/progress/`; they are never copied or counted, and the storage check prunes old ones
+on mutable targets. Restore mode never comes on by itself after the update: a target without
+markers triggers nothing. Rolling back below 0.5.0 with migrations cannot use restore mode;
+docs/UPDATING.md ("Rollback") says how to keep that version from deleting.
+
+- Proxmox VE nodes that ran a VM restore, restore check or VM boot test since their last reboot
+  refuse the update to this release: their current restow-pve still counts the leftover restore
+  log as a running restore (see Fixed). On such a node run `rm -f /run/restow-pve/restore/*.log`
+  as root once (or reboot it, or run the installer again), then the update installs by itself,
+  with **Update now** or with `/opt/restow-pve/bin/restow-pve update`.
+
+### Known Issues
+
+- Windows is a preview: x64 only, no Authenticode signature on `restow-agent.exe`,
+  `restic.exe` or `windows.ps1` (Defender, Smart App Control and ASR rules may block them;
+  each prerelease is submitted to Microsoft by hand), and it is tested on real machines only
+  through the maintainer checklist in docs/WINDOWS-AGENT.md.
+- A shadow copy makes a backup file consistent, not application consistent: SQL Server or
+  Exchange files are crash consistent; use a pre hook for a dump.
+- No alternate data streams (no Mark of the Web after a restore), no EFS files of other users,
+  online-only cloud files are left out, junctions inside a backed-up folder are backed up as
+  links, no system state or registry, no bare-metal restore for Windows, and further data
+  drives are not reported as data folders yet.
+- Bare metal (preview): Windows bare metal comes later; no change of the storage stack (BIOS to
+  UEFI is a 0.5.x candidate); no Wi-Fi, VLAN or bonding in the recovery ISO; TPM2 and FIDO2
+  bindings must be enrolled again; raw logical volumes (the VM disks of a Proxmox VE host) are
+  not backed up; amd64 only. The recovery ISO never restores onto SAN LUNs (Fibre Channel,
+  iSCSI) or removable disks yet, an unattended run (`--answers`) cannot keep an encrypted volume
+  (the old passphrase is asked on the console only), and the details of an error (the message
+  of a failed command or request) are shown in English on a German console. The first
+  `packages.lock` of the recovery ISO is written by the CI
+  job `recovery-iso` (input `update-lock`) and committed by hand; until then the ISO is not
+  built, and it counts as reproducible only once two CI builds were equal. The ISO download of the
+  instance does not support a proxy that is itself reached over https (`HTTPS_PROXY=https://…`),
+  and the rebuild workflow and the signing of a rebuild have not run against a real release yet.
+- Bare metal restore is proven in the CI only (QEMU/KVM, see Verification), not yet on real
+  hardware: the maintainer checklist of docs/BAREMETAL.md 21.4 has not run for this release.
+  Test a restore of your own machines onto spare hardware before you rely on it.
+
+### Verification
+
+Before the tag, on the release branch at the commit of this release: lint, typecheck and build of
+every workspace package; the test suites with Postgres, restic 0.19.1 and the restore planner
+(API 4,778 tests, web 5,101, worker 933, core 3,626, database 267, i18n 289, ee/api 299,
+scheduler 90, with nothing failed); the script tests (262) and the install script's test (790).
+The CI on that commit built the recovery ISO twice (ubuntu-24.04 and ubuntu-22.04 with another
+time zone and umask) with the same SHA-256, and ran the bare metal end-to-end cases in QEMU/KVM:
+E1 (Debian 12, BIOS, mdadm RAID1 onto one disk, degraded) and E2 (Ubuntu 24.04, UEFI Secure Boot,
+LUKS2 and LVM, NVMe, smaller disk, other MAC) restore and start; the boot probe P1 rates E1's
+source green on other hardware, and P2 rates a machine that starts into the emergency target red
+(`boot_failed: emergency_mode`). Not run: the real hardware checklist of docs/BAREMETAL.md 21.4
+(see Known Issues).
 
 ## [0.4.12] - 2026-11-04
 

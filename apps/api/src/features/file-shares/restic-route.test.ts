@@ -92,6 +92,41 @@ async function call(
 }
 
 describe("file share restic route", () => {
+  it("refuses every write of a run whose storage target stopped being the primary", async () => {
+    // The run's own target (docs/STORAGE.md, "Runs and storage changes"): reads still go
+    // there; a write is answered 403 storage-switched-during-run, which restic takes as
+    // final, instead of landing on another target.
+    const pinned = new LocalStorageBackend(join(root, "pinned"));
+    await pinned.put(`${fileShareRepositoryPrefix(SHARE_A)}config`, Buffer.from("config"));
+    const { storageSwitchedDuringRun } = await import("../pve/repository.js");
+    const routes = buildFileShareResticRoutes({
+      credentials,
+      storageOf: async () => new LocalStorageBackend(root),
+      storageFor: async () => ({ storage: pinned, refuseWrites: storageSwitchedDuringRun(403) }),
+      onDenied: (_access, _shareId, details) => denied.push(details),
+    });
+    const switched = new Hono();
+    switched.onError(errorHandler);
+    switched.route(FILE_SHARE_RESTIC_PATH, routes);
+    const runId = issue("backup");
+    const request = (method: string, path: string, body?: string) =>
+      switched.request(`${FILE_SHARE_RESTIC_PATH}/${SHARE_A}${path}`, {
+        method,
+        headers: { authorization: basic(runId) },
+        body,
+      });
+    const config = await request("GET", "/config");
+    expect(config.status).toBe(200);
+    expect(await config.text()).toBe("config");
+    const write = await request("POST", `/data/${sha256("pack")}`, "pack");
+    expect(write.status).toBe(403);
+    expect(((await write.json()) as { type: string }).type).toBe(
+      "urn:restow:problem:storage-switched-during-run",
+    );
+    expect(await pinned.list(`${fileShareRepositoryPrefix(SHARE_A)}data/`)).toEqual([]);
+    expect((await request("DELETE", `/data/${sha256("pack")}`)).status).toBe(403);
+  });
+
   it("refuses requests without, with a wrong or with a foreign credential", async () => {
     const runId = issue("backup");
     expect((await call("GET", `/${SHARE_A}/config`)).status).toBe(401);

@@ -26,6 +26,9 @@ export function buildJournalReport({
     ...bcc.map((address) => `Bcc: ${address}`),
   ].join(CRLF);
   const head = [
+    // Exchange Online puts this header on every report; only with it, at the journal
+    // address, does the receiver take a mail as a journal report.
+    "X-MS-Journal-Report:",
     "From: journal@contoso.onmicrosoft.com",
     `To: ${journalAddress}`,
     "Subject: Journal Report",

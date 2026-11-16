@@ -19,9 +19,11 @@
 # This file is deliberately thin. Every call that needs Restow is passed to
 # the separate program `restow-pve provider <verb>` (JSON on stdin and
 # stdout, documented in docs/PVE-PROTOCOL.md of the Restow repository).
-# status() and list_volumes() only read caches restow-pve maintains, with a
-# short timeout, so pvestatd never waits for the network. Deleting backups
-# and pruning are refused: retention is managed in Restow.
+# status() only reads a cache restow-pve maintains, so pvestatd never waits
+# for the network; list_volumes() and volume_size_info() run with a short
+# timeout, and restow-pve answers them from its caches when the server is
+# away. Deleting backups and pruning are refused: retention is managed in
+# Restow.
 package PVE::Storage::Custom::RestowPlugin;
 
 use strict;
@@ -40,6 +42,59 @@ use base qw(PVE::Storage::Plugin);
 our $HELPER = '/opt/restow-pve/bin/restow-pve';
 
 my $json = JSON::PP->new->canonical->allow_nonref;
+
+# --- values from restow-pve ------------------------------------------------------
+
+# pvedaemon and pveproxy run Perl in taint mode (-T), and so do the restore and
+# backup workers they fork: whatever this shim reads from restow-pve is tainted,
+# and PVE dies with "Insecure dependency in exec" once such a value reaches a
+# command (tar --directory=<archive directory>, qemu-img convert <nbd path>,
+# lvcreate --size <size>). `pct restore` and `qmrestore` on a shell run without
+# -T, which is why a restore from the shell worked. So every value handed back
+# to PVE passes one of these checks: it matches what restow-pve sends and comes
+# back untainted (a regex capture), or the call dies naming the value.
+sub untaint {
+    my ($value, $re, $what) = @_;
+    die "restow-pve gave no $what\n" if !defined($value);
+    die "restow-pve gave an invalid $what\n" if ref($value) || "$value" !~ $re;
+    return $1;
+}
+
+sub untaint_uint {
+    my ($value, $what) = @_;
+    return 0 + untaint($value, qr/^(\d{1,20})$/, $what);
+}
+
+my $PATH_PART = qr/[A-Za-z0-9._+\@:-]+/;
+
+# An absolute path without "." or ".." parts.
+sub untaint_path {
+    my ($value, $what) = @_;
+    my $path = untaint($value, qr{^(/(?:$PATH_PART/)*$PATH_PART)$}, $what);
+    die "restow-pve gave an invalid $what\n" if grep { $_ eq '.' || $_ eq '..' } split(m{/}, $path);
+    return $path;
+}
+
+# The NBD address of a disk restore: nbd+unix:///<export>?socket=<absolute path>.
+sub untaint_nbd {
+    my ($value, $what) = @_;
+    my $addr = untaint($value, qr{^(nbd\+unix:///$PATH_PART\?socket=/(?:$PATH_PART/)*$PATH_PART)$}, $what);
+    my ($socket) = $addr =~ m{\?socket=(.*)$};
+    die "restow-pve gave an invalid $what\n" if grep { $_ eq '.' || $_ eq '..' } split(m{/}, $socket);
+    return $addr;
+}
+
+sub untaint_word {
+    my ($value, $what) = @_;
+    return untaint($value, qr/^([A-Za-z0-9._-]{1,64})$/, $what);
+}
+
+sub untaint_enum {
+    my ($value, $what, @allowed) = @_;
+    my $word = untaint_word($value, $what);
+    die "restow-pve gave an unknown $what '$word'\n" if !grep { $_ eq $word } @allowed;
+    return $word;
+}
 
 # --- exec bridge ---------------------------------------------------------------
 
@@ -177,6 +232,8 @@ sub new_backup_provider {
 # --- volumes ---------------------------------------------------------------------
 
 my $VOLNAME_RE = qr!^backup/((vm|ct)/(\d+)/[0-9TZ:-]+)$!;
+# The whole volume name as one capture (untaint).
+my $VOLNAME_RE_WHOLE = qr!^(backup/(?:vm|ct)/\d+/[0-9TZ:-]+)$!;
 
 sub parse_volname {
     my ($class, $volname) = @_;
@@ -216,15 +273,23 @@ sub list_volumes {
     }
     my $res = [];
     for my $v (@{ $result->{volumes} // [] }) {
-        push @$res, {
-            volid => "$storeid:$v->{volname}",
-            format => $v->{format},
-            size => $v->{size},
-            ctime => $v->{ctime},
-            vmid => $v->{vmid},
-            subtype => $v->{subtype},
-            content => 'backup',
+        # One odd entry is left out, not the whole listing.
+        my $entry = eval {
+            +{
+                volid => "$storeid:" . untaint($v->{volname}, $VOLNAME_RE_WHOLE, 'volume name'),
+                format => untaint_enum($v->{format}, 'volume format', 'restow-vm', 'restow-ct'),
+                size => untaint_uint($v->{size} // 0, 'volume size'),
+                ctime => untaint_uint($v->{ctime} // 0, 'volume time'),
+                vmid => untaint_uint($v->{vmid}, 'VMID'),
+                subtype => untaint_enum($v->{subtype}, 'guest type', 'qemu', 'lxc'),
+                content => 'backup',
+            };
         };
+        if (my $err = $@) {
+            warn "restow: a restore point was left out of the listing: $err";
+            next;
+        }
+        push @$res, $entry;
     }
     return $res;
 }
@@ -233,7 +298,9 @@ sub status {
     my ($class, $storeid, $scfg, $cache) = @_;
     my $s = eval { call_helper('storage-status', { storeid => $storeid }, undef, 5) };
     return (0, 0, 0, 0) if $@ || !$s;
-    return ($s->{total} // 0, $s->{avail} // 0, $s->{used} // 0, $s->{active} ? 1 : 0);
+    my @sizes = eval { map { untaint_uint($s->{$_} // 0, "storage $_") } qw(total avail used) };
+    return (0, 0, 0, 0) if $@;
+    return (@sizes, $s->{active} ? 1 : 0);
 }
 
 sub activate_storage {
@@ -258,14 +325,16 @@ sub deactivate_volume {
     return 1;
 }
 
+# The size of one restore point, asked by its volume name (restow-pve asks the
+# Restow server and falls back to the listing it keeps). A listing need not hold
+# every restore point of the cluster, so it is not searched here.
 sub volume_size_info {
     my ($class, $scfg, $storeid, $volname, $timeout) = @_;
-    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-    for my $v (@{ $class->list_volumes($storeid, $scfg, $vmid, ['backup']) }) {
-        return wantarray ? ($v->{size}, 'raw', $v->{size}, undef) : $v->{size}
-            if $v->{volid} eq "$storeid:$volname";
-    }
-    die "restow: volume '$volname' not found\n";
+    $class->parse_volname($volname);
+    my $result = eval { call_helper('volume-size', { storeid => $storeid, volname => $volname }, undef, 10) };
+    die "restow: $@" if $@;
+    my $size = untaint_uint($result->{size} // 0, 'volume size');
+    return wantarray ? ($size, 'raw', $size, undef) : $size;
 }
 
 sub get_volume_attribute {
@@ -304,8 +373,22 @@ sub clone_image {
     die "restow: not supported\n";
 }
 
+# vzdump prunes the backups of a guest after each backup of a job with
+# "remove" (the default of a backup job made in the PVE UI), with the job's or
+# the storage's retention settings; pvesm prune-backups and the storage's
+# Prune dialog do the same. Restow keeps and removes restore points by its own
+# retention, so nothing is pruned here. Dying made vzdump report the guest's
+# backup as failed after Restow had committed its restore point: the prune is
+# taken as a no-op that lists nothing and says so in the task log.
 sub prune_backups {
-    die "restow: pruning is not done by Proxmox VE; retention is managed in Restow\n";
+    my ($class, $scfg, $storeid, $keep, $vmid, $type, $dryrun, $logfunc) = @_;
+    my $msg = "restow: retention is managed in Restow; PVE's retention settings are ignored";
+    if (ref($logfunc) eq 'CODE') {
+        $logfunc->('info', $msg);
+    } else {
+        print "$msg\n";
+    }
+    return [];
 }
 
 sub volume_snapshot {

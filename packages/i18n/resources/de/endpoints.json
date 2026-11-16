@@ -26,6 +26,7 @@
     "darwin": "macOS",
     "windows": "Windows"
   },
+  "osPreview": "Vorschau",
   "status": {
     "online": "Online",
     "offline": "Offline",
@@ -36,7 +37,10 @@
     "backup": "Sicherung läuft",
     "restore": "Wiederherstellung läuft",
     "verify_sample": "Restore-Prüfung läuft",
-    "busy": "Arbeitet"
+    "busy": "Arbeitet",
+    "sql": "SQL-Server-Sicherung läuft",
+    "sql_restore": "SQL-Server-Wiederherstellung läuft",
+    "sql_verify": "SQL-Server-Prüfung läuft"
   },
   "readiness": {
     "state": {
@@ -50,12 +54,17 @@
     "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch eine Restore-Prüfung geprüft.",
     "frozen": "Geprüft {time}; es kommen keine neuen Sicherungen hinzu",
     "frozenUndated": "Alter Sicherungsstand; es kommen keine neuen Sicherungen hinzu",
+    "noSamples": "Keine Restore-Prüfung möglich",
+    "noSamplesHint": "Mit der neuesten Sicherung wurden keine Stichprobendateien aufgezeichnet, deshalb ist für sie keine Restore-Prüfung möglich, und sie wird nie als geprüft angezeigt. Das Lauf-Log der Sicherung nennt den Grund (unter Windows haben Agents vor 0.5.0 nie welche aufgezeichnet: Aktualisieren Sie den Agent).",
     "frozenHint": "Der Rechner ist in keinem Backup-Job. Die Bewertung gilt für einen älteren Sicherungsstand, den nichts mehr erneuert."
   },
   "runKind": {
     "backup": "Sicherung",
     "restore": "Wiederherstellung auf den Rechner",
-    "verify_sample": "Restore-Prüfung auf dem Rechner"
+    "verify_sample": "Restore-Prüfung auf dem Rechner",
+    "sql": "SQL-Server-Sicherung",
+    "sql_restore": "SQL-Server-Wiederherstellung unter neuem Namen",
+    "sql_verify": "SQL-Server-Prüfung"
   },
   "runStatus": {
     "running": "Läuft",
@@ -169,7 +178,7 @@
       },
       "servers": {
         "title": "Noch keine Server",
-        "description": "Fügen Sie einen Linux- oder macOS-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert und den Server verbindet. Gesichert wird er, sobald Sie ihn einem Backup-Job hinzufügen."
+        "description": "Fügen Sie einen Linux-, macOS- oder Windows-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert und den Server verbindet. Gesichert wird er, sobald Sie ihn einem Backup-Job hinzufügen."
       },
       "clients": {
         "title": "Noch keine Clients",
@@ -180,7 +189,9 @@
     "onlyRevoked": {
       "title": "Nur gesperrte Rechner",
       "description": "Alle Rechner hier sind gesperrt und werden nicht mehr gesichert; ihre Sicherungen bleiben wiederherstellbar."
-    }
+    },
+    "recovering": "Wird wiederhergestellt",
+    "honestyBaremetal": "Dateibasierte Sicherung mit restic: Einzelne Dateien und Ordner werden gesichert und zurückgeholt. Linux-Rechner lassen sich zudem als Ganzes auf neuer Hardware wiederherstellen (Vorschau); Plattenabbilder gibt es nicht. Ein Datei-Restore überschreibt nie etwas: Er landet in einem neuen Ordner auf dem Rechner oder wird als ZIP heruntergeladen."
   },
   "noJob": {
     "badge": "Ohne Backup",
@@ -251,6 +262,11 @@
       "used": "Verwendet",
       "expired": "Abgelaufen",
       "revoked": "Widerrufen"
+    },
+    "rebindFor": "Wiederanbindung: {name}",
+    "kind": {
+      "enroll": "Einrichtung",
+      "rebind": "Wiederanbindung"
     }
   },
   "enroll": {
@@ -268,12 +284,16 @@
     "os": {
       "legend": "Betriebssystem",
       "planned": "Geplant",
+      "preview": "Vorschau",
       "hint": {
         "linux": "Mit systemd, auf x86-64 oder ARM64",
         "darwin": "Intel oder Apple Silicon",
-        "windows": "Auf der Roadmap, noch nicht verfügbar"
+        "windows": "Windows 10/11 und Server 2016 oder neuer, nur x64"
       },
-      "windowsNote": "Windows steht auf der Roadmap und lässt sich noch nicht wählen. Diese Version sichert Linux- und macOS-Rechner."
+      "windowsPreview": {
+        "title": "Windows ist eine Vorschau",
+        "description": "Der Windows-Agent sichert Dateien mit Schattenkopie (VSS) und stellt sie wieder her. In dieser Version ist er eine Vorschau: nur x64 (kein Windows on ARM), restow-agent.exe und restic.exe sind nicht mit Authenticode signiert (Microsoft Defender, Smart App Control oder ASR-Regeln können sie blockieren), und eine Wiederherstellung des ganzen Rechners gibt es nicht. Wiederherstellung heißt: Windows neu installieren, dann die Dateien zurückholen."
+      }
     },
     "label": {
       "field": "Name (optional)",
@@ -292,11 +312,13 @@
     "command": {
       "heading": {
         "linux": "Auf dem Linux-Rechner ausführen",
-        "darwin": "Auf dem Mac ausführen"
+        "darwin": "Auf dem Mac ausführen",
+        "windows": "In PowerShell als Administrator ausführen"
       },
       "intro": {
         "linux": "Öffnen Sie ein Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht Root-Rechte (sudo) und curl und fragt nach dem Token unten.",
-        "darwin": "Öffnen Sie das Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht ein Administratorkonto (sudo) und fragt nach dem Token unten."
+        "darwin": "Öffnen Sie das Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht ein Administratorkonto (sudo) und fragt nach dem Token unten.",
+        "windows": "Öffnen Sie auf dem {kind} eine PowerShell als Administrator (Rechtsklick, Als Administrator ausführen) und fügen Sie den Befehl ein. Er fragt nach dem Token unten."
       },
       "kind": {
         "server": "Server",
@@ -308,6 +330,17 @@
       "validity": "24 Stunden gültig und nur einmal verwendbar.",
       "expiresAt": "Läuft ab: {time}",
       "secretNote": "Das Token ist ein einmaliges Geheimnis. Es steht nicht im Befehl und landet deshalb weder in der Shell-Historie noch in der Prozessliste des Rechners. Es wird nur jetzt angezeigt und lässt sich nach dem Schließen dieses Fensters nicht mehr anzeigen."
+    },
+    "windows": {
+      "admin": "Der Befehl schaltet zuerst TLS 1.2 ein (Windows Server 2016 bietet sonst nur TLS 1.0 an) und braucht Windows PowerShell 5.1, das in jedem unterstützten Windows enthalten ist.",
+      "file": {
+        "heading": "Ohne iex: Skript laden, prüfen und starten",
+        "intro": "Melden Sicherheitsregeln (AMSI, ASR, EDR) das Muster iex (irm ...), laden Sie {url} als Datei herunter, vergleichen Sie ihre SHA-256-Prüfsumme (Get-FileHash .\\windows.ps1) mit diesem Wert und starten Sie sie dann in einer PowerShell als Administrator:",
+        "copyHash": "SHA-256 von windows.ps1 kopieren",
+        "noHash": "Diese Installation liefert kein windows.ps1 aus; die Prüfsumme lässt sich nicht angeben.",
+        "copyRun": "Befehl zum Starten der Datei kopieren"
+      },
+      "fingerprint": "Fingerabdruck des Release-Schlüssels: {fingerprint}. Das Skript zeigt ihn vor der Installation an."
     },
     "warnings": {
       "insecure": {
@@ -356,23 +389,27 @@
       "steps": {
         "download": {
           "linux": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet.",
-          "darwin": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet."
+          "darwin": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet.",
+          "windows": "Lädt restow-agent.exe und restic.exe von diesem Server herunter, nicht aus dem Internet."
         },
         "verify": {
           "linux": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt.",
-          "darwin": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt."
+          "darwin": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt.",
+          "windows": "Prüft die Signatur des Maintainers über das Release mit einer eigenen Ed25519-Prüfung in PowerShell und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt."
         },
         "service": {
           "linux": "Installiert beide nach /opt/restow-agent, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (systemd-Unit restow-agent).",
-          "darwin": "Installiert beide nach /Library/Application Support/Restow, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (LaunchDaemon com.restowbackup.agent)."
+          "darwin": "Installiert beide nach /Library/Application Support/Restow, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (LaunchDaemon com.restowbackup.agent).",
+          "windows": "Installiert beide nach C:\\Program Files\\Restow\\bin, einen Ordner, den nur SYSTEM und Administratoren ändern können, und richtet den Windows-Dienst RestowAgent (LocalSystem) ein."
         },
         "enroll": {
           "linux": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet.",
-          "darwin": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet."
+          "darwin": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet.",
+          "windows": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet."
         }
       },
       "repair": "Wird der Befehl erneut ausgeführt, repariert er die Installation, statt sie doppelt anzulegen.",
-      "hooks": "Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Hängen Sie -s -- --hooks=scripts (nur Skripte in /etc/restow-agent/hooks.d) oder -s -- --hooks=any an sudo sh an."
+      "hooks": "{os, select, windows {Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Rufen Sie das Skript mit -Hooks scripts (nur .ps1- und .exe-Dateien in C:\\ProgramData\\Restow\\state\\hooks.d) oder -Hooks any auf, oder führen Sie danach als Administrator restow-agent.exe hooks scripts aus.} other {Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Hängen Sie -s -- --hooks=scripts (nur Skripte in /etc/restow-agent/hooks.d) oder -s -- --hooks=any an sudo sh an.}}"
     },
     "uninstall": {
       "heading": "Agent später entfernen",
@@ -385,10 +422,11 @@
     },
     "unattended": {
       "heading": "Unbeaufsichtigte Installation (RMM, Skripte)",
-      "intro": "Ohne Terminal für die Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (Modus 0600, Eigentümer root) und führen Sie dann aus:",
+      "intro": "{os, select, windows {Ohne Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (der Ordner ist nur für SYSTEM und Administratoren zugänglich; ein 32-Bit-RMM-Prozess schreibt über C:\\Windows\\Sysnative\\config\\systemprofile) und führen Sie dann aus. Der Befehl hält den Fingerabdruck des Release-Schlüssels fest; gleichen Sie ihn einmal mit den Release-Notizen auf GitHub ab.} other {Ohne Terminal für die Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (Modus 0600, Eigentümer root) und führen Sie dann aus:}}",
       "copy": "Befehl für die unbeaufsichtigte Installation kopieren",
       "cleanup": "Löschen Sie die Token-Datei nach der Installation. Das Token gilt einmal und läuft nach 24 Stunden ab."
-    }
+    },
+    "honestyBaremetal": "Der Agent sichert Dateien und Ordner. Er erstellt keine Plattenabbilder; Linux-Rechner lassen sich als Ganzes auf neuer Hardware wiederherstellen (Vorschau)."
   },
   "detail": {
     "title": "Rechner",
@@ -401,8 +439,11 @@
     "tabs": {
       "overview": "Übersicht",
       "snapshots": "Sicherungsstände",
-      "settings": "Einstellungen"
-    }
+      "settings": "Einstellungen",
+      "sql": "SQL Server"
+    },
+    "recoveryBanner": "Dieser Rechner wird gerade als Ganzes wiederhergestellt: {phase}.",
+    "recoveryBannerLink": "Wiederherstellung verfolgen"
   },
   "actions": {
     "backup": {
@@ -514,7 +555,10 @@
       "restore": "Wiederherstellung",
       "verify_sample": "Restore-Prüfung",
       "update_config": "Neue Einstellungen anwenden",
-      "uninstall": "Agent deinstallieren"
+      "uninstall": "Agent deinstallieren",
+      "sql_restore": "SQL-Server-Datenbank unter neuem Namen wiederherstellen",
+      "sql_verify": "SQL-Server-Sicherungen prüfen",
+      "sql_inventory": "SQL-Server-Anmeldung prüfen"
     },
     "restore": "{count, plural, one {# Element in einen neuen Ordner wiederherstellen} other {# Elemente in einen neuen Ordner wiederherstellen}}",
     "status": {
@@ -561,12 +605,24 @@
       "notFinished": "Läuft noch",
       "duration": "Dauer",
       "snapshot": "Snapshot",
+      "snapshotOfFailedRun": "Vor dem Abbruch des Laufs gespeichert. Er zählt nicht als erfolgreiche Sicherung; warum, steht in den Fehlern unten.",
       "filesProcessed": "Verarbeitete Dateien",
       "bytesProcessed": "Verarbeitete Daten",
       "filesNew": "Neue Dateien",
       "filesChanged": "Geänderte Dateien",
       "filesUnmodified": "Unveränderte Dateien",
-      "dataAdded": "Neu gespeicherte Daten"
+      "dataAdded": "Neu gespeicherte Daten",
+      "consistency": "Konsistenz",
+      "layout": "Layout erfasst"
+    },
+    "consistency": {
+      "used": "{method, select, vss {Schattenkopie (dateikonsistent)} lvm {LVM-Snapshot (dateikonsistent)} btrfs {btrfs-Snapshot (dateikonsistent)} mixed {LVM- und btrfs-Snapshots (dateikonsistent)} apfs {APFS-Snapshot (dateikonsistent)} other {Dateisystem-Snapshot (dateikonsistent)}}",
+      "usedWith": "{method, select, vss {Schattenkopie (dateikonsistent); direkt gelesen: {live}} none {Dateisystem-Snapshot (dateikonsistent); direkt gelesen: {live}} other {Dateisystem-Snapshot {method} (dateikonsistent); direkt gelesen: {live}}}",
+      "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
+      "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
+      "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",
+      "unavailableWith": "{method, select, vss {Ohne Schattenkopie: {live}} other {Ohne Dateisystem-Snapshot: {live}}}",
+      "off": "{method, select, vss {Ohne Schattenkopie (für diesen Rechner abgeschaltet)} other {Ohne Dateisystem-Snapshot, direkt vom Dateisystem gelesen}}"
     },
     "progress": {
       "heading": "Fortschritt",
@@ -594,7 +650,9 @@
     "interruptedNote": "Der Agent wurde während dieses Laufs neu gestartet und nimmt die Arbeit von selbst wieder auf. Das ist kein Fehler; Sie müssen nichts tun.",
     "incompleteNote": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und die letzte Restore-Prüfung bleibt, wie sie war. Der Rechner bekommt die Prüfung nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung eine neue Prüfung.",
     "incompleteNoteFinal": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Restore-Prüfungen.",
-    "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}"
+    "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}",
+    "layoutShow": "Auf der Rechnerseite anzeigen",
+    "layoutCaptured": "Ja"
   },
   "reports": {
     "title": "Berichte",
@@ -603,7 +661,8 @@
     "kind": {
       "restore_test": "Restore-Prüfung",
       "repository_check": "Integritätsprüfung",
-      "retention": "Aufbewahrungslauf"
+      "retention": "Aufbewahrungslauf",
+      "sql_verify": "SQL-Server-Prüfung"
     },
     "origin": {
       "server": "Vom Server zurückgelesen",
@@ -625,7 +684,10 @@
       "removed": "{count, plural, one {# Snapshot entfernt} other {# Snapshots entfernt}}",
       "kept": "{kept} Snapshots behalten",
       "size": "Größe der Sicherungsdaten danach: {size}",
-      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}"
+      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}",
+      "targetFull": "Aufbewahrung konnte keinen Platz freigeben: Speicherziel voll",
+      "targetFullHint": "Auf dem Speicherziel ist kein Platz mehr frei, nicht einmal für die Bereinigung. Geben Sie auf dem Speicherziel Platz frei oder vergrößern Sie es (bei einem S3-Bucket: Kontingent erhöhen). Der nächste Aufbewahrungslauf löscht dann die Daten, die kein Snapshot mehr braucht.",
+      "deleteOnly": "Auf dem Speicherziel war wenig Platz frei: Gelöscht wurden nur Daten, die kein Snapshot mehr nutzt. Teilweise genutzte Daten werden in einem späteren Lauf neu geordnet, sobald Platz frei ist."
     },
     "mismatches": {
       "show": "{count, plural, one {# Abweichung anzeigen} other {# Abweichungen anzeigen}}",
@@ -633,6 +695,12 @@
       "actual": "Gefunden",
       "missing": "Datei ließ sich nicht zurücklesen",
       "reason": "Grund"
+    },
+    "sqlVerify": {
+      "green": "{name}: aus den Sicherungsdaten zurückgeholt und mit DBCC CHECKDB ohne Fehler geprüft",
+      "red": "{name}: Die Prüfung hat Schäden gefunden",
+      "incomplete": "{name}: Die Prüfung ist nicht fertig geworden und bewertet nichts",
+      "evidence": "Fehler {code}: {message}"
     }
   },
   "snapshots": {
@@ -719,14 +787,20 @@
     "moreItems": "{count, plural, one {und # weiteres} other {und # weitere}}",
     "target": {
       "label": "Zielordner (optional)",
-      "placeholder": "/srv/restore",
-      "hint": "Ein absoluter Pfad auf dem Rechner (Linux oder macOS), zum Beispiel /srv/restore-2026. Der Ordner darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; sonst bricht der Lauf ab, ohne etwas zu schreiben. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
+      "placeholder": "{os, select, windows {D:\\Wiederherstellung} other {/srv/restore}}",
+      "hint": "{os, select, windows {Ein lokaler Ordner auf dem Rechner, zum Beispiel D:\\Wiederherstellung. Er darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; Netzlaufwerke, Wechseldatenträger, FAT-Laufwerke sowie Windows, die Programmordner und C:\\ProgramData\\Restow sind gesperrt. Die Dateien behalten ihre ursprünglichen Berechtigungen. Ohne Angabe legt der Agent einen neuen Ordner Restow-Restore mit Datum und Uhrzeit auf dem Systemlaufwerk an (C:\\Restow-Restore-...). Bestehende Dateien werden nie überschrieben.} other {Ein absoluter Pfad auf dem Rechner (Linux oder macOS), zum Beispiel /srv/restore-2026. Der Ordner darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; sonst bricht der Lauf ab, ohne etwas zu schreiben. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.}}",
       "errors": {
-        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit / beginnt, zum Beispiel /srv/restore-2026. Windows-Pfade werden nicht unterstützt.",
+        "notAbsolute": "{os, select, windows {Geben Sie einen Ordner mit Laufwerksbuchstaben an, zum Beispiel D:\\Wiederherstellung.} other {Geben Sie einen absoluten Pfad an, der mit / beginnt, zum Beispiel /srv/restore-2026. Windows-Pfade gelten nur für Windows-Rechner.}}",
         "controlCharacters": "Der Pfad enthält Steuerzeichen.",
         "tooLong": "Der Pfad ist zu lang.",
-        "root": "Das Wurzelverzeichnis / ist als Ziel nicht erlaubt. Geben Sie einen Ordner darunter an.",
-        "notPlain": "Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende Schrägstriche an."
+        "root": "{os, select, windows {Ein ganzes Laufwerk ist als Ziel nicht erlaubt. Geben Sie einen Ordner darauf an.} other {Das Wurzelverzeichnis / ist als Ziel nicht erlaubt. Geben Sie einen Ordner darunter an.}}",
+        "notPlain": "{os, select, windows {Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende umgekehrte Schrägstriche an.} other {Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende Schrägstriche an.}}",
+        "networkPath": "Netzwerkpfade (\\\\Server\\Freigabe) sind als Ziel nicht erlaubt. Der Agent läuft als SYSTEM und erreicht keine Freigaben; wählen Sie einen lokalen Ordner.",
+        "forwardSlash": "Verwenden Sie umgekehrte Schrägstriche (\\), zum Beispiel D:\\Wiederherstellung.",
+        "invalidCharacter": "Der Pfad enthält ein Zeichen, das Windows in Ordnernamen nicht erlaubt (<>:\"|?*).",
+        "trailingDotOrSpace": "Ein Ordnername endet auf einen Punkt oder ein Leerzeichen; Windows würde ihn kürzen. Entfernen Sie das Zeichen.",
+        "reservedName": "Der Pfad enthält einen von Windows reservierten Namen (zum Beispiel CON, NUL, COM1).",
+        "systemFolder": "In Windows, die Programmordner, C:\\ProgramData\\Restow und System Volume Information wird nicht wiederhergestellt. Wählen Sie einen anderen Ordner."
       }
     },
     "neverOverwrites": "Eine Wiederherstellung überschreibt nie vorhandene Dateien. Alles wird in einen neuen Ordner geschrieben, die Dateien, die jetzt auf dem Rechner liegen, bleiben unberührt.",
@@ -809,7 +883,9 @@
       "bandwidthHint": "Leer heißt unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s. Es gilt außerhalb aller Zeitfenster.",
       "unlimited": "Unbegrenzt",
       "acPower": "Nur am Netzstrom sichern",
-      "acPowerHint": "Ein Laptop im Akkubetrieb überspringt die Sicherung, bis er am Strom hängt."
+      "acPowerHint": "Ein Laptop im Akkubetrieb überspringt die Sicherung, bis er am Strom hängt.",
+      "vss": "Schattenkopie (VSS)",
+      "vssHint": "Sichert aus einer Schattenkopie, damit geöffnete und gesperrte Dateien lesbar sind und alle Dateien vom selben Zeitpunkt stammen (dateikonsistent). Was geschieht, wenn sie scheitert, legt die Richtlinie der Agenten fest (ohne Snapshot weiter sichern oder abbrechen)."
     },
     "hooks": {
       "title": "Befehle vor und nach der Sicherung",
@@ -930,6 +1006,17 @@
       "hintDefault": "Leer lassen für den Standard der Installation von {size}.",
       "hintUnlimited": "Leer lassen für unbegrenzt (die Installation legt keinen Standard fest).",
       "tenantNote": "Alle Server und Clients dieses Mandanten teilen sich ein Budget von {size}."
+    },
+    "fsSnapshot": {
+      "label": "Dateisystem-Snapshot (LVM, btrfs)",
+      "hint": "Sichert aus einem LVM- oder btrfs-Snapshot, damit alle Dateien vom selben Zeitpunkt stammen (dateikonsistent). Dateisysteme ohne Snapshot-Verfahren (eine Partition, eine volle Volume Group) werden direkt gelesen. Was geschieht, wenn ein Snapshot scheitert, legt die Richtlinie der Agenten fest.",
+      "default": "Vorgabe",
+      "auto": "An (wo möglich)",
+      "off": "Aus",
+      "defaultNote": {
+        "auto": "Vorgabe für diesen Rechner: an, weil sein Job ihn als Ganzes sichert.",
+        "off": "Vorgabe für diesen Rechner: aus. Sicherungen ganzer Rechner nutzen Snapshots standardmäßig."
+      }
     }
   },
   "repositoryKey": {
@@ -958,7 +1045,7 @@
   },
   "danger": {
     "title": "Sicherung dieses Rechners beenden",
-    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, sofort oder wenn sie ablaufen.",
+    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, wenn sie ablaufen oder sieben Tage nach dem Auftrag.",
     "uninstall": {
       "title": "Agent deinstallieren",
       "description": "Der Rechner entfernt den Agent bei seinem nächsten Kontakt selbst und wird dabei gesperrt. Nutzen Sie das, wenn der Rechner nicht mehr gesichert werden soll.",
@@ -992,7 +1079,7 @@
     "revokeSuggested": "{days, plural, one {Dieser Rechner hat sich seit mehr als # Tag nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.} other {Dieser Rechner hat sich seit mehr als # Tagen nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.}}",
     "remove": {
       "title": "Aus {appName} entfernen",
-      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, sofort oder wenn seine Aufbewahrung sie gehen lässt. Seine Läufe und das Audit-Log behalten ihre Einträge.",
+      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, wenn seine Aufbewahrung sie gehen lässt. Ein Inhaber des Provider-Teams kann stattdessen jede Sicherung sieben Tage nach dem Auftrag löschen lassen. Seine Läufe und das Audit-Log behalten ihre Einträge.",
       "revokeFirst": "Sperren Sie den Rechner zuerst. Ein nicht gesperrter Rechner lässt sich nicht entfernen.",
       "action": "Rechner entfernen",
       "mode": {
@@ -1001,35 +1088,52 @@
           "description": "Die Sicherungen bleiben gespeichert, bis die Aufbewahrung des Rechners die neueste von ihnen hätte gehen lassen, dann werden sie gelöscht. Bis dahin bietet die Seite des entfernten Rechners ihre Wiederherstellung weiter an."
         },
         "delete": {
-          "label": "Rechner und seine Sicherungen löschen",
-          "description": "Jede Sicherung des Rechners wird jetzt gelöscht. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand sie hält."
+          "label": "Jede Sicherung in sieben Tagen löschen",
+          "description": "Der Rechner bleibt noch sieben Tage als gesperrt in der Liste, dann wird jede seiner Sicherungen gelöscht und er verlässt die Listen. Bis dahin lässt sich das Löschen abbrechen. Die Pflichtempfänger des Providers werden sofort benachrichtigt. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand die Sicherungen hält.",
+          "ownerOnly": "Nur ein Inhaber des Provider-Teams kann Sicherungen löschen."
         }
       },
       "confirm": {
         "title": "{name} entfernen?",
-        "description": "Der Rechner verschwindet aus jeder Liste, Übersicht und Zählung. Das lässt sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
+        "description": "Ist das Löschen gelaufen, lässt es sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
         "locks": "Sicherungsdateien, die der Speicher noch sperrt (unveränderliche Sicherungen), werden gelöscht, sobald ihre Sperre abläuft; die Rechner-Seite zeigt, wann.",
         "typeHostname": "Geben Sie zur Bestätigung den Hostnamen {hostname} ein",
         "cancel": "Abbrechen",
         "action": {
           "expire": "Rechner entfernen",
-          "delete": "Rechner und Sicherungen löschen"
-        }
+          "delete": "Sicherungen in sieben Tagen löschen"
+        },
+        "reason": "Grund (wird im Audit-Log festgehalten)"
       },
       "toast": {
-        "delete": "{name} wurde entfernt. Seine Sicherungen werden gelöscht.",
+        "delete": "Die Sicherungen von {name} werden am {date} gelöscht. Bis dahin können Sie das auf der Seite des Rechners abbrechen.",
         "expire": "{name} wurde entfernt. Seine Sicherungen werden am {date} gelöscht."
-      }
+      },
+      "scheduled": "Die Sicherungen dieses Rechners sind zum Löschen vorgemerkt; der Hinweis oben auf der Seite nennt das Datum. Brechen Sie das ab, um anders zu entscheiden."
     }
+  },
+  "backupDeletion": {
+    "title": "Sicherungen werden am {date} gelöscht",
+    "requested": "Beauftragt von {person} am {date}.",
+    "reason": "Grund: {reason}",
+    "heldLegal": "Eine Legal Hold über diesen Mandanten hält das Löschen an: Solange sie besteht, wird nichts gelöscht; geprüft wird täglich erneut.",
+    "heldSuspicion": "Ein ungeklärter verdächtiger Sicherungsstand dieses Rechners hält das Löschen an: Bis er geklärt ist, wird nichts gelöscht; geprüft wird täglich erneut.",
+    "cancel": "Löschen abbrechen",
+    "cancelled": "Das Löschen wurde abgebrochen. Die Sicherungen bleiben erhalten.",
+    "ownerCancels": "Nur ein Inhaber des Provider-Teams kann das Löschen abbrechen."
   },
   "errors": {
     "resticBusy": "Der Server liest gerade andere Sicherungen. Versuchen Sie es gleich noch einmal.",
     "repositoryLocked": "Die Sicherungsdaten sind gerade mit einer Sicherung oder Wartung beschäftigt. Versuchen Sie es in Kürze noch einmal.",
     "repositoryUnavailable": "Die Sicherungsdaten dieses Rechners konnten im Repository nicht geöffnet werden. Prüfen Sie, ob das Repository erreichbar ist.",
+    "repositoryNotFound": "Die Sicherungsdaten dieses Rechners wurden auf keinem Speicherziel gefunden. Prüfen Sie, ob jedes Speicherziel dieses Mandanten erreichbar ist und ob der Ordner des Rechners unter endpoints/ dort verschoben oder gelöscht wurde.",
+    "repositoryPasswordRejected": "Das gespeicherte Passwort öffnet die Sicherungsdaten dieses Rechners nicht: Das Repository wurde vermutlich außerhalb von {appName} neu angelegt oder seine Schlüssel wurden geändert. Wenden Sie sich an Ihren Anbieter; die Einzelheiten stehen im Server-Log.",
+    "repositoryPasswordMissing": "Für diesen Rechner ist kein Repository-Passwort gespeichert, daher lassen sich seine Sicherungsdaten hier nicht öffnen. Wenn Sie das Passwort früher gesichert haben („Repository-Passwort anzeigen“), können Sie mit restic außerhalb von {appName} wiederherstellen.",
     "resticFailed": "Das Lesen der Sicherungsdaten ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
     "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
-    "unsupportedOs": "Dieses Betriebssystem wird noch nicht unterstützt. Diese Version sichert Linux- und macOS-Rechner.",
+    "unsupportedOs": "Dieses Betriebssystem wird nicht unterstützt. {appName} sichert Linux, macOS und Windows auf x64 (amd64); Windows on ARM wird in dieser Version nicht unterstützt.",
     "revoked": "Dieser Rechner ist gesperrt und nimmt keine Änderungen oder Aufgaben an.",
+    "noSamples": "Die neueste Sicherung hat keine Stichprobendateien aufgezeichnet, deshalb ist keine Restore-Prüfung von ihr möglich. Das Lauf-Log der Sicherung nennt den Grund.",
     "nothingToTest": "Es gibt noch keine erfolgreiche Sicherung, die getestet werden könnte.",
     "instanceUnknown": "Die Adresse dieser Installation ist unbekannt. Setzen Sie die öffentliche URL in den Einstellungen und versuchen Sie es erneut.",
     "queueNotReady": "Der Worker ist noch nicht gestartet. Versuchen Sie es gleich noch einmal.",
@@ -1054,7 +1158,29 @@
     "confirmHostname": "Der Hostname stimmt nicht. Geben Sie ihn genau wie angezeigt ein.",
     "removalLegalHold": "Eine Legal Hold umfasst jede Sicherung dieses Mandanten, daher lassen sie sich jetzt nicht löschen. Behalten Sie sie stattdessen bis zum Ablauf, oder heben Sie die Hold zuerst auf.",
     "removalSuspicionHold": "Ein verdächtiger Sicherungsstand dieses Rechners ist nicht geklärt und hält seine Sicherungen. Klären Sie ihn zuerst, oder behalten Sie die Sicherungen bis zum Ablauf.",
-    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen."
+    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen.",
+    "restorePathLocked": "Diese Datei wird nicht herausgegeben: Die Zustandsdatei des Agenten wird nie wiederhergestellt (der Agent erhält bei einer neuen Anmeldung eine neue Identität), Schlüsseldateien verschlüsselter Volumes nur an Administratoren.",
+    "recoveryCodeInvalid": "Kein Wiederherstellungscode passt. Prüfen Sie Code und Adresse.",
+    "recoveryCodeExpired": "Der Wiederherstellungscode ist abgelaufen. Stellen Sie einen neuen aus.",
+    "recoveryCodeRevoked": "Der Wiederherstellungscode wurde widerrufen. Stellen Sie einen neuen aus.",
+    "recoveryCodeUsed": "Der Wiederherstellungscode wurde schon eingelöst. Stellen Sie einen neuen aus.",
+    "recoveryTooOld": "Das Recovery-ISO ist für diesen Server zu alt. Laden Sie das aktuelle herunter.",
+    "recoverySessionEnded": "Die Recovery-Sitzung ist beendet.",
+    "recoveryNotApproved": "Die Sitzung ist noch nicht freigegeben.",
+    "recoveryCredentialsCollected": "Das ISO hat die Zugangsdaten bereits abgeholt.",
+    "recoveryStateConflict": "Das ist im aktuellen Zustand der Wiederherstellung nicht möglich. Laden Sie die Seite neu.",
+    "baremetalNotAvailable": "Für diesen Rechner lässt sich kein Wiederherstellungscode ausstellen.",
+    "recoveryLimitReached": "Für diesen Rechner sind bereits drei Codes offen. Widerrufen Sie zuerst einen.",
+    "endpointRecoveryActive": "Eine Wiederherstellung liest die Sicherungen dieses Rechners. Lassen Sie sie zuerst enden oder beenden Sie sie.",
+    "rebindOsMismatch": "Das Token gilt für einen Rechner mit anderem Betriebssystem.",
+    "sqlUnsupported": "Der Agent auf diesem Rechner kann SQL Server noch nicht nativ sichern. Aktualisieren Sie zuerst den Agenten.",
+    "sqlBackupPruned": "Diese Sicherung wird nicht mehr aufbewahrt, die Aufbewahrung hat sie entfernt. Wählen Sie eine neuere.",
+    "sqlNameTaken": "Auf der Instanz gibt es schon eine Datenbank mit diesem Namen. Wählen Sie einen anderen Namen.",
+    "sqlNothingToVerify": "Noch keine Datenbank dieses Rechners hat eine Sicherung in den Sicherungsdaten.",
+    "removalScheduled": "Die Sicherungen dieses Rechners sind bereits zum Löschen vorgemerkt. Brechen Sie das zuerst ab, um anders zu entscheiden.",
+    "removalReasonRequired": "Geben Sie einen Grund für das Löschen der Sicherungen an.",
+    "removalNotCancellable": "Das Löschen lässt sich nicht mehr abbrechen: Es hat begonnen, oder es ist keines vorgemerkt.",
+    "ownerRequired": "Das kann nur ein Inhaber des Provider-Teams."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1065,6 +1191,7 @@
       "green": "Die Restore-Prüfung der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
       "yellow": "Die Restore-Prüfung wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
       "red": "Die Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen, oder eine Integritätsprüfung hat Schäden gefunden.",
+      "noSamples": "Keine Stichprobendateien aufgezeichnet; für diese Sicherung ist keine Restore-Prüfung möglich.",
       "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes."
@@ -1090,7 +1217,15 @@
     "unknown": "Fehlercode {code}",
     "detail": "Technische Meldung des Agents",
     "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet",
-    "cancelled": "In der Oberfläche abgebrochen"
+    "snapshot_failed": "Der Dateisystem-Snapshot (etwa eine Schattenkopie oder ein LVM- oder btrfs-Snapshot) eines Laufwerks oder Dateisystems ist fehlgeschlagen",
+    "snapshot_unavailable": "Ohne Dateisystem-Snapshot: Snapshots sind auf dem Rechner nicht nutzbar",
+    "snapshot_cleanup_failed": "Ein Dateisystem-Snapshot blieb nach der Sicherung liegen",
+    "source_unreadable": "Ein Sicherungsordner konnte nicht gelesen werden, zum Beispiel ein mit BitLocker gesperrtes, ausgeschaltetes oder nicht zugängliches Laufwerk, und fehlt in dieser Sicherung",
+    "source_is_mount_point": "Ein Sicherungsordner ist ein Volume ohne Laufwerksbuchstaben: Gesichert würde nur der Einhängepunkt, deshalb fehlt er in dieser Sicherung",
+    "cancelled": "In der Oberfläche abgebrochen",
+    "layout_capture_failed": "Das Plattenlayout ließ sich nicht erfassen; die eingehängten Dateisysteme wurden trotzdem gesichert",
+    "layout_too_large": "Das Plattenlayout ist für den Server zu groß; es liegt im Wiederherstellungspunkt, wird hier aber nicht gezeigt",
+    "layout_rejected": "Der Server hat das vom Agenten gesendete Plattenlayout nicht übernommen"
   },
   "agentUpdates": {
     "title": "Automatische Agent-Updates",
@@ -1171,6 +1306,8 @@
     "emptyDescription": "Sobald der Container gesichert ist, können Sie hier seine Dateien durchsuchen und herunterladen.",
     "downloadOnly": "Dateien eines Containers laden Sie als ZIP herunter. Um den ganzen Container zurückzuholen, stellen Sie ihn unter VMs & Container wieder her.",
     "downloadOnlyRestorer": "Dateien eines Containers laden Sie als ZIP herunter. Den ganzen Container stellt ein Administrator wieder her.",
+    "restoreWhole": "Ganzen Container wiederherstellen …",
+    "restoreWholeHint": "Stellt den ganzen Container aus diesem Sicherungsstand wieder her (auf der Seite des Containers).",
     "openGuest": "Container öffnen"
   },
   "vmFiles": {
@@ -1180,6 +1317,8 @@
     "emptyDescription": "Sobald die VM gesichert ist, können Sie hier die Dateien auf ihren Festplatten durchsuchen und herunterladen.",
     "downloadOnly": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; um die ganze VM zurückzuholen, stellen Sie sie unter VMs & Container wieder her.",
     "downloadOnlyRestorer": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; die ganze VM stellt ein Administrator wieder her.",
+    "restoreWhole": "Ganze VM wiederherstellen …",
+    "restoreWholeHint": "Stellt die ganze VM aus diesem Sicherungsstand wieder her (auf der Seite der VM).",
     "openGuest": "VM öffnen",
     "unreadable": "In diesem Sicherungsstand nicht lesbar:",
     "unreadableItem": "{name}: {reason}",
@@ -1253,6 +1392,18 @@
       "label": "Wiederholungen",
       "hint": "0 bis {max}.",
       "value": "{count, plural, one {# Wiederholung} other {# Wiederholungen}}"
+    },
+    "snapshotOnFailure": {
+      "title": "Wenn der Dateisystem-Snapshot scheitert",
+      "description": "Gilt für die Schattenkopie (VSS) von Windows-Rechnern und für Dateisystem-Snapshots unter Linux und macOS. Eine Schattenkopie macht eine Sicherung dateikonsistent, nicht anwendungskonsistent; Datenbanken sichern Sie zusätzlich mit einem Befehl vor der Sicherung.",
+      "modes": {
+        "continue": "Ohne Snapshot weiter sichern (Teilerfolg)",
+        "fail": "Sicherung abbrechen"
+      },
+      "hints": {
+        "continue": "Betroffene Laufwerke werden direkt gelesen; der Lauf endet als teilweise erfolgreich und nennt den Grund.",
+        "fail": "Der Lauf endet als fehlgeschlagen; die automatischen Wiederholungen greifen."
+      }
     },
     "problems": {
       "days": "Wählen Sie mindestens einen Tag.",
@@ -1330,6 +1481,7 @@
     "never_seen": "Nie verbunden",
     "revoke_suggested": "Sperren empfohlen",
     "never": "Noch keine Sicherung",
+    "no_samples": "Keine Restore-Prüfung möglich",
     "restore_warning": "Restore-Prüfung: Achtung",
     "check_overdue": "Restore-Prüfung überfällig",
     "interrupted": "Unterbrochen",
@@ -1368,5 +1520,901 @@
     "openPage": "Seite des Rechners öffnen",
     "progressOf": "Fortschritt der Sicherung von {name}",
     "adminOnly": "Sichern und Stoppen ist Sache der Administratoren von Backup-Jobs."
+  },
+  "baremetal": {
+    "title": "Bare-Metal-Wiederherstellung (Vorschau)",
+    "states": {
+      "not_enabled": "Nicht als Ganzes gesichert",
+      "not_possible": "Nicht möglich",
+      "no_layout": "Noch kein Layout erfasst",
+      "unverified": "Layout erfasst; Restore-Prüfung ausstehend",
+      "layout_checked": "Layout geprüft",
+      "red": "Restore-Prüfung fehlgeschlagen",
+      "green": "Startet auf neuer Hardware",
+      "overdue": "Startprobe überfällig"
+    },
+    "notPossible": {
+      "container": "Ein Container wird mit seinem Host wiederhergestellt.",
+      "windows": "Windows-Rechner werden noch nicht als Ganzes wiederhergestellt.",
+      "darwin_later": "macOS folgt in einer späteren Version.",
+      "agent_too_old": "Der Agent ist zu alt für die Sicherung des ganzen Rechners (ab 0.5.0).",
+      "unsupported": "Das Layout enthält Teile, die die Wiederherstellung nicht anlegen kann (siehe unten).",
+      "arm64_later": "Bare-Metal-Wiederherstellungen von arm64-Rechnern folgen in einer späteren Version."
+    },
+    "unverifiedHint": "Die neueste Sicherung des ganzen Rechners hat das Layout unten erfasst. Der Server prüft nach jeder solchen Sicherung, ob es sich wiederherstellen lässt; bis diese Prüfung gelaufen ist, ist nichts hier ein Beweis.",
+    "snapshotHint": "{vg} hat keinen freien Platz für Snapshots. Lassen Sie {size} frei (10 Prozent der Volume Group), dann sichert {appName} {mounts} konsistent.",
+    "capturedAt": "Erfasst",
+    "snapshot": "Wiederherstellungspunkt",
+    "verdictLabel": "Bewertung",
+    "verdict": {
+      "supported": "Unterstützt",
+      "supported_with_warnings": "Unterstützt, mit Hinweisen",
+      "unsupported": "Nicht unterstützt"
+    },
+    "codes": {
+      "fs_type_unsupported": "Ein Dateisystem eines Systempfads hat einen Typ, den die Wiederherstellung nicht anlegen kann (etwa ZFS, bcachefs, F2FS oder NTFS)",
+      "lvm_type_unsupported": "Ein logisches Volume nutzt Cache, Writecache oder VDO, das die Wiederherstellung nicht anlegen kann",
+      "md_container_unsupported": "Ein RAID-Verbund liegt in einem Firmware-RAID-Container",
+      "md_journal_unsupported": "Ein RAID-Verbund nutzt ein Journal oder ein Partial Parity Log",
+      "md_reshape_in_progress": "Ein RAID-Verbund wurde während der Sicherung umgebaut",
+      "multipath_unsupported": "Eine Platte ist über Multipath angebunden",
+      "integrity_unsupported": "Ein Volume nutzt dm-integrity",
+      "luks_detached_header": "Ein verschlüsseltes Volume hält seinen Header getrennt von den Daten",
+      "network_root_unsupported": "Das Wurzel-Dateisystem kommt über das Netz (iSCSI, NFS)",
+      "xfs_external_log": "Ein XFS-Dateisystem hat ein externes Log oder ein Realtime-Gerät",
+      "bootloader_unsupported": "Der Bootloader ist keiner, den die Wiederherstellung einrichten kann",
+      "initramfs_unsupported": "Der initramfs-Erzeuger ist keiner, den die Wiederherstellung ausführen kann",
+      "uki_without_generator": "Ein Unified Kernel Image wird genutzt, aber kein Erzeuger dafür ist installiert",
+      "unknown_device_in_boot_path": "Ein unbekanntes Gerät liegt im Weg zu /, /boot oder der EFI-Systempartition",
+      "container": "Der Rechner ist ein Container: Er wird mit seinem Host wiederhergestellt",
+      "fstab_unresolvable": "Ein fstab-Eintrag eines Systempfads lässt sich keinem Gerät zuordnen",
+      "luks_token": "Ein verschlüsseltes Volume öffnet sich mit einem TPM2-, FIDO2- oder netzgebundenen Schlüssel: Richten Sie ihn nach einer Wiederherstellung neu ein",
+      "snapshot_subvolumes": "Subvolumes automatischer Systemsnapshots werden bei der Wiederherstellung leer angelegt, nicht gesichert",
+      "lvm_snapshot_lvs": "LVM-Snapshots auf dem Rechner werden nicht gesichert",
+      "raw_lvs": "Logische Volumes ohne Dateisystem (raw) werden nicht gesichert",
+      "pve_guest_volumes": "Volumes virtueller Maschinen und Container (Proxmox VE) werden hier nicht gesichert; das übernimmt die Proxmox-VE-Integration",
+      "docker_btrfs_many": "Mehr als 200 btrfs-Subvolumes von Container-Images: Erwägen Sie, sie nach einer Wiederherstellung neu zu laden statt sie zu sichern",
+      "data_fs_unsupported": "Ein Datendateisystem eines nicht unterstützten Typs wird gesichert, bei der Wiederherstellung aber nicht neu angelegt",
+      "untested_distribution": "Die Distribution ist für Wiederherstellungen nicht geprüft",
+      "non_systemd_init": "Der Rechner startet nicht mit systemd",
+      "secure_boot_own_keys": "Secure Boot ist an, mit einem Bootloader oder Kernel, den eigene Schlüssel signiert haben",
+      "dkms_mok": "Auf dem Rechner gebaute Kernelmodule sind mit einem Machine Owner Key signiert",
+      "bios_needs_csm": "Der Rechner startet im BIOS-Modus: Ersatzhardware braucht CSM bzw. Legacy-Start, den viele aktuelle Modelle nicht mehr haben",
+      "dual_boot_windows": "Auf den Platten liegt ein zweites Betriebssystem (Dual-Boot); wiederhergestellt wird nur Linux",
+      "lvm_device_ids": "LVM nennt seine Geräte in einer Gerätedatei oder einem Filter; die Wiederherstellung passt das an",
+      "device_name_refs": "Konfigurationsdateien nennen Geräte mit Kernelnamen (etwa /dev/sda), die sich auf neuer Hardware ändern können",
+      "md_degraded": "Ein RAID-Verbund war während der Sicherung degradiert",
+      "capture_failed": "Ein Teil des Layouts ließ sich nicht erfassen"
+    },
+    "content": {
+      "esp": "EFI-Systempartition",
+      "bios_boot": "BIOS-Boot-Partition",
+      "filesystem": "Dateisystem",
+      "luks": "Verschlüsselt (LUKS)",
+      "md": "RAID-Mitglied",
+      "pv": "LVM Physical Volume",
+      "swap": "Swap",
+      "plain": "Verschlüsselt (plain)",
+      "empty": "Leer",
+      "other": "Sonstiges"
+    },
+    "stack": {
+      "disk": "Platte",
+      "partition": "Partition",
+      "md": "RAID",
+      "luks": "LUKS",
+      "plain": "dm-crypt",
+      "vg": "Volume Group",
+      "lv": "Logisches Volume",
+      "fs": "Dateisystem",
+      "subvolume": "Subvolume",
+      "swap": "Swap"
+    },
+    "summary": {
+      "diskBar": "{disk} mit {count, plural, one {# Partition} other {# Partitionen}}",
+      "system": "System",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS (Legacy)"
+      },
+      "secureBoot": "Secure Boot",
+      "on": "An",
+      "off": "Aus",
+      "unknown": "Unbekannt",
+      "bootloader": "Bootloader",
+      "initramfs": "initramfs und Tastaturbelegung",
+      "encryption": "Verschlüsselung",
+      "noEncryption": "Keine",
+      "encryptionCount": "{luks, plural, one {# LUKS-Volume} other {# LUKS-Volumes}}, {plain, plural, one {# plain dm-crypt} other {# plain dm-crypt}}",
+      "disks": "Platten",
+      "stack": "Speicherstapel"
+    },
+    "incompleteHint": "Die Layout-Prüfung des neuesten Wiederherstellungspunkts konnte nicht abgeschlossen werden. Sie läuft nach der nächsten Sicherung des ganzen Rechners erneut; bis dahin ist nichts hier ein Beweis.",
+    "layoutCheckedHint": "Der neueste Wiederherstellungspunkt enthält dieses Layout und seine Startkette, und der Wiederherstellungsplaner kann es auf dieselben und auf die kleinstmöglichen Platten bringen. Das beweist noch nicht, dass der wiederhergestellte Rechner startet: Das beweist die Startprobe unten.",
+    "greenHint": "Das Wiederherstellungslabor hat die neueste Sicherung des ganzen Rechners mit derselben Wiederherstellung, die auch Sie ausführen würden, auf andere Hardware zurückgeholt, und das wiederhergestellte System ist gestartet. Gültig für 8 Tage und für dieses Layout und diese Startkette.",
+    "overdueHint": "Die letzte bestandene Startprobe ist älter als 8 Tage. Die nächste läuft, sobald das Wiederherstellungslabor Platz hat; Sie können sie jetzt starten.",
+    "redHint": "Die Layout-Prüfung hat im neuesten Wiederherstellungspunkt ein Problem gefunden (siehe unten). Beheben Sie es auf dem Rechner; die nächste Sicherung des ganzen Rechners wird erneut geprüft.",
+    "check": {
+      "title": "Layout-Prüfung",
+      "checkedAt": "Geprüft",
+      "snapshot": "Wiederherstellungspunkt",
+      "pending": "Die Layout-Prüfung dieses Wiederherstellungspunkts ist noch nicht gelaufen.",
+      "result": {
+        "green": "Bestanden",
+        "red": "Nicht bestanden",
+        "yellow": "Unvollständig"
+      },
+      "status": {
+        "ok": "OK",
+        "warning": "Hinweis",
+        "failed": "Fehlgeschlagen",
+        "skipped": "Übersprungen"
+      },
+      "showEvidence": "Beleg anzeigen",
+      "hideEvidence": "Beleg ausblenden",
+      "noFindings": "Nichts zu beanstanden.",
+      "plannerTitle": "Restore-Planer",
+      "plannerOk": "Plant ohne Probleme",
+      "plannerRefused": "Der Planer hat das Layout abgelehnt",
+      "items": {
+        "L1": "Layout-Manifest gültig",
+        "L2": "Layout unterstützt",
+        "L3": "Wiederherstellung planbar",
+        "L4": "Manifest im Wiederherstellungspunkt",
+        "L5": "Jedes Dateisystem gesichert",
+        "L6": "Startkette im Wiederherstellungspunkt",
+        "L7": "Konsistenz",
+        "L8": "Restore-Größen"
+      },
+      "targets": {
+        "same": "Gleiche Hardware",
+        "minimal": "Möglichst kleine Platten",
+        "other-controller": "Anderer Plattencontroller"
+      },
+      "incomplete": {
+        "planner_timeout": "Der Restore-Planer hat zu lange gebraucht.",
+        "planner_output_too_large": "Die Antwort des Restore-Planers war zu groß.",
+        "planner_crashed": "Der Restore-Planer hat ohne Antwort aufgehört.",
+        "planner_unavailable": "Der Restore-Planer ist auf dem Server nicht installiert.",
+        "planner_refused_valid_manifest": "Der Restore-Planer hat ein gültiges Layout abgelehnt."
+      },
+      "findings": {
+        "manifest_invalid": "Das gespeicherte Layout-Manifest ist ungültig: {reason}",
+        "verdict_unsupported": "Das Layout enthält Teile, die die Wiederherstellung nicht anlegen kann: {codes}",
+        "planner_refused_valid_manifest": "Der Restore-Planer hat das Layout für {target} abgelehnt ({code}).",
+        "manifest_missing": "Der Wiederherstellungspunkt enthält das Layout-Manifest {path} nicht.",
+        "manifest_mismatch": "Das Layout-Manifest im Wiederherstellungspunkt weicht von dem gemeldeten ab (erwartet {expected}, gefunden {actual}).",
+        "source_missing": "Die Quelle {source} fehlt im Wiederherstellungspunkt.",
+        "source_empty": "Die Quelle {source} ist im Wiederherstellungspunkt leer.",
+        "fstab_entry_not_covered": "Der fstab-Eintrag für {target} wird weder gesichert noch ist er ausgeschlossen.",
+        "subvolume_not_covered": "Das btrfs-Subvolume unter {path} wird weder gesichert noch ist es ausgeschlossen.",
+        "system_mount_excluded": "Ein Ausschluss trifft das Systemdateisystem unter {target}.",
+        "paths_differ": "Der Wiederherstellungspunkt nennt andere Pfade als die {count} Quellen der Sicherung; sein Baum enthält sie alle.",
+        "fstab_missing": "Der Wiederherstellungspunkt enthält keine /etc/fstab.",
+        "fstab_unresolvable": "Der fstab-Eintrag {source} für {target} führt zu keinem Gerät des Layouts.",
+        "crypttab_plain_device_name": "Der Plain-dm-crypt-Eintrag {name} nennt sein Gerät {device}; auf neuer Hardware kann dieser Name auf eine andere Platte zeigen.",
+        "crypttab_unresolvable": "Der crypttab-Eintrag {name} ({device}) führt zu keinem Gerät des Layouts.",
+        "kernel_missing": "Der Kernel {version} ({path}) fehlt im Wiederherstellungspunkt.",
+        "kernel_size_mismatch": "{path} hat im Wiederherstellungspunkt eine andere Größe als erfasst ({actual} statt {expected} Byte).",
+        "initramfs_missing": "Das initramfs {path} des Kernels {version} fehlt im Wiederherstellungspunkt.",
+        "loader_missing": "Der Bootloader {path} des Starteintrags {entry} fehlt im Wiederherstellungspunkt.",
+        "generator_missing": "Der initramfs-Erzeuger {tool} fehlt im Wiederherstellungspunkt.",
+        "bootloader_tool_missing": "Das Bootloader-Werkzeug ({tools}) fehlt im Wiederherstellungspunkt.",
+        "grub_cfg_missing": "Die GRUB-Konfiguration {path} fehlt im Wiederherstellungspunkt.",
+        "bls_kernel_missing": "Der Loader-Eintrag {entry} nennt {path}, das im Wiederherstellungspunkt fehlt.",
+        "modules_alias_missing": "Die Modullisten des Kernels {version} fehlen im Wiederherstellungspunkt; Treiber lassen sich nicht prüfen.",
+        "keymap_mismatch": "{path} setzt die Tastaturbelegung {actual}, erfasst wurde {expected}.",
+        "lvm_filter_device_names": "Der LVM-Filter in {path} nennt Geräte mit Kernel-Namen; die Wiederherstellung passt ihn an.",
+        "device_name_refs": "{count, plural, one {# Konfigurationseintrag nennt} other {# Konfigurationseinträge nennen}} Geräte mit Kernel-Namen; die Wiederherstellung passt sie an.",
+        "consistency_live_root": "Das Wurzeldateisystem wurde ohne Snapshot gelesen; offene Dateien können inkonsistent sein.",
+        "consistency_missing": "Die Sicherung hat keine Konsistenz gemeldet (Agent vor 0.5.0).",
+        "restore_sizes": "{bytes} zum Wiederherstellen auf {mounts, plural, one {# Dateisystem} other {# Dateisysteme}}."
+      }
+    },
+    "plan": {
+      "codes": {
+        "layout_unsupported": "Das Layout lässt sich nicht als Ganzes wiederherstellen ({reason}).",
+        "firmware_mode_mismatch": "Der Rechner wurde im Modus {source} gesichert, das Ziel startet im Modus {target}.",
+        "bios_4kn": "Im BIOS-Modus lässt sich nicht von der Platte {target} starten: Sie hat logische Sektoren mit 4096 Byte.",
+        "target_missing": "Keine Zielplatte für {disk} ({kname}, mindestens {minBytes}).",
+        "target_too_small": "Die Zielplatte {target} hat {haveBytes}, {disk} braucht mindestens {needBytes}.",
+        "target_unusable": "Auf die Zielplatte {target} lässt sich nicht schreiben ({reason}).",
+        "sed_locked": "Die Platte {target} meldet Lesefehler; sie ist womöglich eine gesperrte selbstverschlüsselnde Platte.",
+        "multipath_detected": "Die Platten {targets} haben dieselbe WWN: Der Speicher ist über mehrere Pfade erreichbar.",
+        "identity_conflict": "Das Gerät {device} trägt {kind} {uuid} dieses Rechners; trennen oder löschen Sie es.",
+        "storage_driver_missing": "Der gesicherte Kernel {kernel} hat keinen Treiber für die Platte {target} ({modalias}).",
+        "secure_boot_ca_missing": "Die Firmware des Ziels vertraut {loader} nicht (signiert von {issuer}).",
+        "secure_boot_revoked": "Die Firmware des Ziels hat {loader} gesperrt.",
+        "secure_boot_sbat_revoked": "Die Firmware des Ziels hat die Generation {generation} von {component} in {loader} gesperrt.",
+        "mok_key_missing": "{object} ist mit dem Maschinenschlüssel {subject} signiert, der weder in der Sicherung liegt noch auf dem Ziel eingeschrieben ist.",
+        "mkfs_unsupported_type": "Das Dateisystem {fs} ({type}) lässt sich nicht anlegen: {reason}.",
+        "mkfs_feature_unknown": "Das Dateisystem {fs} ({type}) nutzt die Funktion {feature}, die die Wiederherstellungswerkzeuge nicht anlegen können.",
+        "sector_size_incompatible": "{object} verbindet Sektoren mit {sizes} Byte, die {fs} nicht nutzen kann.",
+        "md_too_few_members": "Das RAID {md} hätte {have} von {need} Mitgliedern; es kann nicht laufen.",
+        "lvm_raid_missing_pv": "Das RAID-Volume {vg}/{lv} braucht alle seine physischen Volumes; {disk} fehlt.",
+        "btrfs_raid_missing_device": "Das btrfs-Dateisystem {fs} braucht alle seine Geräte; {disk} fehlt.",
+        "shrink_needs_confirmation": "Die Platte {disk} passt nur auf {target}, wenn mehr Volumes schrumpfen als das, das wachsen darf; das braucht eine Bestätigung.",
+        "adopt_incomplete": "{unit} lässt sich nicht übernehmen: {reason}.",
+        "mapping_invalid": "Die Zuordnung der Platten ist ungültig: {reason}.",
+        "nic_driver_missing": "Der gesicherte Kernel {kernel} hat keinen Treiber für die Netzwerkkarte {nic}.",
+        "fallback_kernel_driver_missing": "Der Ersatzkernel {kernel} hat keinen Treiber für die Platte {target}.",
+        "other_controller_driver_missing": "An einem anderen Plattencontroller hätte der gesicherte Kernel {kernel} keinen Treiber ({module}).",
+        "driver_facts_missing": "Die Modullisten des Kernels {kernel} sind nicht bekannt; Treiber wurden nicht geprüft.",
+        "secure_boot_dbx_unknown": "Die Sperrliste der Firmware des Ziels ist nicht bekannt; gesperrte Bootloader wurden nicht geprüft.",
+        "secure_boot_unsigned_chain": "{loader} ist nicht signiert: Der wiederhergestellte Rechner startet nur mit ausgeschaltetem Secure Boot oder mit eigenen Schlüsseln.",
+        "secure_boot_disabled_by_choice": "Auf Ihre Entscheidung hin sind die Prüfungen der Startkette nur Hinweise: Der wiederhergestellte Rechner startet erst, wenn Secure Boot im Firmware-Setup des Ziels ausgeschaltet ist.",
+        "mok_enroll_required": "Der Maschinenschlüssel {subject} muss beim ersten Start eingeschrieben werden.",
+        "md_degraded_first_boot": "Das RAID {md} wird unvollständig angelegt ({have} von {need} Mitgliedern); der erste Start kann länger dauern.",
+        "redundant_boot_partition_dropped": "Die Partition {partition} der fehlenden Platte {disk} ist eine redundante Startpartition und wird nicht wieder angelegt.",
+        "raw_lvs_skipped": "{count, plural, one {# logisches Volume} other {# logische Volumes}} ohne Dateisystem {count, plural, one {wird} other {werden}} nicht angelegt ({lvs}).",
+        "raw_lvs_created_empty": "{count, plural, one {# logisches Volume} other {# logische Volumes}} ohne Dateisystem {count, plural, one {wird} other {werden}} leer angelegt ({lvs}).",
+        "dual_boot_windows_not_restored": "Ein weiteres Betriebssystem auf den Platten (Dual-Boot) wird nicht wiederhergestellt; seine Starteinträge werden nicht angelegt.",
+        "mbr_2tib_limit": "Die Platte {target} ist größer, als eine MBR-Partitionstabelle adressieren kann; {freeBytes} bleiben ungenutzt.",
+        "partition_realigned": "Die Partition {partition} rückt auf eine 1-MiB-Grenze; ihre PARTUUID bleibt.",
+        "esp_grown_4kn": "Die EFI-Systempartition {partition} wächst auf {sizeBytes} für FAT32 mit Sektoren von 4096 Byte.",
+        "ext_block_size_raised": "Das Dateisystem {fs} wird mit Blöcken von {blockSize} statt {sourceBlockSize} Byte angelegt.",
+        "vfat_sector_size_changed": "Das Dateisystem {fs} wird mit Sektoren von {sectorSize} statt {sourceSectorSize} Byte angelegt.",
+        "luks_sector_size_changed": "Das verschlüsselte Volume {luks} wird mit Sektoren von {sectorSize} statt {sourceSectorSize} Byte angelegt.",
+        "lvm_mixed_block_sizes_allowed": "{object} reicht über Platten mit verschiedenen Sektorgrößen; LVM darf sie mischen.",
+        "btrfs_csum_assumed": "Die Prüfsummenart von btrfs {fs} ist nicht erfasst; angenommen wird crc32c.",
+        "restore_size_estimated": "Die Restore-Größe von {object} ist aus dem belegten Platz geschätzt.",
+        "lv_shrunk": "Das logische Volume {vg}/{lv} schrumpft von {fromBytes} auf {toBytes}.",
+        "partition_shrunk": "Die Partition {partition} schrumpft von {fromBytes} auf {toBytes}.",
+        "grow_not_last": "Die Partition {partition} soll wachsen, ist aber nicht die letzte auf {disk}; sie behält ihre Größe.",
+        "fs_not_recreated": "Das Dateisystem {fs} ({type}) wird nicht wieder angelegt; seine Partition bleibt leer.",
+        "bios_boot_disk": "Wählen Sie {target} im BIOS als Startplatte.",
+        "luks_tokens_not_restored": "Die Schlüsselbindungen des verschlüsselten Volumes {luks} ({tokens}) gehören zur alten Hardware; richten Sie sie nach dem Start neu ein.",
+        "keyfile_regenerated": "Die Schlüsseldatei {path} des verschlüsselten Volumes {luks} wird neu angelegt.",
+        "untested_distribution": "Die Distribution gehört nicht zu den getesteten; die Wiederherstellung kann Handarbeit brauchen.",
+        "non_systemd_init": "Das System startet nicht mit systemd; dafür ist die Wiederherstellung nicht getestet."
+      }
+    },
+    "minimum": {
+      "title": "Mindestgrößen",
+      "disk": "{disk} (jetzt {size}): mindestens {min}",
+      "filesystem": "{mount}: {restore} wiederherzustellen, mindestens {min}",
+      "hint": "Was Ersatzhardware mindestens braucht, nach dem Inhalt des neuesten Wiederherstellungspunkts. Größere Platten werden ganz genutzt."
+    },
+    "probe": {
+      "title": "Startprobe",
+      "now": "Jetzt prüfen",
+      "requested": "Startprobe geplant. Das Wiederherstellungslabor übernimmt sie bei seiner nächsten Anfrage.",
+      "requestFailed": "Die Startprobe konnte nicht geplant werden",
+      "checkedAt": "Geprüft",
+      "result": "Ergebnis",
+      "hardware": "Hardware der Probe",
+      "leftEmpty": "Leer gelassen",
+      "serial": "Serielle Konsole des wiederhergestellten Systems",
+      "readiness": {
+        "green": "Gestartet",
+        "red": "Nicht gestartet",
+        "none": "Kein Ergebnis"
+      },
+      "firmware": {
+        "uefi-sb": "UEFI mit Secure Boot",
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "blocked": {
+        "no_lab": "Diese Installation betreibt kein Wiederherstellungslabor.",
+        "no_kvm": "Das Wiederherstellungslabor hat kein KVM.",
+        "planned": "Eine Startprobe ist schon geplant.",
+        "running": "Eine Startprobe läuft."
+      },
+      "reasons": {
+        "no_lab": "Diese Installation betreibt kein Wiederherstellungslabor, deshalb beweist keine Startprobe, dass der Rechner startet. Ein Administrator schaltet es mit dem Compose-Profil recovery-lab auf einem Host mit KVM ein.",
+        "no_kvm": "Das Wiederherstellungslabor läuft auf einem Host ohne KVM (eine VM ohne verschachtelte Virtualisierung) und kann keine Probe starten.",
+        "planned": "Eine Startprobe ist geplant; das Wiederherstellungslabor übernimmt sie bei seiner nächsten Anfrage.",
+        "running": "Das Wiederherstellungslabor stellt diese Sicherung gerade wieder her und startet sie.",
+        "incomplete": "Die letzte Startprobe hat nichts bewiesen (das Labor, ein Zeitlimit). Sie wird innerhalb von sechs Stunden wiederholt.",
+        "not_systemd": "Die Startprobe braucht ein System, das mit systemd startet.",
+        "too_large": "Die Systemdateisysteme sind größer, als das Wiederherstellungslabor zurückholt, auch wenn die größten Datenordner leer bleiben.",
+        "no_disks": "Das Layout hat keine Platte, auf die die Probe zurückholen könnte."
+      },
+      "cause": {
+        "booted": "Das wiederhergestellte System hat seinen normalen Betrieb erreicht.",
+        "recovery_failed": "Die Wiederherstellung hat ein Problem der Sicherung gefunden.",
+        "verification_failed": "Die Prüfung nach der Wiederherstellung ist fehlgeschlagen.",
+        "incomplete": "Die Probe hat nichts bewiesen; sie wird wiederholt."
+      },
+      "pattern": {
+        "kernel_panic": "Der Kernel ist mit einer Panik stehen geblieben.",
+        "root_not_found": "Der Start hat das Wurzeldateisystem nicht gefunden.",
+        "emergency_mode": "Das System ist in seinen Notfallmodus gestartet.",
+        "secure_boot_refused": "Secure Boot hat die Startkette abgelehnt.",
+        "no_bootable_device": "Die Firmware hat nichts zum Starten gefunden.",
+        "unknown": "Das wiederhergestellte System ist nicht gestartet."
+      }
+    }
+  },
+  "recovery": {
+    "title": "Wiederherstellungscode für {name}",
+    "description": "Ein einmaliger Code für das Recovery-ISO: Es stellt diesen Rechner aus seiner Ganz-Rechner-Sicherung auf neuen Platten wieder her.",
+    "issue": "Wiederherstellungscode ausstellen…",
+    "cancel": "Abbrechen",
+    "done": "Fertig",
+    "issueFailed": "Der Code konnte nicht ausgestellt werden",
+    "validity": "Gültig für",
+    "validityHours": "{count, plural, one {# Stunde} other {# Stunden}}",
+    "validitySuggestion": "{count, plural, one {Vorschlag: # Stunde, aus der Datenmenge bei etwa 50 MB/s.} other {Vorschlag: # Stunden, aus der Datenmenge bei etwa 50 MB/s.}}",
+    "requireApproval": "Freigabe der Sitzung nach dem Eintausch",
+    "requireApprovalHint": "Löst das ISO den Code ein, wartet die Sitzung, bis Sie sie hier nach dem Vergleich der Prüfzahl freigeben. Erst dann liest sie die Sicherungen.",
+    "requireApprovalOffTitle": "Code ohne Freigabe der Sitzung ausstellen?",
+    "requireApprovalOffConfirm": "Wer den Code zuerst einlöst, liest dann sofort alle Sicherungen dieses Rechners, ohne dass Sie die Prüfzahl sehen. Schalten Sie das nur für eine unbeaufsichtigte Wiederherstellung aus.",
+    "requireApprovalOffAction": "Ohne Freigabe der Sitzung ausstellen",
+    "browserOriginWarning": "Diese Adresse kommt aus Ihrem Browser, weil keine öffentliche Adresse eingerichtet ist. Das ISO muss genau sie erreichen.",
+    "spkiMissing": "Prüfwert nicht ermittelbar; das ISO braucht dann ein Zertifikat, dem es vertraut (öffentliche CA oder CA-Datei).",
+    "onceHint": "Der Code wird nur jetzt angezeigt. Kopieren oder drucken Sie ihn; er lässt sich nicht erneut anzeigen.",
+    "code": "Wiederherstellungscode",
+    "address": "Adresse",
+    "addressHint": "Genau so im ISO eingeben.",
+    "spkiCheck": "Prüfwert der Instanz",
+    "expiresAt": "Läuft ab",
+    "copy": "Kopieren",
+    "print": "Drucken",
+    "printTitle": "Wiederherstellungscode",
+    "machine": "Rechner",
+    "readAccessHint": "Der Code gibt Lesezugriff auf alle Sicherungen dieses Rechners, sobald Sie die Sitzung freigegeben haben, bis er abläuft oder die Sitzung beendet ist.",
+    "isoReported": "Vom Recovery-ISO gemeldet.",
+    "status": {
+      "issued": "Ausgestellt",
+      "pending_approval": "Wartet auf Freigabe der Sitzung",
+      "active": "Wird wiederhergestellt",
+      "finishing": "Wird abgeschlossen",
+      "succeeded": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen",
+      "expired": "Abgelaufen",
+      "revoked": "Widerrufen"
+    },
+    "phases": {
+      "connected": "Verbunden",
+      "waiting_approval": "Wartet auf Freigabe der Sitzung",
+      "planning": "Planung",
+      "confirmed": "Bestätigt",
+      "partitioning": "Partitionierung",
+      "restoring": "Dateien werden zurückgeholt",
+      "configuring": "Startkette wird eingerichtet",
+      "verifying": "Prüfung",
+      "done": "Fertig"
+    },
+    "live": {
+      "title": "Wiederherstellung",
+      "description": "Folgt dem Recovery-ISO alle fünf Sekunden.",
+      "waiting": "Warte auf das Recovery-ISO. Starten Sie die Ersatzhardware davon und geben Sie Code und Adresse ein.",
+      "approveTitle": "Sitzung freigeben",
+      "matchCode": "Prüfzahl",
+      "matchCodeHint": "Geben Sie nur frei, wenn das ISO dieselbe Zahl zeigt.",
+      "from": "Von Adresse",
+      "isoVersion": "ISO-Version",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "secureBootOn": "Secure Boot an",
+      "secureBootOff": "Secure Boot aus",
+      "ram": "Arbeitsspeicher",
+      "disks": "Platten",
+      "nics": "Netzwerkkarten",
+      "unknownModel": "Unbekanntes Modell",
+      "noLink": "keine Verbindung",
+      "approve": "Freigeben",
+      "reject": "Ablehnen",
+      "step": "Schritt {step} von {total}",
+      "bytes": "{done} von {total}, {files} von {totalFiles} Dateien",
+      "revoke": "Code widerrufen",
+      "cancel": "Sitzung beenden",
+      "extend": "{count, plural, one {Um # Stunde verlängern} other {Um # Stunden verlängern}}",
+      "log": "Log",
+      "cancelTitle": "Diese Recovery-Sitzung beenden?",
+      "cancelDescription": "Das ISO verliert innerhalb weniger Sekunden den Zugang zu den Sicherungen. Der Code ist verbraucht; stellen Sie für einen neuen Versuch einen neuen aus.",
+      "cancelAction": "Sitzung beenden"
+    },
+    "sshKeys": {
+      "title": "SSH-Schlüssel für den Fernzugang",
+      "hint": "Öffentliche Schlüssel, einer je Zeile. Das ISO nimmt sie für den Fernzugang an, sobald er dort eingeschaltet wurde.",
+      "placeholder": "ssh-ed25519 AAAA… admin@laptop",
+      "save": "Schlüssel speichern",
+      "saved": "Die Schlüssel wurden gespeichert.",
+      "hostKeys": "Hostschlüssel des ISO"
+    },
+    "notAvailable": {
+      "not_linux": "Wiederherstellungscodes gibt es für Linux-Rechner.",
+      "removed": "Der Rechner wurde entfernt.",
+      "no_layout": "Der Rechner hat noch keine Ganz-Rechner-Sicherung mit Layout.",
+      "unsupported": "Das Layout dieser Sicherung lässt sich nicht wiederherstellen.",
+      "iso_unverified": "Diese Installation bietet noch kein geprüftes Recovery-ISO an.",
+      "preview_off": "Die Bare-Metal-Wiederherstellung ist eine Vorschau, die diese Installation nicht eingeschaltet hat.",
+      "snapshot_unknown": "Dieser Snapshot ist keine Ganz-Rechner-Sicherung des Rechners."
+    },
+    "wizard": {
+      "title": "{name} auf neuer Hardware wiederherstellen",
+      "description": "Stellt den Rechner mit dem Recovery-ISO aus seiner neuesten Ganz-Rechner-Sicherung auf neuen Platten wieder her.",
+      "back": "Zurück zum Rechner",
+      "open": "Wiederherstellen…",
+      "steps": {
+        "snapshot": "Sicherungsstand",
+        "hardware": "Ersatzhardware",
+        "iso": "Recovery-ISO",
+        "code": "Wiederherstellungscode",
+        "live": "Wiederherstellung",
+        "after": "Danach"
+      },
+      "snapshotHint": "Wiederhergestellt wird die neueste Ganz-Rechner-Sicherung.",
+      "firmware": {
+        "uefi": "Die Sicherung stammt von einem Rechner mit UEFI: Die Ersatzhardware muss im UEFI-Modus starten.",
+        "bios": "Die Sicherung stammt von einem Rechner mit BIOS: Die Ersatzhardware braucht einen Legacy-Startmodus (CSM), den viele aktuelle Modelle nicht mehr haben."
+      },
+      "secureBoot": "Secure Boot war eingeschaltet.",
+      "cable": "Netzwerk per Kabel, an einem Anschluss ohne VLAN-Tagging.",
+      "oldDisks": "Alte Platten abziehen, außer Sie wollen sie übernehmen.",
+      "codeIntro": "Stellen Sie den Code aus, wenn die Ersatzhardware bereit ist. Die Gültigkeit wird aus der Datenmenge vorgeschlagen.",
+      "liveEmpty": "Noch kein Code ausgestellt.",
+      "liveOnly": "Ein neuer Code lässt sich gerade nicht ausstellen (Vorschau, Recovery-ISO oder Sicherung des Rechners haben sich geändert). Der offene Code bzw. die Sitzung unten lässt sich weiter verfolgen, freigeben, beenden oder widerrufen.",
+      "afterIntro": "Verbinden Sie den wiederhergestellten Rechner mit einem eigenen Wiederanbindungs-Token wieder mit {appName}.",
+      "snapshots": {
+        "choose": "Wählen Sie die Sicherung, die wiederhergestellt wird.",
+        "none": "Noch keine Ganz-Rechner-Sicherung mit Layout.",
+        "sameLayout": "Gleiches Layout wie die neueste",
+        "otherLayout": "Anderes Layout als die neueste",
+        "unsupported": "Dieses Layout lässt sich nicht wiederherstellen.",
+        "check": {
+          "passed": "Prüfung bestanden",
+          "failed": "Prüfung fehlgeschlagen",
+          "incomplete": "Prüfung unvollständig",
+          "none": "Noch nicht geprüft"
+        }
+      },
+      "hardware": {
+        "csm": "Wählen Sie Ersatzhardware mit einem Legacy-Startmodus (CSM): Viele aktuelle Modelle haben ihn nicht mehr.",
+        "secureBootCa": "Secure Boot war an: Die Firmware des Ersatzes muss {issuers} vertrauen.",
+        "disks": "{count, plural, one {Gebraucht wird # Platte:} other {Gebraucht werden # Platten:}}",
+        "diskMin": "für {disk} mindestens {min} (sie hatte {size})",
+        "diskSize": "für {disk} etwa {size} (die Prüfung hat noch kein Minimum berechnet)",
+        "ram": "Arbeitsspeicher: mindestens {min}, für große Sicherungen {recommended} oder mehr.",
+        "controllers": "Der gesicherte Kernel hat Treiber für diese Plattencontroller: {modules}.",
+        "controllersHint": "Nehmen Sie möglichst Plattencontroller derselben Art wie im alten Rechner (AHCI, NVMe).",
+        "driverMissing": "Der gesicherte Kernel hat keinen Treiber für: {modules}. Nutzen Sie solche Controller nicht für die Systemplatte.",
+        "mayChangeTitle": "Darf sich ändern:",
+        "mayChange": "Plattenmodelle und -größen (im Rahmen der Mindestgrößen), Plattencontroller (mit Treiber), Netzwerkkarten, Arbeitsspeicher, Prozessor derselben Architektur.",
+        "mayNotChangeTitle": "Darf sich nicht ändern:",
+        "mayNotChange": "der Firmwaremodus (UEFI oder BIOS), die Architektur (amd64) und der Speicheraufbau (Partitionen, RAID, Verschlüsselung, LVM und Dateisysteme werden angelegt, wie sie waren).",
+        "hwRaid": "Hardware-RAID: Legen Sie zuerst das virtuelle Laufwerk im Controller an, mindestens {min}, für {disk}.",
+        "encryption": "Sie vergeben beim Wiederherstellen eine Passphrase für die verschlüsselten Volumes.",
+        "keymapAtBoot": "Beim Start gilt für sie die Tastaturbelegung {layout}.",
+        "keymapGrub": "Der Bootloader fragt sie ebenfalls ab, mit der US-Belegung.",
+        "tpm": "Schlüsselbindungen an die alte Hardware ({tokens}) ziehen nicht mit um; richten Sie sie nach dem Start neu ein."
+      },
+      "after": {
+        "title": "Was das Recovery-ISO empfiehlt",
+        "none": "Das Recovery-ISO hat nichts zu tun gemeldet."
+      }
+    },
+    "iso": {
+      "version": "Version",
+      "file": "Datei",
+      "fingerprint": "Fingerabdruck des Release-Schlüssels",
+      "fingerprintHint": "Vergleichen Sie den Fingerabdruck außerhalb dieser Instanz: in der README und den Release-Notes des Projekts.",
+      "download": "ISO herunterladen",
+      "verifyCommands": "Datei vor der Verwendung prüfen",
+      "system": {
+        "linux": "Linux",
+        "macos": "macOS",
+        "windows": "Windows"
+      },
+      "writeUsb": "Schreiben Sie das ISO danach unverändert, Bit für Bit, auf einen USB-Stick (unter Linux etwa mit dd).",
+      "source": {
+        "instance": "Der Download kommt von dieser Instanz: Sie hat das ISO einmal geladen und gegen die signierten Prüfsummen geprüft.",
+        "instanceImport": "Der Download kommt von dieser Instanz: Das ISO wurde in ihren Import-Ordner gelegt und gegen die signierten Prüfsummen geprüft.",
+        "github": "Der Download kommt von der öffentlichen Release-Seite des Projekts."
+      },
+      "sources": "Quellcode der GPL-Pakete im Abbild (Anhänge des Release)",
+      "firmwareLicenses": "Lizenzen der Firmware im Abbild",
+      "size": "Größe",
+      "rebuild": "{version}, Neubau {rebuild} (neuere Sicherheitsupdates des Basissystems)",
+      "githubFallback": "Stattdessen von der öffentlichen Release-Seite des Projekts herunterladen",
+      "checksums": "Signierte Prüfsummen",
+      "signature": "Signatur der Prüfsummen",
+      "local": {
+        "notFetched": "Diese Instanz hat das ISO noch nicht geladen. Sie lädt es im Hintergrund, einmal für die ganze Installation; bis dahin kommt der Download von der Release-Seite.",
+        "fetching": "Diese Instanz lädt das ISO im Hintergrund: {done} von {total}. Bis es geprüft ist, kommt der Download von der Release-Seite.",
+        "fetchingUnknown": "Diese Instanz lädt das ISO im Hintergrund (bisher {done}). Bis es geprüft ist, kommt der Download von der Release-Seite.",
+        "failed": "Diese Instanz konnte das ISO nicht laden: {reason}. Sie versucht es später erneut; bis dahin kommt der Download von der Release-Seite.",
+        "disabled": "Diese Instanz lädt das ISO nicht selbst.",
+        "skipped": "Ein neuerer Neubau des ISO wurde nicht übernommen: {reason}.",
+        "importHint": "Ohne Internetzugang legen Sie das ISO auf dem Server in {folder} ab (bei einem Neubau zusätzlich recovery-SHA256SUMS und recovery-SHA256SUMS.sig). Es wird genauso gegen die signierten Prüfsummen geprüft, bevor es angeboten wird.",
+        "problem": {
+          "no_signed_release": "diese Installation enthält kein signiertes Release",
+          "no_key": "diese Installation hat keinen Release-Schlüssel",
+          "signature_invalid": "die Signatur der Prüfsummen passt nicht zum Release-Schlüssel",
+          "no_iso_line": "die signierten Prüfsummen nennen kein Recovery-ISO",
+          "wrong_release": "die Prüfsummen gehören zu einem anderen Release",
+          "not_published": "die Release-Seite bietet die Datei (noch) nicht an",
+          "network": "die Release-Seite war nicht erreichbar (Netzwerk oder Proxy)",
+          "http_status": "die Release-Seite hat mit einem Fehler geantwortet",
+          "too_large": "die Datei ist größer als erlaubt",
+          "truncated": "der Download brach ab; der nächste Versuch setzt ihn fort",
+          "hash_mismatch": "die geladene Datei passt nicht zur signierten Prüfsumme und wurde verworfen",
+          "store_not_writable": "das Datenvolume ist nicht beschreibbar",
+          "store_full": "auf dem Datenvolume ist nicht genug Platz frei (das ISO braucht seine Größe und 1 GiB dazu); der angefangene Download wurde entfernt"
+        }
+      }
+    },
+    "reported": {
+      "access_expired": "Der Zugang zu den Sicherungen endete (Code abgelaufen oder Sitzung beendet), bevor die Wiederherstellung fertig war.",
+      "adopt_incomplete": "Ein Teil, der übernommen werden sollte, ließ sich nicht übernehmen.",
+      "arch_unsupported": "Das Recovery-ISO läuft nur auf amd64.",
+      "bios_4kn": "Im BIOS-Modus lässt sich nicht von einer Platte mit logischen Sektoren von 4096 Byte starten.",
+      "bios_boot_disk": "Wählen Sie im BIOS die richtige Startplatte.",
+      "boot_space_low": "Auf /boot ist wenig Platz frei.",
+      "btrfs_csum_assumed": "Die Prüfsummenart eines btrfs-Dateisystems war nicht erfasst; angenommen wurde crc32c.",
+      "btrfs_raid_missing_device": "Einem btrfs-Dateisystem fehlt eines seiner Geräte.",
+      "cancel_requested": "Die Wiederherstellung wurde abgebrochen.",
+      "clock_wrong": "Die Uhr der Ersatzhardware geht falsch; das Zertifikat der Instanz ließ sich nicht prüfen.",
+      "device_name_refs_found": "Konfigurationsdateien nennen Geräte noch mit ihrem Kernelnamen (/dev/sdX).",
+      "disks_changed": "Die Platten der Ersatzhardware haben sich geändert, nachdem sie angezeigt und bestätigt waren; die Wiederherstellung hielt vor dem nächsten Schritt an.",
+      "driver_facts_missing": "Die Modullisten eines Kernels waren nicht bekannt; Treiber wurden nicht geprüft.",
+      "dual_boot_windows_not_restored": "Ein weiteres Betriebssystem auf den Platten wird nicht wiederhergestellt, auch nicht seine Starteinträge.",
+      "esp_grown_4kn": "Die EFI-Systempartition ist für FAT32 mit Sektoren von 4096 Byte gewachsen.",
+      "ext_block_size_raised": "Ein Dateisystem wurde mit größeren Blöcken als vorher angelegt.",
+      "fallback_kernel_driver_missing": "Der Ersatzkernel hat keinen Treiber für eine Zielplatte.",
+      "firmware_mode_mismatch": "Das Ziel startet in einem anderen Firmwaremodus als der gesicherte Rechner.",
+      "foreign_mapping_open": "Device-Mapper-Geräte außerhalb der Zielplatten waren geöffnet (etwa eine alte Platte, in der Shell geöffnet); ein Programm des gesicherten Systems hätte ihre Schlüssel lesen können, darum hielt die Wiederherstellung an. Schließen Sie sie und setzen Sie die Wiederherstellung fort.",
+      "fs_not_recreated": "Ein Dateisystem wurde nicht wieder angelegt; seine Partition bleibt leer.",
+      "grow_not_last": "Eine Partition, die wachsen soll, ist nicht die letzte ihrer Platte; sie behält ihre Größe.",
+      "holders_busy": "Eine Zielplatte ist noch belegt (eingehängt, RAID, LVM oder Verschlüsselung) und ließ sich nicht freigeben.",
+      "identity_conflict": "Ein angeschlossenes Gerät trägt die Kennung von Platten dieses Rechners.",
+      "initramfs_not_rebuilt": "Das initramfs eines Kernels wurde nicht neu gebaut.",
+      "keyfile_regenerated": "Eine Schlüsseldatei eines verschlüsselten Volumes wurde neu angelegt.",
+      "layout_unsupported": "Das Layout lässt sich nicht als Ganzes wiederherstellen.",
+      "low_memory": "Die Ersatzhardware hat für dieses Repository wenig Arbeitsspeicher.",
+      "luks_sector_size_changed": "Ein verschlüsseltes Volume wurde mit einer anderen Sektorgröße angelegt.",
+      "luks_tokens_not_restored": "Schlüsselbindungen eines verschlüsselten Volumes gehören zur alten Hardware; richten Sie sie neu ein.",
+      "lv_shrunk": "Ein logisches Volume wurde verkleinert.",
+      "lvm_filter_multiline": "Der LVM-Filter des gesicherten Systems reicht über mehrere Zeilen und lässt sich nicht anpassen.",
+      "lvm_mixed_block_sizes_allowed": "LVM reicht über Platten mit verschiedenen Sektorgrößen.",
+      "lvm_raid_missing_pv": "Einem RAID-Volume fehlt eines seiner physischen Volumes.",
+      "manifest_format_unknown": "Das Layout in der Sicherung hat ein Format, das dieses ISO nicht kennt; nehmen Sie ein neueres ISO.",
+      "manifest_invalid": "Das Layout in der Sicherung ist ungültig.",
+      "manifest_mismatch": "Das Layout in der Sicherung weicht von dem ab, das die Instanz erfasst hat.",
+      "mapping_invalid": "Die Zuordnung der Platten ist ungültig.",
+      "mbr_2tib_limit": "Eine Platte ist größer, als eine MBR-Partitionstabelle adressieren kann; der Rest bleibt ungenutzt.",
+      "md_degraded_first_boot": "Ein RAID wurde unvollständig angelegt; der erste Start kann länger dauern.",
+      "md_too_few_members": "Ein RAID hätte zu wenige Mitglieder, um zu laufen.",
+      "mkfs_feature_unknown": "Ein Dateisystem nutzt eine Funktion, die die Wiederherstellungswerkzeuge nicht anlegen können.",
+      "mkfs_readback_mismatch": "Ein angelegtes Dateisystem liest sich nicht wie geplant zurück.",
+      "mkfs_unsupported_type": "Ein Dateisystemtyp lässt sich nicht anlegen.",
+      "mok_enroll_pending": "Ein Schlüssel für Secure Boot wartet beim nächsten Start auf seine Einschreibung.",
+      "mok_enroll_required": "Ein Maschinenschlüssel muss beim ersten Start eingeschrieben werden.",
+      "mok_key_missing": "Ein Maschinenschlüssel, den die Startkette braucht, liegt weder in der Sicherung noch ist er eingeschrieben.",
+      "multipath_detected": "Mehrere Platten haben dieselbe WWN: Der Speicher ist über mehrere Pfade erreichbar.",
+      "nic_driver_missing": "Der gesicherte Kernel hat keinen Treiber für eine Netzwerkkarte.",
+      "nic_rename_skipped": "Die Netzwerknamen wurden nicht an die neuen Netzwerkkarten angepasst.",
+      "no_disks_found": "Das ISO fand keine Platte, auf die es schreiben darf.",
+      "non_systemd_init": "Das gesicherte System startet nicht mit systemd; dafür ist die Wiederherstellung nicht getestet.",
+      "old_disk_present": "Eine alte Platte dieses Rechners ist noch angeschlossen.",
+      "other_controller_driver_missing": "An einem anderen Plattencontroller hätte der gesicherte Kernel keinen Treiber.",
+      "partition_readback_mismatch": "Eine geschriebene Partitionstabelle liest sich nicht wie geplant zurück.",
+      "partition_realigned": "Eine Partition ist auf eine 1-MiB-Grenze gerückt; ihre PARTUUID bleibt.",
+      "partition_shrunk": "Eine Partition wurde verkleinert.",
+      "quota_rescan_failed": "Die btrfs-Quota ließ sich nicht neu zählen.",
+      "raw_lvs_created_empty": "Logische Volumes ohne Dateisystem wurden leer angelegt.",
+      "raw_lvs_skipped": "Logische Volumes ohne Dateisystem wurden nicht angelegt.",
+      "recovery_too_old": "Das Recovery-ISO ist für diese Instanz zu alt.",
+      "redundant_boot_partition_dropped": "Eine redundante Startpartition einer fehlenden Platte wurde nicht wieder angelegt.",
+      "restore_failed": "Das Zurückholen der Dateien ist fehlgeschlagen.",
+      "restore_file_errors": "Einige Dateien ließen sich nicht zurückholen; das Log nennt sie.",
+      "restore_size_estimated": "Eine Restore-Größe wurde aus dem belegten Platz geschätzt.",
+      "sector_size_incompatible": "Platten mit Sektorgrößen, die nicht zusammenpassen.",
+      "secure_boot_ca_missing": "Die Firmware des Ziels vertraut dem gesicherten Bootloader nicht.",
+      "secure_boot_dbx_unknown": "Die Sperrliste der Firmware des Ziels war nicht bekannt; gesperrte Bootloader wurden nicht geprüft.",
+      "secure_boot_disabled_by_choice": "Auf Entscheidung des Bedieners waren die Prüfungen der Startkette nur Hinweise: Der wiederhergestellte Rechner startet nur, solange Secure Boot im Firmware-Setup ausgeschaltet ist.",
+      "secure_boot_revoked": "Die Firmware des Ziels hat den gesicherten Bootloader gesperrt.",
+      "secure_boot_sbat_revoked": "Die Firmware des Ziels hat diese Generation des Bootloaders gesperrt.",
+      "secure_boot_unsigned_chain": "Die Startkette ist nicht signiert: Der Rechner startet nur mit ausgeschaltetem Secure Boot oder mit eigenen Schlüsseln.",
+      "sed_locked": "Eine Platte meldet Lesefehler; sie ist womöglich eine gesperrte selbstverschlüsselnde Platte.",
+      "selinux_autorelabel": "SELinux vergibt beim ersten Start alle Kennzeichnungen neu; das kann dauern.",
+      "shrink_needs_confirmation": "Eine Platte passt nur, wenn mehr Volumes schrumpfen als das, das wachsen darf; das wurde nicht bestätigt.",
+      "snapshot_id_unmatched": "Der in der Antwortdatei genannte Snapshot passte auf keine einzelne Sicherung, die der Wiederherstellungscode zurückholen darf; es wurde nichts verändert.",
+      "spki_mismatch": "Der Prüfwert der Instanz stimmte nicht; das ISO hat sich nicht verbunden.",
+      "step_failed": "Ein Schritt des Plans ist fehlgeschlagen; das Log nennt ihn.",
+      "storage_driver_missing": "Der gesicherte Kernel hat keinen Treiber für eine Zielplatte.",
+      "system_files_incomplete": "Dateien, die das System zum Start braucht, fehlen nach der Wiederherstellung.",
+      "target_missing": "Für eine Platte der Sicherung gibt es keine Zielplatte.",
+      "target_too_small": "Eine Zielplatte ist zu klein.",
+      "target_unusable": "Auf eine Zielplatte lässt sich nicht schreiben.",
+      "tls_untrusted": "Das ISO vertraut dem Zertifikat der Instanz nicht.",
+      "untested_distribution": "Die Distribution des gesicherten Systems gehört nicht zu den getesteten; die Wiederherstellung kann Handarbeit brauchen.",
+      "verify_failed": "Die Prüfung nach der Wiederherstellung ist fehlgeschlagen.",
+      "vfat_sector_size_changed": "Ein FAT-Dateisystem wurde mit einer anderen Sektorgröße angelegt."
+    },
+    "serverReported": {
+      "codes": {
+        "success_checks_failed": "Das Recovery-ISO hat einen Erfolg gemeldet, sein Prüfbericht enthält aber fehlgeschlagene Prüfungen. Die Wiederherstellung ist als fehlgeschlagen gespeichert.",
+        "success_checks_missing": "Das Recovery-ISO hat einen Erfolg gemeldet, in seinem Prüfbericht fehlen aber Prüfungen. Die Wiederherstellung ist als fehlgeschlagen gespeichert.",
+        "success_report_missing": "Das Recovery-ISO hat einen Erfolg gemeldet, aber keinen Prüfbericht mitgeschickt, den der Server lesen kann. Die Wiederherstellung ist als fehlgeschlagen gespeichert.",
+        "success_snapshot_unknown": "Das Recovery-ISO hat einen Erfolg gemeldet, sein Prüfbericht nennt aber einen Snapshot, der keine Sicherung des ganzen Rechners ist. Die Wiederherstellung ist als fehlgeschlagen gespeichert."
+      },
+      "checks": "Betroffene Prüfungen: {checks}"
+    },
+    "verification": {
+      "title": "Prüfung nach der Wiederherstellung",
+      "isoReported": "Vom Recovery-ISO gemeldet.",
+      "isoMessage": "Das ISO meldet: {message}",
+      "result": {
+        "ok": "Bestanden",
+        "warning": "Mit Warnungen",
+        "failed": "Fehlgeschlagen"
+      },
+      "evidence": "Was geprüft wurde",
+      "fixups": "Angepasste Dateien (von jeder blieb eine Kopie)",
+      "notAdaptedKernels": "Kernel, deren initramfs nicht angepasst wurde: {kernels}",
+      "restoreErrors": "{count, plural, one {# Datei ließ sich nicht zurückholen.} other {# Dateien ließen sich nicht zurückholen.}}",
+      "checks": {
+        "restic_verify": "Dateien zurückgeholt und geprüft",
+        "storage_stack": "Partitionen, RAID, Verschlüsselung und LVM",
+        "fstab": "fstab",
+        "crypttab": "crypttab",
+        "initramfs": "initramfs und Treiber",
+        "boot_entries": "Starteinträge in der Firmware",
+        "boot_config": "Konfiguration des Bootloaders",
+        "identity_conflicts": "Keine Kennungskonflikte mit anderen Platten",
+        "mount_points": "Einhängepunkte und Ordnerrechte",
+        "secure_boot": "Secure-Boot-Kette"
+      }
+    },
+    "hints": {
+      "bios_boot_disk": "Wählen Sie {model} ({identity}) im BIOS als Startplatte.",
+      "device_name_refs": "{path} Zeile {line} nennt noch ein Gerät mit seinem Kernelnamen; prüfen Sie sie.",
+      "initramfs_not_adapted": "Das initramfs des Kernels {kernel} wurde nicht angepasst; starten Sie zuerst den Standardkernel.",
+      "keymap_at_boot": "Beim Start gilt für die Passphrase die Tastaturbelegung {layout}.",
+      "luks_reenroll_token": "Richten Sie die Schlüsselbindungen des verschlüsselten Volumes {volume} ({tokenTypes}) neu ein; sie gehörten zur alten Hardware.",
+      "md_add_disk": "Fügen Sie dem RAID {array} eine zweite Platte hinzu, sobald es eine gibt.",
+      "md_degraded_first_boot": "Das RAID {array} startet unvollständig; der erste Start kann länger dauern.",
+      "mok_enroll": "Schreiben Sie beim nächsten Start den Schlüssel im blauen Schlüsselmanager mit dem Passwort ein, das die Recovery-Konsole gezeigt hat.",
+      "nic_mapped": "Der Netzwerkname {oldName} ({oldMac}) gehört jetzt zur Karte {newMac}.",
+      "old_disk_present": "Trennen Sie die alte Platte {model} ({identity}) vor dem Start, oder löschen Sie sie.",
+      "secure_boot_disabled": "Die Startkette dieses Rechners hat die Secure-Boot-Prüfungen der Ersatzhardware nicht bestanden. Er startet nur, solange Secure Boot im Firmware-Setup ausgeschaltet ist; die Wiederherstellung hat es nicht ausgeschaltet.",
+      "selinux_autorelabel": "SELinux kennzeichnet beim ersten Start alle Dateien neu; lassen Sie das zu Ende laufen."
+    }
+  },
+  "rebind": {
+    "action": "Rechner wieder anbinden…",
+    "title": "{name} wieder anbinden",
+    "dangerTitle": "Nach einer Neuinstallation wieder anbinden",
+    "dangerDescription": "Ein Token, das diesem Rechner ein neues Agent-Secret gibt, für ein neu installiertes oder wiederhergestelltes System. Sicherungen, Einstellungen und Verlauf bleiben.",
+    "warningTitle": "Dauerhafter Zugang",
+    "warning": "Dieses Token gibt dauerhaften Zugang wie ein installierter Agent. Wer es einlöst, wird zu diesem Rechner.",
+    "oldDisconnects": "Die bisherige Installation des Rechners verliert ihre Verbindung.",
+    "revokedHint": "Der Rechner ist gesperrt: Ohne die Wahl unten wird das Token abgelehnt.",
+    "unrevoke": "Gesperrten Rechner reaktivieren",
+    "unrevokeHint": "Wählen Sie das nur, wenn der Rechner irrtümlich gesperrt wurde oder wieder vertrauenswürdig ist; es wird im Audit-Log vermerkt.",
+    "purpose": {
+      "reinstall": "Für einen Rechner, dessen System neu installiert wurde.",
+      "baremetal": "Für den Rechner, den das Recovery-ISO wiederhergestellt hat."
+    },
+    "purposeShort": {
+      "reinstall": "Neuinstallation",
+      "baremetal": "Bare Metal",
+      "mac_setup": "Mac neu aufsetzen"
+    },
+    "validity": "Gültig für",
+    "created": "Das Token wurde erstellt. Es wird nur jetzt angezeigt und funktioniert einmal.",
+    "commands": "Führen Sie den Installationsbefehl auf dem Rechner aus; er fragt nach dem Token.",
+    "create": "Token erstellen",
+    "cancel": "Abbrechen",
+    "done": "Fertig",
+    "tokenKind": "Wiederanbindungs-Token"
+  },
+  "windowsFacts": {
+    "title": "Windows",
+    "description": "Was der Agent aus dem System liest. Nur Fakten, keine Bewertung.",
+    "version": "Version",
+    "productType": "Art",
+    "productTypes": {
+      "workstation": "Arbeitsplatz",
+      "server": "Server",
+      "domain_controller": "Domänencontroller",
+      "unknown": "Unbekannt"
+    },
+    "core": "ohne Desktop",
+    "domain": "Domäne",
+    "noDomain": "In keiner Domäne",
+    "rolesLabel": "Rollen",
+    "noRoles": "Keine, die mehr als eine Dateisicherung braucht",
+    "roles": {
+      "domainController": "Active-Directory-Domänencontroller",
+      "sqlServer": "SQL Server",
+      "exchange": "Exchange",
+      "hyperV": "Hyper-V-Host",
+      "dfsr": "DFS-Replikation"
+    },
+    "sqlInstances": "SQL-Server-Instanzen",
+    "bitlocker": "Laufwerksverschlüsselung",
+    "bitlockerNone": "Kein verschlüsseltes Laufwerk",
+    "bitlockerVolume": "{name} {status}",
+    "protection": {
+      "on": "geschützt",
+      "off": "nicht geschützt",
+      "unknown": "Zustand unbekannt"
+    },
+    "bitlockerState": {
+      "ok": "Gelesen",
+      "unavailable": "Auf diesem Rechner nicht installiert",
+      "error": "Konnte nicht gelesen werden"
+    }
+  },
+  "notices": {
+    "apps": {
+      "sql_server": "SQL Server",
+      "exchange": "Exchange",
+      "active_directory": "Active Directory",
+      "hyper_v": "Hyper-V"
+    },
+    "app_files_not_app_backup": {
+      "title": "Die Dateisicherung bringt diese Anwendungen nicht zurück",
+      "body": "Auf diesem Rechner läuft {subjects}. Die Dateisicherung enthält die Dateien der geöffneten Datenbanken, aber aus diesen Dateien lassen sich die Anwendungen nicht wiederherstellen. Sichern Sie sie mit einem Werkzeug, das dafür gemacht ist.",
+      "sqlHint": "Für SQL Server schalten Sie im Backup-Job dieses Rechners die native SQL-Server-Sicherung ein (Vorschau)."
+    },
+    "sql_log_growing": {
+      "title": "Ein Transaktionslog wächst weiter",
+      "body": "{subjects}: Das Wiederherstellungsmodell ist FULL, aber in den letzten 24 Stunden hat niemand das Transaktionslog gesichert, darum wächst es weiter. Sichern Sie das Log mit Ihrem bisherigen Werkzeug, oder stellen Sie die Datenbank auf SIMPLE, wenn Sie keine Wiederherstellung auf einen Zeitpunkt brauchen."
+    },
+    "sql_tde_certificate": {
+      "title": "Sichern Sie das TDE-Zertifikat an anderer Stelle",
+      "body": "{subjects}: Die Datenbank ist mit TDE verschlüsselt. Ohne Zertifikat und Schlüssel kann keine andere Instanz sie wiederherstellen. Die Sicherung enthält beides nicht; bewahren Sie es an anderer Stelle auf und bestätigen Sie das im Reiter SQL Server."
+    },
+    "sql_version_untested": {
+      "title": "SQL-Server-Version nicht geprüft",
+      "body": "{subjects}: Diese Version von SQL Server wurde mit der nativen Sicherung nicht geprüft. Sie läuft, aber eine Wiederherstellung wurde damit noch nicht ausprobiert."
+    },
+    "other": {
+      "title": "Hinweis des Agenten"
+    }
+  },
+  "sql": {
+    "title": "SQL Server",
+    "preview": "Vorschau",
+    "intro": "Die native SQL-Server-Sicherung macht neben Ihren eigenen Sicherungen eine Kopie-Vollsicherung jeder Datenbank, Ihre Sicherungskette bleibt also unberührt. Eine wöchentliche Prüfung holt die neueste Sicherung aus den Sicherungsdaten zurück, stellt sie unter einem Prüfnamen wieder her und führt DBCC CHECKDB darauf aus. Grün erst nach dieser bestandenen Prüfung.",
+    "notCapable": "Der Agent auf diesem Rechner kann das noch nicht. Aktualisieren Sie ihn, um die native Sicherung zu sehen und zu nutzen.",
+    "notEnabled": "Die native Sicherung ist aus. Schalten Sie sie im Backup-Job dieses Rechners ein.",
+    "loadError": "Der SQL-Server-Teil dieses Rechners konnte nicht geladen werden.",
+    "instances": {
+      "title": "Instanzen",
+      "inventoryAt": "Zuletzt gelesen",
+      "noInventory": "Der Agent hat die Instanzen noch nicht gelesen.",
+      "none": "Der Agent meldet keine SQL-Server-Instanz.",
+      "clustered": "Failover-Cluster-Instanz: von der nativen Sicherung nicht unterstützt.",
+      "strictEncryption": "Strikte Verschlüsselung ist an: Der Agent kann sich möglicherweise nicht verbinden.",
+      "compressionDefault": "Auf dieser Instanz ist die Sicherungskomprimierung als Vorgabe an; der Agent sichert trotzdem unkomprimiert, damit die Sicherungsdaten dedupliziert bleiben."
+    },
+    "signIn": {
+      "ok": "Angemeldet",
+      "missing": "Keine Anmeldung",
+      "permission": "Rechte fehlen",
+      "error": "Problem",
+      "unknown": "Nicht geprüft",
+      "check": "Anmeldung prüfen",
+      "checkQueued": "Der Rechner prüft die Anmeldung bei seinem nächsten Kontakt.",
+      "howTo": "Der Agent meldet sich als {account} mit Windows-Authentifizierung an; nirgends wird ein Kennwort gespeichert. Lassen Sie einen Datenbankadministrator dies einmal auf der Instanz ausführen:",
+      "variant": "Rechte für den Agenten",
+      "sysadmin": "Einfach",
+      "minimal": "Kleine Rechte",
+      "sysadminHint": "Das Konto wird Mitglied von sysadmin. Einfach, und neue Datenbanken sind sofort abgedeckt.",
+      "minimalHint": "dbcreator, VIEW SERVER STATE und je Datenbank db_backupoperator und db_owner. Für eine später angelegte Datenbank sind diese Zeilen erneut nötig.",
+      "copy": "Kopieren"
+    },
+    "databases": {
+      "title": "Datenbanken",
+      "description": "Wöchentlich geprüft, {day} um {time} in der Zeitzone des Backup-Jobs.",
+      "empty": "Noch keine Datenbank gemeldet",
+      "emptyHint": "Die Datenbanken erscheinen, sobald der Agent die Instanz gelesen hat.",
+      "model": "Wiederherstellungsmodell {model}",
+      "system": "Systemdatenbank",
+      "dropped": "nicht mehr auf der Instanz",
+      "notSelected": "vom Backup-Job nicht erfasst",
+      "lastBackup": "Neueste Sicherung",
+      "noBackup": "Keine in den Sicherungsdaten",
+      "lastCheck": "Neueste Prüfung",
+      "noCheck": "Noch nicht geprüft",
+      "physicalOnly": "nur physisch geprüft",
+      "evidence": "Fehler {code}: {message}",
+      "tde": "Diese Datenbank ist mit TDE verschlüsselt. Sichern Sie Zertifikat und Schlüssel an anderer Stelle und bestätigen Sie das hier.",
+      "tdeConfirm": "Zertifikat ist gesichert"
+    },
+    "rating": {
+      "green": "Geprüft",
+      "red": "Schaden gefunden",
+      "overdue": "Prüfung überfällig",
+      "unverified": "Noch nicht geprüft",
+      "not_protected": "Nicht gesichert"
+    },
+    "outcome": {
+      "green": "Ohne Fehler",
+      "red": "Schaden gefunden",
+      "incomplete": "Nicht abgeschlossen",
+      "restored": "Wiederhergestellt",
+      "backed_up": "Gesichert",
+      "skipped": "Übersprungen",
+      "failed": "Fehlgeschlagen"
+    },
+    "weekday": {
+      "1": "Montag",
+      "2": "Dienstag",
+      "3": "Mittwoch",
+      "4": "Donnerstag",
+      "5": "Freitag",
+      "6": "Samstag",
+      "7": "Sonntag"
+    },
+    "verify": {
+      "all": "Alle jetzt prüfen",
+      "one": "Jetzt prüfen",
+      "queued": "Die Prüfung von {name} wartet auf den Rechner.",
+      "alreadyQueued": "Eine Prüfung dieser Instanz wartet bereits."
+    },
+    "restore": {
+      "open": "Unter neuem Namen wiederherstellen",
+      "title": "{name} unter neuem Namen wiederherstellen",
+      "description": "Der Agent holt die Sicherung aus den Sicherungsdaten, prüft ihre Prüfsumme und stellt sie neben der vorhandenen Datenbank wieder her, die unverändert bleibt.",
+      "backup": "Sicherung",
+      "backupOption": "{at}, {size}",
+      "loading": "Sicherungen werden geladen",
+      "noBackup": "Von dieser Datenbank wird keine Sicherung aufbewahrt.",
+      "newName": "Neuer Name",
+      "newNameHint": "Die Datenbank wird unter diesem Namen angelegt; eine vorhandene wird nie ersetzt.",
+      "nameProblem": {
+        "empty": "Geben Sie einen Namen ein.",
+        "tooLong": "Ein Name darf höchstens 128 Zeichen haben.",
+        "control": "Ein Name darf keine Steuerzeichen enthalten.",
+        "system": "Eine Systemdatenbank kann nicht das Ziel sein.",
+        "reserved": "Dieser Namensteil ist für Prüfdatenbanken reserviert.",
+        "same": "Wählen Sie einen anderen Namen als den der vorhandenen Datenbank."
+      },
+      "target": "Instanz",
+      "checkdb": "Die Kopie mit DBCC CHECKDB prüfen",
+      "checkdbHint": "Empfohlen. Bis zur im Backup-Job eingestellten Größe prüft sie alles, darüber nur die physische Struktur.",
+      "cancel": "Abbrechen",
+      "submit": "Wiederherstellen",
+      "queued": "Die Wiederherstellung als {name} wartet auf den Rechner."
+    },
+    "script": {
+      "download": "Wiederherstellungsskript für einen anderen Rechner"
+    },
+    "run": {
+      "heading": "Datenbanken von {instance}",
+      "restoredAs": "Als {name} auf {instance} wiederhergestellt",
+      "checkdb": {
+        "clean": "DBCC CHECKDB hat in der Kopie keinen Fehler gefunden.",
+        "errors": "DBCC CHECKDB hat in der Kopie Fehler gemeldet.",
+        "skipped": "DBCC CHECKDB lief auf der Kopie nicht."
+      }
+    },
+    "codes": {
+      "sql_instance_unreachable": "Die Instanz war nicht erreichbar. Läuft der SQL-Server-Dienst?",
+      "sql_login_missing": "Der Agent konnte sich nicht anmelden: Die Instanz hat keine Anmeldung für ihn.",
+      "sql_permission_missing": "Der Agent ist angemeldet, ihm fehlen aber Rechte für die Sicherung.",
+      "sql_powershell_constrained": "Die Skriptumgebung von Windows läuft eingeschränkt (Constrained Language Mode), darum kann sich der Agent nicht verbinden.",
+      "sql_strict_encryption": "Die Instanz verlangt strikte Verschlüsselung; die native Sicherung verbindet sich nicht mit ihr.",
+      "sql_fci_unsupported": "Failover-Cluster-Instanzen werden von der nativen Sicherung nicht unterstützt.",
+      "sql_mode_unsupported": "Der Agent kennt die im Job eingestellte Sicherungsart nicht. Aktualisieren Sie den Agenten.",
+      "sql_staging_unusable": "Der Staging-Ordner kann nicht verwendet werden.",
+      "sql_staging_too_small": "Im Staging-Ordner ist nicht genug Platz frei.",
+      "sql_database_unavailable": "Die Datenbank ist nicht online.",
+      "sql_backup_failed": "SQL Server konnte die Sicherung nicht anlegen.",
+      "sql_snapshot_failed": "Die Sicherungsdatei konnte nicht in den Sicherungsdaten abgelegt werden.",
+      "sql_script_failed": "Das SQL-Skript des Agenten endete unerwartet.",
+      "sql_restore_name_taken": "Eine Datenbank dieses Namens gibt es bereits.",
+      "sql_restore_no_space": "Für die Wiederherstellung ist nicht genug Platz frei.",
+      "sql_restore_failed": "Die Wiederherstellung ist fehlgeschlagen.",
+      "sql_backup_mismatch": "Die aus den Sicherungsdaten geholte Sicherung weicht von der angelegten ab.",
+      "sql_verify_no_space": "Für die Prüfung ist nicht genug Platz frei: unvollständig, nicht fehlgeschlagen.",
+      "sql_verify_timeout": "Die Prüfung dauerte zu lange und wurde beendet: unvollständig, nicht fehlgeschlagen.",
+      "sql_verify_system_db": "Diese Systemdatenbank lässt sich nicht unter neuem Namen prüfen.",
+      "sql_verify_incomplete": "Die Prüfung kam zu keinem Ergebnis.",
+      "unknown": "Code {code}"
+    }
   }
 }

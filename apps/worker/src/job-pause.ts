@@ -15,7 +15,7 @@
  * Queues that only finish or watch what already runs stay on (`ungated`).
  */
 
-import type { Logger } from "@restow/core";
+import { type Logger, withStorageOperation } from "@restow/core";
 import { type JobStartPauseState, NOT_PAUSED } from "@restow/db";
 import type { UpdateDrain } from "./handlers/framework.js";
 
@@ -45,6 +45,15 @@ export interface JobPauseGateOptions {
   /** Queues that keep running during a pause (finishing and watching what already runs). */
   readonly ungated?: ReadonlySet<string>;
   readonly pollMs?: number;
+  /**
+   * Asked for every job before its handler runs, on every queue (also the ungated ones): true
+   * when the job was held and must not run (restore mode holds jobs from before the restored
+   * database dump, restore-mode.ts). A failing check fails the job, so it is tried again.
+   */
+  readonly hold?: (
+    queue: string,
+    job: { id: string; createdOn?: Date | string },
+  ) => Promise<boolean>;
 }
 
 export class JobPauseGate implements UpdateDrain {
@@ -87,8 +96,9 @@ export class JobPauseGate implements UpdateDrain {
   }
 
   /** Consume a queue unless new starts are paused; a paused queue is consumed once it lifts. */
-  async work(queue: string, options: object, handler: unknown): Promise<string> {
+  async work(queue: string, options: object, rawHandler: unknown): Promise<string> {
     const boss = this.requireBoss();
+    const handler = this.withHold(queue, rawHandler);
     if (this.options.ungated?.has(queue)) {
       return boss.work(queue, options, handler);
     }
@@ -146,6 +156,35 @@ export class JobPauseGate implements UpdateDrain {
       clearTimeout(this.timer);
       this.timer = null;
     }
+  }
+
+  /** The handler with the hold check in front of it (pg-boss hands it an array of jobs). */
+  private withHold(queue: string, handler: unknown): unknown {
+    const hold = this.options.hold;
+    if (typeof handler !== "function") {
+      return handler;
+    }
+    // One storage operation per delivery: what a job writes it may delete again in restore mode.
+    const run = (jobs: unknown) =>
+      withStorageOperation(() => (handler as (jobs: unknown) => Promise<unknown>)(jobs));
+    if (!hold) {
+      return run;
+    }
+    return async (jobs: unknown) => {
+      if (!Array.isArray(jobs)) {
+        return run(jobs);
+      }
+      const kept: unknown[] = [];
+      for (const job of jobs as { id: string; createdOn?: Date | string }[]) {
+        if (!(await hold(queue, job))) {
+          kept.push(job);
+        }
+      }
+      if (kept.length === 0) {
+        return undefined;
+      }
+      return run(kept);
+    };
   }
 
   private requireBoss(): GateBoss {

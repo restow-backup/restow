@@ -236,6 +236,38 @@ describe("ReportPage object line (#55)", () => {
   });
 });
 
+describe("ReportPage source figures (0.5.0)", () => {
+  it("shows what Microsoft 365 reported for a OneDrive, with the quota for information", () => {
+    const base = report(true);
+    const details = base.details as Extract<ReportDetail["details"], { origin: "verify" }>;
+    const html = render({
+      ...base,
+      details: {
+        ...details,
+        snapshot: {
+          ...(details.snapshot as NonNullable<typeof details.snapshot>),
+          source: {
+            service: "onedrive",
+            verdict: "empty",
+            rootBytesBefore: 0,
+            rootBytesAfter: 0,
+            quotaUsed: 12_288,
+            quotaDeleted: 0,
+            visibleItems: null,
+            hiddenItems: null,
+            archive: null,
+          },
+        },
+      },
+    });
+    expect(html).toContain('data-slot="source-figures"');
+    expect(html).toContain("Reported by Microsoft 365");
+    expect(html).toMatch(/Root folder of the OneDrive: 0[^<]*before the backup, 0[^<]*after it/);
+    expect(html).toMatch(/Storage used: 12[^<]*kB/);
+    expect(html).toContain("Empty according to Microsoft 365 and to the backup.");
+  });
+});
+
 describe("ReportPage failure explanations", () => {
   it("explains every finding, red before yellow, with why, steps and the docs link", () => {
     const html = render(report(true));

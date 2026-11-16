@@ -1,0 +1,25 @@
+{
+  "id": "8b0f2c4e-6a1d-4f3b-9c2e-1d0a7b6c5e4f",
+  "kind": "sql_verify",
+  "params": {
+    "instance": "SQLEXPRESS",
+    "maxGiB": 200,
+    "physicalOnly": false,
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "snapshotId": "18eb0f31e91b9c0452a42c9fcf31d37b771774327c9370af2b19bd2d64b4ea1e",
+        "pathInSnapshot": "/C/ProgramData/Restow/data/staging/sql/SQLEXPRESS/Sales~8de4e0ea/full-20261105T020011Z.bak",
+        "sha256": "d1eaf3a515cec69d9d87a01baf2dcb0f23ed1d11eba77aa652c69bd95a78e607",
+        "bytes": 734265344,
+        "usedBytes": 734003200,
+        "fileList": [
+          { "logicalName": "Sales", "type": "D", "fileGroup": "PRIMARY", "fileId": 1, "sizeBytes": 1073741824, "physicalName": "Q:\\Data\\Sales.mdf" },
+          { "logicalName": "Sales_log", "type": "L", "fileGroup": "", "fileId": 2, "sizeBytes": 268435456, "physicalName": "L:\\Log\\Sales_log.ldf" }
+        ]
+      }
+    ]
+  }
+}

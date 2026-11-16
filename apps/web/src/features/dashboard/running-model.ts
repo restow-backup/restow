@@ -199,8 +199,10 @@ export const PVE_RUNS_LISTED = 50;
 
 /**
  * The newest {@link PVE_RUNS_LISTED} Proxmox VE runs of the live channel, and whether it holds
- * more: the channel carries one run beyond the limit, which is how the page learns that some are
- * left out. Ordered as the API reads them (newest start first, then by id).
+ * more: the channel carries every running one up to a far higher bound (the API's
+ * `LIVE_PVE_LIMIT`, for a job's detail panel; an older server one beyond the limit), which is how
+ * the page learns that some are left out. Ordered as the API reads them (newest start first, then
+ * by id).
  */
 export function limitPve(runs: readonly PveRunning[]): { runs: PveRunning[]; truncated: boolean } {
   const newestFirst = [...runs].sort(

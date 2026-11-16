@@ -1,0 +1,37 @@
+{
+  "errors": [
+    {
+      "message": "Sales was not checked to the end: The SQL Server script stopped: ExecuteReader requires an open and available Connection. The connection's current state is closed. (exit code 3)",
+      "code": "sql_script_failed"
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:Sales",
+    "verify:Sales",
+    "drop"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "verifyName": "Sales__restow_verify_20261105T020013Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": null,
+        "checkdb": null,
+        "dropped": false,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 3000,
+        "code": "sql_script_failed",
+        "message": "Sales was not checked to the end: The SQL Server script stopped: ExecuteReader requires an open and available Connection. The connection's current state is closed. (exit code 3)"
+      }
+    ]
+  },
+  "status": "failed"
+}

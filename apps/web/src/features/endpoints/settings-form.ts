@@ -26,6 +26,20 @@ import { hasControlCharacters, isAbsolutePath } from "./presenters.js";
  * form must send nothing.
  */
 
+/** The file system snapshot setting of a Linux machine as the settings offer it. */
+export type FsSnapshotChoice = "default" | "auto" | "off";
+
+/**
+ * What `default` means for the machine: on when its agent backs it up as a whole, which a stored
+ * switch does only while the installation has the preview on (`wholeMachineActive`).
+ */
+export function effectiveFsSnapshot(config: {
+  wholeMachine?: boolean;
+  wholeMachineActive?: boolean;
+}): "auto" | "off" {
+  return (config.wholeMachineActive ?? config.wholeMachine) === true ? "auto" : "off";
+}
+
 export interface SettingsDraft {
   displayName: string;
   /** One row per backup path; blank rows are dropped. */
@@ -44,6 +58,13 @@ export interface SettingsDraft {
   /** The time windows of the limit, one row each, read in the zone of the schedule. */
   bandwidthWindows: WindowDraft[];
   onlyOnAcPower: boolean;
+  /** The shadow copy (VSS) of a Windows machine; sent only for Windows machines. */
+  useVss: boolean;
+  /**
+   * File system snapshots of a Linux machine (LVM, btrfs): its own setting, or `default` (on for
+   * a whole machine backup, off otherwise); sent only for Linux machines.
+   */
+  fsSnapshot: FsSnapshotChoice;
   keepDaily: string;
   keepWeekly: string;
   keepMonthly: string;
@@ -137,6 +158,8 @@ export function draftFromDetail(
     bandwidthKbps: config.bandwidthKbps === 0 ? "" : numberText(config.bandwidthKbps),
     bandwidthWindows: windowDraftsOf(config.bandwidthWindows),
     onlyOnAcPower: config.onlyOnAcPower,
+    useVss: config.useVss,
+    fsSnapshot: config.fsSnapshot ?? "default",
     keepDaily: String(settings.retention.keepDaily),
     keepWeekly: String(settings.retention.keepWeekly),
     keepMonthly: String(settings.retention.keepMonthly),
@@ -395,7 +418,8 @@ function retentionOf(draft: SettingsDraft): Retention {
  * a changed hook sends both. Call `checkDraft` first: this assumes valid input.
  */
 export function buildPatch(
-  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile">,
+  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile"> &
+    Partial<Pick<EndpointDetail, "os">>,
   draft: SettingsDraft,
 ): UpdateEndpointInput | null {
   const patch: UpdateEndpointInput = {};
@@ -447,6 +471,17 @@ export function buildPatch(
     changed.onlyOnAcPower = draft.onlyOnAcPower;
   }
 
+  // The shadow copy is a switch of Windows machines; the server refuses it for any other system.
+  if (detail.os === "windows" && draft.useVss !== config.useVss) {
+    changed.useVss = draft.useVss;
+  }
+
+  // The file system snapshot is a setting of Linux machines; `default` is sent as null.
+  const fsSnapshot = draft.fsSnapshot === "default" ? null : draft.fsSnapshot;
+  if (detail.os === "linux" && fsSnapshot !== (config.fsSnapshot ?? null)) {
+    changed.fsSnapshot = fsSnapshot;
+  }
+
   if (Object.keys(changed).length > 0) {
     patch.config = changed;
   }
@@ -491,7 +526,8 @@ export function buildPatch(
 
 /** Which sections of the form differ from the server (for the "unsaved changes" hint). */
 export function changedSections(
-  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile">,
+  detail: Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile"> &
+    Partial<Pick<EndpointDetail, "os">>,
   draft: SettingsDraft,
 ): string[] {
   const patch = buildPatch(detail, draft);

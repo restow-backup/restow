@@ -10,7 +10,7 @@
  * here is therefore the one the request needs, not proof that it is absent.
  */
 import type { TokenAcquisitionError } from "../graph/auth/token.js";
-import type { GraphError } from "../graph/errors.js";
+import { type GraphError, GraphOutcomeUnknownError } from "../graph/errors.js";
 import { redactedPath, redactSensitiveText } from "./redact.js";
 import type { FailureCause, FailureParams, FailureTechnical } from "./types.js";
 
@@ -271,6 +271,16 @@ export function classifyGraphError(error: GraphError): FailureCause {
     base.graphCode = redactSensitiveText(error.code, 120);
   }
   const withPermission: FailureParams = permission ? { ...base, permission } : base;
+
+  // A write whose answer was lost (504, bare 503, timeout): not sent again, not a refusal.
+  if (error instanceof GraphOutcomeUnknownError) {
+    return cause(
+      "graph.outcome_unknown",
+      true,
+      { ...base, reason: error.timedOut ? "timeout" : "status" },
+      technical,
+    );
+  }
 
   // Mailbox-level answers first: they can come with 403, 404 or 400.
   if (hasCode(error, NOT_ENABLED_CODES)) {

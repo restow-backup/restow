@@ -32,6 +32,19 @@
 # Production image names (restow:local, restow-web:local, or a moving tag a
 # co-hosted production stack might use) are never pulled or re-tagged
 # (security review finding M2).
+# Before the first pull it checks the free space on Docker's data root
+# (RESTOW_DEMO_MIN_FREE_MB, default 4096; 0 turns the check off): with less, or
+# when it cannot be measured, the reset stops and the running demo stays as it
+# is (a full disk stops PostgreSQL). After a successful reset it removes the
+# images of the releases the demo followed before, except the one before the
+# current release (README, "Disk space").
+#
+# After every successful reset it also removes the images the demo's own
+# containers ran before the reset and that no name refers to any more (a
+# loaded tarball moved their tag), by ID, and the build cache older than a day.
+# The build cache cannot be told apart by project: that prune is host-wide
+# (RESTOW_DEMO_PRUNE_BUILD_CACHE=false turns it off). Images of other projects
+# on the host, a co-hosted production stack's included, are never touched.
 #
 # Fast reset (README, "Fast reset"): a full seed replays 30 days of real
 # backups and keeps the demo offline for many minutes. So after a full seed the
@@ -165,6 +178,51 @@ is_release_version() {
   matches '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' "$1"
 }
 
+# free_mb <dir>: the free space of the file system holding <dir> in MiB; empty when unknown.
+free_mb() {
+  avail_kb=$(df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }')
+  if matches '[0-9]+' "$avail_kb"; then
+    printf '%s' $((avail_kb / 1024))
+  fi
+}
+
+# Docker's data root (where pulled images land); empty when Docker does not say.
+docker_root() {
+  root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+  if matches '/[A-Za-z0-9._/-]*' "$root"; then
+    printf '%s' "$root"
+  fi
+}
+
+# Before anything is pulled: the release must fit, with room to spare, or the
+# reset stops while the demo still runs (a full disk stops PostgreSQL). Space
+# that cannot be measured counts as short: `df` needs no access to the data root
+# itself (only to the directories above it), so that means a Docker daemon whose
+# data root this shell cannot see; RESTOW_DEMO_MIN_FREE_MB=0 turns the check off.
+check_free_space() {
+  min_free_mb=$(setting RESTOW_DEMO_MIN_FREE_MB)
+  min_free_mb=${min_free_mb:-4096}
+  require_number RESTOW_DEMO_MIN_FREE_MB "$min_free_mb"
+  if [ "$min_free_mb" -eq 0 ]; then
+    log "follow mode: the free-space check is off (RESTOW_DEMO_MIN_FREE_MB=0)"
+    return 0
+  fi
+  root=$(docker_root)
+  free=""
+  if [ -n "$root" ]; then
+    free=$(free_mb "$root")
+  fi
+  if [ -z "$free" ]; then
+    log "follow mode: could not measure the free space of Docker's data root (${root:-unknown}); nothing was pulled or stopped, the demo keeps running. Set RESTOW_DEMO_MIN_FREE_MB=0 to pull without the check (README, \"Disk space\")"
+    exit 1
+  fi
+  if [ "$free" -lt "$min_free_mb" ]; then
+    log "follow mode: only ${free} MiB free on Docker's data root ${root}, less than RESTOW_DEMO_MIN_FREE_MB=${min_free_mb}; nothing was pulled or stopped, the demo keeps running. Free space first (README, \"Disk space\")"
+    exit 1
+  fi
+  log "follow mode: ${free} MiB free on Docker's data root ${root} (at least ${min_free_mb} MiB needed)"
+}
+
 pull() {
   if ! docker pull --quiet "$1"; then
     log "follow mode: could not pull $1; nothing was stopped, the demo keeps running the images it has"
@@ -188,6 +246,8 @@ follow_release() {
     log "follow mode: RESTOW_DEMO_FOLLOW_REGISTRY=${registry} is not a registry path (for example ghcr.io/restow-backup)"
     exit 1
   fi
+
+  check_free_space
 
   # Which release the tag names, read from the demo's own seed image: a moving
   # tag is never pulled for the application images, so a co-hosted production
@@ -234,6 +294,7 @@ follow_release() {
   RESTOW_DEMO_DOVECOT_IMAGE="$dovecot"
   export RESTOW_DEMO_APP_IMAGE RESTOW_DEMO_WEB_IMAGE RESTOW_DEMO_SEED_IMAGE RESTOW_DEMO_DOVECOT_IMAGE
   FOLLOWED_VERSION="$version"
+  FOLLOWED_REGISTRY="$registry"
   log "follow mode: ${follow} is Restow ${version}; using ${app}, ${web}, ${seed}, ${dovecot}"
 }
 
@@ -713,6 +774,190 @@ restore_template() {
   return 0
 }
 
+# ---- Disk space (README, "Disk space") ---------------------------------------------------
+
+# The images of one release the demo pulls in follow mode.
+FOLLOW_IMAGES="restow restow-web restow-demo-seed restow-demo-dovecot"
+
+# sort_versions: release versions (one per line) from the oldest to the newest, in
+# SemVer order: a pre-release before its release; its identifiers one by one, a
+# numeric one by value (rc.2 before rc.10) and before an alphanumeric one, and a
+# shorter list first when the rest is equal (rc before rc.1). The sort key puts
+# each identifier behind "0" (numeric, zero-padded) or "1" (alphanumeric) and joins
+# them with "!", which sorts before every character an identifier may hold; a
+# release gets "~", which sorts after them all.
+sort_versions() {
+  awk '{
+    v = $0; pre = ""; i = index(v, "-")
+    if (i > 0) { pre = substr(v, i + 1); v = substr(v, 1, i - 1) }
+    split(v, p, ".")
+    key = "~"
+    if (pre != "") {
+      key = ""
+      n = split(pre, ids, ".")
+      for (j = 1; j <= n; j++) {
+        id = ids[j]
+        if (id ~ /^[0-9]+$/) {
+          while (length(id) < 20) id = "0" id
+          id = "0" id
+        } else {
+          id = "1" id
+        }
+        key = key (j > 1 ? "!" : "") id
+      }
+    }
+    printf "%09d.%09d.%09d.%s\t%s\n", p[1], p[2], p[3], key, $0
+  }' | LC_ALL=C sort -u | cut -f2
+}
+
+# The releases the demo followed: the exact versions its own seed image is
+# tagged with (follow mode pulls restow-demo-seed:<version> for every release).
+followed_versions() {
+  docker image ls --format '{{.Tag}}' "$1/restow-demo-seed" 2>/dev/null | while read -r tag; do
+    if is_release_version "$tag"; then
+      printf '%s\n' "$tag"
+    fi
+  done
+}
+
+# Follow mode, after a successful reset: remove the four images of every release
+# the demo followed before, except the one before the current release, by their
+# exact references. Docker deletes an image only once no other tag names it and no
+# container (running or stopped) uses it, so whatever else refers to it keeps it.
+# Never fails the reset: the demo is up by now.
+remove_old_releases() {
+  versions=$(
+    {
+      followed_versions "$FOLLOWED_REGISTRY"
+      printf '%s\n' "$FOLLOWED_VERSION"
+    } | sort_versions
+  )
+  older=""
+  for v in $versions; do
+    if [ "$v" = "$FOLLOWED_VERSION" ]; then
+      break
+    fi
+    older="${older} ${v}"
+  done
+  previous=""
+  for v in $older; do
+    previous=$v
+  done
+  removed=""
+  refused=""
+  for v in $older; do
+    if [ "$v" = "$previous" ]; then
+      continue
+    fi
+    for name in $FOLLOW_IMAGES; do
+      ref="${FOLLOWED_REGISTRY}/${name}:${v}"
+      if ! docker image inspect "$ref" >/dev/null 2>&1; then
+        continue
+      fi
+      if docker image rm "$ref" >/dev/null 2>&1; then
+        removed="${removed} ${ref}"
+      else
+        refused="${refused} ${ref}"
+      fi
+    done
+  done
+  if [ -n "$removed" ]; then
+    log "removed the images of earlier releases:${removed} (kept ${FOLLOWED_VERSION}${previous:+ and ${previous}})"
+  else
+    log "no images of earlier releases to remove (kept ${FOLLOWED_VERSION}${previous:+ and ${previous}})"
+  fi
+  if [ -n "$refused" ]; then
+    log "could not remove (still in use?):${refused}"
+  fi
+}
+
+# The IDs of the images the demo project's containers use (running or stopped),
+# one per line; empty when there are none or Docker does not say.
+project_image_ids() {
+  containers=$(compose --profile seed --profile template ps --all --quiet 2>/dev/null || true)
+  if [ -z "$containers" ]; then
+    return 0
+  fi
+  # shellcheck disable=SC2086 # one container ID per word
+  { docker inspect --format '{{.Image}}' $containers 2>/dev/null || true; } | while read -r id; do
+    if matches 'sha256:[0-9a-f]{64}' "$id"; then
+      printf '%s\n' "$id"
+    fi
+  done | LC_ALL=C sort -u
+}
+
+# After every successful reset: the images the demo's containers ran before the
+# reset (PREVIOUS_IMAGE_IDS) that none of them runs now and that no name refers to
+# any more (a `docker load` moved their tag to the new image), by ID and never
+# forced, so Docker keeps one another container uses. Not `docker image prune`:
+# that would take every project's images without a name, a co-hosted production
+# stack's rollback image included. Then the build cache older than a day; Docker
+# cannot tell whose it is, so that prune is host-wide (the demo host never builds,
+# README "Disk space"), and RESTOW_DEMO_PRUNE_BUILD_CACHE=false turns it off.
+# Never fails the reset.
+remove_unused() {
+  current=$(project_image_ids)
+  removed=""
+  refused=""
+  for id in $PREVIOUS_IMAGE_IDS; do
+    case "
+${current}
+" in
+      *"
+${id}
+"*) continue ;;
+    esac
+    names=$(docker image inspect --format '{{len .RepoTags}}' "$id" 2>/dev/null || true)
+    if [ "$names" != "0" ]; then
+      continue
+    fi
+    if docker image rm "$id" >/dev/null 2>&1; then
+      removed="${removed} ${id}"
+    else
+      refused="${refused} ${id}"
+    fi
+  done
+  if [ -n "$removed" ]; then
+    log "removed the demo's earlier images that have no name any more:${removed}"
+  fi
+  if [ -n "$refused" ]; then
+    log "could not remove (still in use?):${refused}"
+  fi
+
+  prune_cache=$(setting RESTOW_DEMO_PRUNE_BUILD_CACHE)
+  case "${prune_cache:-true}" in
+    false)
+      log "build cache left alone (RESTOW_DEMO_PRUNE_BUILD_CACHE=false)"
+      ;;
+    *)
+      if docker builder prune --force --filter until=24h >/dev/null 2>&1; then
+        log "removed the build cache older than a day (host-wide: Docker keeps no project with it)"
+      else
+        log "could not remove the build cache"
+      fi
+      ;;
+  esac
+}
+
+clean_up_disk() {
+  root=$(docker_root)
+  before=""
+  if [ -n "$root" ]; then
+    before=$(free_mb "$root")
+  fi
+  if [ -n "$FOLLOWED_VERSION" ]; then
+    remove_old_releases
+  fi
+  remove_unused
+  after=""
+  if [ -n "$root" ]; then
+    after=$(free_mb "$root")
+  fi
+  if [ -n "$before" ] && [ -n "$after" ]; then
+    log "${after} MiB free on Docker's data root ${root} (${before} MiB before the cleanup)"
+  fi
+}
+
 teardown() {
   log "stopping the project and removing its volumes (database, mail, storage, Caddy state)"
   if [ -z "$OFFLINE_SINCE" ]; then
@@ -754,6 +999,7 @@ run() {
     template_settings
 
     FOLLOWED_VERSION=""
+    FOLLOWED_REGISTRY=""
     follow=$(setting RESTOW_DEMO_FOLLOW)
     if [ -n "$follow" ]; then
       follow_release "$follow"
@@ -761,6 +1007,9 @@ run() {
 
     check_images
     check_bind_address
+
+    # What the demo runs before this reset, for the cleanup once it succeeded.
+    PREVIOUS_IMAGE_IDS=$(project_image_ids)
 
     restored=""
     if [ "$TEMPLATES" = "true" ]; then
@@ -802,6 +1051,8 @@ run() {
     else
       log "reset complete"
     fi
+
+    clean_up_disk
   } >>"$LOG_FILE" 2>&1
 }
 

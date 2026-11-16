@@ -33,6 +33,7 @@ import {
   type ImapEnvelopeMeta,
   type ImapFolderInfo,
   type ImapFolderStatus,
+  type ImapListFlagsOptions,
   type ImapMessageFlags,
   type ImapMessageMeta,
   type ImapMessageProtection,
@@ -269,24 +270,52 @@ class ImapFlowSession implements ImapSession {
   }
 
   async openFolder(path: string): Promise<ImapFolderStatus> {
-    const mailbox = await this.guard(() => this.client.mailboxOpen(path, { readOnly: true }));
-    return {
-      path: mailbox.path,
-      uidValidity: mailbox.uidValidity.toString(),
-      uidNext: mailbox.uidNext,
-      exists: mailbox.exists,
-    };
+    return this.guard(async () => {
+      const mailbox = await this.client.mailboxOpen(path, { readOnly: true });
+      // imapflow sets uidValidity and uidNext only when the server sent OK [UIDVALIDITY] and
+      // OK [UIDNEXT]. Without UIDVALIDITY no UID can be trusted across runs: this folder
+      // fails (and keeps its previous copy), never the whole run.
+      const uidValidity = mailbox.uidValidity as bigint | number | undefined | null;
+      if (uidValidity === undefined || uidValidity === null) {
+        throw new ImapSessionError(
+          `EXAMINE ${path}: the server sent no UIDVALIDITY, so its UIDs cannot be tracked`,
+          false,
+        );
+      }
+      const uidNext = mailbox.uidNext as number | undefined | null;
+      return {
+        path: mailbox.path ?? path,
+        uidValidity: uidValidity.toString(),
+        uidNext: typeof uidNext === "number" ? uidNext : 0,
+        exists: mailbox.exists ?? 0,
+      };
+    });
   }
 
-  async listFlags(): Promise<ImapMessageFlags[]> {
+  async listFlags(options: ImapListFlagsOptions = {}): Promise<ImapMessageFlags[]> {
     const mailbox = this.client.mailbox;
     if (!mailbox || mailbox.exists === 0) {
       return [];
     }
+    // imapflow adds X-GM-LABELS and X-GM-MSGID only when the server announced X-GM-EXT-1.
+    const labels = options.labels === true && this.gmailExtensions;
+    const gmailIds = options.gmailIds === true && this.gmailExtensions;
     return this.guard(async () => {
       const result: ImapMessageFlags[] = [];
-      for await (const message of this.client.fetch("1:*", { uid: true, flags: true })) {
-        result.push({ uid: message.uid, flags: [...(message.flags ?? [])] });
+      for await (const message of this.client.fetch("1:*", {
+        uid: true,
+        flags: true,
+        ...(labels ? { labels: true } : {}),
+        ...(gmailIds ? { emailId: true } : {}),
+      })) {
+        result.push({
+          uid: message.uid,
+          flags: [...(message.flags ?? [])],
+          ...(labels ? { labels: [...(message.labels ?? [])] } : {}),
+          ...(gmailIds && typeof message.emailId === "string" && message.emailId.length > 0
+            ? { gmailMessageId: message.emailId }
+            : {}),
+        });
       }
       return result;
     });
@@ -380,6 +409,10 @@ class ImapFlowSession implements ImapSession {
     );
     // `n:*` always matches the highest UID, also when it lies below n (RFC 3501 6.4.8).
     return (found || []).filter((value) => value > uid).sort((a, b) => a - b);
+  }
+
+  get gmailExtensions(): boolean {
+    return this.client.capabilities?.has("X-GM-EXT-1") === true;
   }
 
   get idleSupported(): boolean {
@@ -495,7 +528,8 @@ function toFolderInfo(entry: ListResponse): ImapFolderInfo {
     path: entry.path,
     name: entry.name,
     parent: [...entry.parent],
-    delimiter: entry.delimiter,
+    // imapflow hands a NIL delimiter (flat namespace) through as null.
+    delimiter: (entry.delimiter as string | null | undefined) ?? "",
     selectable,
   };
   return entry.specialUse ? { ...info, specialUse: entry.specialUse } : info;

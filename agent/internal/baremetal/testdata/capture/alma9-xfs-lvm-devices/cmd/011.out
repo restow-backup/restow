@@ -1,0 +1,5 @@
+DEVNAME=/dev/mapper/almalinux-home
+UUID=e1000000-0000-4000-8000-0000000000d0
+BLOCK_SIZE=512
+TYPE=xfs
+USAGE=filesystem

@@ -12,7 +12,7 @@ import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { JobAbortedError } from "../engine/chunkstore.js";
 import { isTransientTransferError } from "../storage/transfer.js";
-import { GraphError } from "./errors.js";
+import { GraphError, GraphOutcomeUnknownError } from "./errors.js";
 
 /** Default Graph base URL. */
 export const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
@@ -41,6 +41,15 @@ export interface GraphRequest {
    * see `FetchGraphClient`'s `isGraphOrigin`.
    */
   auth?: boolean;
+  /**
+   * Whether sending the request a second time is harmless. Defaults to false for POST
+   * (it creates something: a message, contact, folder, attachment) and true for every
+   * other method. A POST answered 504, 503 without Retry-After, or not answered in time
+   * may have been carried out, so a non-idempotent request is not sent again then: the
+   * client throws {@link GraphOutcomeUnknownError} and the caller checks the target. A
+   * POST that only reads or creates something disposable (an upload session) sets true.
+   */
+  idempotent?: boolean;
 }
 
 /** A parsed Graph response. */
@@ -67,6 +76,8 @@ export interface BatchRequest {
   url: string;
   headers?: Record<string, string>;
   body?: unknown;
+  /** As {@link GraphRequest.idempotent}: false by default for POST. Not sent to Graph. */
+  idempotent?: boolean;
 }
 
 /** One sub-response from a $batch. */
@@ -194,6 +205,25 @@ export interface ThrottleInfo {
 
 /** Status codes that mean "try again later" rather than "you did something wrong". */
 export const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 503, 504]);
+
+/**
+ * Whether a retryable answer proves that Graph did not carry out the request, so even a
+ * request that creates something may be sent again: 429 is a refusal before any work,
+ * and a 503 with Retry-After is Graph's throttling answer ("come back later"). A 504, or
+ * a 503 without Retry-After (a gateway or backend that failed, perhaps after the write
+ * was committed), proves nothing.
+ */
+export function provesNotCarriedOut(
+  status: number,
+  retryAfter: string | null | undefined,
+): boolean {
+  return status === 429 || (status === 503 && parseRetryAfter(retryAfter) !== null);
+}
+
+/** {@link GraphRequest.idempotent} with its default: every method but POST. */
+export function isIdempotentRequest(req: { method: string; idempotent?: boolean }): boolean {
+  return req.idempotent ?? req.method.toUpperCase() !== "POST";
+}
 
 /** Split a list of items into batches no larger than `size` (clamped to 1..MAX_BATCH_SIZE). */
 export function chunkIntoBatches<T>(items: T[], size: number): T[][] {
@@ -435,12 +465,18 @@ export class FetchGraphClient implements GraphClient {
    * retried with backoff like a 503 when the request changes nothing: an idempotent method,
    * or `retryOnNetworkError` (a `$batch` that only reads). Anything else is thrown at once,
    * since the request may have reached Graph.
+   *
+   * A request that is not idempotent ({@link GraphRequest.idempotent}, a POST by default) is
+   * sent again only after an answer that proves Graph did nothing (429, 503 with
+   * Retry-After). A 504, a 503 without Retry-After or no answer in time throw
+   * {@link GraphOutcomeUnknownError} instead: sending it again could create a second copy.
    */
   private async sendTracked(
     req: GraphRequest,
-    retryOnNetworkError = IDEMPOTENT_METHODS.has(req.method.toUpperCase()),
+    retryOnNetworkError = req.idempotent ?? IDEMPOTENT_METHODS.has(req.method.toUpperCase()),
   ): Promise<{ response: Response; sentToken: string | undefined }> {
     const url = this.resolveUrl(req.url);
+    const idempotent = isIdempotentRequest(req);
     const useAuth = req.auth !== false && this.isGraphOrigin(url);
     const hasRawBody = req.rawBody !== undefined;
     const hasJsonBody = !hasRawBody && req.body !== undefined;
@@ -464,7 +500,17 @@ export class FetchGraphClient implements GraphClient {
           body: hasRawBody ? req.rawBody : hasJsonBody ? JSON.stringify(req.body) : undefined,
         });
       } catch (error) {
-        // Graph did not answer in time: like a 504, retried with backoff.
+        // Graph did not answer in time: like a 504, retried with backoff. A request that
+        // creates something may have been carried out (the body can be fully sent while the
+        // answer is lost), so it is not sent again.
+        if (error instanceof GraphResponseTimeoutError && !idempotent) {
+          throw new GraphOutcomeUnknownError({
+            method: req.method,
+            url,
+            timeoutMs: this.responseTimeoutMs,
+            cause: error,
+          });
+        }
         if (error instanceof GraphResponseTimeoutError && attempt < this.maxRetries) {
           await this.waitForRetry(504, attempt, url, null);
           continue;
@@ -494,6 +540,24 @@ export class FetchGraphClient implements GraphClient {
         refreshed = true;
         await response.text().catch(() => undefined);
         continue;
+      }
+      if (
+        RETRYABLE_STATUSES.has(response.status) &&
+        !idempotent &&
+        !provesNotCarriedOut(response.status, response.headers.get("retry-after"))
+      ) {
+        const headers = headersToRecord(response.headers);
+        const text = await response.text().catch(() => "");
+        const payload = await parseBodyText<unknown>(text, headers["content-type"] ?? "").catch(
+          () => text,
+        );
+        throw new GraphOutcomeUnknownError({
+          method: req.method,
+          url,
+          status: response.status,
+          headers,
+          payload,
+        });
       }
       if (RETRYABLE_STATUSES.has(response.status) && attempt < this.maxRetries) {
         // Drain the body so the connection can be reused before we wait.
@@ -571,11 +635,21 @@ export class FetchGraphClient implements GraphClient {
       const refused: BatchRequest[] = [];
       let refusedToken: string | undefined;
       let longestRetryAfter: string | null = null;
+      // Reported as throttling when Graph throttled a sub-request, else as the missing answer.
+      let waitStatus = 502;
       for (const group of chunkIntoBatches(pending, this.maxBatchSize)) {
         // A $batch of reads changes nothing, so a broken connection may send it again.
         const readOnly = group.every((r) => IDEMPOTENT_METHODS.has(r.method.toUpperCase()));
-        const { result, sentToken } = await this.requestTracked<{ responses?: BatchResponse[] }>(
-          { method: "POST", url: "/$batch", body: { requests: group.map(toBatchPayload) } },
+        // The envelope may be sent again after a 504 or a timeout unless a sub-request
+        // creates something (POST): then its outcome is unknown, as for a single request.
+        const idempotent = group.every(isIdempotentRequest);
+        const { result, sentToken } = await this.requestTracked<unknown>(
+          {
+            method: "POST",
+            url: "/$batch",
+            body: { requests: group.map(toBatchPayload) },
+            idempotent,
+          },
           readOnly,
         );
         if (result.status >= 400) {
@@ -587,9 +661,27 @@ export class FetchGraphClient implements GraphClient {
             payload: result.body,
           });
         }
-        for (const sub of result.body.responses ?? []) {
-          const normalised = { ...sub, headers: lowerCaseKeys(sub.headers) };
+        const answered = batchResponsesOf(result.body);
+        if (answered === null) {
+          // A 2xx that is not Graph's envelope (a proxy's HTML page, a body without
+          // `responses`): nothing is known about any sub-request. A batch of reads asks
+          // again like after a 503; one that writes cannot know what happened.
+          if (idempotent && attempt < this.maxRetries) {
+            throttled.push(...group);
+            continue;
+          }
+          throw malformedBatchError(result.status, result.headers);
+        }
+        const seenInGroup = new Set<string>();
+        for (const sub of answered) {
           const original = group.find((r) => r.id === sub.id);
+          if (!original || seenInGroup.has(sub.id)) {
+            // Not one of this envelope's ids (or a second answer for one): ignored, never
+            // stored under a slot of another envelope.
+            continue;
+          }
+          seenInGroup.add(sub.id);
+          const normalised = { ...sub, headers: lowerCaseKeys(sub.headers) };
           if (
             original &&
             !refreshed &&
@@ -599,14 +691,36 @@ export class FetchGraphClient implements GraphClient {
           ) {
             refused.push(original);
             refusedToken ??= sentToken;
-          } else if (original && RETRYABLE_STATUSES.has(sub.status) && attempt < this.maxRetries) {
+          } else if (
+            original &&
+            RETRYABLE_STATUSES.has(sub.status) &&
+            attempt < this.maxRetries &&
+            // A sub-request that creates something is sent again only when Graph proves it
+            // did nothing; a 504 or a bare 503 is handed back as it is (outcome unknown).
+            (isIdempotentRequest(original) ||
+              provesNotCarriedOut(sub.status, normalised.headers["retry-after"]))
+          ) {
             throttled.push(original);
+            waitStatus = 429;
             longestRetryAfter = pickLongerRetryAfter(
               longestRetryAfter,
               normalised.headers["retry-after"] ?? null,
             );
           }
           responses.set(sub.id, normalised);
+        }
+        // Graph answers every sub-request; one without an answer is unknown, never "nothing
+        // there". A read asks again within the retry budget; what is still missing then, and
+        // every write, is handed back as a 502 so each caller gets exactly one answer.
+        for (const original of group) {
+          if (seenInGroup.has(original.id)) {
+            continue;
+          }
+          if (isIdempotentRequest(original) && attempt < this.maxRetries) {
+            throttled.push(original);
+          } else if (!responses.has(original.id)) {
+            responses.set(original.id, missingBatchResponse(original.id));
+          }
         }
       }
       // The refusals stay in `responses`: when the provider keeps its token they are the answer.
@@ -617,14 +731,14 @@ export class FetchGraphClient implements GraphClient {
       }
       pending = resend ? [...throttled, ...refused] : throttled;
       if (throttled.length > 0) {
-        await this.waitForRetry(429, attempt, "/$batch", longestRetryAfter);
+        await this.waitForRetry(waitStatus, attempt, "/$batch", longestRetryAfter);
       }
     }
     // Keep the caller's order so results line up with the requests; a collapsed read
     // answers each of its callers under that caller's own id.
-    return callerRequests.flatMap((r, index) => {
-      const found = responses.get(String(slotOf[index]));
-      return found ? [{ ...found, id: r.id }] : [];
+    return callerRequests.map((r, index) => {
+      const slot = String(slotOf[index]);
+      return { ...(responses.get(slot) ?? missingBatchResponse(slot)), id: r.id };
     });
   }
 
@@ -657,6 +771,57 @@ export class FetchGraphClient implements GraphClient {
       url = nextLink;
     }
   }
+}
+
+/** The sub-responses of a `$batch` answer, or null when the body is not Graph's envelope. */
+function batchResponsesOf(body: unknown): BatchResponse[] | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const responses = (body as { responses?: unknown }).responses;
+  if (!Array.isArray(responses)) {
+    return null;
+  }
+  return responses.filter(
+    (sub): sub is BatchResponse =>
+      typeof sub === "object" &&
+      sub !== null &&
+      typeof (sub as BatchResponse).id === "string" &&
+      typeof (sub as BatchResponse).status === "number",
+  );
+}
+
+/** Error code of a sub-request Graph's `$batch` answer left out (synthetic 502). */
+export const MISSING_BATCH_RESPONSE_CODE = "MissingBatchResponse";
+
+/** The answer handed back for a sub-request Graph did not answer: a 502 with an error body. */
+function missingBatchResponse(id: string): BatchResponse {
+  return {
+    id,
+    status: 502,
+    headers: {},
+    body: {
+      error: {
+        code: MISSING_BATCH_RESPONSE_CODE,
+        message: "Microsoft Graph's $batch answer contained no response for this request",
+      },
+    },
+  };
+}
+
+function malformedBatchError(status: number, headers: Record<string, string>): GraphError {
+  return new GraphError({
+    status: 502,
+    method: "POST",
+    url: "/$batch",
+    headers,
+    payload: {
+      error: {
+        code: "MalformedBatchResponse",
+        message: `Microsoft Graph answered the $batch with ${status} but without its list of responses`,
+      },
+    },
+  });
 }
 
 /** Graph requires an explicit Content-Type on batch sub-requests that carry a body. */

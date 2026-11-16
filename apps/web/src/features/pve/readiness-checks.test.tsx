@@ -7,8 +7,18 @@ import type { GuestReadinessRow } from "@/features/verify/api";
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import { PveChecksFooter, pveChecksLine, uncheckedGuests } from "./readiness-checks";
-import { GuestReadinessRowView, guestResultKey } from "./readiness-row";
+import {
+  GuestChecksCallout,
+  PveChecksFooter,
+  pveChecksLine,
+  uncheckedGuests,
+} from "./readiness-checks";
+import {
+  checkOverdueText,
+  checkWaitsForText,
+  GuestReadinessRowView,
+  guestResultKey,
+} from "./readiness-row";
 
 vi.mock("@/features/endpoints/hooks", () => ({
   useTenantScope: () => ({ tenantId: "t-1", enabled: true }),
@@ -103,6 +113,82 @@ describe("a guest in Recovery readiness", () => {
         verifyNotChecked: { reason: "interrupted", detail: "" },
       }),
     ).toBe("readiness.result.notCheckedInterrupted");
+  });
+
+  it("says when a queued check waits far longer than expected, and why when it is known (0.5.0)", () => {
+    const stalled = render(
+      <GuestReadinessRowView
+        row={row({ checkRequested: true, checkOverdue: true, checkBlockedBy: null })}
+      />,
+    );
+    expect(stalled).toContain('data-slot="guest-readiness-overdue"');
+    expect(stalled).toContain("Check overdue");
+    expect(stalled).not.toContain('data-slot="guest-readiness-waiting"');
+    const t = i18n.getFixedT("en", "pve") as unknown as TFunction;
+    expect(checkOverdueText(t, { checkBlockedBy: null }, "en")).toContain("has not got to it");
+    const blocked = checkOverdueText(
+      t,
+      { checkBlockedBy: { kind: "restore", since: "2026-11-03T02:35:00Z" } },
+      "en",
+    );
+    expect(blocked).toContain("Restore since");
+    expect(blocked).toContain("2026");
+    expect(blocked).toContain("no sign of life");
+    // Behind a run that is going: a neutral note on the plain "queued", no warning.
+    expect(
+      checkWaitsForText(
+        t,
+        { checkWaitsFor: { kind: "backup", since: "2026-11-04T14:00:00Z" } },
+        "en",
+      ),
+    ).toContain("Backup since");
+    expect(checkWaitsForText(t, { checkWaitsFor: null }, "en")).toBeNull();
+    const behindBackup = render(
+      <GuestReadinessRowView
+        row={row({
+          checkRequested: true,
+          checkOverdue: false,
+          checkWaitsFor: { kind: "backup", since: "2026-11-04T14:00:00Z" },
+        })}
+      />,
+    );
+    expect(behindBackup).toContain('data-slot="guest-readiness-waiting"');
+    expect(behindBackup).not.toContain('data-slot="guest-readiness-overdue"');
+    // Not overdue yet: the plain "queued".
+    expect(render(<GuestReadinessRowView row={row({ checkRequested: true })} />)).toContain(
+      'data-slot="guest-readiness-waiting"',
+    );
+    // The summary no longer promises the next pass for checks that are overdue.
+    const callout = render(
+      <GuestChecksCallout
+        guests={[
+          row({ checkRequested: true, checkOverdue: true }),
+          row({ id: "g-2", checkRequested: true }),
+        ]}
+      />,
+    );
+    expect(callout).toContain('data-slot="pve-readiness-overdue"');
+    expect(callout).not.toContain("for the next pass");
+    expect(render(<GuestChecksCallout guests={[row({ checkRequested: true })]} />)).toContain(
+      "for the next pass",
+    );
+  });
+
+  it("names a check that could not start (0.5.0)", () => {
+    expect(
+      guestResultKey({
+        state: "yellow",
+        overdue: false,
+        basis: "verify",
+        verifyNotChecked: { reason: "error", detail: "" },
+      }),
+    ).toBe("readiness.result.notCheckedError");
+    expect(i18n.getFixedT("en", "pve")("readiness.result.notCheckedError")).toContain(
+      "could not start",
+    );
+    expect(i18n.getFixedT("de", "pve")("readiness.result.notCheckedError")).toContain(
+      "nicht starten",
+    );
   });
 
   it("counts the guests that wait for no check", () => {

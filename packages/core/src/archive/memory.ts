@@ -81,6 +81,10 @@ export class InMemoryArchiveAppendStore implements ArchiveAppendStore {
     return candidatesIn(this.items, query);
   }
 
+  async itemByReportHash(reportHash: string): Promise<string | null> {
+    return this.items.find((item) => item.reportHash === reportHash)?.record.id ?? null;
+  }
+
   withChainLock<T>(fn: (session: ArchiveChainSession) => Promise<T>): Promise<T> {
     const run = this.lock.then(async () => {
       const items: ArchiveItemInsert[] = [];
@@ -95,6 +99,8 @@ export class InMemoryArchiveAppendStore implements ArchiveAppendStore {
             : null;
         },
         candidates: async (query) => candidatesIn(all(), query),
+        itemByReportHash: async (reportHash) =>
+          all().find((item) => item.reportHash === reportHash)?.record.id ?? null,
         insertItem: async (item) => {
           items.push(item);
         },

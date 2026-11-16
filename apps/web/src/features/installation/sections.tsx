@@ -1,30 +1,40 @@
 import {
   AppWindow,
+  BellRing,
   CalendarClock,
   Coins,
   Container,
   Database,
+  DatabaseBackup,
   Download,
   HardDrive,
   Info,
   Layers,
+  LayoutGrid,
   Mail,
+  Network,
+  Palette,
   Server,
   ShieldAlert,
 } from "lucide-react";
 
+import { BrandingSection } from "@/features/branding/branding-section";
 import { GlobalAgentPolicySection } from "@/features/endpoints/components/global-agent-policy-section";
 import { PricingSection } from "@/features/pricing/pricing-section";
+import { ProviderNotificationsSection } from "@/features/provider-notifications/provider-notifications-section";
 import { PveSettingsSection } from "@/features/pve/settings-section";
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { RansomwareSection } from "@/features/suspicion/components/ransomware-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
 import { extensionInstallationSections, type InstallationSectionSpec } from "@/lib/extensions";
-
+import { MODULES_SECTION_ID } from "./paths";
+import { ClusterSection } from "./sections/cluster-section";
 import { DatabaseSection } from "./sections/database-section";
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
+import { ModulesSection } from "./sections/modules-section";
 import { RepositorySection } from "./sections/repository-section";
+import { RestoreModeSection } from "./sections/restore-mode-section";
 import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections";
 
 /**
@@ -34,9 +44,11 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  * the license) take the places between (lib/extensions.tsx
  * `InstallationSectionSpec`):
  *
- *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
+ *   10 Server   15 Modules   20 Notification mail   25 Notifications (recipients)   27 Branding
+ *   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
- *   55 Database      57 Ransomware detection   58 Agent policy   59 Proxmox VE
+ *   54 Cluster   55 Database   56 Restore mode   57 Ransomware detection   58 Agent policy
+ *   59 Proxmox VE
  *   60 Provider API (Service Provider) 65 Prices 70 Updates
  *   80 License (extension) or Edition  90 About
  *
@@ -47,6 +59,9 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *
  * Team and the audit log are pages of their own in the menu group Installation,
  * not sections: they are lists, this page is settings.
+ *
+ * A section that belongs to a module of the installation names it (`modules`): while the module
+ * is off the section is left out of the sub-navigation and still opens by its address.
  */
 
 export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
@@ -59,6 +74,15 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     component: ServerSectionPage,
   },
   {
+    // What the installation protects: its modules, switched on and off (lib/modules.ts).
+    id: MODULES_SECTION_ID,
+    labelKey: "installation:sections.modules",
+    descriptionKey: "installation:descriptions.modules",
+    icon: LayoutGrid,
+    order: 15,
+    component: ModulesSection,
+  },
+  {
     id: "mail",
     labelKey: "installation:sections.mail",
     descriptionKey: "installation:descriptions.mail",
@@ -67,7 +91,26 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     component: MailSectionPage,
   },
   {
+    // The provider's notification recipients, the floor and the summary reports (0.5.0).
+    id: "notifications",
+    labelKey: "installation:sections.notifications",
+    descriptionKey: "installation:descriptions.notifications",
+    icon: BellRing,
+    order: 25,
+    component: ProviderNotificationsSection,
+  },
+  {
+    // The provider's branding of mails and chat messages (0.5.0, edition Business).
+    id: "branding",
+    labelKey: "installation:sections.branding",
+    descriptionKey: "installation:descriptions.branding",
+    icon: Palette,
+    order: 27,
+    component: BrandingSection,
+  },
+  {
     id: "microsoft-app",
+    modules: ["microsoft365"],
     labelKey: "installation:sections.microsoftApp",
     descriptionKey: "installation:descriptions.microsoftApp",
     icon: AppWindow,
@@ -85,6 +128,16 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     component: RepositorySection,
   },
   {
+    // Worker nodes on other hosts and their one-time join tokens (docs/SIZING.md, "Several
+    // hosts: worker nodes"); the owner's only.
+    id: "cluster",
+    labelKey: "installation:sections.cluster",
+    descriptionKey: "installation:descriptions.cluster",
+    icon: Network,
+    order: 54,
+    component: ClusterSection,
+  },
+  {
     // Where the database keeps its data, the disks, moving it (docs/DATABASE.md).
     id: "database",
     labelKey: "installation:sections.database",
@@ -92,6 +145,16 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: Database,
     order: 55,
     component: DatabaseSection,
+  },
+  {
+    // Restore mode after restoring a database dump (docs/STORAGE.md, "Restore mode and progress
+    // markers"): nothing is deleted until a provider owner has checked the restored database.
+    id: "restore-mode",
+    labelKey: "installation:sections.restoreMode",
+    descriptionKey: "installation:descriptions.restoreMode",
+    icon: DatabaseBackup,
+    order: 56,
+    component: RestoreModeSection,
   },
   {
     // The thresholds of the ransomware detection on backups (docs/RANSOMWARE.md).
@@ -105,6 +168,7 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
   {
     // The global policy for the agents of servers and clients, with its locks (docs/AGENT.md).
     id: "agent-policy",
+    modules: ["endpoints"],
     labelKey: "installation:sections.agentPolicy",
     descriptionKey: "installation:descriptions.agentPolicy",
     icon: CalendarClock,
@@ -114,6 +178,7 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
   {
     // Proxmox VE backups (docs/PVE.md, "Restore check"): checks right after every backup.
     id: "proxmox",
+    modules: ["pve"],
     labelKey: "installation:sections.proxmox",
     descriptionKey: "installation:descriptions.proxmox",
     icon: Container,

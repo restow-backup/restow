@@ -73,7 +73,7 @@ async function check(
   try {
     await clearLocksBeforeMaintenance(deps, tenantId, endpointId, access, now);
     await withRepository(access, async (session) => {
-      await resticUnlock(session).catch(() => undefined);
+      await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
       await resticCheck(session, subset, { signal: deps.runtime.shutdownSignal });
     });
     await recordMaintenanceUnlocked(deps, tenantId, endpointId);
@@ -98,9 +98,12 @@ async function check(
     }
     if (
       error instanceof ResticError &&
-      (error.failure === "interrupted" || error.failure === "killed")
+      (error.failure === "interrupted" ||
+        error.failure === "killed" ||
+        error.failure === "storage_full")
     ) {
-      // Stopped before it finished (a shutdown, a signal): no finding about the repository.
+      // Stopped before it finished (a shutdown, a signal), or no room for its lock or cache (a
+      // full target or server disk, docs/STORAGE.md): no finding about the repository.
       logger.warn("endpoint check interrupted, it will retry", { tenantId, endpointId });
       throw error;
     }

@@ -8,9 +8,10 @@ import { i18n } from "@/i18n";
 import { VersionUpdateButton } from "./app-sidebar";
 
 /**
- * The version in the sidebar footer as the way to an update (0.4.2): a highlighted link "Update
- * to X available" to Installation, Updates; accent colour (never green), breathing only when
- * the person allows motion; nothing without an update.
+ * The version in the sidebar footer as the way to an update (0.5.0): "Version x.y.z" with a
+ * small dot, a link to Installation, Updates; its tooltip and name say "Update to X available";
+ * accent colour (never green), breathing only when the person allows motion; nothing without
+ * an update.
  */
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -56,12 +57,15 @@ describe("VersionUpdateButton", () => {
     const host = document.createElement("div");
     host.innerHTML = html;
     const link = host.querySelector<HTMLAnchorElement>('[data-slot="version-update"]');
-    expect(link?.textContent).toBe("Update to 0.4.2 available");
+    expect(link?.textContent).toBe("Version 0.4.1");
     expect(link?.getAttribute("href")).toBe("/installation/updates");
-    expect(link?.getAttribute("title")).toBe("Version 0.4.1");
-    const classes = link?.className ?? "";
+    expect(link?.getAttribute("title")).toBe("Update to 0.4.2 available");
+    expect(link?.getAttribute("aria-label")).toBe("Version 0.4.1, Update to 0.4.2 available");
+    const dot = link?.querySelector('[data-slot="update-dot"]');
+    expect(dot).not.toBeNull();
+    const classes = dot?.className ?? "";
     // Accent (info), not green; the pulse only with motion allowed.
-    expect(classes).toContain("text-info-text");
+    expect(classes).toContain("bg-info");
     expect(classes).not.toMatch(/success|green|emerald/);
     expect(classes).toContain("motion-safe:animate-update-pulse");
     expect(classes).not.toMatch(/(^|\s)animate-/);

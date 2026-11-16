@@ -179,6 +179,31 @@ describe("building the agent configuration", () => {
   });
 });
 
+describe("the SQL settings", () => {
+  const sql = {
+    enabled: true,
+    mode: "alongside" as const,
+    instances: ["SQLEXPRESS"],
+    databases: "all" as const,
+    exclude: [],
+  };
+
+  it("are written only when the job sets them", () => {
+    const current = config();
+    expect("sql" in buildEndpointConfig(current, null, {})).toBe(false);
+    const next = buildEndpointConfig(current, null, { sql });
+    expect(next.sql).toEqual(sql);
+    expect(next.sql).not.toBe(sql);
+    // A job that drops them takes them off the machine.
+    expect("sql" in buildEndpointConfig(next, null, {})).toBe(false);
+  });
+
+  it("can be a member's own", () => {
+    const own = { ...sql, enabled: false };
+    expect(effectiveSettings({ sql }, { sql: own }).sql).toEqual(own);
+  });
+});
+
 describe("retention", () => {
   it("writes nothing when the job sets none or the machine keeps it already", () => {
     expect(retentionToWrite(undefined, { keepDaily: 1, keepWeekly: 1, keepMonthly: 1 })).toBeNull();
@@ -191,5 +216,57 @@ describe("retention", () => {
         { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 },
       ),
     ).toEqual({ keepDaily: 7, keepWeekly: 4, keepMonthly: 12 });
+  });
+});
+
+describe("a whole machine job", () => {
+  const schedule = null;
+  const linux = { os: "linux", virtualization: "none" };
+
+  it("writes the switch to a Linux machine that is no container", () => {
+    const next = buildEndpointConfig(config(), schedule, { wholeMachine: true }, undefined, linux);
+    expect(next.wholeMachine).toBe(true);
+    // The folders stay: an agent older than 0.5.0 backs them up.
+    expect(next.paths).toEqual(config().paths);
+  });
+
+  it("writes nothing to a container, a Windows or a macOS machine", () => {
+    for (const member of [
+      { os: "linux", virtualization: "container" },
+      { os: "windows", virtualization: "none" },
+      { os: "darwin", virtualization: null },
+    ]) {
+      const next = buildEndpointConfig(
+        config(),
+        schedule,
+        { wholeMachine: true },
+        undefined,
+        member,
+      );
+      expect(next.wholeMachine, member.os).toBeUndefined();
+    }
+  });
+
+  it("removes the switch when the job turns it off, and leaves a job without it as it was", () => {
+    const whole = config({ wholeMachine: true });
+    expect(buildEndpointConfig(whole, schedule, {}, undefined, linux).wholeMachine).toBeUndefined();
+    expect(
+      buildEndpointConfig(whole, schedule, { wholeMachine: false }, undefined, linux).wholeMachine,
+    ).toBeUndefined();
+    const plain = buildEndpointConfig(
+      config(),
+      schedule,
+      { wholeMachine: false },
+      undefined,
+      linux,
+    );
+    expect(configKey(plain)).toBe(configKey(config()));
+    expect(sameEndpointConfig(plain, config())).toBe(true);
+  });
+
+  it("is not a setting a member overrides", () => {
+    expect(effectiveSettings({ wholeMachine: true }, { wholeMachine: false })).toEqual({
+      wholeMachine: true,
+    });
   });
 });

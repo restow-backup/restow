@@ -704,7 +704,8 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
       });
       expect(stats.series.readiness).toEqual(
         [
-          ready(1, 0, 0, 1),
+          // Anna's green check rated a backup more than 48 hours old by the end of 09-01: yellow.
+          ready(0, 1, 0, 1),
           // Anna's backup of 09-02 is newer than her green check: not proven until 09-03.
           ready(0, 0, 0, 2),
           ready(0, 1, 0, 2),
@@ -808,19 +809,20 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
       });
       expect(stats.series.readiness).toEqual(
         [
-          // Carla, Dora and Frank proven green, Emil yellow (checked after the damage).
-          ready(3, 1, 0, 0),
-          ready(3, 1, 0, 0),
+          // The backups of 08-20 are more than seven days old in the whole period: Carla, Dora and
+          // Emil are red by their age whatever their checks said; orphaned Frank is rated without
+          // it and stays green. (The order of checks and findings is covered by readiness.test.ts.)
+          ready(1, 0, 3, 0),
+          ready(1, 0, 3, 0),
           // Carla's backup of 09-03 is newer than her green check.
-          ready(2, 1, 0, 1),
-          // The storage check found damage in Dora's data after her green check.
-          ready(1, 1, 1, 1),
-          ready(1, 1, 1, 1),
-          ready(1, 1, 1, 1),
-          ready(1, 1, 1, 1),
+          ready(1, 0, 2, 1),
+          ready(1, 0, 2, 1),
+          ready(1, 0, 2, 1),
+          ready(1, 0, 2, 1),
+          ready(1, 0, 2, 1),
         ].map((counts, index) => ({ t: `2026-09-0${index + 1}`, ...counts })),
       );
-      expect(stats.kpis.verifiedShare).toEqual({ value: 0.5, previous: 1 });
+      expect(stats.kpis.verifiedShare).toEqual({ value: 0.25, previous: 0.25 });
     });
 
     it("counts the same objects everywhere: orphans with a backup in, excluded objects out", () => {
@@ -830,14 +832,14 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
       const readiness = stats.series.readiness;
       expect(Array.isArray(readiness) && readiness.at(-1)).toMatchObject({
         green: 1,
-        yellow: 1,
-        red: 1,
+        yellow: 0,
+        red: 2,
         unverified: 1,
       });
       expect(stats.tables.largestObjects).toEqual([
         expect.objectContaining({ name: "Dora", logicalBytes: 2000, state: "red" }),
         expect.objectContaining({ name: "Carla", logicalBytes: 1000, state: "unverified" }),
-        expect.objectContaining({ name: "Emil", logicalBytes: 600, state: "yellow" }),
+        expect.objectContaining({ name: "Emil", logicalBytes: 600, state: "red" }),
         expect.objectContaining({ name: "Frank", logicalBytes: 400, state: "green" }),
       ]);
     });
@@ -891,8 +893,9 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
       expect(stats.kpis.backupSuccessRate).toEqual({ value: 0.8, previous: 0.6667 });
       expect(stats.kpis.protectedObjects).toEqual({ value: 8, previous: 7 });
       expect(stats.kpis.logicalBytes).toEqual({ value: 11_200, previous: 9800 });
-      // Proven: Anna, Carla, Dora, Emil, Frank at the start; Anna, Emil, Frank at the end.
-      expect(stats.kpis.verifiedShare).toEqual({ value: 0.375, previous: 0.7143 });
+      // Proven (green or yellow): Anna and orphaned Frank at the end; the other backups are more
+      // than seven days old, red by their age.
+      expect(stats.kpis.verifiedShare).toEqual({ value: 0.25, previous: 0.2857 });
       expect(stats.kpis.physicalBytes).toEqual({ value: 3950, previous: 3000 });
       // Contoso has Microsoft 365, so throttling is available for the provider.
       expect(stats.kpis.throttlingWaitSeconds).toEqual({ value: 47, previous: 1.5 });

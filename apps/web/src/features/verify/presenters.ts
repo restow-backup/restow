@@ -136,6 +136,28 @@ export function objectLabel(
 }
 
 /**
+ * The service an object belongs to, named next to its label ("OneDrive", "Mailbox"), or null
+ * when the label is the kind already (0.5.0): a person's mailbox and OneDrive share the person's
+ * name, so the rating of each must say which one it is, not only by an icon.
+ */
+export function objectService(
+  object: Pick<VerifyObject, "kind" | "displayName" | "email" | "upn" | "externalId">,
+  t: (key: string) => string,
+): string | null {
+  return hasOnlyTechnicalId(object) ? null : t(`kind.${object.kind}`);
+}
+
+/** "OneDrive · msp@contoso.example": the label with its service, for one line of text. */
+export function objectServiceLabel(
+  object: Pick<VerifyObject, "kind" | "displayName" | "email" | "upn" | "externalId">,
+  t: (key: string) => string,
+): string {
+  const service = objectService(object, t);
+  const label = objectLabel(object, t);
+  return service ? `${service} · ${label}` : label;
+}
+
+/**
  * A fresh "no_backup" object is not a problem yet: it only needs attention
  * once the API's `overdue` says the first-backup grace period passed (the
  * single place that rule lives, see apps/api/.../verify/summary.ts). Every
@@ -258,6 +280,7 @@ export function sortRowsByUrgency(rows: readonly ReadinessRow[]): ReadinessRow[]
 const KNOWN_REASONS = new Set([
   "no_snapshot",
   "manifest_unreadable",
+  "manifest_missing",
   "items_missing",
   "items_unreadable",
   "items_mismatched",
@@ -268,12 +291,23 @@ const KNOWN_REASONS = new Set([
   "snapshot_outdated",
   "snapshot_stale",
   "snapshot_empty",
+  "snapshot_empty_confirmed_by_source",
+  "backup_missing_source_content",
   "nothing_to_verify",
   "test_restore_unconfirmed",
+  "backup_incomplete",
+  "backup_incomplete_persistent",
+  "check_incomplete",
 ]);
 
 /** The finding of a check that found the object empty (core verify/readiness.ts). */
 export const EMPTY_REASON = "snapshot_empty";
+
+/** Empty by Microsoft 365 and by the backup (0.5.0): "empty" without a confirmation. */
+export const SOURCE_EMPTY_REASON = "snapshot_empty_confirmed_by_source";
+
+/** The findings that say "nothing to restore", confirmable or not: shown as a quiet line. */
+export const EMPTY_REASONS: ReadonlySet<string> = new Set([EMPTY_REASON, SOURCE_EMPTY_REASON]);
 
 /** Whether a rating rests on "empty" alone: only such an object can be confirmed as empty. */
 export function isEmptyFinding(reasons: readonly Pick<Reason, "code">[]): boolean {
@@ -310,6 +344,18 @@ export function reasonMessage(
   }
   if (reason.code === "nothing_to_verify" && typeof reason.bytes !== "number") {
     return { key: "reason.nothing_to_verify_unsized" };
+  }
+  if (reason.code === "backup_missing_source_content") {
+    // A OneDrive names the bytes Microsoft 365 reports, a mailbox the items.
+    if (typeof reason.bytes === "number") {
+      return {
+        key: "reason.backup_missing_source_content",
+        values: { size: formatBytes(reason.bytes) },
+      };
+    }
+    return typeof reason.count === "number"
+      ? { key: "reason.backup_missing_source_content_items", values: { count: reason.count } }
+      : { key: "reason.backup_missing_source_content_unsized" };
   }
   const hours = reason.ageHours ?? 0;
   return {
@@ -370,6 +416,7 @@ const GC_SKIP_REASONS = new Set([
   "sample_run",
   "disabled",
   "partial_manifest_unreadable",
+  "restore_mode",
   "backup_running",
   "restore_running",
   "verify_running",

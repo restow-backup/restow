@@ -14,6 +14,7 @@ import {
   type NotificationMessage,
   type Notifier,
   type NotifyResult,
+  singleLine,
   testNotification,
 } from "./notify-core.js";
 
@@ -121,6 +122,10 @@ const SENDER_CODES: ReadonlySet<string> = new Set([
 /** Map a non-2xx sendMail answer onto a reason. */
 export function graphSendFailureReason(status: number, body: unknown): MailFailureReason {
   const { code } = graphError(body);
+  // The recipient was refused for good (0.5.0): not retried.
+  if (code === "ErrorInvalidRecipients" || (status === 400 && /recipient/i.test(code ?? ""))) {
+    return "recipient_rejected";
+  }
   if (status === 401) {
     return "graph_token_failed";
   }
@@ -173,6 +178,47 @@ class GraphTokenFailure extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * The Graph `message` of a notification. The sender is always the configured mailbox: the
+ * branding's name goes into `from` only for that address (Exchange may still show the mailbox's own
+ * display name), Reply-To as given, the logo as an inline file attachment the HTML refers to by
+ * its Content-ID, a PDF as an ordinary one.
+ */
+export function graphMessage(
+  sender: string,
+  message: NotificationMessage,
+): Record<string, unknown> {
+  const graph: Record<string, unknown> = {
+    subject: message.subject,
+    body: {
+      contentType: message.html ? "HTML" : "Text",
+      content: message.html ?? message.text,
+    },
+    toRecipients: [{ emailAddress: { address: message.to } }],
+  };
+  if (
+    message.from &&
+    (message.from.address === null || message.from.address.toLowerCase() === sender.toLowerCase())
+  ) {
+    graph.from = { emailAddress: { address: sender, name: singleLine(message.from.name) } };
+  }
+  if (message.replyTo) {
+    graph.replyTo = [{ emailAddress: { address: singleLine(message.replyTo) } }];
+  }
+  if (message.attachments?.length) {
+    graph.attachments = message.attachments.map((attachment) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: singleLine(attachment.filename),
+      contentType: attachment.contentType,
+      contentBytes: attachment.content.toString("base64"),
+      ...(attachment.cid
+        ? { contentId: singleLine(attachment.cid), isInline: true }
+        : { isInline: false }),
+    }));
+  }
+  return graph;
 }
 
 /** Microsoft Graph `sendMail` transport (client credentials + the throttling client). */
@@ -230,17 +276,7 @@ export class GraphNotifier implements Notifier {
       const response = await this.graph.request({
         method: "POST",
         url: `/users/${encodeURIComponent(this.sender)}/sendMail`,
-        body: {
-          message: {
-            subject: message.subject,
-            body: {
-              contentType: message.html ? "HTML" : "Text",
-              content: message.html ?? message.text,
-            },
-            toRecipients: [{ emailAddress: { address: message.to } }],
-          },
-          saveToSentItems: false,
-        },
+        body: { message: graphMessage(this.sender, message), saveToSentItems: false },
       });
       if (response.status >= 200 && response.status < 300) {
         return { ok: true };
@@ -248,10 +284,9 @@ export class GraphNotifier implements Notifier {
       if (response.status === 401) {
         this.provider?.invalidate();
       }
-      return failed(
-        graphSendFailureReason(response.status, response.body),
-        sendFailureDetail(response.status, response.body),
-      );
+      const reason = graphSendFailureReason(response.status, response.body);
+      const result = failed(reason, sendFailureDetail(response.status, response.body));
+      return reason === "recipient_rejected" ? { ...result, permanent: true } : result;
     } catch (err) {
       if (err instanceof GraphTokenFailure) {
         return failed(err.reason, err.message);

@@ -118,7 +118,7 @@ describe("verifyChain", () => {
     });
   });
 
-  it("detects a tampered row: the rewritten field no longer reproduces the hash", () => {
+  it("detects a tampered row: the rewritten field no longer reproduces the hash [ARCHIVE-002]", () => {
     const entries = chainOf(TIMES);
     const victim = entries[2] as AuditLogEntry;
     const tampered = entries.map((entry) =>

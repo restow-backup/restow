@@ -1,5 +1,6 @@
 import type { FieldError } from "react-hook-form";
 import { z } from "zod";
+import type { DeliveryModes } from "@/features/reports/api";
 
 import { isTenantRole, type TenantRole } from "@/lib/api";
 
@@ -42,6 +43,7 @@ const TENANT_REASONS = new Set([
   "atLeastOneContact",
   "duplicateEmail",
   "customerNumberTaken",
+  "monthlyReportNeedsEmail",
 ]);
 
 /** Namespaced translation key for a field error (usable from any namespace). */
@@ -139,6 +141,8 @@ export interface TenantWizardContactValues {
   email: string;
   phone: string;
   isPrimary: boolean;
+  /** Receives the customer monthly report (0.5.0, tenant page only); needs an e-mail address. */
+  monthlyReport?: boolean;
 }
 
 export interface TenantWizardRecipientValues {
@@ -146,6 +150,8 @@ export interface TenantWizardRecipientValues {
   name: string;
   /** The recipient's column of the notification matrix; the category boxes are shortcuts. */
   events: string[];
+  /** At once or in a digest, per severity (0.5.0, tenant page only). */
+  delivery?: DeliveryModes;
 }
 
 export interface TenantWizardAdminValues {
@@ -257,18 +263,35 @@ function optionalEmail(max: number) {
     .refine((value) => value === "" || z.string().trim().email().safeParse(value).success, "email");
 }
 
-const wizardContactSchema = z.object({
-  name: z.string().trim().min(1, "required").max(NAME_MAX_LENGTH, "tooLong"),
-  role: optionalText(CONTACT_ROLE_MAX),
-  email: optionalEmail(CONTACT_EMAIL_MAX),
-  phone: optionalText(PHONE_MAX),
-  isPrimary: z.boolean(),
-});
+const wizardContactSchema = z
+  .object({
+    name: z.string().trim().min(1, "required").max(NAME_MAX_LENGTH, "tooLong"),
+    role: optionalText(CONTACT_ROLE_MAX),
+    email: optionalEmail(CONTACT_EMAIL_MAX),
+    phone: optionalText(PHONE_MAX),
+    isPrimary: z.boolean(),
+    monthlyReport: z.boolean().optional(),
+  })
+  // The customer monthly report goes by mail: a contact who receives it needs an address.
+  .superRefine((contact, context) => {
+    if (contact.monthlyReport && contact.email.trim() === "") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["email"],
+        message: "monthlyReportNeedsEmail",
+      });
+    }
+  });
+
+const deliveryModeSchema = z.enum(["immediate", "hourly", "daily"]);
 
 const wizardRecipientSchema = z.object({
   email: z.string().trim().min(1, "required").email("email"),
   name: optionalText(NAME_MAX_LENGTH),
   events: z.array(z.string()),
+  delivery: z
+    .object({ error: deliveryModeSchema, warning: deliveryModeSchema, info: deliveryModeSchema })
+    .optional(),
 });
 
 const wizardAdminSchema = z.object({

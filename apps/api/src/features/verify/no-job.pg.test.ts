@@ -259,7 +259,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail objects in no backup job against Po
   });
 
   describe("the readiness overview", () => {
-    it("rates an object in no job by whether its backup restores, not by its age, and never overdue", async () => {
+    it("rates an object in no job by whether its backup restores, not by its age, and never overdue [READY-011]", async () => {
       const overview = await readinessOverview(db, f.tenantId, NOW);
       // In its job, the age counts: red, and the weekly check is long overdue.
       expect(byObject(overview.objects, f.inJob)).toMatchObject({
@@ -301,7 +301,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail objects in no backup job against Po
       expect(byObject(overview.objects, f.excluded)).toBeUndefined();
     });
 
-    it("counts them in the summary withoutJob and keeps the tenant from green", async () => {
+    it("counts them in the summary withoutJob and keeps the tenant from green [READY-011]", async () => {
       const { summary } = await readinessOverview(db, f.tenantId, NOW);
       // removed, ofDisabled and damaged have a backup; never has none.
       expect(summary).toMatchObject({

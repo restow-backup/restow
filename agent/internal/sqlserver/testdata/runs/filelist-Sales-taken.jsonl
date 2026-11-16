@@ -1,0 +1,2 @@
+{"type":"result","data":{"fileList":[{"logicalName":"Sales","type":"D","fileGroup":"PRIMARY","fileId":1,"sizeBytes":1073741824,"physicalName":"Q:\\Data\\Sales.mdf"},{"logicalName":"Sales_log","type":"L","fileGroup":"","fileId":2,"sizeBytes":268435456,"physicalName":"L:\\Log\\Sales_log.ldf"}],"lastLsn":"37000000014400001","defaultDataPath":"Q:\\Data\\","defaultLogPath":"L:\\Log\\","nameTaken":true}}
+#exit 0

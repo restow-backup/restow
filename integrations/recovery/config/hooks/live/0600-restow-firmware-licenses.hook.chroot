@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# FIRMWARE-LICENSES.txt: the copyright files of the firmware packages of the
+# fixed list (firmware.md), in the image and (copied out by build.sh) as a
+# release attachment. A firmware package that is not installed fails the build.
+set -eu
+
+dir=/live-build/config/restow
+out=/usr/share/doc/restow-recovery/FIRMWARE-LICENSES.txt
+# shellcheck source=../../../lib/functions.sh
+. "$dir/functions.sh"
+mkdir -p "$(dirname "$out")"
+{
+  echo "Non-free firmware in the Restow recovery ISO"
+  echo
+  echo "Only firmware without which a common wired network card or storage controller"
+  echo "does not work. Each package below is redistributed unmodified from Debian's"
+  echo "non-free-firmware area under the terms of its copyright file, reproduced here."
+  echo
+  for package in $(rr_list_packages "$dir/firmware.list.chroot"); do
+    version=$(dpkg-query -W -f '${Version}' "$package") || rr_die "$package is not installed"
+    file="/usr/share/doc/$package/copyright"
+    [ -f "$file" ] || rr_die "$package has no $file"
+    echo "================================================================================"
+    echo "$package $version"
+    echo "================================================================================"
+    cat "$file"
+    echo
+  done
+} >"$out"
+chmod 0644 "$out"

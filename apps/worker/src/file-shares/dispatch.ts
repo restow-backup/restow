@@ -27,17 +27,21 @@ import {
   cleanTargetFolder,
   type FailureCause,
   type FileShareSettings,
-  fileShareRepositoryPrefix,
+  freshRepositoryPrefix,
   goMemLimitMiB,
+  INSTALLATION_DEFAULT_TARGET_ID,
   issueRunToken,
   judgeShareAddresses,
   pickCopyRestorePoint,
+  type ResolvedStorageTarget,
   RunnerRefusedError,
   type RunnerRunRequest,
   RunnerUnavailableError,
   resticInit,
   SHARE_NO_SAMPLES,
   type ShareSpec,
+  type StorageBackend,
+  type StorageTargets,
   sealSecret,
   shareBudgetBytes,
   shareCause,
@@ -51,17 +55,27 @@ import {
 import {
   type BackupJob,
   backupJobs,
+  currentPrimaryTarget,
   type FileShare,
   type FileShareRun,
   fileShareReports,
   fileShareRuns,
   fileShareSnapshots,
   fileShares,
+  lockTenantStorage,
+  repositoryRepairActive,
   secrets,
+  storageGeneration,
   tenants,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { withTenantTx } from "../handlers/framework.js";
+import { and, asc, desc, eq, inArray, lt, ne, sql } from "drizzle-orm";
+import { processDefaultStorage } from "../default-storage.js";
+import {
+  freshTenantStorage,
+  type ResolvedTenantStorage,
+  tenantRunner,
+  withTenantTx,
+} from "../handlers/framework.js";
 import {
   type FileShareDeps,
   keepSharePasswordFile,
@@ -69,8 +83,10 @@ import {
   openTenantSecret,
   reportableMessage,
   shareRepositoryAccess,
+  shareRepositoryPrefix,
 } from "./common.js";
 import { endRun } from "./finish.js";
+import { holdFileShareRun } from "./hold.js";
 
 export const DISPATCH_INTERVAL_MS = 15_000;
 const LOCK_KEY = 0x66736431; // "fsd1"
@@ -83,6 +99,8 @@ export interface DispatchSummary {
   requeued: number;
   skipped: number;
   upToDate: number;
+  /** Queued before restore mode's hold point: from the restored dump, cancelled, not started. */
+  held: number;
 }
 
 type StartOutcome = "started" | "failed" | "requeued" | "skipped" | "up_to_date";
@@ -95,7 +113,29 @@ const isUniqueViolation = (error: unknown): boolean =>
 
 /** One dispatcher pass: start what the limits allow. */
 export async function dispatchPass(deps: FileShareDeps): Promise<DispatchSummary> {
-  const summary: DispatchSummary = { started: 0, failed: 0, requeued: 0, skipped: 0, upToDate: 0 };
+  const summary: DispatchSummary = {
+    started: 0,
+    failed: 0,
+    requeued: 0,
+    skipped: 0,
+    upToDate: 0,
+    held: 0,
+  };
+  // Restore mode: a run queued before its hold point is from the restored dump (a restore into
+  // the share or a mirror copy that ran already in the timeline the database lost). It is never
+  // started; an administrator starts it again if it is still needed.
+  const holdBefore = (await deps.holdRunsBefore?.()) ?? null;
+  if (holdBefore) {
+    const stale = await deps.providerDb
+      .select({ id: fileShareRuns.id, tenantId: fileShareRuns.tenantId, kind: fileShareRuns.kind })
+      .from(fileShareRuns)
+      .where(and(eq(fileShareRuns.status, "queued"), lt(fileShareRuns.queuedAt, holdBefore)));
+    for (const run of stale) {
+      if (await holdFileShareRun(deps, run)) {
+        summary.held++;
+      }
+    }
+  }
   if (!deps.runner.enabled) {
     return summary;
   }
@@ -329,19 +369,155 @@ export function shareSpecOf(share: FileShare, address: string, password: string 
   };
 }
 
+/** The repository of a share is not complete on the run's target (docs/FILESHARES.md 5.4). */
+/** A backup asked for its target while a repository repair of the tenant is queued or running. */
+export class RepositoryRepairRunningError extends Error {
+  constructor() {
+    super("a repository repair of this tenant is queued or running");
+    this.name = "RepositoryRepairRunningError";
+  }
+}
+
+export class ShareRepositoryUnavailableError extends Error {
+  constructor(
+    readonly reason: "elsewhere" | "split" | "missing",
+    detail: string,
+  ) {
+    super(detail);
+    this.name = "ShareRepositoryUnavailableError";
+  }
+}
+
+/** The files of a share's repository on `backend`, lock files aside. */
+async function shareRepositoryFiles(backend: StorageBackend, prefix: string): Promise<string[]> {
+  return (await backend.list(prefix)).filter((key) => !key.startsWith(`${prefix}locks/`));
+}
+
+/** The name of a target in a message: its own name, or what it is. */
+function targetLabel(target: ResolvedStorageTarget): string {
+  if (target.id === INSTALLATION_DEFAULT_TARGET_ID) {
+    return "the installation default";
+  }
+  return target.name ? `"${target.name}"` : `a ${target.role} target`;
+}
+
 /**
  * Initialise a share's repository before its first backup (5.4): a random password sealed with
- * the tenant key (`file_share_repository`), `restic init` through the loopback listener, the
- * sealed password document next to the repository, `repository_ready_at`.
+ * the tenant key (`file_share_repository`), `restic init` on the run's target, the sealed
+ * password document next to the repository, `repository_ready_at`.
+ *
+ * A repository recorded as ready must be complete (`config` and a key) on the run's target. When
+ * it is not, the other targets of the tenant (and the installation default) are searched and
+ * the run fails with what was found, instead of restic's "repository does not exist" or a new
+ * repository beside restore points that refer to the old one: it is `elsewhere`, `split` (data
+ * without `config`; `restic init` would refuse it), or `missing` while restore points still
+ * refer to it. Missing with no restore point, it is created again.
+ *
+ * On a write-once target (its last probe, docs/STORAGE.md "Write-once storage"), what lies at the
+ * prefix without `config` and without any restore point referring to it (a first run that
+ * straddled a storage change, leftovers an operator cannot delete there) is left where it is: the
+ * repository begins under a fresh prefix (`file-shares/<id>.chain-<n>/`), recorded on the share.
+ *
+ * A complete repository at the prefix for which the database holds no password (after restoring
+ * a database dump taken before the share's first backup) is never given a new password: it and
+ * its sealed password document stay, and the repository begins under a fresh prefix too.
  */
 export async function ensureShareRepository(
   deps: FileShareDeps,
   share: FileShare,
+  storage?: StorageTargets & Partial<ResolvedTenantStorage>,
 ): Promise<FileShare> {
+  const targets = storage ?? (await deps.runtime.storage.get(share.tenantId));
+  const primary = targets.primary;
+  let prefix = shareRepositoryPrefix(share);
   if (share.repositorySecretId && share.repositoryReadyAt) {
-    return share;
+    const config = await primary.head(`${prefix}config`);
+    if (config && (await primary.list(`${prefix}keys/`)).length > 0) {
+      return share;
+    }
   }
-  let current = share;
+  const files = await shareRepositoryFiles(primary, prefix);
+  let hasConfig = files.includes(`${prefix}config`);
+  let fresh: string | null = null;
+  if (files.length > 0 && !hasConfig) {
+    const writeOnce =
+      (targets as Partial<ResolvedTenantStorage>).targets?.find(
+        (target) => target.backend === primary,
+      )?.writeOnce === true;
+    if (!writeOnce || (await shareHasRestorePoints(deps, share))) {
+      throw new ShareRepositoryUnavailableError(
+        "split",
+        "the share's repository on the primary storage target holds data but no config: a run that went on while the primary changed wrote to two targets. Run the repository repair (storage).",
+      );
+    }
+    // Nothing refers to it, and the storage keeps it for good: the repository begins next to it.
+    fresh = await freshRepositoryPrefix(primary, "file_share", share.id, prefix);
+    deps.runtime.logger.warn(
+      "file share repository: leftovers on write-once storage stay where they are, a new repository begins under a fresh prefix",
+      { tenantId: share.tenantId, fileShareId: share.id, previousPrefix: prefix, prefix: fresh },
+    );
+    prefix = fresh;
+    hasConfig = false;
+  }
+  if (hasConfig && !share.repositorySecretId) {
+    // A complete repository the database has no password for: its first backup ran after the
+    // database dump that was restored (or the share's secret is gone). A new password would not
+    // open it, and the sealed password document next to it may be the only copy of the right
+    // one. The repository and its document stay as they are; this share's backups begin under a
+    // fresh prefix next to it.
+    fresh = await freshRepositoryPrefix(primary, "file_share", share.id, prefix);
+    deps.runtime.logger.error(
+      "file share repository: storage holds a repository the database has no password for; it is kept, a new repository begins under a fresh prefix",
+      { tenantId: share.tenantId, fileShareId: share.id, previousPrefix: prefix, prefix: fresh },
+    );
+    prefix = fresh;
+    hasConfig = false;
+  }
+  if (share.repositoryReadyAt && !hasConfig && !fresh) {
+    const others = ((targets as Partial<ResolvedTenantStorage>).targets ?? []).filter(
+      (target) => target.backend !== primary,
+    );
+    if (!others.some((target) => target.id === INSTALLATION_DEFAULT_TARGET_ID)) {
+      const defaults = await processDefaultStorage()
+        .current()
+        .catch(() => null);
+      if (defaults) {
+        others.push({
+          id: INSTALLATION_DEFAULT_TARGET_ID,
+          name: null,
+          role: "previous",
+          backend: defaults.targets.primary,
+        });
+      }
+    }
+    for (const other of others) {
+      const held = await shareRepositoryFiles(other.backend, prefix).catch(() => [] as string[]);
+      if (held.length === 0) {
+        continue;
+      }
+      const complete = held.includes(`${prefix}config`);
+      throw new ShareRepositoryUnavailableError(
+        complete ? "elsewhere" : "split",
+        complete
+          ? `the share's repository is not on the primary storage target but on ${targetLabel(other)}. Replace the primary with "move" or run the repository repair (storage).`
+          : `parts of the share's repository lie on ${targetLabel(other)}, without its config. Run the repository repair (storage).`,
+      );
+    }
+    const [snapshot] = await withTenantTx(deps.db, share.tenantId, (tx) =>
+      tx
+        .select({ id: fileShareSnapshots.id })
+        .from(fileShareSnapshots)
+        .where(eq(fileShareSnapshots.fileShareId, share.id))
+        .limit(1),
+    );
+    if (snapshot) {
+      throw new ShareRepositoryUnavailableError(
+        "missing",
+        "the share's repository is on no storage target of this tenant, but restore points still refer to it. Attach the old location read-only and run the repository repair (storage).",
+      );
+    }
+  }
+  let current: FileShare = fresh ? { ...share, repositoryPrefix: fresh } : share;
   if (!current.repositorySecretId) {
     const keys = await deps.runtime.keyrings.get(share.tenantId);
     const password = randomBytes(32).toString("base64url");
@@ -370,19 +546,95 @@ export async function ensureShareRepository(
     });
     current = { ...current, repositorySecretId: secretId };
   }
-  const access = await shareRepositoryAccess(deps, current);
-  const exists = await access.storage
-    .head(`${fileShareRepositoryPrefix(share.id)}config`)
-    .catch(() => null);
-  if (!exists) {
+  const access = await shareRepositoryAccess(deps, current, primary);
+  if (!hasConfig) {
     await withRepository(access, (session) => resticInit(session));
   }
   await keepSharePasswordFile(deps, current, access);
   const now = deps.runtime.now();
   await withTenantTx(deps.db, share.tenantId, (tx) =>
-    tx.update(fileShares).set({ repositoryReadyAt: now }).where(eq(fileShares.id, share.id)),
+    tx
+      .update(fileShares)
+      .set({ repositoryReadyAt: now, ...(fresh ? { repositoryPrefix: fresh } : {}) })
+      .where(eq(fileShares.id, share.id)),
   );
   return { ...current, repositoryReadyAt: now };
+}
+
+/** Whether any restore point of the share is recorded (whatever its state). */
+async function shareHasRestorePoints(deps: FileShareDeps, share: FileShare): Promise<boolean> {
+  const [snapshot] = await withTenantTx(deps.db, share.tenantId, (tx) =>
+    tx
+      .select({ id: fileShareSnapshots.id })
+      .from(fileShareSnapshots)
+      .where(eq(fileShareSnapshots.fileShareId, share.id))
+      .limit(1),
+  );
+  return snapshot !== undefined;
+}
+
+/**
+ * Pin a run to one storage target before it gets its credential (docs/STORAGE.md, "Runs and
+ * storage changes"): a backup to the primary, a restore or copy to the target that holds the
+ * source's repository. Under the tenant's storage lock, which every change of the primary takes
+ * too. Returns the tenant's storage, fresh, and the pinned target's backend.
+ */
+export async function pinShareRun(
+  deps: FileShareDeps,
+  run: FileShareRun,
+  repositoryShareId: string,
+): Promise<{ storage: StorageTargets & Partial<ResolvedTenantStorage>; backend: StorageBackend }> {
+  const runner = tenantRunner(deps.db, run.tenantId);
+  const storage = await freshTenantStorage(runner, deps.runtime.storage, run.tenantId);
+  let chosen: string | null = null;
+  if (run.kind !== "backup") {
+    const prefix = await shareRepositoryPrefixOf(deps, run.tenantId, repositoryShareId);
+    for (const target of storage.targets ?? []) {
+      if (await target.backend.head(`${prefix}config`).catch(() => null)) {
+        chosen = target.id;
+        break;
+      }
+    }
+  }
+  const pinned = await withTenantTx(deps.db, run.tenantId, async (tx) => {
+    await lockTenantStorage(tx, run.tenantId);
+    // A backup waits for the repository repair: it may be merging or moving aside this
+    // repository (docs/STORAGE.md, "Repository repair").
+    if (run.kind === "backup" && (await repositoryRepairActive(tx, run.tenantId))) {
+      throw new RepositoryRepairRunningError();
+    }
+    const target = chosen ?? (await currentPrimaryTarget(tx, run.tenantId));
+    const generation = await storageGeneration(tx, run.tenantId);
+    await tx
+      .update(fileShareRuns)
+      .set({ storageTarget: target, storageGeneration: generation })
+      .where(eq(fileShareRuns.id, run.id));
+    return { target, generation };
+  });
+  let fresh = storage;
+  if (storage.storageGeneration !== undefined && storage.storageGeneration !== pinned.generation) {
+    deps.runtime.storage.invalidate(run.tenantId);
+    fresh = await freshTenantStorage(runner, deps.runtime.storage, run.tenantId);
+  }
+  const backend =
+    fresh.targets?.find((target) => target.id === pinned.target)?.backend ?? fresh.primary;
+  return { storage: fresh, backend };
+}
+
+/** {@link shareRepositoryPrefix} of a share known by its id (its row is read). */
+async function shareRepositoryPrefixOf(
+  deps: FileShareDeps,
+  tenantId: string,
+  shareId: string,
+): Promise<string> {
+  const [row] = await withTenantTx(deps.db, tenantId, (tx) =>
+    tx
+      .select({ id: fileShares.id, repositoryPrefix: fileShares.repositoryPrefix })
+      .from(fileShares)
+      .where(eq(fileShares.id, shareId))
+      .limit(1),
+  );
+  return shareRepositoryPrefix(row ?? { id: shareId, repositoryPrefix: null });
 }
 
 /** A copy run (4.10): the restore point to copy, or why not. */
@@ -566,10 +818,29 @@ export async function startRun(
   }
 
   let repositoryShare = source;
+  let pinnedStorage: Awaited<ReturnType<typeof pinShareRun>>;
+  try {
+    pinnedStorage = await pinShareRun(deps, run, source.id);
+  } catch (error) {
+    if (error instanceof RepositoryRepairRunningError) {
+      return fail(deps, run, shareCause("share.repository_repair_running"));
+    }
+    throw error;
+  }
   if (run.kind === "backup") {
     try {
-      repositoryShare = await ensureShareRepository(deps, source);
+      repositoryShare = await ensureShareRepository(deps, source, pinnedStorage.storage);
     } catch (error) {
+      if (error instanceof ShareRepositoryUnavailableError) {
+        return fail(
+          deps,
+          run,
+          shareCause("share.repository_unavailable", {
+            params: { reason: error.reason },
+            detail: error.message,
+          }),
+        );
+      }
       return fail(
         deps,
         run,
@@ -687,7 +958,10 @@ export function startFileShareDispatcher(
       }
       try {
         const summary = await dispatchPass(deps);
-        if (summary.started + summary.failed + summary.requeued + summary.upToDate > 0) {
+        if (
+          summary.started + summary.failed + summary.requeued + summary.upToDate + summary.held >
+          0
+        ) {
           deps.runtime.logger.info("file share dispatcher pass", { ...summary });
         }
       } finally {

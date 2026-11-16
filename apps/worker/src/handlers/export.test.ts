@@ -2,10 +2,15 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import {
   createMemoryJobContext,
+  type DeletionGuard,
   generateDek,
+  installDeletionEnforcement,
   Keyring,
   mailfiles,
   type ProtectedObjectRef,
+  RestoreModeGuard,
+  type RestoreModeSnapshot,
+  SnapshotWriter,
 } from "@restow/core";
 import type { Database, MailExport } from "@restow/db";
 import { describe, expect, it } from "vitest";
@@ -275,6 +280,57 @@ describe("the export handler", () => {
     }
   });
 
+  it("reports a group post whose attachments the backup does not hold as incomplete, not as exported cleanly", async () => {
+    const { ctx } = setup();
+    const writer = await SnapshotWriter.begin(ctx, { protectedObject: object, sourceType: "m365" });
+    for (const [id, missing] of [
+      ["AAQk1", '["Plan.pdf"]'],
+      ["AAQk2", undefined],
+    ] as const) {
+      const raw = eml(`Post ${id}`, id);
+      const written = await writer.chunks.write(raw);
+      // Metadata as the group conversation backup writes it.
+      writer.add({
+        path: `mail/Conversations/Plan.${id}.eml`,
+        id,
+        type: "mail",
+        size: written.size,
+        sha256: written.sha256,
+        mtime: NOW.getTime(),
+        chunks: written.chunks,
+        metadata: {
+          subject: `Post ${id}`,
+          messageId: `<${id}@example.test>`,
+          folderPath: "Conversations",
+          format: "mime",
+          postId: id,
+          ...(missing ? { missingAttachments: missing } : {}),
+        },
+      });
+    }
+    const { snapshotId } = await writer.commit();
+    const harness = fakeStore(exportRow({ snapshotId, format: "mbox" }));
+
+    const outcome = await createExportHandler({ env: {}, store: () => harness.store }).run(
+      ctx,
+      payload,
+    );
+
+    expect(outcome?.summary).toMatchObject({ messages: 2, failed: 0, incomplete: 1 });
+    const [result] = harness.results;
+    expect(result?.report).toMatchObject({
+      messages: 2,
+      failed: 0,
+      incomplete: 1,
+      incompleteItems: [
+        {
+          ref: expect.stringContaining("#"),
+          reason: expect.stringMatching(/does not hold these attachments of the post: Plan\.pdf/),
+        },
+      ],
+    });
+  });
+
   it("exports one folder as a single .mbox file that can be read back message by message", async () => {
     const { ctx } = setup();
     const snapshotId = await snapshotWith(ctx, MESSAGES.slice(0, 2));
@@ -453,5 +509,110 @@ describe("the export handler", () => {
     ).rejects.toBeTruthy();
     expect([...storage.files.keys()].filter((key) => key.includes("/exports/"))).toEqual([]);
     expect(harness.results).toEqual([]);
+  });
+});
+
+describe("the export handler under the restore guard", () => {
+  const silent = {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+    child() {
+      return silent;
+    },
+  };
+  const inactive: RestoreModeSnapshot = {
+    active: false,
+    id: null,
+    activatedAt: null,
+    holdJobsBefore: null,
+    keepUnknownBefore: null,
+  };
+  function restoreGuard(state: RestoreModeSnapshot, targets: { id: string; backend: never }[]) {
+    const refusals: string[] = [];
+    const guard = new RestoreModeGuard({
+      store: {
+        read: async () => state,
+        readDbSeq: async () => 0,
+        readDbKeyMax: async () => 1,
+        installationId: async () => "inst-1",
+        recordCheck: async () => undefined,
+        activateDetected: async () => ({ id: "rm-1", created: true }),
+        recordRefusal: async (input) => {
+          refusals.push(input.pass);
+        },
+      },
+      targetsOf: async () => targets,
+      logger: silent,
+    });
+    return { guard, refusals };
+  }
+  function offlineCopy(): MemoryStorage {
+    const copy = new MemoryStorage();
+    copy.list = async () => {
+      throw new Error("copy target offline");
+    };
+    return copy;
+  }
+  async function withGuard<T>(guard: DeletionGuard, fn: () => Promise<T>): Promise<T> {
+    const uninstall = installDeletionEnforcement(guard);
+    try {
+      return await fn();
+    } finally {
+      uninstall();
+    }
+  }
+  const scope = { tenantId: TENANT, kind: "export" as const, id: EXPORT };
+
+  it("exports while a copy target cannot be compared: a first attempt deletes nothing and asks for no permit", async () => {
+    const { storage, ctx } = setup();
+    const snapshotId = await snapshotWith(ctx, MESSAGES);
+    const { guard } = restoreGuard(inactive, [
+      { id: "primary", backend: storage as never },
+      { id: "copy", backend: offlineCopy() as never },
+    ]);
+    const harness = fakeStore(exportRow({ snapshotId }));
+    const outcome = await withGuard(guard, () =>
+      createExportHandler({ env: {}, store: () => harness.store }).run(ctx, payload),
+    );
+    expect(outcome?.summary).toMatchObject({ messages: 3, failed: 0 });
+    expect(harness.results).toHaveLength(1);
+  });
+
+  it("starts a retry over while a copy target cannot be compared", async () => {
+    const { storage, ctx } = setup();
+    const snapshotId = await snapshotWith(ctx, MESSAGES);
+    const leftover = mailfiles.segmentKey(scope, 7);
+    await storage.put(leftover, Buffer.from("left over by the failed attempt"));
+    const { guard } = restoreGuard(inactive, [
+      { id: "primary", backend: storage as never },
+      { id: "copy", backend: offlineCopy() as never },
+    ]);
+    const harness = fakeStore(exportRow({ snapshotId }));
+    await withGuard(guard, () =>
+      createExportHandler({ env: {}, store: () => harness.store }).run(ctx, payload),
+    );
+    expect(storage.files.has(leftover)).toBe(false);
+    expect(harness.results).toHaveLength(1);
+  });
+
+  it("starts a retry over in restore mode for an export requested before restore mode began", async () => {
+    const { storage, ctx } = setup();
+    const snapshotId = await snapshotWith(ctx, MESSAGES);
+    const leftover = mailfiles.segmentKey(scope, 7);
+    await storage.put(leftover, Buffer.from("left over by the failed attempt"));
+    const activatedAt = new Date(NOW.getTime() + 60_000);
+    const { guard, refusals } = restoreGuard(
+      { active: true, id: "rm-1", activatedAt, holdJobsBefore: NOW, keepUnknownBefore: null },
+      [{ id: "primary", backend: storage as never }],
+    );
+    const harness = fakeStore(exportRow({ snapshotId, createdAt: NOW }));
+    await withGuard(guard, () =>
+      createExportHandler({ env: {}, store: () => harness.store }).run(ctx, payload),
+    );
+    expect(storage.files.has(leftover)).toBe(false);
+    expect(harness.results).toHaveLength(1);
+    expect(refusals).toEqual([]);
   });
 });

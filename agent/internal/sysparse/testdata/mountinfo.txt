@@ -1,0 +1,7 @@
+22 1 252:1 / / rw,relatime shared:1 - ext4 /dev/mapper/vg0-root rw,errors=remount-ro
+23 22 0:21 / /sys rw,nosuid,nodev,noexec,relatime shared:7 - sysfs sysfs rw
+24 22 0:22 / /proc rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw
+30 22 259:2 / /boot rw,relatime shared:28 - ext4 /dev/nvme0n1p2 rw
+31 30 259:1 / /boot/efi rw,relatime shared:30 - vfat /dev/nvme0n1p1 rw,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro
+40 22 0:45 /@home /home rw,relatime shared:40 master:2 - btrfs /dev/sdb1 rw,compress=zstd:1,ssd,space_cache=v2,subvolid=257,subvol=/@home
+41 22 252:1 /srv/data /mnt/my\040data rw,relatime shared:1 - ext4 /dev/mapper/vg0-root rw

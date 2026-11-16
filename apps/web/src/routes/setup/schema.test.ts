@@ -7,10 +7,12 @@ import {
   initialSetupValues,
   ORGANISATION_NAME_MAX_LENGTH,
   publicUrlReason,
+  SETUP_KINDS,
   SETUP_LANGUAGES,
   type SetupFormValues,
   STEP_FIELDS,
   STEP_KEYS,
+  STEPS_BY_KIND,
   setupFormSchema,
 } from "./schema";
 
@@ -42,16 +44,43 @@ function issuePaths(values: SetupFormValues): string[] {
 }
 
 describe("STEP_KEYS", () => {
-  it("starts with the language, then the setup token and the operator notice, and ends with the review", () => {
+  it("starts with the language and the question what to set up, then the setup token, the operator notice and what to protect, and ends with the review", () => {
     expect(STEP_KEYS).toEqual([
       "language",
+      "kind",
       "token",
       "disclaimer",
+      "modules",
       "mode",
       "admin",
       "mail",
       "review",
     ]);
+  });
+
+  it("asks what to set up first, after the language, on every path", () => {
+    expect([...SETUP_KINDS]).toEqual(["new", "restore", "worker"]);
+    for (const kind of SETUP_KINDS) {
+      expect(STEPS_BY_KIND[kind].slice(0, 2)).toEqual(["language", "kind"]);
+    }
+  });
+
+  it("restores without the notice, the mode, a first admin or the mail, but with the setup token", () => {
+    expect([...STEPS_BY_KIND.restore]).toEqual([
+      "language",
+      "kind",
+      "token",
+      "restoreSource",
+      "restoreRun",
+      "restoreDone",
+    ]);
+    for (const step of ["disclaimer", "mode", "admin", "mail", "review"] as const) {
+      expect(STEPS_BY_KIND.restore as readonly string[]).not.toContain(step);
+    }
+  });
+
+  it("explains a worker node without the token or any form", () => {
+    expect([...STEPS_BY_KIND.worker]).toEqual(["language", "kind", "workerInfo"]);
   });
 
   it("offers English and German", () => {
@@ -187,6 +216,32 @@ describe("the time zone", () => {
   });
 });
 
+describe("the modules of the installation", () => {
+  it("are all ticked to begin with, and their step validates only them", () => {
+    expect(defaultSetupValues.modules).toEqual([
+      "microsoft365",
+      "imap",
+      "archive",
+      "endpoints",
+      "pve",
+    ]);
+    expect(STEP_FIELDS.modules).toEqual(["modules"]);
+  });
+
+  it("need at least one module, and know only the modules of the list", () => {
+    expect(issuePaths(valid({ modules: [] }))).toEqual(["modules"]);
+    expect(issuePaths(valid({ modules: ["pve"] }))).toEqual([]);
+    expect(issuePaths(valid({ modules: ["tape" as never] }))).toEqual(["modules.0"]);
+  });
+
+  it("are asked on a new installation only: a restore brings its own, a worker has none", () => {
+    expect(STEPS_BY_KIND.new).toContain("modules");
+    expect(STEPS_BY_KIND.new.indexOf("modules")).toBe(STEPS_BY_KIND.new.indexOf("disclaimer") + 1);
+    expect([...STEPS_BY_KIND.restore]).not.toContain("modules");
+    expect([...STEPS_BY_KIND.worker]).not.toContain("modules");
+  });
+});
+
 describe("buildSubmission", () => {
   it("maps the SMTP form onto the API contract and drops empty optionals", () => {
     const submission = buildSubmission(valid(), "2026-09-30", "en");
@@ -195,6 +250,7 @@ describe("buildSubmission", () => {
       operatingMode: "local",
       providerName: "Example IT Services GmbH",
       language: "en",
+      modules: ["microsoft365", "imap", "archive", "endpoints", "pve"],
       firstAdmin: {
         name: "Lucas Flores",
         email: "admin@example.com",
@@ -212,6 +268,12 @@ describe("buildSubmission", () => {
       sendTest: true,
     });
     expect(submission).not.toHaveProperty("publicUrl");
+  });
+
+  it("sends the ticked modules in the order of the list, whatever order they were ticked in", () => {
+    expect(
+      buildSubmission(valid({ modules: ["pve", "microsoft365"] }), "2026-09-30", "en").modules,
+    ).toEqual(["microsoft365", "pve"]);
   });
 
   it("sends the language chosen in the first step, German as well as English", () => {

@@ -13,14 +13,19 @@
  *     their data; macOS `/Users`, Windows `C:\Users`, plus `C:\ProgramData`
  *     for servers);
  *   - excludes per OS: caches, temporary files, the trash, `node_modules`,
- *     `*.tmp` and the restic cache.
+ *     `*.tmp` and the restic cache; on Windows also the browser caches, the
+ *     thumbnail caches and the data Defender, Search and Windows Error Reporting
+ *     keep (the agent itself always excludes the paging, hibernation and swap
+ *     files, `System Volume Information` and `$Recycle.Bin`).
  *
- * Windows stays in the model for a later release; the server does not enroll
- * Windows endpoints in 0.1.0 ({@link SUPPORTED_ENDPOINT_OS}).
+ * Windows is enrolled from 0.5.0 as a preview, on amd64 only
+ * ({@link isSupportedEndpointTarget}): restic has no Windows on ARM build and its
+ * shadow copy code refuses arm64 (docs/WINDOWS-AGENT.md).
  */
 
 import type { BandwidthWindow } from "../backup-jobs/bandwidth.js";
 import type { AgentPolicyWire, EndpointPolicy } from "./agent-policy.js";
+import { type AgentSqlConfig, agentSqlConfig, type SqlSettings } from "./sql/settings.js";
 
 export const ENDPOINT_PROFILES = ["server", "client"] as const;
 export type EndpointProfileName = (typeof ENDPOINT_PROFILES)[number];
@@ -31,11 +36,25 @@ export type EndpointOsName = (typeof ENDPOINT_OS)[number];
 export const ENDPOINT_ARCH = ["amd64", "arm64"] as const;
 export type EndpointArchName = (typeof ENDPOINT_ARCH)[number];
 
-/** The systems a 0.1.0 installation enrolls; Windows is on the roadmap. */
-export const SUPPORTED_ENDPOINT_OS: readonly EndpointOsName[] = ["linux", "darwin"];
+/** The systems an installation enrolls (Windows from 0.5.0, as a preview and on amd64 only). */
+export const SUPPORTED_ENDPOINT_OS: readonly EndpointOsName[] = ["linux", "darwin", "windows"];
+
+/** Systems enrolled as a preview: the UI labels them so. */
+export const PREVIEW_ENDPOINT_OS: readonly EndpointOsName[] = ["windows"];
 
 export function isSupportedEndpointOs(os: string): os is EndpointOsName {
   return (SUPPORTED_ENDPOINT_OS as readonly string[]).includes(os);
+}
+
+/**
+ * Whether a system and processor are enrolled: every supported system on amd64 and arm64, except
+ * Windows on ARM (restic ships no Windows arm64 build, and its shadow copy code refuses arm64).
+ */
+export function isSupportedEndpointTarget(os: string, arch: string): boolean {
+  if (!isSupportedEndpointOs(os) || !(ENDPOINT_ARCH as readonly string[]).includes(arch)) {
+    return false;
+  }
+  return !(os === "windows" && arch !== "amd64");
 }
 
 /**
@@ -86,6 +105,24 @@ export interface AgentConfig {
    * `onlyOnAcPower`.
    */
   policy?: EndpointPolicy;
+  /**
+   * Back up the whole machine (preview, docs/BAREMETAL.md 5): every local file system with the
+   * disk layout instead of `paths`. Written from a whole machine job to Linux machines that are
+   * no container; absent otherwise. `GET /agent/v1/config` sends it only while
+   * RESTOW_BAREMETAL_PREVIEW is on. An agent older than 0.5.0 ignores it and backs up `paths`.
+   */
+  wholeMachine?: boolean;
+  /**
+   * File system snapshots on Linux (LVM, btrfs; docs/BAREMETAL.md 6.1): the machine's own setting.
+   * Absent means the default, on for a whole machine backup and off otherwise; the agent gets the
+   * resolved value (Linux and macOS, never Windows, which has `useVss`).
+   */
+  fsSnapshot?: "auto" | "off";
+  /**
+   * The native SQL Server backup (W2a, Windows only); present only when a backup job sets it. The
+   * agent gets it without `verify` ({@link agentFacingConfig}).
+   */
+  sql?: SqlSettings;
 }
 
 /**
@@ -93,8 +130,9 @@ export interface AgentConfig {
  * form (agent 0.4.0; an older agent ignores it) and whether the server pauses new runs for an
  * update right now (`startsPaused`, from 0.4.0; it never changes the version).
  */
-export interface AgentConfigResponse extends Omit<AgentConfig, "policy"> {
+export interface AgentConfigResponse extends Omit<AgentConfig, "policy" | "sql"> {
   configVersion: number;
+  sql?: AgentSqlConfig;
   policy?: AgentPolicyWire;
   startsPaused?: boolean;
 }
@@ -155,14 +193,27 @@ const DEFAULT_EXCLUDES: Record<EndpointOsName, string[]> = {
     "/Users/*/.Trash",
     "/private/var/tmp",
   ],
+  // The agent itself always excludes pagefile.sys, hiberfil.sys, swapfile.sys,
+  // System Volume Information and $Recycle.Bin, and compares without case.
   windows: [
     ...COMMON_EXCLUDES,
     "**\\AppData\\Local\\Temp",
     "**\\AppData\\Local\\Microsoft\\Windows\\INetCache",
+    // thumbcache_*.db
+    "**\\AppData\\Local\\Microsoft\\Windows\\Explorer",
+    "**\\AppData\\Local\\Microsoft\\Windows\\WebCache",
+    "**\\AppData\\Local\\CrashDumps",
     "**\\AppData\\Local\\restic",
-    "**\\$Recycle.Bin",
+    "**\\AppData\\Local\\Google\\Chrome\\User Data\\*\\Cache",
+    "**\\AppData\\Local\\Microsoft\\Edge\\User Data\\*\\Cache",
+    "**\\AppData\\Local\\Mozilla\\Firefox\\Profiles\\*\\cache2",
     "**\\Thumbs.db",
     "C:\\Windows\\Temp",
+    "C:\\ProgramData\\Microsoft\\Windows Defender",
+    "C:\\ProgramData\\Microsoft\\Search\\Data",
+    "C:\\ProgramData\\Microsoft\\Windows\\WER",
+    "C:\\ProgramData\\Microsoft\\Network\\Downloader",
+    "C:\\ProgramData\\Package Cache",
   ],
 };
 
@@ -232,13 +283,21 @@ export function enrolledEndpointConfig(
  * hooks: an agent of an earlier release does not know the schedule `none` and falls back to the
  * default schedule of its profile (agent/internal/schedule `FromAPI`); without folders such a
  * run stops before restic or a hook starts (`no_paths`), so nothing is backed up and no command
- * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway.
+ * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway. Nor does
+ * such a machine back up as a whole.
  */
-export function agentFacingConfig<T extends AgentConfig>(config: T): T {
+export function agentFacingConfig<T extends AgentConfig>(
+  config: T,
+): Omit<T, "sql"> & { sql?: AgentSqlConfig } {
+  // The check settings of the native SQL backup are the server's (it plans `sql_verify`); the
+  // agent gets the maximum size and PHYSICAL_ONLY with each task.
+  const { sql, ...rest } = config;
   if (!isUnscheduled(config.schedule)) {
-    return config;
+    return sql ? { ...rest, sql: agentSqlConfig(sql) } : config;
   }
-  return { ...config, paths: [], hooks: {} };
+  // A machine in no job backs up nothing, its databases neither, and not as a whole.
+  const { wholeMachine: _whole, ...unscheduled } = rest;
+  return { ...unscheduled, paths: [], hooks: {} } as unknown as Omit<T, "sql">;
 }
 
 /** Retention every endpoint starts with (docs/AGENT.md): daily 30, weekly 12, monthly 12. */

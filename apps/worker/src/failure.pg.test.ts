@@ -310,7 +310,7 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
     });
   });
 
-  it("stores no secret in the error text or the record", async () => {
+  it("stores no secret in the error text or the record [ALERT-002]", async () => {
     const jobId = randomUUID();
     const leaky = new Error(
       "boom with Bearer abcdefghijklmnop0123456789 and client_secret=Sup3rSecretValue and postgres://restow:pa55w0rd@db:5432/app",

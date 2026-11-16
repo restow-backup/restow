@@ -99,6 +99,7 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
       maxPackBytes?: number;
       signal?: AbortSignal;
       onPackStored?: (packBytes: number) => void;
+      beforePack?: (packBytes: number, newBytes: number) => Promise<void>;
     } = {},
   ): ChunkWriter {
     return new ChunkWriter({
@@ -109,6 +110,7 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
       maxPackBytes: options.maxPackBytes,
       signal: options.signal,
       onPackStored: options.onPackStored,
+      beforePack: options.beforePack,
       packIdGenerator: () => `pack${(packCounter++).toString().padStart(4, "0")}`,
     });
   }
@@ -333,6 +335,47 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
       sizes.push((await storage.primary.get(key)).length);
     }
     expect([...stored].sort((a, b) => a - b)).toEqual(sizes.sort((a, b) => a - b));
+  });
+
+  it("asks before every pack and stores nothing once the run size guard holds it (#99)", async () => {
+    const asked: number[] = [];
+    const held = new Error("held: unusually large");
+    const w = writer({
+      maxPackBytes: MIN_CHUNK_SIZE * 2,
+      beforePack: async (bytes) => {
+        asked.push(bytes);
+        if (asked.length === 2) {
+          throw held;
+        }
+      },
+    });
+    await expect(
+      (async () => {
+        await w.write(pseudoRandom(MAX_CHUNK_SIZE * 2, 7));
+        await w.close();
+      })(),
+    ).rejects.toBe(held);
+    expect(asked).toHaveLength(2);
+    // Only the pack before the hold reached the storage; the writer refuses everything after.
+    expect(await storage.primary.list(packPrefix(TENANT))).toHaveLength(1);
+    expect(w.failed?.cause).toBe(held);
+  });
+
+  it("tells the guard each pack's new plaintext, the unit of bytesNew in the history", async () => {
+    const plain: number[] = [];
+    const sealed: number[] = [];
+    const w = writer({
+      maxPackBytes: MIN_CHUNK_SIZE * 2,
+      beforePack: async (bytes, newBytes) => {
+        sealed.push(bytes);
+        plain.push(newBytes);
+      },
+    });
+    await w.write(pseudoRandom(MAX_CHUNK_SIZE * 2, 11));
+    const stats = await w.close();
+    expect(plain.reduce((sum, value) => sum + value, 0)).toBe(stats.bytesNew);
+    // The packs themselves are larger (headers, the seal of every chunk).
+    expect(sealed.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(stats.bytesNew);
   });
 
   it("does not report a pack that could not be stored", async () => {

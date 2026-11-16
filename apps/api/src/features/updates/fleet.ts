@@ -33,6 +33,8 @@ export const MANUAL_UPDATE_COMMANDS = {
   pve_node: "/opt/restow-pve/bin/restow-pve update",
   linux: `sudo '${INSTALLED_AGENT.linux}' update`,
   darwin: `sudo '${INSTALLED_AGENT.darwin}' update`,
+  // In a PowerShell started as administrator (agents from 0.5.0 only).
+  windows: `& '${INSTALLED_AGENT.windows}' update`,
   legacy: {
     linux: "sudo systemctl restart restow-agent",
     darwin: "sudo launchctl kickstart -k system/com.restowbackup.agent",

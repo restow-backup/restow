@@ -122,12 +122,29 @@ is($p->restore_vm_init('x')->{'drive-scsi0'}->{size}, 4194304, 'restore devices'
 is($p->restore_vm_volume_init('x', 'drive-scsi0', {})->{'qemu-img-path'}, 'nbd+unix:///drive-scsi0?socket=/run/x.sock', 'qemu-img path');
 $p->restore_vm_volume_cleanup('x', 'drive-scsi0', {});
 $p->restore_vm_cleanup('x');
-is($p->restore_container_init('y', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct', 'container directory');
+is($p->restore_container_init('y', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct-y-1/root', 'container directory');
 $p->restore_container_cleanup('y', {});
 # pve-container passes the storage ID before the info hash.
-is($p->restore_container_init('y', 'restow', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct', 'container directory with storage ID');
+is($p->restore_container_init('y', 'restow', {})->{'archive-directory'}, '/var/tmp/restow-pve/ct-y-2/root', 'container directory with storage ID');
 $p->restore_container_cleanup('y', 'restow', {});
-calls();
+{
+    my @c = grep { $_->{verb} eq 'restore-container-cleanup' } calls();
+    is(scalar(@c), 2, 'two cleanups');
+    is($c[0]->{request}->{directory}, '/var/tmp/restow-pve/ct-y-1/root', 'cleanup names the directory its init gave');
+    is($c[1]->{request}->{directory}, '/var/tmp/restow-pve/ct-y-2/root', 'each restore its own directory');
+}
+# Two restores of one restore point on one provider object: each cleanup names its own; a
+# cleanup without an init names none (restow-pve then removes only what this worker owns).
+$p->restore_container_init('z', {});
+my $q = $plugin->new_backup_provider({ type => 'restow' }, 'restow', $logf);
+$q->restore_container_init('z', {});
+$p->restore_container_cleanup('z', {});
+$q->restore_container_cleanup('z', {});
+$q->restore_container_cleanup('z', {});
+{
+    my @c = map { $_->{request}->{directory} } grep { $_->{verb} eq 'restore-container-cleanup' } calls();
+    is_deeply(\@c, ['/var/tmp/restow-pve/ct-z-3/root', '/var/tmp/restow-pve/ct-z-4/root', undef], 'cleanups of concurrent restores');
+}
 
 # --- storage plugin ----------------------------------------------------------
 my @st = $plugin->status('restow', {}, {});
@@ -136,14 +153,50 @@ my $vols = $plugin->list_volumes('restow', {}, 101, ['backup']);
 is($vols->[0]->{volid}, 'restow:backup/vm/101/2026-10-03T22:00:00Z', 'volume id');
 is($vols->[0]->{content}, 'backup', 'content type');
 is_deeply($plugin->list_volumes('restow', {}, undef, ['images']), [], 'no images');
+calls();
+# volume_size_info asks restow-pve by the volume name: a restore point older
+# than the listing's page (the listing holds only vm/101/2026-10-03T22:00:00Z)
+# still has its size, and an unknown one is an error that names it.
+{
+    my $size = eval { $plugin->volume_size_info({}, 'restow', 'backup/vm/101/2025-01-05T22:00:00Z', 5) };
+    is($@, '', 'the size of a restore point outside the listing') or diag($@);
+    is($size, 4096, 'its size comes from restow-pve');
+    my @sz = $plugin->volume_size_info({}, 'restow', 'backup/vm/101/2025-01-05T22:00:00Z', 5);
+    is_deeply(\@sz, [4096, 'raw', 4096, undef], 'size, format, used and parent in list context');
+    my @c = calls();
+    is_deeply([map { $_->{verb} } @c], ['volume-size', 'volume-size'], 'asked by volume-size, not through the listing');
+    is_deeply($c[0]->{request}, { storeid => 'restow', volname => 'backup/vm/101/2025-01-05T22:00:00Z' }, 'the request names the volume');
+    eval { $plugin->volume_size_info({}, 'restow', 'backup/vm/999/2025-01-05T22:00:00Z', 5) };
+    like($@, qr{^restow: restore point backup/vm/999/2025-01-05T22:00:00Z not found in Restow}, 'an unknown restore point is an error');
+    calls();
+}
 my @parsed = $plugin->parse_volname('backup/ct/200/2026-10-03T22:00:00Z');
 is_deeply([@parsed[0, 1, 2]], ['backup', 'ct/200/2026-10-03T22:00:00Z', 200], 'parse_volname');
 eval { $plugin->parse_volname('images/vm-1-disk-0') };
 like($@, qr/unable to parse/, 'foreign volume names are refused');
 eval { $plugin->free_image('restow', {}, 'backup/vm/101/2026-10-03T22:00:00Z') };
 like($@, qr/retention is managed in Restow/, 'deleting a restore point is refused');
-eval { $plugin->prune_backups({}, 'restow', {}, 101, 'qemu', 0, sub { }) };
-like($@, qr/retention is managed in Restow/, 'pruning is refused');
+# vzdump of a PVE job with retention (prune-backups) prunes after every guest:
+# a no-op that lists nothing and logs one line, never an error that fails the
+# guest's backup after Restow committed its restore point.
+{
+    my @logged;
+    my $keep = { 'keep-daily' => 7, 'keep-last' => 3 };
+    my $list = eval { $plugin->prune_backups({ 'prune-backups' => 'keep-daily=7,keep-last=3' }, 'restow', $keep, 101, 'qemu', 0, sub { push @logged, [@_] }) };
+    is($@, '', 'pruning with retention settings does not die');
+    is_deeply($list, [], 'pruning lists no backups to keep or remove');
+    is(scalar(@logged), 1, 'pruning logs one line');
+    is($logged[0]->[0], 'info', 'the line is information');
+    like($logged[0]->[1], qr/retention is managed in Restow; PVE's retention settings are ignored/, 'the line says retention is managed in Restow');
+    my $out = '';
+    open(my $fh, '>', \$out) or die $!;
+    my $old = select($fh);
+    $list = eval { $plugin->prune_backups({}, 'restow', undef, undef, undef, 1, undef) };
+    select($old);
+    close($fh);
+    is_deeply($list, [], 'a dry run without a log function lists nothing');
+    like($out, qr/PVE's retention settings are ignored/, 'without a log function the line is printed');
+}
 # vzdump's notes (a job's notes template) are taken as a no-op, never an error
 # that ends the backup with "TASK WARNINGS"; protection stays refused.
 {

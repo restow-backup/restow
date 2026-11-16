@@ -9,13 +9,17 @@ import {
   remainingQuotaBytes,
   type StorageBackend,
 } from "@restow/core";
-import { endpointRepositoryLocks, endpoints } from "@restow/db";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { endpointRepositoryLocks, endpointRuns, endpoints, endpointTasks } from "@restow/db";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { db } from "../../db.js";
+import { db, providerDb } from "../../db.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { admitUpload } from "../run-size/guards.js";
+import { runSizeGuards } from "../run-size/instance.js";
+import { endpointHistoryScope } from "../run-size/scope.js";
+import { type RepositorySource, readFromIn, sourceOfTarget } from "../storage/repository-source.js";
 import {
   type AgentContext,
   authenticateAgent,
@@ -24,6 +28,7 @@ import {
 } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { RESTIC_PATH } from "./meta.js";
+import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { tenantStorage } from "./repository.js";
 
 /**
@@ -178,6 +183,88 @@ async function noteRefusal(agent: AgentKey, now: number): Promise<void> {
   );
 }
 
+/**
+ * The target a machine's running restore reads instead of the primary, or null (docs/STORAGE.md,
+ * "Restoring from a copy"). The server decided it when the restore task was created: the
+ * primary no longer held the repository, a copy target's repository copy did, and the task was
+ * given the copy's snapshot id (`params.readFrom`, service.ts `createTask`).
+ *
+ * Decided by the machine's newest running run alone, read afresh for every request, never by
+ * looking at the storage here: the agent runs one run at a time and registers it before it
+ * starts restic, so a backup never opens the copy (whose `config` and keys are not the
+ * primary's) and then writes with them to the primary, however the primary comes and goes.
+ */
+async function restoreSourceOf(
+  agent: AgentKey,
+  run: Awaited<ReturnType<typeof runningRunOf>>,
+): Promise<RepositorySource | null> {
+  const readFrom = run?.kind === "restore" ? readFromIn(run.params?.readFrom) : null;
+  if (!readFrom) {
+    return null;
+  }
+  const source = await sourceOfTarget(agent.tenantId, readFrom.targetId);
+  return source?.fallback ? source : null;
+}
+
+/**
+ * The machine's newest running run: what it restores from ({@link restoreSourceOf}).
+ */
+async function runningRunOf(agent: AgentKey) {
+  // One statement on the installation pool (the agent is authenticated, the tenant is its
+  // own); the running runs of a tenant are few (`endpoint_runs_tenant_status_idx`).
+  const [run] = await providerDb
+    .select({ id: endpointRuns.id, kind: endpointRuns.kind, params: endpointTasks.params })
+    .from(endpointRuns)
+    .leftJoin(endpointTasks, eq(endpointTasks.id, endpointRuns.taskId))
+    .where(
+      and(
+        eq(endpointRuns.tenantId, agent.tenantId),
+        eq(endpointRuns.status, "running"),
+        eq(endpointRuns.endpointId, agent.endpointId),
+      ),
+    )
+    .orderBy(desc(endpointRuns.createdAt))
+    .limit(1);
+  return run ?? null;
+}
+
+/**
+ * The machine's newest running backup run, whatever else runs beside it (a restore check or a
+ * SQL Server check started during a long backup): the run the size and space guard counts the
+ * uploads of (#99). The agent authenticates as the machine, not per run, so an upload cannot name
+ * its run; while a backup and a native SQL Server backup (`sql`, which writes too) run at the same
+ * time, the SQL backup's uploads count towards the backup (more, never less).
+ */
+async function runningBackupOf(agent: AgentKey) {
+  const [run] = await providerDb
+    .select({ id: endpointRuns.id })
+    .from(endpointRuns)
+    .where(
+      and(
+        eq(endpointRuns.tenantId, agent.tenantId),
+        eq(endpointRuns.status, "running"),
+        eq(endpointRuns.endpointId, agent.endpointId),
+        eq(endpointRuns.kind, "backup"),
+      ),
+    )
+    .orderBy(desc(endpointRuns.createdAt))
+    .limit(1);
+  return run ?? null;
+}
+
+/**
+ * A write while the machine restores from another target than the primary: the copy is for
+ * restoring, a backup never goes into it. 403, which restic takes as final.
+ */
+function repositoryNotOnPrimary(source: RepositorySource): ProblemError {
+  return new ProblemError(403, "Repository not on the primary storage target", {
+    type: ENDPOINT_PROBLEMS.repositoryUnavailable,
+    detail: `This machine is restoring from the copy of its repository on ${
+      source.target.name ? `"${source.target.name}"` : "another storage target"
+    }; nothing is written there. Backups go to the primary storage target once the restore has ended.`,
+  });
+}
+
 resticRoutes.all("/:endpointId/*", async (c) => {
   const endpointId = c.req.param("endpointId");
   const agent = await authenticateAgent(c, { limiter: resticApiLimiter });
@@ -187,10 +274,34 @@ resticRoutes.all("/:endpointId/*", async (c) => {
     });
   }
   await touchEndpoint(agent);
-  const { storage } = await tenantStorage(db, agent.tenantId);
   const url = new URL(c.req.url);
   const base = `${RESTIC_PATH}/${endpointId}`;
   const path = url.pathname.startsWith(base) ? url.pathname.slice(base.length) || "/" : "/";
+  // The primary, as ever. Only a restore whose task was created to read a copy target's
+  // repository copy reads that copy, and writes and releases its lock there; nothing else is
+  // written meanwhile: a backup must never land in a repository copy.
+  const running = await runningRunOf(agent);
+  const source = await restoreSourceOf(agent, running);
+  if (source && c.req.method === "POST" && !path.startsWith("/locks/")) {
+    throw repositoryNotOnPrimary(source);
+  }
+  const storage = source
+    ? source.target.backend
+    : (await tenantStorage(db, agent.tenantId)).storage;
+  // The size and space guard of backup runs (#99): the uploads of the running backup run, read
+  // for uploads only.
+  const backup = !source && c.req.method === "POST" ? await runningBackupOf(agent) : null;
+  const guard = backup
+    ? runSizeGuards.forRun({
+        tenantId: agent.tenantId,
+        kind: "endpoint",
+        objectId: endpointId,
+        runId: backup.id,
+        storage,
+        // A whole machine backup is compared with the machine's whole machine runs only.
+        historyScope: (tx) => endpointHistoryScope(tx, endpointId),
+      })
+    : null;
   return handleResticRequest(c.req.raw, {
     storage,
     prefix: endpointPrefix(endpointId),
@@ -199,8 +310,10 @@ resticRoutes.all("/:endpointId/*", async (c) => {
     query: url.searchParams,
     locks: agentLockRegistry(agent),
     remainingBytes: async () => remainingQuotaBytes(await quotaUsageOf(agent, storage)),
+    admitUpload: guard ? (declared, resource) => admitUpload(guard, declared, resource) : undefined,
     onAllowed: async ({ action, bytes }) => {
       if (action === "write") {
+        guard?.record(bytes);
         await addUsage(agent, bytes);
       } else if (action === "delete") {
         await addUsage(agent, -bytes);

@@ -33,6 +33,7 @@ func fixtureKey(t *testing.T) *PublicKey {
 
 // The fixtures were made with the stock OpenSSH ssh-keygen (-Y sign), so these
 // tests prove the agent reads what the maintainer's tool writes.
+// claim: UPDATE-016
 func TestVerifiesSignaturesMadeBySSHKeygen(t *testing.T) {
 	k := fixtureKey(t)
 	if err := k.Verify(read(t, "SHA256SUMS"), read(t, "SHA256SUMS.sig")); err != nil {
@@ -146,6 +147,26 @@ func TestParseSums(t *testing.T) {
 		if _, err := ParseSums([]byte(bad)); err == nil {
 			t.Fatalf("%q accepted", bad)
 		}
+	}
+}
+
+// TestParseSumsRecoveryLine: the release's SHA256SUMS lists the recovery
+// ISO (recovery/restow-recovery_<v>_amd64.iso, contract C-M4-3); it parses
+// and does not change the lookup of the agent's files.
+func TestParseSumsRecoveryLine(t *testing.T) {
+	h, iso := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+	s, err := ParseSums([]byte(h + "  linux-amd64/restow-agent\n" + h + "  linux-amd64/restic\n" + iso + "  recovery/restow-recovery_0.5.0_amd64.iso\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Lookup("linux-amd64", "restow-agent"); err != nil || got != h {
+		t.Fatalf("agent lookup: %q %v", got, err)
+	}
+	if got, err := s.Lookup("recovery", "restow-recovery_0.5.0_amd64.iso"); err != nil || got != iso {
+		t.Fatalf("recovery lookup: %q %v", got, err)
+	}
+	if _, err := s.Lookup("linux-amd64", "restow-recovery_0.5.0_amd64.iso"); err == nil {
+		t.Fatal("the ISO is no file of an agent target")
 	}
 }
 

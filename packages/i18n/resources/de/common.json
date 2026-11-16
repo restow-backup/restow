@@ -98,6 +98,34 @@
       "openTenantPage": "Mandantenseite öffnen"
     }
   },
+  "modules": {
+    "items": {
+      "microsoft365": {
+        "title": "Microsoft 365",
+        "description": "Postfächer, OneDrive, SharePoint-Websites, Gruppen und Teams."
+      },
+      "imap": {
+        "title": "IMAP-Postfächer",
+        "description": "Postfächer jedes Mailservers, der IMAP anbietet."
+      },
+      "archive": {
+        "title": "Mail-Archiv",
+        "description": "Archivierte Mails, aufbewahrt nach Ihren Aufbewahrungsregeln, mit Legal Holds."
+      },
+      "endpoints": {
+        "title": "Server & Clients",
+        "description": "Server und Arbeitsplätze mit dem Backup-Agent sowie Freigaben."
+      },
+      "pve": {
+        "title": "Proxmox VE",
+        "description": "VMs und Container Ihrer Proxmox-VE-Knoten."
+      }
+    },
+    "hidden": {
+      "hint": "{count, plural, one {Dieses Modul ist in der Navigation ausgeblendet: {names}.} other {Diese Module sind in der Navigation ausgeblendet: {names}.}}",
+      "manage": "Wieder einblenden unter Installation › Server & Betrieb › Module"
+    }
+  },
   "tenant": {
     "label": "Mandant",
     "placeholder": "Mandant wählen",
@@ -188,6 +216,20 @@
     "title": "Seite nicht gefunden",
     "description": "Unter dieser Adresse gibt es nichts. Der Link ist veraltet oder die Seite wurde verschoben."
   },
+  "phoneBlock": {
+    "title": "{appName} ist auf Smartphones nicht verfügbar",
+    "why": "{appName} verwaltet Sicherungsdaten und den Zugriff darauf. Das ist zu sensibel, um es vom Smartphone aus zu verwalten, deshalb bleibt die App auf Smartphones geschlossen.",
+    "what": "Öffnen Sie diese Seite an einem Computer. Kopieren Sie dazu den Link und schicken Sie ihn sich selbst, zum Beispiel per Mail.",
+    "copyLink": "Link kopieren",
+    "copied": "Link kopiert",
+    "copyFailed": "Das Kopieren hat nicht geklappt. Markieren Sie die Adresse oben und kopieren Sie sie von Hand.",
+    "mailLinks": "Links aus Mails zum Setzen oder Zurücksetzen eines Passworts funktionieren auch auf dem Smartphone.",
+    "invitation": {
+      "title": "Öffnen Sie diese Einladung am Computer",
+      "why": "Zum Annehmen einer Einladung ist eine Anmeldung nötig, und {appName} ist auf Smartphones nicht verfügbar.",
+      "what": "Kopieren Sie den Link und öffnen Sie ihn an einem Computer."
+    }
+  },
   "validation": {
     "required": "Dieses Feld ist erforderlich.",
     "email": "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
@@ -240,11 +282,6 @@
   },
   "keys": {
     "ctrl": "Strg"
-  },
-  "soon": {
-    "resources": {
-      "description": "Zeigt Auslastung und Wachstum je Mandant und je Repository, mit einer klaren Prognose wie „voll in etwa N Tagen“."
-    }
   },
   "chooseTenant": {
     "title": "Mandant wählen",

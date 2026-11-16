@@ -1,0 +1,1 @@
+root=UUID=af000000-0000-4000-8000-000000000001 ro rootflags=subvol=root resume=UUID=af000000-0000-4000-8000-000000000001 resume_offset=533760

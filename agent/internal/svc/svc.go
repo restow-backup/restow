@@ -1,20 +1,18 @@
-//go:build unix
-
 // Package svc installs and controls the agent as an operating system service:
 // a systemd unit on Linux and a LaunchDaemon on macOS. It uses only the
 // standard library and the platform's own tools (systemctl, launchctl); the
 // service definitions are generated from templates in this package so they can
-// be reviewed and tested. A Windows service manager can be added behind the
-// same Manager interface later.
+// be reviewed and tested. The types in this file are shared by all systems;
+// the Windows service manager (scm_windows.go) sits behind the same Manager
+// interface.
 package svc
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -102,19 +100,27 @@ type Manager interface {
 	Program() (string, error)
 }
 
-// New returns the manager for this operating system.
-func New() (Manager, error) {
-	switch runtime.GOOS {
-	case "linux":
-		if _, err := os.Stat("/run/systemd/system"); err != nil {
-			return nil, errors.New("this Linux system does not run systemd; the agent supports systemd only " +
-				"(run `restow-agent run` from another supervisor if you know what you are doing)")
-		}
-		return &systemd{run: execRunner, unitPath: systemdUnitPath}, nil
-	case "darwin":
-		return &launchd{run: execRunner, plistPath: launchdPlistPath, reloadPath: reloadPlistPath(paths.InstallDir())}, nil
-	}
-	return nil, fmt.Errorf("running the agent as a service is not supported on %s", runtime.GOOS)
+// UninstallOptions controls Uninstall.
+type UninstallOptions struct {
+	Layout paths.Layout
+	// Files are the binaries and links to remove, the agent binary last;
+	// nil selects DefaultFiles (the installed and the pre-release locations).
+	Files []string
+	// Dirs are removed when they are empty afterwards; nil selects DefaultDirs.
+	Dirs []string
+	// KeepLogs leaves the log directory in place.
+	KeepLogs bool
+	// FromService is set when the running service removes itself (uninstall
+	// task): files go first and the service is stopped as the very last step.
+	FromService bool
+	Out         io.Writer
+	// SkipService leaves the service manager alone (development layouts).
+	SkipService bool
+	// KeepBinaries leaves the agent and restic binaries in place (development
+	// layouts, where they are not the installed copies).
+	KeepBinaries bool
+	// Manager overrides the platform manager (tests).
+	Manager Manager
 }
 
 // runner executes an external command and returns its combined output.

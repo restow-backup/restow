@@ -29,8 +29,17 @@ export type RestoreItemCode =
   | "exists"
   /** The backup holds no restorable content for this kind of item. */
   | "not_restorable"
-  /** Belongs to a message that was not restored in this run. */
+  /** Belongs to an item (a message, an event) that was not restored in this run. */
   | "parent_not_restored"
+  /** Belongs to an item that already exists in the target and was skipped. */
+  | "parent_exists"
+  /**
+   * Restored as part of another item: an attachment inside its message's
+   * MIME, the same Gmail message under another label.
+   */
+  | "merged"
+  /** No item of its own in the target: carried another way (a label, a category, a flag). */
+  | "not_applicable"
   /** The item does not belong in this kind of target (a file in a mailbox, ...). */
   | "wrong_target"
   /** The snapshot references data the chunk store does not have. */
@@ -100,7 +109,22 @@ export function describeRestoreError(error: unknown): string {
 export { RestoreIntegrityError };
 
 /** The outcome code of a thrown error. */
+/**
+ * The item cannot be restored into this target as it is (an encrypted
+ * message too large for one Graph request, a body Graph cannot take); the
+ * message says what to do instead. Recorded as `not_restorable`.
+ */
+export class RestoreNotPossibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RestoreNotPossibleError";
+  }
+}
+
 export function failureCodeOf(error: unknown): RestoreItemCode {
+  if (error instanceof RestoreNotPossibleError) {
+    return "not_restorable";
+  }
   if (error instanceof MissingChunkError) {
     return "data_missing";
   }
@@ -194,6 +218,66 @@ export class RestoreLedger {
     }
     this.byteCount += bytes;
     this.progress.advance(1, bytes);
+  }
+
+  /** Whether an outcome was recorded for the object at `path`. */
+  hasReported(path: string): boolean {
+    return this.reported.has(path);
+  }
+
+  /** The outcome recorded last for an object, if any. */
+  resultOf(path: string): RestoreItemResult | undefined {
+    for (let index = this.results.length - 1; index >= 0; index--) {
+      const result = this.results[index];
+      if (result?.path === path) {
+        return result;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Add to the reason of a restored item what a later step found (its Gmail
+   * labels, say), and take back its confirmation when that step failed.
+   */
+  amendRestored(path: string, note: string, unverified = false): void {
+    for (let index = this.results.length - 1; index >= 0; index--) {
+      const result = this.results[index];
+      if (result?.path !== path) {
+        continue;
+      }
+      if (result.status !== "restored") {
+        return;
+      }
+      const becomesUnverified = unverified && result.code !== "unverified";
+      this.results[index] = {
+        ...result,
+        code: becomesUnverified ? "unverified" : result.code,
+        verified: unverified ? false : result.verified,
+        reason: result.reason ? `${result.reason}; ${note}` : note,
+      };
+      if (becomesUnverified && result.type !== "folder") {
+        this.unverifiedCount++;
+      }
+      return;
+    }
+  }
+
+  /** Add to the reason of a skipped item what a later step did (labels a retry added, say). */
+  amendSkipped(path: string, note: string): void {
+    for (let index = this.results.length - 1; index >= 0; index--) {
+      const result = this.results[index];
+      if (result?.path !== path) {
+        continue;
+      }
+      if (result.status === "skipped") {
+        this.results[index] = {
+          ...result,
+          reason: result.reason ? `${result.reason}; ${note}` : note,
+        };
+      }
+      return;
+    }
   }
 
   skipped(

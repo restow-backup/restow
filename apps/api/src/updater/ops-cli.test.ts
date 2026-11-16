@@ -13,9 +13,11 @@ import {
 } from "./ops.js";
 import {
   CliDockerOps,
+  IMAGE_INSPECT_FORMAT,
   isManifestNotFound,
   MIGRATION_COUNT_SQL,
   parseComposePs,
+  parseImageInspect,
 } from "./ops-cli.js";
 import { Redactor } from "./redact.js";
 
@@ -597,6 +599,134 @@ describe("command lines", () => {
   });
 });
 
+describe("images of the cleanup", () => {
+  const ID_A = `sha256:${"a".repeat(64)}`;
+  const ID_B = `sha256:${"b".repeat(64)}`;
+
+  it("lists the images: IDs first, then one inspect for all of them, by ID", async () => {
+    runner.answer((spec) =>
+      spec.argv[1] === "image" && spec.argv[2] === "ls"
+        ? { stdout: `${ID_A}\n${ID_B}\n${ID_A}\n` }
+        : undefined,
+    );
+    runner.answer((spec) =>
+      spec.argv[2] === "inspect"
+        ? {
+            stdout: [
+              JSON.stringify({
+                id: ID_A,
+                tags: ["ghcr.io/restow-backup/restow:0.4.0"],
+                digests: [`ghcr.io/restow-backup/restow@sha256:${"1".repeat(64)}`],
+                bytes: 734_003_200,
+                labels: { "org.opencontainers.image.version": "0.4.0" },
+                env: ["PATH=/usr/bin", "SECRET=never-kept", "RESTOW_VERSION=0.3.9"],
+              }),
+              JSON.stringify({
+                id: ID_B,
+                tags: null,
+                digests: ["<none>@<none>"],
+                bytes: 10,
+                labels: null,
+                env: ["RESTOW_VERSION=0.2.0"],
+              }),
+            ].join("\n"),
+          }
+        : undefined,
+    );
+    const images = await ops.listImages();
+    expect(images).toEqual([
+      {
+        id: ID_A,
+        tags: ["ghcr.io/restow-backup/restow:0.4.0"],
+        digests: [`ghcr.io/restow-backup/restow@sha256:${"1".repeat(64)}`],
+        bytes: 734_003_200,
+        version: "0.4.0",
+      },
+      { id: ID_B, tags: [], digests: [], bytes: 10, version: "0.2.0" },
+    ]);
+    expect(JSON.stringify(images)).not.toContain("never-kept");
+    expect(runner.argvs).toEqual([
+      ["docker", "image", "ls", "--quiet", "--no-trunc"],
+      ["docker", "image", "inspect", "--format", IMAGE_INSPECT_FORMAT, ID_A, ID_B],
+    ]);
+  });
+
+  it("an empty image store needs no inspect; odd output is an error, never quoted", async () => {
+    expect(await ops.listImages()).toEqual([]);
+    expect(runner.argvs).toHaveLength(1);
+    runner.answer((spec) => (spec.argv[2] === "ls" ? { stdout: "x; rm -rf /\n" } : undefined));
+    await expect(ops.listImages()).rejects.toBeInstanceOf(OpsError);
+    const failure = (output: string): OpsError => {
+      try {
+        parseImageInspect(output);
+      } catch (error) {
+        return error as OpsError;
+      }
+      throw new Error("parsed");
+    };
+    const unreadable = failure("SECRET=1 not json");
+    expect(unreadable).toBeInstanceOf(OpsError);
+    expect(unreadable.detail).toBe("The output was not valid JSON.");
+    expect(`${unreadable.message} ${unreadable.detail}`).not.toContain("SECRET");
+    expect(failure(JSON.stringify({ id: "nope" })).detail).toBe("An image has no valid ID.");
+  });
+
+  it("reads the image IDs of all containers, running or stopped", async () => {
+    const container = "c".repeat(64);
+    runner.answer((spec) => (spec.argv[1] === "ps" ? { stdout: `${container}\n` } : undefined));
+    runner.answer((spec) =>
+      spec.argv[2] === "inspect" ? { stdout: `${ID_A}\n${ID_A}\n` } : undefined,
+    );
+    expect(await ops.containerImageIds()).toEqual(new Set([ID_A]));
+    expect(runner.argvs).toEqual([
+      ["docker", "ps", "--all", "--quiet", "--no-trunc"],
+      ["docker", "container", "inspect", "--format", "{{.Image}}", container],
+    ]);
+  });
+
+  it("a failing container list is an error (nothing may be removed then)", async () => {
+    runner.answer(() => ({ exitCode: 1, errorTail: "Cannot connect" }));
+    await expect(ops.containerImageIds()).rejects.toBeInstanceOf(OpsError);
+  });
+
+  it("removes an image by its full ID only, never forced", async () => {
+    await ops.removeImage(ID_A);
+    expect(runner.argvs).toEqual([["docker", "image", "rm", ID_A]]);
+    for (const value of [
+      "ghcr.io/restow-backup/restow:0.1.0",
+      "a".repeat(64),
+      `sha256:${"a".repeat(12)}`,
+      `${ID_A} --force`,
+      "--force",
+      "-f",
+      "",
+    ]) {
+      await expect(ops.removeImage(value)).rejects.toBeInstanceOf(OpsError);
+    }
+    expect(runner.argvs).toHaveLength(1);
+    runner.answer(() => ({ exitCode: 1, errorTail: "conflict: image is being used" }));
+    await expect(ops.removeImage(ID_B)).rejects.toThrow(/Removing the image failed/);
+  });
+
+  it("takes one name off an image only while it still names that image, never forced", async () => {
+    const name = "ghcr.io/restow-backup/restow:0.4";
+    runner.answer((spec) => (spec.argv[2] === "inspect" ? { stdout: `${ID_A}\n` } : undefined));
+    await ops.untagImage(name, ID_A);
+    expect(runner.argvs).toEqual([
+      ["docker", "image", "inspect", "--format", "{{.Id}}", name],
+      ["docker", "image", "rm", name],
+    ]);
+    // The tag moved to another image meanwhile: it stays where it is.
+    await expect(ops.untagImage(name, ID_B)).rejects.toThrow(/was not removed/);
+    expect(runner.argvs).toHaveLength(3);
+    for (const value of ["ghcr.io/restow-backup/restow", "--force", "-f", `${name} x`, ID_A, ""]) {
+      await expect(ops.untagImage(value, ID_A)).rejects.toBeInstanceOf(OpsError);
+    }
+    await expect(ops.untagImage(name, "nope")).rejects.toBeInstanceOf(OpsError);
+    expect(runner.argvs).toHaveLength(3);
+  });
+});
+
 describe("error handling", () => {
   it("turns a failing command into an OpsError carrying the redacted tail", async () => {
     runner.answer(() => ({ exitCode: 1, errorTail: "Error response from daemon: boom" }));
@@ -719,6 +849,9 @@ describe("no shell, no injection", () => {
     await ops.verifyDump(file);
     await ops.servicesState().catch(() => undefined);
     await ops.apiLogsTail(5);
+    await ops.listImages().catch(() => undefined);
+    await ops.containerImageIds().catch(() => undefined);
+    await ops.removeImage(`sha256:${"e".repeat(64)}`);
     for (const spec of runner.specs) {
       expect(spec.argv[0]).toBe("docker");
       expect(spec.argv.every((part) => typeof part === "string")).toBe(true);

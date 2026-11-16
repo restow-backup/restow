@@ -101,6 +101,39 @@ describe("the stored policy", () => {
     });
   });
 
+  it("snapshotOnFailure: continue is the default and stays off the wire, fail goes along", () => {
+    expect(resolveAgentPolicy(null, null, null).snapshotOnFailure).toEqual({
+      value: "continue",
+      source: "default",
+      locked: false,
+    });
+    expect(
+      endpointPolicyOf(resolveAgentPolicy(null, { snapshotOnFailure: "continue" }, null)),
+    ).toBe(undefined);
+    const job = resolveAgentPolicy(
+      null,
+      { snapshotOnFailure: "continue" },
+      { snapshotOnFailure: "fail" },
+    );
+    expect(job.snapshotOnFailure.source).toBe("job");
+    const policy = endpointPolicyOf(job);
+    expect(policy?.snapshotOnFailure).toBe("fail");
+    expect(agentPolicyWire(policy as NonNullable<typeof policy>, "UTC").snapshotOnFailure).toBe(
+      "fail",
+    );
+    // A lock of the installation wins over the job.
+    const locked = resolveAgentPolicy(
+      { settings: { snapshotOnFailure: "continue" }, locks: ["snapshotOnFailure"] },
+      null,
+      { snapshotOnFailure: "fail" },
+    );
+    expect(locked.snapshotOnFailure).toEqual({ value: "continue", source: "global", locked: true });
+    expect(agentPolicyIssues({ snapshotOnFailure: "maybe" })).toEqual([
+      { code: "snapshot_on_failure", key: "snapshotOnFailure" },
+    ]);
+    expect(agentPolicyIssues({ snapshotOnFailure: "fail" }, JOB_POLICY_KEYS)).toEqual([]);
+  });
+
   it("a lock alone makes a policy to store", () => {
     expect(
       endpointPolicyOf(resolveAgentPolicy({ settings: {}, locks: ["onlyOnAcPower"] }, null, null)),

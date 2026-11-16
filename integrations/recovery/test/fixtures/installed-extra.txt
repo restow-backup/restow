@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# What the image holds: nano more, lvm2 less.
+kmod 34.2-1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mdadm 4.4-11 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+nano 8.4-1 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

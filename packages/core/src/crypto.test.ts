@@ -26,14 +26,14 @@ describe("hash primitives", () => {
 });
 
 describe("chunk sealing", () => {
-  it("round-trips a sealed chunk", () => {
+  it("round-trips a sealed chunk [CRYPT-001]", () => {
     const plaintext = Buffer.from("the object is chunked, sealed and deduplicated");
     const chunkId = sha256(plaintext);
     const sealed = encryptChunk(key, plaintext, chunkId);
     expect(decryptChunk(key, sealed).equals(plaintext)).toBe(true);
   });
 
-  it("detects a flipped ciphertext byte", () => {
+  it("detects a flipped ciphertext byte [CRYPT-001]", () => {
     const plaintext = Buffer.from("integrity is the product");
     const sealed = encryptChunk(key, plaintext, sha256(plaintext));
     const tampered = Buffer.from(sealed);
@@ -41,7 +41,7 @@ describe("chunk sealing", () => {
     expect(() => decryptChunk(key, tampered)).toThrow();
   });
 
-  it("detects a flipped AAD (chunk id) byte", () => {
+  it("detects a flipped AAD (chunk id) byte [CRYPT-001]", () => {
     const plaintext = Buffer.from("bound to its id");
     const chunkId = sha256(plaintext);
     const sealed = encryptChunk(key, plaintext, chunkId);
@@ -51,7 +51,7 @@ describe("chunk sealing", () => {
     expect(() => decryptChunk(key, tampered)).toThrow();
   });
 
-  it("fails to decrypt with the wrong key", () => {
+  it("fails to decrypt with the wrong key [CRYPT-002]", () => {
     const plaintext = Buffer.from("no cross-tenant reads");
     const sealed = encryptChunk(key, plaintext, sha256(plaintext));
     const wrong: Dek = { version: 1, material: Buffer.alloc(32, 0x09) };
@@ -70,7 +70,7 @@ describe("chunk sealing", () => {
 });
 
 describe("DEK wrapping", () => {
-  it("wraps and unwraps a DEK, preserving version and material", () => {
+  it("wraps and unwraps a DEK, preserving version and material [CRYPT-003]", () => {
     const kek = Buffer.alloc(32, 0x03);
     const dek: Dek = { version: 5, material: randomBytes(32) };
     const wrapped = wrapDek(kek, dek);
@@ -79,7 +79,7 @@ describe("DEK wrapping", () => {
     expect(restored.material.equals(dek.material)).toBe(true);
   });
 
-  it("fails to unwrap with the wrong KEK", () => {
+  it("fails to unwrap with the wrong KEK [CRYPT-003]", () => {
     const dek: Dek = { version: 1, material: randomBytes(32) };
     const wrapped = wrapDek(Buffer.alloc(32, 0x03), dek);
     expect(() => unwrapDek(Buffer.alloc(32, 0x04), wrapped)).toThrow();

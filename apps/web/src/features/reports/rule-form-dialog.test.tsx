@@ -2,6 +2,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buttonByText,
+  click,
   enableActEnvironment,
   flush,
   json,
@@ -119,5 +121,79 @@ describe("the deadline for missing backups", () => {
     await open({ events: ["backup.overdue"], overdueAfterHours: null });
     expect(document.body.textContent).toContain("By the backup jobs' schedules");
     expect(document.querySelector("#rule-overdue-hours")).toBeNull();
+  });
+});
+
+describe("the period of a report (0.5.0)", () => {
+  const schedule: Partial<ReportRule> = {
+    trigger: "schedule",
+    events: [],
+    cron: "0 7 1 * *",
+    periodDays: 30,
+    sections: ["backups"],
+    inApp: true,
+    emailRecipients: [],
+  };
+
+  async function openSchedule(over: Partial<ReportRule>, pdfAvailable: boolean) {
+    const { mock, requests } = routedFetch({
+      "GET /webhooks": () => json([]),
+      "PATCH /reports/rules/r-1": (request) =>
+        json(rule({ ...schedule, ...over, ...(request.body as object) })),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(
+      <RuleFormDialog
+        open
+        onOpenChange={() => undefined}
+        rule={rule({ ...schedule, ...over })}
+        periods={[1, 7, 30]}
+        pdfAvailable={pdfAvailable}
+      />,
+      { session: sessionAs({ activeTenant: ACTIVE, tenants: [ACTIVE], isProviderAdmin: false }) },
+    );
+    await flush(5);
+    return { requests };
+  }
+
+  const pdfSwitch = () => document.querySelector<HTMLButtonElement>("#rule-attach-pdf");
+
+  it("shows a calendar cadence without the own schedule and period fields", async () => {
+    await openSchedule({ cadence: "monthly", attachPdf: true }, true);
+    expect(document.querySelector("#rule-cadence")?.textContent).toContain("Previous month");
+    expect(document.body.textContent).toContain("Sent on the 1st at 07:00");
+    expect(document.querySelector("#rule-frequency")).toBeNull();
+    expect(document.querySelector("#rule-period")).toBeNull();
+    expect(pdfSwitch()?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("shows the own schedule for a rule without a cadence", async () => {
+    await openSchedule({ cadence: null }, true);
+    expect(document.querySelector("#rule-cadence")?.textContent).toContain("Own interval or cron");
+    expect(document.querySelector("#rule-frequency")).not.toBeNull();
+    expect(document.querySelector("#rule-period")).not.toBeNull();
+  });
+
+  it("saves the cadence and the PDF switch", async () => {
+    const { requests } = await openSchedule({ cadence: "weekly", attachPdf: false }, true);
+    await click(pdfSwitch());
+    await click(buttonByText(document.body, "Save"));
+    await flush(5);
+    const patch = requests.find((request) => request.method === "PATCH");
+    expect(patch?.body).toMatchObject({ cadence: "weekly", attachPdf: true, cron: null });
+  });
+
+  it("closes the PDF switch where the statistics are not available, and saves it off", async () => {
+    const { requests } = await openSchedule({ cadence: "weekly", attachPdf: true }, false);
+    expect(pdfSwitch()?.hasAttribute("disabled")).toBe(true);
+    expect(pdfSwitch()?.getAttribute("aria-checked")).toBe("false");
+    expect(document.body.textContent).toContain(
+      "The PDF statistics are not available on this installation.",
+    );
+    await click(buttonByText(document.body, "Save"));
+    await flush(5);
+    expect(requests.find((request) => request.method === "PATCH")?.body).toMatchObject({
+      attachPdf: false,
+    });
   });
 });

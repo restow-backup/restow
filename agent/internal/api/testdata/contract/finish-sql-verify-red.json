@@ -1,0 +1,63 @@
+{
+  "status": "failed",
+  "finishedAt": "2026-11-08T03:04:10Z",
+  "errors": [
+    { "code": "sql_restore_failed", "message": "Archive: RESTORE of the backup failed: The media family on device is incorrectly formed. SQL Server cannot process this media family. (3183)" }
+  ],
+  "logTail": "2026-11-08T03:04:10Z ERROR Sales: DBCC CHECKDB reported 1 error.",
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "verifyName": "Sales__restow_verify_20261108T030000Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": { "ok": true, "errors": [] },
+        "checkdb": {
+          "ran": true,
+          "physicalOnly": false,
+          "errors": [
+            {
+              "number": 8928,
+              "level": 16,
+              "state": 1,
+              "message": "Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data): Page (1:312) could not be processed. See other errors for details.",
+              "repairLevel": "repair_allow_data_loss",
+              "objectId": 245575913,
+              "indexId": 1
+            }
+          ],
+          "durationMs": 43000
+        },
+        "dropped": true,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 99000
+      },
+      {
+        "databaseId": "e5f60718-293a-4b4c-9d5e-6f708192a3b4",
+        "backupId": "b4c5d6e7-f809-41a2-93b4-c5d6e7f80910",
+        "name": "Archive",
+        "method": "restore+checkdb",
+        "verifyName": "Archive__restow_verify_20261108T030140Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": {
+          "ok": false,
+          "errors": [
+            { "number": 3183, "severity": 16, "state": 1, "message": "The media family on device is incorrectly formed. SQL Server cannot process this media family." }
+          ]
+        },
+        "checkdb": null,
+        "dropped": false,
+        "backupLsn": "52000000032000001",
+        "logsApplied": 0,
+        "durationMs": 21000
+      }
+    ]
+  }
+}

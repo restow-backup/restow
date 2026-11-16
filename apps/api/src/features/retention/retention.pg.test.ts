@@ -641,4 +641,55 @@ describe.skipIf(!testDatabaseAdminUrl)("retention against Postgres", () => {
     // neither loader admits it as a candidate in the first place.
     expect(directPlan.expired.some((snapshot) => snapshot.byteSize === 999)).toBe(false);
   });
+  it("previews a tenant with more restore points than one statement has bind parameters", async () => {
+    // Past 65,535 active restore points an id list (one bind parameter per
+    // id) fails the statement, and with it every preview and every run.
+    const [object] = await owner
+      .insert(protectedObjects)
+      .values({
+        tenantId: fabrikam,
+        sourceId: (
+          await owner.select({ id: sources.id }).from(sources).where(eq(sources.tenantId, fabrikam))
+        )[0]?.id as string,
+        kind: "imap",
+        externalId: "many@fabrikam.example",
+      })
+      .returning();
+    const objectId = object?.id as string;
+    await owner.$client.query(
+      `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, manifest_path, status, byte_size, completed_at)
+       SELECT $1, $2, g, 'many-' || g, 'active', 10, $3::timestamptz - (70000 - g) * interval '1 minute'
+         FROM generate_series(1, 70000) AS g`,
+      [fabrikam, objectId, daysAgo(400).toISOString()],
+    );
+    const [oldest] = await owner
+      .select({ id: snapshots.id })
+      .from(snapshots)
+      .where(and(eq(snapshots.protectedObjectId, objectId), eq(snapshots.sequence, 1)));
+    await owner.insert(verifyReports).values({
+      tenantId: fabrikam,
+      protectedObjectId: objectId,
+      snapshotId: oldest?.id ?? null,
+      kind: "verify",
+      recoveryReadiness: "green",
+      checkedAt: daysAgo(399),
+    });
+    try {
+      const response = await call("POST", "/policies/preview", {
+        tenant: fabrikam,
+        body: { preset: "30d", protectedObjectIds: null },
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+      const preview = (await response.json()) as RetentionPreviewDto;
+      // Everything is older than 30 days; the newest point and the sole
+      // verified one (found through the join, not an id list) are kept.
+      expect(preview.objects).toBe(1);
+      expect(preview.restorePoints).toBe(69_998);
+      expect(preview.heldRestorePoints).toBe(0);
+    } finally {
+      await owner.delete(verifyReports).where(eq(verifyReports.protectedObjectId, objectId));
+      await owner.delete(snapshots).where(eq(snapshots.protectedObjectId, objectId));
+      await owner.delete(protectedObjects).where(eq(protectedObjects.id, objectId));
+    }
+  }, 120_000);
 });

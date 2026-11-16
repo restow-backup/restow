@@ -94,6 +94,11 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
     return row?.journalToken ?? null;
   }
 
+  async function storedIssuedAt(tenantId: string): Promise<Date | null> {
+    const [row] = await owner.select().from(tenants).where(eq(tenants.id, tenantId));
+    return row?.journalAddressIssuedAt ?? null;
+  }
+
   async function insertItem(
     tenantId: string,
     capturedVia: "journal" | "graph_sync",
@@ -222,9 +227,14 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
       expect(first.hostname).toBe(HOST);
       expect(first.hostnameIssue).toBeNull();
 
+      // Issuing it is what counts as journaling set up for the menu (archive/availability.ts).
+      const issuedAt = await storedIssuedAt(contoso);
+      expect(issuedAt).toBeInstanceOf(Date);
+
       const again = await getSetup(contoso);
       expect(again.address).toBe(first.address);
       expect(await storedToken(contoso)).toBe(token);
+      expect(await storedIssuedAt(contoso)).toEqual(issuedAt);
 
       const created = await owner
         .select()
@@ -240,6 +250,38 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
       expect(created[0]?.actorUserId).toBe(adminId);
       expect(created[0]?.target).toBe(contoso);
       expect(JSON.stringify(created[0]?.details)).not.toContain(token ?? "missing");
+    });
+
+    it("confirms an address issued before 0.5.0 when the setup is opened, without changing it", async () => {
+      // Up to 0.4.12 the tenant page issued the address on its first view: migration 0075
+      // leaves its issue time empty, and only opening the setup sets it.
+      const [provider] = await owner.select({ id: providers.id }).from(providers).limit(1);
+      const legacyToken = "a".repeat(32);
+      const [legacy] = await owner
+        .insert(tenants)
+        .values({
+          providerId: provider?.id ?? "",
+          name: "Litware",
+          slug: "litware",
+          journalToken: legacyToken,
+        })
+        .returning();
+      const tenantId = legacy?.id ?? "";
+      expect(await storedIssuedAt(tenantId)).toBeNull();
+      const setup = await getSetup(tenantId);
+      expect(setup.address).toBe(`journal+${legacyToken}@${HOST}`);
+      expect(await storedToken(tenantId)).toBe(legacyToken);
+      expect(await storedIssuedAt(tenantId)).toBeInstanceOf(Date);
+      const created = await owner
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tenantId, tenantId),
+            eq(auditLog.action, "archive.journal.address_created"),
+          ),
+        );
+      expect(created).toHaveLength(0);
     });
 
     it("issues one token when two first views race", async () => {

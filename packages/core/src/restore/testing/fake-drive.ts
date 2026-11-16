@@ -5,6 +5,8 @@
  * them; the QuickXorHash of the stored bytes is reported the way OneDrive
  * for Business does.
  */
+
+import { GraphResponseTimeoutError } from "../../graph/client.js";
 import {
   createFakeGraph,
   type FakeGraph,
@@ -19,7 +21,8 @@ export interface FakeDriveItem {
   id: string;
   name: string;
   parentId: string;
-  kind: "folder" | "file";
+  /** A package is what OneDrive returns for a OneNote notebook: a container without a folder facet. */
+  kind: "folder" | "file" | "package";
   content: Buffer;
   fileSystemInfo: Record<string, unknown> | undefined;
   conflictBehavior: string | undefined;
@@ -35,9 +38,43 @@ interface FakeSession {
   receivedBytes: number;
   total: number | null;
   ranges: string[];
+  /** The last fragment arrived and the item was created: the upload URL is gone. */
+  completed: boolean;
+  /** Cancelled with DELETE on the upload URL. */
+  cancelled: boolean;
+}
+
+/**
+ * What goes wrong with one fragment PUT, the way SharePoint and the network do it:
+ * - `status`: the fragment is refused with this status (500, 502, ...) and nothing is taken;
+ * - `reset-after-accept`: the bytes are taken, then the connection breaks before the answer;
+ * - `timeout-after-accept`: the bytes are taken, the answer does not come in time (the client
+ *   sends the fragment once more, which the session refuses with 416);
+ * - `lose-previous`: answered 500, and the session lost the fragment before this one (it
+ *   expects that range again).
+ */
+export type FragmentFault =
+  | { kind: "status"; status: number }
+  | { kind: "reset-after-accept" }
+  | { kind: "timeout-after-accept" }
+  | { kind: "lose-previous" };
+
+function connectionReset(): Error {
+  return Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+  });
 }
 
 const NOT_FOUND: FixtureResponse = { status: 404, json: graphError("itemNotFound") };
+
+function isOfficeFile(name: string): boolean {
+  return /\.(docx|xlsx|pptx)$/i.test(name);
+}
+
+/** What SharePoint does to an Office file's document properties: other bytes, another size. */
+export function rewriteOfficeProperties(content: Buffer): Buffer {
+  return Buffer.concat([content, Buffer.from(`<cp:lastModifiedBy>SharePoint</cp:lastModifiedBy>`)]);
+}
 const UPLOAD_HOST = "https://upload.example.test";
 
 export class FakeDrive {
@@ -46,6 +83,15 @@ export class FakeDrive {
   readonly graph: FakeGraph;
   /** When set, every reported QuickXorHash is replaced with this value (mismatch tests). */
   reportedQuickXorHash: string | null = null;
+  /**
+   * Like a SharePoint library: an uploaded Office file is stored with its
+   * document properties rewritten, so its size and hash differ from the bytes
+   * that were sent.
+   */
+  rewritesOfficeFiles = false;
+  /** Faults by the first byte of a fragment's Content-Range; each is used `times` times. */
+  private readonly fragmentFaults: Array<{ start: number; fault: FragmentFault; times: number }> =
+    [];
   private counter = 0;
 
   constructor(
@@ -72,10 +118,20 @@ export class FakeDrive {
     return this.add(parentId, name, "file", content);
   }
 
+  /** Let the fragment that starts at byte `start` fail with `fault`, `times` times. */
+  failFragmentAt(start: number, fault: FragmentFault, times = 1): void {
+    this.fragmentFaults.push({ start, fault, times });
+  }
+
+  /** A OneNote notebook as OneDrive lists it: `package: { type: "oneNote" }`, no `folder` facet. */
+  addNotebook(parentId: string, name: string): FakeDriveItem {
+    return this.add(parentId, name, "package", Buffer.alloc(0));
+  }
+
   private add(
     parentId: string,
     name: string,
-    kind: "folder" | "file",
+    kind: FakeDriveItem["kind"],
     content: Buffer,
   ): FakeDriveItem {
     this.counter++;
@@ -123,6 +179,9 @@ export class FakeDrive {
     if (item.kind === "folder") {
       return { ...base, folder: { childCount: 0 } };
     }
+    if (item.kind === "package") {
+      return { ...base, package: { type: "oneNote" } };
+    }
     return {
       ...base,
       file: {
@@ -162,6 +221,9 @@ export class FakeDrive {
     conflictBehavior: string | undefined,
     fileSystemInfo: Record<string, unknown> | undefined,
   ): FixtureResponse {
+    if (this.rewritesOfficeFiles && isOfficeFile(name)) {
+      content = rewriteOfficeProperties(content);
+    }
     const existing = this.child(parentId, name);
     let finalName = name;
     if (existing) {
@@ -283,6 +345,8 @@ export class FakeDrive {
             receivedBytes: 0,
             total: null,
             ranges: [],
+            completed: false,
+            cancelled: false,
           });
           return {
             status: 200,
@@ -295,12 +359,55 @@ export class FakeDrive {
         url: (url) => url.href.startsWith(`${UPLOAD_HOST}/`),
         respond: (call) => this.uploadFragment(call),
       },
+      {
+        // The session's status: what it still expects (404 once it completed or was cancelled).
+        method: "GET",
+        url: (url) => url.href.startsWith(`${UPLOAD_HOST}/`),
+        respond: (call) => {
+          const session = this.liveSession(call);
+          return session
+            ? {
+                status: 200,
+                json: {
+                  expirationDateTime: "2099-01-01T00:00:00Z",
+                  nextExpectedRanges: [`${session.receivedBytes}-`],
+                },
+              }
+            : NOT_FOUND;
+        },
+      },
+      {
+        method: "DELETE",
+        url: (url) => url.href.startsWith(`${UPLOAD_HOST}/`),
+        respond: (call) => {
+          const session = this.liveSession(call);
+          if (!session) {
+            return NOT_FOUND;
+          }
+          session.cancelled = true;
+          return { status: 204 };
+        },
+      },
     ];
   }
 
+  private liveSession(call: RecordedCall): FakeSession | undefined {
+    const session = this.sessions.get(new URL(call.url).pathname.slice(1));
+    return session && !session.completed && !session.cancelled ? session : undefined;
+  }
+
+  /** The fault planned for a fragment starting at `start`, used up as it is taken. */
+  private takeFault(start: number): FragmentFault | undefined {
+    const planned = this.fragmentFaults.find((entry) => entry.start === start && entry.times > 0);
+    if (!planned) {
+      return undefined;
+    }
+    planned.times -= 1;
+    return planned.fault;
+  }
+
   private uploadFragment(call: RecordedCall): FixtureResponse {
-    const id = new URL(call.url).pathname.slice(1);
-    const session = this.sessions.get(id);
+    const session = this.liveSession(call);
     if (!session) {
       return NOT_FOUND;
     }
@@ -314,20 +421,42 @@ export class FakeDrive {
       return { status: 400, json: graphError("invalidRange") };
     }
     const body = call.body instanceof Uint8Array ? Buffer.from(call.body) : Buffer.alloc(0);
+    let fault: FragmentFault | undefined;
     if (match.length === 4) {
       const start = Number(match[1]);
       if (start !== session.receivedBytes) {
         return { status: 416, json: graphError("invalidRange") };
       }
       session.total = Number(match[3]);
+      fault = this.takeFault(start);
     } else {
       session.total = Number(match[1]);
     }
+    if (fault?.kind === "status") {
+      return { status: fault.status, json: graphError("generalException") };
+    }
+    if (fault?.kind === "lose-previous") {
+      const lost = session.received.pop();
+      session.receivedBytes -= lost?.length ?? 0;
+      return { status: 500, json: graphError("generalException") };
+    }
     session.received.push(body);
     session.receivedBytes += body.length;
+    const answer = this.answerFragment(session);
+    if (fault?.kind === "reset-after-accept") {
+      throw connectionReset();
+    }
+    if (fault?.kind === "timeout-after-accept") {
+      throw new GraphResponseTimeoutError(call.url, 120_000);
+    }
+    return answer;
+  }
+
+  private answerFragment(session: FakeSession): FixtureResponse {
     if (session.receivedBytes < (session.total ?? 0)) {
       return { status: 202, json: { nextExpectedRanges: [`${session.receivedBytes}-`] } };
     }
+    session.completed = true;
     const content = Buffer.concat(session.received);
     return this.place(
       session.parentId,

@@ -22,6 +22,7 @@ import {
   needsNewSecret,
   parseIntegrationsSearch,
   SCOPE_GROUPS,
+  scopeGroupsFor,
   scopeKey,
   sortScopes,
   suggestedFormat,
@@ -80,6 +81,14 @@ describe("scopes", () => {
     const grouped = SCOPE_GROUPS.flatMap((group) => group.scopes);
     expect([...grouped].sort()).toEqual([...API_SCOPES].sort());
     expect(new Set(grouped).size).toBe(API_SCOPES.length);
+  });
+
+  it("offer the billing figures to provider keys only", () => {
+    const tenant = scopeGroupsFor("tenant").flatMap((group) => group.scopes);
+    const provider = scopeGroupsFor("provider").flatMap((group) => group.scopes);
+    expect(tenant).not.toContain("billing:read");
+    expect(provider).toContain("billing:read");
+    expect(provider.length - tenant.length).toBe(1);
   });
 
   it("have i18n-safe ids and a canonical order", () => {

@@ -36,6 +36,74 @@ export function captureRank(source: ArchiveSource): number {
   }
 }
 
+/**
+ * What the archive holds under one Message-ID for a mailbox, enough to tell before a
+ * download whether a mail found there is that one: the size of the archived bytes and the
+ * mail's Date header. A Message-ID alone is not identity (the module docstring): a capture
+ * way skips a download only when one of these matches too, and otherwise lets the append
+ * decide (a true duplicate becomes a capture row, another body `message-id-conflict`).
+ */
+export interface HeldMail {
+  readonly sizeBytes: number | null;
+  readonly sentAt: Date | null;
+}
+
+/** {@link HeldMail}s by {@link messageKey}. */
+export type HeldMails = Map<string, HeldMail[]>;
+
+/**
+ * An IMAP message (Message-ID and RFC822.SIZE) is one the archive holds already: a mail
+ * whose archived bytes have exactly that size. The IMAP way archives the source as the
+ * server hands it out, so a rescan (a changed UIDVALIDITY) or a copy in another folder
+ * matches; a mail with the same Message-ID and other content does not.
+ */
+export function heldBySize(
+  held: HeldMails,
+  messageId: string | null | undefined,
+  size: number | null | undefined,
+): boolean {
+  const key = messageKey(messageId);
+  if (key === null || typeof size !== "number" || size <= 0) {
+    return false;
+  }
+  return (held.get(key) ?? []).some((mail) => mail.sizeBytes === size);
+}
+
+/**
+ * A message (Message-ID and its Date header: Graph's `sentDateTime`, the IMAP ENVELOPE date)
+ * is one the archive holds already: a mail with the same Date header, to the second. Graph
+ * names no size of the MIME it exports, and Exchange's IMAP RFC822.SIZE is an estimate, so
+ * the date is the cheap check there; refs cover the rest.
+ */
+export function heldBySentAt(
+  held: HeldMails,
+  messageId: string | null | undefined,
+  sentAt: Date | null | undefined,
+): boolean {
+  const key = messageKey(messageId);
+  if (key === null || !sentAt || Number.isNaN(sentAt.getTime())) {
+    return false;
+  }
+  const second = Math.floor(sentAt.getTime() / 1000);
+  return (held.get(key) ?? []).some(
+    (mail) => mail.sentAt !== null && Math.floor(mail.sentAt.getTime() / 1000) === second,
+  );
+}
+
+/** Remember a mail just captured, for the next message of the same page. */
+export function holdMail(held: HeldMails, messageId: string | null | undefined, mail: HeldMail) {
+  const key = messageKey(messageId);
+  if (key === null) {
+    return;
+  }
+  const list = held.get(key);
+  if (list) {
+    list.push(mail);
+  } else {
+    held.set(key, [mail]);
+  }
+}
+
 const KEY_TRIM = new Set(["<", ">", " "]);
 
 /**
@@ -95,6 +163,51 @@ export function bodyHash(original: Buffer): string {
 /** SHA-256 (hex) of the exact bytes, as the writer computes `itemHash`. */
 export function itemHashOf(original: Buffer): string {
   return createHash("sha256").update(original).digest("hex");
+}
+
+/**
+ * Header fields a hop adds or rewrites on the way (trace fields and per-transmission
+ * signatures): a report Exchange sends again after a lost 250, through another front end,
+ * may differ in them and in nothing else.
+ */
+const TRANSPORT_FIELDS =
+  /^(received|x-received|return-path|dkim-signature|arc-seal|arc-message-signature|arc-authentication-results)$/i;
+
+/**
+ * SHA-256 (hex) of a journal report as delivered, its transport fields left out: the key
+ * that tells a retransmission of the same report (same SMTP message, sent again because the
+ * 250 was lost or came too late) from another report. Distinct reports for one message
+ * (another envelope, other recipients, a split per recipient) differ in their own
+ * Message-ID and envelope text and keep distinct keys; {@link itemHashOf} of the embedded
+ * original would not tell them apart. Every other header byte and the body count exactly.
+ */
+export function journalReportHash(raw: Buffer): string {
+  const start = bodyStart(raw);
+  const header = raw.subarray(0, start).toString("latin1");
+  const kept: string[] = [];
+  let field: string[] = [];
+  const flush = () => {
+    if (field.length > 0) {
+      const name = /^([^:\s]+)\s*:/.exec(field[0] as string)?.[1] ?? "";
+      if (!TRANSPORT_FIELDS.test(name)) {
+        kept.push(...field);
+      }
+    }
+    field = [];
+  };
+  for (const line of header.split(/(?<=\n)/)) {
+    if (/^[ \t]/.test(line) && field.length > 0) {
+      field.push(line);
+    } else {
+      flush();
+      field.push(line);
+    }
+  }
+  flush();
+  return createHash("sha256")
+    .update(Buffer.from(kept.join(""), "latin1"))
+    .update(raw.subarray(start))
+    .digest("hex");
 }
 
 /** What a new capture is, for the decision. */

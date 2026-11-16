@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package pve is restow-pve, the node helper for Proxmox VE backups
 // (docs/PVE.md, docs/PROXMOX.md section 2). It receives the calls of the PVE
 // storage plugin shim (`restow-pve provider <verb>`, JSON over stdin and

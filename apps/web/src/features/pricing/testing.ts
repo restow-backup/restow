@@ -6,6 +6,15 @@ export const ACME = "11111111-1111-4111-8111-111111111111";
 export const BERG = "22222222-2222-4222-8222-222222222222";
 export const OWN = "33333333-3333-4333-8333-333333333333";
 
+/** The prices per unit (0.5.0) of an installation or a tenant that set none. */
+export const NO_UNIT_PRICES = {
+  serverPrice: null,
+  clientPrice: null,
+  vmPrice: null,
+  containerPrice: null,
+  fileSharePrice: null,
+} as const;
+
 /** A tenant at the installation's prices (EUR, 2.50 per mailbox, 0.02 per GB): 12 mailboxes, 340 GB. */
 export function estimateTenant(over: Partial<EstimateTenant> = {}): EstimateTenant {
   return {

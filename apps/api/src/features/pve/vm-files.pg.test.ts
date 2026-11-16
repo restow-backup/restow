@@ -23,6 +23,7 @@ import { readZip } from "../../../../../packages/core/src/restore/testing/zip-re
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   startFixture,
   testDatabaseAdminUrl,
 } from "../endpoints/testing/fixture.js";
@@ -144,6 +145,8 @@ describe.skipIf(!canRun)("file restore of a VM restore point", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    // The space rule (#99) measures VM blocks too; the host's free disk is no part of this.
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     files = await import("./files.js");
     service = await import("./service.js");

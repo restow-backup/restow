@@ -1,13 +1,19 @@
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import {
+  appFilesNotices,
   type DirectoryPosition,
   ENDPOINT_QUEUES,
   type EndpointJobPayload,
+  endpointPrefix,
   endpointQuotaLimits,
   endpointSingletonKey,
   enrollmentTokenExpiry,
   enrollmentTokenState,
   generateEnrollmentToken,
+  hasSqlCapability,
+  isAgentStatePath,
+  isKeyFilePath,
   isSupportedEndpointOs,
   isUnscheduled,
   normalizeBandwidthWindows,
@@ -18,8 +24,12 @@ import {
   resolveSelection,
   resticListDirectory,
   resticSnapshots,
+  restoreSelectionIssue,
+  restoreTargetIssue,
   SelectionError,
   type SnapshotFlagReason,
+  SUPPORTED_ENDPOINT_OS,
+  selectionCovers,
   streamSnapshotZip,
 } from "@restow/core";
 import {
@@ -33,15 +43,31 @@ import {
   endpointEnrollmentTokens,
   endpointReports,
   endpointRuns,
+  endpointSamples,
   endpointSnapshotFlags,
   endpoints,
   endpointTasks,
   tenants,
   users,
 } from "@restow/db";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
+import { config as appConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
+import { readSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { decodeCursor, encodeCursor } from "../../routes/v1/cursor.js";
@@ -49,15 +75,27 @@ import { sameJson } from "../backup-jobs/json.js";
 import { jobRetentionOf, jobsOfEndpoints, jobWithOverridesOf } from "../backup-jobs/membership.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
+import {
+  type ReadFrom,
+  readFromOf,
+  repositorySource,
+  snapshotOnSource,
+} from "../storage/repository-source.js";
+import { loadSnapshotOrigins, recordedOfPersistent } from "../storage/snapshot-origins.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
-import { installCommands } from "./commands.js";
+import { keyFilesForSnapshot, loadKeyFiles } from "./baremetal.js";
+import { installCommands, releaseKeyFingerprint } from "./commands.js";
 import { dataFoldersOf, machineOf } from "./data-folders.js";
 import {
+  announcedAgentVersion,
   compareAgentVersions,
   isAgentVersion,
   isSafeOrigin,
   latestAgentRelease,
+  readInstallScript,
+  readReleaseKey,
+  renderInstallScript,
 } from "./distribution.js";
 import {
   type BrowseDto,
@@ -79,6 +117,7 @@ import {
   type SnapshotDto,
   storageOf,
   type TaskDto,
+  toConfigDto,
   toReport,
   toRunDetail,
   toRunSummary,
@@ -88,6 +127,8 @@ import {
 import { isInsecureTransport } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { loadEndpointReadiness } from "./readiness.js";
+import { activeRecoveriesOf } from "./recovery-codes.js";
+import { pendingBackupDeletion } from "./removal.js";
 import { holdRepositoryForRead, repositoryAccess } from "./repository.js";
 import { resticGate } from "./restic-gate.js";
 import { resticProblem } from "./restic-problem.js";
@@ -106,6 +147,72 @@ import {
  */
 
 export type { EndpointActor };
+
+/**
+ * Who reads backed-up files (browse, download, restore onto the machine), and so which secret
+ * files of a snapshot they may have (docs/BAREMETAL.md 5.4). The agent's state file goes to
+ * nobody; a LUKS key file of the machine's layout to an admin after a recent sign-in, audited,
+ * and never to the restore role. Without `role` the reader counts as the restore role.
+ */
+export interface SnapshotReader extends EndpointActor {
+  role?: "admin" | "restore";
+  /** Throws when the session's sign-in is not recent (the route's assertRecentSignIn). */
+  confirmRecentSignIn?: () => void;
+}
+
+function readerRole(reader: SnapshotReader): "admin" | "restore" {
+  return reader.role ?? "restore";
+}
+
+/** A 422 (agent state, for everybody) or 403 (key file, restore role) for a locked path. */
+function restorePathLocked(reason: "agent_state" | "key_file", path: string): ProblemError {
+  return reason === "agent_state"
+    ? new ProblemError(422, "Path not handed out", {
+        type: ENDPOINT_PROBLEMS.restorePathLocked,
+        detail:
+          "This is the agent's own state file with its secret: restoring it would give the machine an old identity. The agent receives a new one when it is enrolled again.",
+        extensions: { reason, path },
+      })
+    : new ProblemError(403, "Path not handed out", {
+        type: ENDPOINT_PROBLEMS.restorePathLocked,
+        detail:
+          "This is a key file of an encrypted volume of the machine. Only an administrator can restore or download it.",
+        extensions: { reason, path },
+      });
+}
+
+/**
+ * Check selected paths of a snapshot against the files it does not hand out: a path that is the
+ * agent's state file, or for the restore role a key file, is refused; an admin selection that is
+ * or holds a key file needs a recent sign-in (`coverKeyFiles`: folders count, as for a ZIP).
+ * Answers the key files and whether the selection reveals one to an admin.
+ */
+async function checkSelection(
+  tx: Transaction,
+  endpointId: string,
+  snapshotId: string,
+  paths: readonly string[],
+  reader: SnapshotReader,
+  coverKeyFiles: boolean,
+): Promise<{ keyFiles: string[]; revealsKeyFile: boolean }> {
+  const role = readerRole(reader);
+  const keyFiles = await keyFilesForSnapshot(tx, endpointId, snapshotId);
+  for (const path of paths) {
+    const issue = restoreSelectionIssue(path, { role, keyFiles });
+    if (issue) {
+      throw restorePathLocked(issue, path);
+    }
+  }
+  const revealsKeyFile =
+    role === "admin" &&
+    paths.some((path) =>
+      coverKeyFiles ? selectionCovers(path, keyFiles) : isKeyFilePath(path, keyFiles),
+    );
+  if (revealsKeyFile) {
+    reader.confirmRecentSignIn?.();
+  }
+  return { keyFiles, revealsKeyFile };
+}
 
 export const AGENT_TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -132,7 +239,7 @@ function notFound(): ProblemError {
  * `withKeptBackups`: also a removed one whose backups are still stored (its removal not done),
  * for reading them: its page, its restore points, browsing, downloads and the repository key.
  */
-async function loadEndpoint(
+export async function loadEndpoint(
   tx: Transaction,
   tenantId: string,
   id: string,
@@ -280,6 +387,7 @@ export async function listEndpoints(
       tenantId,
       rows.map((row) => row.assignedUserId),
     );
+    const recoveries = await activeRecoveriesOf(tx, ids);
     return {
       items: rows.map((row) =>
         toSummary(
@@ -290,6 +398,7 @@ export async function listEndpoints(
           rated,
           jobsOf.get(row.id) ?? null,
           assigneeOf(assignees, row),
+          recoveries.get(row.id) ?? null,
         ),
       ),
     };
@@ -318,10 +427,33 @@ export interface DetailOptions {
 
 /** The commands of a system, or null when the address cannot go into a command. */
 function commandsFor(os: Endpoint["os"], instanceUrl: string) {
-  if (os === "windows" || !isSafeOrigin(instanceUrl.replace(/\/+$/, ""))) {
+  if (!isSafeOrigin(instanceUrl.replace(/\/+$/, ""))) {
     return null;
   }
   return installCommands(os, instanceUrl);
+}
+
+/**
+ * What the Windows dialog shows beside the commands (docs/WINDOWS-AGENT.md, 14.1): the fingerprint
+ * of the release signing key (pinned in the unattended command) and the SHA-256 of windows.ps1 as
+ * this instance serves it, for the way "download, compare, run with -File".
+ */
+export async function windowsInstallFacts(
+  instance: string,
+): Promise<{ releaseKeyFingerprint: string | null; scriptSha256: string | null }> {
+  const key = await readReleaseKey();
+  const fingerprint = key ? releaseKeyFingerprint(key) : null;
+  let scriptSha256: string | null = null;
+  const template = await readInstallScript("windows.ps1");
+  if (template !== null) {
+    try {
+      const body = renderInstallScript(template, instance, await announcedAgentVersion(), key);
+      scriptSha256 = createHash("sha256").update(body, "utf8").digest("hex");
+    } catch {
+      scriptSha256 = null;
+    }
+  }
+  return { releaseKeyFingerprint: fingerprint, scriptSha256 };
 }
 
 export async function getEndpoint(
@@ -365,10 +497,17 @@ export async function getEndpoint(
       )
       .orderBy(desc(sql`coalesce(${endpointTasks.finishedAt}, ${endpointTasks.createdAt})`))
       .limit(RECENT_TASKS);
+    // The bare metal layout check and the boot probe have their own card (baremetal.ts), not a
+    // row in this list.
+    const listedReports = and(
+      eq(endpointReports.tenantId, tenantId),
+      eq(endpointReports.endpointId, id),
+      notInArray(endpointReports.kind, ["baremetal_check", "boot_probe"]),
+    );
     const recentReports = await tx
       .select()
       .from(endpointReports)
-      .where(and(eq(endpointReports.tenantId, tenantId), eq(endpointReports.endpointId, id)))
+      .where(listedReports)
       .orderBy(desc(endpointReports.checkedAt))
       .limit(30);
     // The newest report of every kind as well: daily restore tests must not push the last
@@ -376,7 +515,7 @@ export async function getEndpoint(
     const latestPerKind = await tx
       .selectDistinctOn([endpointReports.kind])
       .from(endpointReports)
-      .where(and(eq(endpointReports.tenantId, tenantId), eq(endpointReports.endpointId, id)))
+      .where(listedReports)
       .orderBy(endpointReports.kind, desc(endpointReports.checkedAt));
     const listed = new Set(recentReports.map((report) => report.id));
     const reports = [
@@ -388,6 +527,7 @@ export async function getEndpoint(
     const jobsOf = await jobsOfEndpoints(tx, tenantId, [id]);
     const membership = await jobWithOverridesOf(tx, tenantId, id);
     const assignees = await loadAssignees(tx, tenantId, [endpoint.assignedUserId]);
+    const recoveries = await activeRecoveriesOf(tx, [id]);
     const summary = toSummary(
       endpoint,
       runs[0] ?? null,
@@ -396,6 +536,7 @@ export async function getEndpoint(
       rated,
       jobsOf.get(id) ?? null,
       assigneeOf(assignees, endpoint),
+      recoveries.get(id) ?? null,
     );
     const retention = latestPerKind.find((report) => report.kind === "retention");
     const [tenantUsage] = await tx
@@ -427,11 +568,21 @@ export async function getEndpoint(
               expiresAt: endpoint.removal.expiresAt ?? null,
             }
           : null,
-      config: options.revealHooks ? endpoint.config : { ...endpoint.config, hooks: {} },
+      backupDeletion: pendingBackupDeletion(endpoint),
+      config: toConfigDto(
+        options.revealHooks ? endpoint.config : { ...endpoint.config, hooks: {} },
+        { os: endpoint.os, baremetalPreview: appConfig.baremetalPreview },
+      ),
       configVersion: endpoint.configVersion,
       agentConfigVersion: endpoint.agentConfigVersion,
       dataFolders: dataFoldersOf(endpoint, membership),
       machine: machineOf(endpoint),
+      appNotices: appFilesNotices(endpoint.settings.agent?.machine?.windows, endpoint.config.sql),
+      sqlNative: {
+        capable:
+          endpoint.os === "windows" && hasSqlCapability(endpoint.settings.agent?.capabilities),
+        enabled: endpoint.config.sql?.enabled === true,
+      },
       settings: effectiveSettings(endpoint.settings),
       problems: problemsOf(endpoint, runs[0] ?? null, readinessOf(readiness, id), now),
       runs: runs.map((run) => toRunSummary(run, rated)),
@@ -519,9 +670,10 @@ export async function getRun(
 // Enrollment tokens
 // ---------------------------------------------------------------------------
 
-function toTokenDto(
+export function toTokenDto(
   row: typeof endpointEnrollmentTokens.$inferSelect,
   now: Date,
+  endpointName: string | null = null,
 ): EnrollmentTokenDto {
   return {
     id: row.id,
@@ -531,6 +683,10 @@ function toTokenDto(
     expiresAt: row.expiresAt.toISOString(),
     state: enrollmentTokenState(row, now),
     usedByEndpointId: row.usedByEndpointId,
+    kind: row.endpointId ? "rebind" : "enroll",
+    purpose: row.purpose ?? null,
+    endpointId: row.endpointId ?? null,
+    endpointName: row.endpointId ? endpointName : null,
   };
 }
 
@@ -545,13 +701,9 @@ export async function createEnrollmentToken(
   if (!isSupportedEndpointOs(input.os)) {
     throw new ProblemError(422, "Operating system not supported", {
       type: UNSUPPORTED_OS_PROBLEM,
-      detail:
-        "Windows endpoints are not supported yet. This release backs up Linux and macOS machines.",
-      extensions: { supported: ["linux", "darwin"] },
+      detail: `The operating system "${input.os.slice(0, 40)}" is not supported. This release backs up Linux, macOS and Windows (amd64) machines.`,
+      extensions: { supported: [...SUPPORTED_ENDPOINT_OS] },
     });
-  }
-  if (input.os === "windows") {
-    throw new ProblemError(422, "Operating system not supported", { type: UNSUPPORTED_OS_PROBLEM });
   }
   if (!instance.url || !isSafeOrigin(instance.url)) {
     throw new ProblemError(503, "Instance address unknown", {
@@ -594,6 +746,7 @@ export async function createEnrollmentToken(
     });
     return created;
   });
+  const windows = input.os === "windows" ? await windowsInstallFacts(instance.url) : null;
   const warnings: CreatedTokenDto["warnings"] = [];
   if (isInsecureTransport(instance.url)) {
     warnings.push("insecure_transport");
@@ -606,7 +759,10 @@ export async function createEnrollmentToken(
     token: token.value,
     os: input.os,
     instanceUrl: instance.url,
-    commands: installCommands(input.os, instance.url),
+    commands: installCommands(input.os, instance.url, {
+      releaseKeyFingerprint: windows?.releaseKeyFingerprint ?? null,
+    }),
+    ...(windows ? { windows } : {}),
     warnings,
   };
 }
@@ -625,8 +781,13 @@ export async function listEnrollmentTokens(
   const validOnly = (filter.state ?? "valid") === "valid";
   return withTenantTx(database, tenantId, async (tx) => {
     const rows = await tx
-      .select()
+      .select({
+        token: endpointEnrollmentTokens,
+        hostname: endpoints.hostname,
+        displayName: endpoints.displayName,
+      })
       .from(endpointEnrollmentTokens)
+      .leftJoin(endpoints, eq(endpoints.id, endpointEnrollmentTokens.endpointId))
       .where(
         and(
           eq(endpointEnrollmentTokens.tenantId, tenantId),
@@ -641,7 +802,11 @@ export async function listEnrollmentTokens(
       )
       .orderBy(desc(endpointEnrollmentTokens.createdAt))
       .limit(TOKEN_LIST_LIMIT);
-    return { items: rows.map((row) => toTokenDto(row, now)) };
+    return {
+      items: rows.map((row) =>
+        toTokenDto(row.token, now, row.displayName?.trim() || row.hostname || null),
+      ),
+    };
   });
 }
 
@@ -684,7 +849,12 @@ export async function revokeEnrollmentToken(
       action: ENDPOINT_AUDIT_ACTIONS.tokenRevoked,
       target: tokenId,
       targetType: "endpoint_enrollment_token",
-      details: { profile: row.profile },
+      details: {
+        profile: row.profile,
+        ...(row.endpointId
+          ? { kind: "rebind", endpointId: row.endpointId, purpose: row.purpose }
+          : {}),
+      },
     });
   });
 }
@@ -732,6 +902,9 @@ export function assertHooksAllowed(
     }
   }
 }
+
+/** Configuration keys a machine keeps for itself, also in a backup job. */
+const MACHINE_OWN_KEYS: ReadonlySet<string> = new Set(["onlyOnAcPower", "useVss", "fsSnapshot"]);
 
 /** Apply a validated change to a configuration; returns the new one and which keys changed. */
 export function applyConfigChange(
@@ -787,6 +960,20 @@ export function applyConfigChange(
   if (change.onlyOnAcPower !== undefined && change.onlyOnAcPower !== current.onlyOnAcPower) {
     config.onlyOnAcPower = change.onlyOnAcPower;
     changed.push("onlyOnAcPower");
+  }
+  if (change.useVss !== undefined && change.useVss !== current.useVss) {
+    config.useVss = change.useVss;
+    changed.push("useVss");
+  }
+  // File system snapshots on Linux: null returns to the default, which leaves the key out.
+  if (change.fsSnapshot !== undefined && (change.fsSnapshot ?? undefined) !== current.fsSnapshot) {
+    if (change.fsSnapshot === null) {
+      const { fsSnapshot: _removed, ...without } = config;
+      config = without;
+    } else {
+      config.fsSnapshot = change.fsSnapshot;
+    }
+    changed.push("fsSnapshot");
   }
   return { config, changed };
 }
@@ -907,8 +1094,23 @@ export async function updateEndpoint(
     const managed = await jobWithOverridesOf(tx, tenantId, id);
     if (change.config) {
       const applied = applyConfigChange(endpoint.config, change.config);
-      if (managed && applied.changed.some((key) => key !== "onlyOnAcPower")) {
+      // The machine's own switches (AC power, shadow copy, file system snapshot) stay with the
+      // machine in a job.
+      if (managed && applied.changed.some((key) => !MACHINE_OWN_KEYS.has(key))) {
         throw configManagedByJob(managed.job);
+      }
+      if (applied.changed.includes("useVss") && endpoint.os !== "windows") {
+        throw new ProblemError(422, "Validation failed", {
+          detail: "The shadow copy (useVss) is a setting of Windows machines only.",
+          extensions: { errors: [{ path: "config.useVss", code: "windows_only" }] },
+        });
+      }
+      if (applied.changed.includes("fsSnapshot") && endpoint.os !== "linux") {
+        throw new ProblemError(422, "Validation failed", {
+          detail:
+            "The file system snapshot (fsSnapshot: LVM, btrfs) is a setting of Linux machines only.",
+          extensions: { errors: [{ path: "config.fsSnapshot", code: "linux_only" }] },
+        });
       }
       // Backups run only in a job (release 0.2.1): a machine in none may stop its schedule (`none`)
       // but not start one. Its folders and the rest stay changeable; they take effect in a job.
@@ -1046,14 +1248,56 @@ export async function revokeEndpoint(
 
 const FULL_SNAPSHOT_ID = /^[0-9a-f]{64}$/i;
 
+/**
+ * Where a machine's restore reads when the primary no longer holds its repository, and the id
+ * under which that target holds the snapshot (`snapshotId` may be the id the runs recorded on
+ * the primary, or the copy's own, as the snapshot list shows it then). Null on the primary.
+ */
+async function restoreFromCopy(
+  database: Database,
+  tenantId: string,
+  endpointId: string,
+  snapshotId: string,
+): Promise<{ readFrom: ReadFrom; snapshotId: string } | null> {
+  const source = await repositorySource(tenantId, endpointPrefix(endpointId));
+  const readFrom = readFromOf(source);
+  if (!readFrom) {
+    return null;
+  }
+  const endpoint = await withTenantTx(database, tenantId, (tx) =>
+    loadEndpoint(tx, tenantId, endpointId),
+  );
+  const password = endpoint.repositorySecretId
+    ? await readSecret(database, { id: endpoint.repositorySecretId, tenantId })
+    : null;
+  if (password === null) {
+    return null;
+  }
+  return {
+    readFrom,
+    snapshotId: await snapshotOnSource(
+      source,
+      { tenantId, prefix: endpointPrefix(endpointId), password, repositoryKey: endpointId },
+      snapshotId,
+    ),
+  };
+}
+
 export async function createTask(
   database: Database,
   tenantId: string,
   id: string,
   input: CreateTaskInput,
-  actor: EndpointActor,
+  actor: SnapshotReader,
   now: Date = new Date(),
 ): Promise<{ task: TaskDto; alreadyQueued: boolean }> {
+  // A restore while the primary no longer holds the repository reads its copy on a copy target
+  // (docs/STORAGE.md, "Restoring from a copy"): the task names the snapshot by the id that
+  // repository holds it under, and says which target it reads.
+  const fromCopy =
+    input.kind === "restore" && FULL_SNAPSHOT_ID.test(input.snapshotId)
+      ? await restoreFromCopy(database, tenantId, id, input.snapshotId)
+      : null;
   return withTenantTx(database, tenantId, async (tx) => {
     const endpoint = await loadEndpoint(tx, tenantId, id);
     if (endpoint.status !== "active") {
@@ -1067,6 +1311,25 @@ export async function createTask(
         detail: "A restore names a snapshot by its full id.",
       });
     }
+    const targetIssue =
+      input.kind === "restore" && input.targetDir
+        ? restoreTargetIssue(endpoint.os, input.targetDir)
+        : null;
+    if (targetIssue) {
+      throw new ProblemError(422, "Validation failed", {
+        detail:
+          endpoint.os === "windows"
+            ? `The restore folder is not usable on Windows (${targetIssue}): use a local folder such as D:\\Restore, outside Windows, Program Files and the agent's own data.`
+            : `The restore folder is not usable (${targetIssue}): use an absolute path below / without ".", ".." or double slashes.`,
+        extensions: { errors: [{ path: "targetDir", code: targetIssue }] },
+      });
+    }
+    // The agent's state file is restored to nobody, a key file only by an admin (5.4). A folder
+    // is not filtered: its files stay on the same machine, in a new folder only root can read.
+    const revealsKeyFile =
+      input.kind === "restore"
+        ? (await checkSelection(tx, id, input.snapshotId, input.paths, actor, false)).revealsKeyFile
+        : false;
     if (input.kind === "backup_now" && !(await jobWithOverridesOf(tx, tenantId, id))) {
       throw notInJob(
         "This machine is in no backup job, so it has nothing to back up. Add it to a job first.",
@@ -1092,9 +1355,10 @@ export async function createTask(
     const params: Record<string, unknown> =
       input.kind === "restore"
         ? {
-            snapshotId: input.snapshotId,
+            snapshotId: fromCopy?.snapshotId ?? input.snapshotId,
             paths: input.paths,
             ...(input.targetDir ? { targetDir: input.targetDir } : {}),
+            ...(fromCopy ? { readFrom: fromCopy.readFrom } : {}),
           }
         : {};
     const [task] = await tx
@@ -1126,14 +1390,30 @@ export async function createTask(
         taskId: task.id,
         ...(input.kind === "restore"
           ? {
-              snapshotId: input.snapshotId,
+              snapshotId: fromCopy?.snapshotId ?? input.snapshotId,
               paths: input.paths.slice(0, 50),
               pathCount: input.paths.length,
               targetDir: input.targetDir ?? null,
+              ...(fromCopy ? { readFrom: fromCopy.readFrom } : {}),
             }
           : {}),
       },
     });
+    if (revealsKeyFile && input.kind === "restore") {
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.secretFileRevealed,
+        endpointId: id,
+        details: {
+          hostname: endpoint.hostname,
+          snapshotId: input.snapshotId,
+          taskId: task.id,
+          via: "restore",
+          paths: input.paths.slice(0, 50),
+        },
+      });
+    }
     return { task: toTask(task, NO_RATED_TESTS), alreadyQueued: false };
   });
 }
@@ -1211,6 +1491,24 @@ export async function requestRestoreTest(
       throw new ProblemError(409, "Nothing to test", {
         type: ENDPOINT_PROBLEMS.nothingToTest,
         detail: "The endpoint has no good backup to test yet.",
+      });
+    }
+    // Without sample files the worker has nothing to read back: say so instead of queueing a
+    // test that ends without a result.
+    const [sample] = await tx
+      .select({ id: endpointSamples.id })
+      .from(endpointSamples)
+      .where(
+        and(
+          eq(endpointSamples.endpointId, id),
+          eq(endpointSamples.snapshotId, endpoint.lastSnapshotId),
+        ),
+      )
+      .limit(1);
+    if (!sample) {
+      throw new ProblemError(409, "No sample files", {
+        type: ENDPOINT_PROBLEMS.noSamples,
+        detail: "The newest backup recorded no sample files, so no restore test of it is possible.",
       });
     }
     const payload: EndpointJobPayload = { tenantId, endpointId: id, force: true };
@@ -1369,6 +1667,23 @@ export async function listSnapshots(
     }
     return bySnapshot;
   });
+  // Read from a repository copy (the primary lost the repository, docs/STORAGE.md "restic
+  // repositories on copies"), a snapshot has an id of its own; what the server recorded about
+  // it is filed under the primary's id, which `restic copy` keeps as `original`. After a
+  // promotion ("Promoting a copy") the records name the promoted copy's ids, whose persistent id
+  // `restic_snapshot_origins` keeps: on the primary they are the snapshots' own ids, on another
+  // copy target the origin leads from the `original` back to them.
+  const origins = snapshots.some((snapshot) => snapshot.original)
+    ? await withTenantTx(database, tenantId, (tx) =>
+        loadSnapshotOrigins(tx, tenantId, endpointPrefix(id)),
+      )
+    : [];
+  const isRecorded = (snapshotId: string) =>
+    ratings.has(snapshotId) || flags.has(snapshotId) || added.has(snapshotId);
+  const recordedId = (snapshot: (typeof snapshots)[number]) =>
+    isRecorded(snapshot.id)
+      ? snapshot.id
+      : recordedOfPersistent(origins, snapshot.original ?? snapshot.id, isRecorded);
   return {
     items: snapshots.map((snapshot) => ({
       id: snapshot.id,
@@ -1379,9 +1694,9 @@ export async function listSnapshots(
       filesNew: snapshot.filesNew,
       totalFilesProcessed: snapshot.totalFilesProcessed,
       totalBytesProcessed: snapshot.totalBytesProcessed,
-      dataAdded: added.get(snapshot.id) ?? snapshot.dataAdded,
-      verification: ratings.get(snapshot.id) ?? { state: "unverified", checkedAt: null },
-      flags: flags.get(snapshot.id) ?? [],
+      dataAdded: added.get(recordedId(snapshot)) ?? snapshot.dataAdded,
+      verification: ratings.get(recordedId(snapshot)) ?? { state: "unverified", checkedAt: null },
+      flags: flags.get(recordedId(snapshot)) ?? [],
     })),
   };
 }
@@ -1419,11 +1734,18 @@ export async function browseSnapshot(
   tenantId: string,
   id: string,
   query: { snapshotId: string; path: string; limit: number; cursor?: string },
-  actor: EndpointActor,
+  actor: SnapshotReader,
   signal?: AbortSignal,
 ): Promise<BrowseDto> {
   const after = decodeBrowseCursor(query.cursor);
   const { endpoint, open } = await openFor(database, tenantId, id);
+  // Hidden from the listing (5.4): the agent's state file for everybody, key files for the
+  // restore role. The page and its cursor stay those of the full folder.
+  const keyFiles =
+    readerRole(actor) === "restore"
+      ? await loadKeyFiles(database, tenantId, id, query.snapshotId)
+      : [];
+  const shown = (path: string) => !isAgentStatePath(path) && !isKeyFilePath(path, keyFiles);
   const listing = await resticGate.run(tenantId, async () => {
     const repository = await open();
     try {
@@ -1459,13 +1781,15 @@ export async function browseSnapshot(
   return {
     snapshotId: query.snapshotId,
     path: query.path,
-    entries: listing.entries.map((entry) => ({
-      name: entry.name,
-      path: entry.path,
-      type: entry.type,
-      size: entry.size,
-      mtime: entry.mtime,
-    })),
+    entries: listing.entries
+      .filter((entry) => shown(entry.path))
+      .map((entry) => ({
+        name: entry.name,
+        path: entry.path,
+        type: entry.type,
+        size: entry.size,
+        mtime: entry.mtime,
+      })),
     nextCursor,
   };
 }
@@ -1499,11 +1823,16 @@ export async function prepareDownload(
   tenantId: string,
   id: string,
   input: CreateDownloadInput,
-  actor: EndpointActor,
+  actor: SnapshotReader,
   signal?: AbortSignal,
   now: Date = new Date(),
 ): Promise<PreparedDownloadDto> {
   const { open } = await openFor(database, tenantId, id);
+  // A path that is the agent's state file (everybody) or a key file (restore role) is refused
+  // before restic runs; a folder holding one is packed without it (openDownload).
+  await withTenantTx(database, tenantId, (tx) =>
+    checkSelection(tx, id, input.snapshotId, input.paths, actor, true),
+  );
   const release = resticGate.acquire(tenantId);
   let repository: Awaited<ReturnType<typeof open>> | null = null;
   try {
@@ -1572,7 +1901,7 @@ export async function openDownload(
   tenantId: string,
   id: string,
   downloadId: string,
-  actor: EndpointActor,
+  actor: SnapshotReader,
   signal?: AbortSignal,
   now: Date = new Date(),
 ): Promise<DownloadStream> {
@@ -1604,8 +1933,13 @@ export async function openDownload(
     if (!download) {
       throw downloadGone();
     }
-    await withTenantTx(database, tenantId, (tx) =>
-      auditEndpoint(tx, {
+    const paths = download.selection.map((item) => item.path);
+    const role = readerRole(actor);
+    const keyFiles = await loadKeyFiles(database, tenantId, id, download.snapshotId);
+    const revealsKeyFile =
+      role === "admin" && paths.some((path) => selectionCovers(path, keyFiles));
+    await withTenantTx(database, tenantId, async (tx) => {
+      await auditEndpoint(tx, {
         tenantId,
         actor,
         action: ENDPOINT_AUDIT_ACTIONS.download,
@@ -1614,17 +1948,37 @@ export async function openDownload(
           hostname: endpoint.hostname,
           snapshotId: download.snapshotId,
           downloadId: download.id,
-          paths: download.selection.slice(0, 50).map((item) => item.path),
+          paths: paths.slice(0, 50),
           pathCount: download.selection.length,
         },
-      }),
-    );
+      });
+      if (revealsKeyFile) {
+        await auditEndpoint(tx, {
+          tenantId,
+          actor,
+          action: ENDPOINT_AUDIT_ACTIONS.secretFileRevealed,
+          endpointId: id,
+          details: {
+            hostname: endpoint.hostname,
+            snapshotId: download.snapshotId,
+            downloadId: download.id,
+            via: "download",
+            keyFiles: keyFiles.filter((file) =>
+              paths.some((path) => selectionCovers(path, [file])),
+            ),
+          },
+        });
+      }
+    });
     const zip = streamSnapshotZip({
       session: repository.session,
       snapshotId: download.snapshotId,
       paths: download.selection.map((item) => item.path),
       selection: download.selection,
       signal,
+      // Never the agent's state file; key files only for an admin (5.4).
+      skip: (path) =>
+        isAgentStatePath(path) || (role === "restore" && isKeyFilePath(path, keyFiles)),
       comment: `Restow endpoint backup, ${endpoint.hostname}, snapshot ${download.snapshotId.slice(0, 8)}`,
     });
     const opened = repository;

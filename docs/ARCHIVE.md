@@ -4,8 +4,8 @@ Backup ist zum Zurückholen, Archiv ist zum Beweisen. Restow führt beides im se
 Speicher, aber mit getrennten Regeln. Dieses Dokument ist die fachliche Grundlage; es
 ist keine Rechtsberatung, die Paragraphen dienen der Orientierung.
 
-**Stand: Restow 0.4.4.** Was diese Version kann, steht im Abschnitt "Umsetzungsstand" am
-Ende, geprüft gegen den Code von 0.4.4. Was noch nicht umgesetzt ist, ist als **"Zielbild"**
+**Stand: Restow 0.5.0.** Was diese Version kann, steht im Abschnitt "Umsetzungsstand" am
+Ende, geprüft gegen den Code von 0.5.0. Was noch nicht umgesetzt ist, ist als **"Zielbild"**
 gekennzeichnet.
 
 ## Was das Gesetz verlangt (Deutschland)
@@ -161,6 +161,68 @@ Kurz: Journaling beweist jede Mail so, wie sie durch den Server ging; die zeitna
 liefert jede Mail so, wie sie kurz danach im Postfach lag. Restow kennzeichnet beides und
 behauptet für die zeitnahe Erfassung keine Vollständigkeit.
 
+### Lücken der Erfassung
+
+Was ein Weg aus dem Postfach nicht übernehmen kann, hält Restow seit 0.5.0 dauerhaft fest
+(`archive_capture_gaps`), statt es nur zu protokollieren: einen Ordner, den der Server verweigert
+(STATUS, EXAMINE, SEARCH oder FETCH mit NO), eine Nachricht, die er auflistet, aber nie
+ausliefert, und bei Graph eine Nachricht ohne MIME-Export (docs/MICROSOFT.md). Ein
+fehlgeschlagener Versuch zählt höchstens einmal je Stunde (Migration 0088, `last_attempt_at`),
+denn Durchgänge laufen Minuten auseinander und ein Server, der eine Viertelstunde lang verweigert
+(eine Folge von 5xx, ein gedrosselter Ordner), soll nicht alle Versuche einer Mail verbrauchen,
+die kurz darauf wieder abrufbar ist. Vom dritten gezählten Versuch an (frühestens nach zwei
+Stunden, oder wenn der Weg sofort aufgibt) ist die Lücke offen. Eine offene Lücke ist nicht
+endgültig: Einmal am Tag fragt die Erfassung erneut nach einer nicht ausgelieferten
+IMAP-Nachricht, nach dem Altbestand eines Ordners, den die Übernahme aufgegeben hat (der Ordner
+wird dafür von der ersten UID an gelesen), und nach einer Graph-Nachricht, deren Export oder
+Abruf scheiterte (`export_failed`, `fetch_failed`, über die Liste der ausstehenden Mails). Eine
+Mail über ~150 MB oder eine, die Exchange nicht umwandeln kann, fragt sie nicht erneut ab: daran
+ändert ein neuer Versuch nichts. Eine Grenze des Kontos (`imap.server_limit`, etwa Gmails "[OVERQUOTA] Account exceeded
+command or bandwidth limits") zählt nicht gegen den Ordner: Die Übernahme hält an und setzt mit
+dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
+
+- **Übernahme des Altbestands (IMAP):** Ein verweigerter Ordner bleibt offen und wird von den
+  nächsten Jobs erneut versucht (der nächste Job frühestens eine Stunde nach einem, der so
+  endete; dieser nennt den Ordner und die Nachrichten, die warten, als fehlgeschlagene
+  Elemente, er gilt also nicht als einfach erfolgreich), eine nicht ausgelieferte Nachricht bleibt in der Position der
+  Übernahme und wird erneut angefordert; erst nach drei Jobs wird sie als Lücke aufgegeben und
+  die Übernahme kann abschließen. Vorher galt ein solcher Ordner nach dem ersten Fehler als
+  erledigt, eine solche Nachricht nach einem Versuch. Die Übernahme zählt einen Ordner als
+  eigene Lücke (Art `backfill_folder`, Migration 0087), getrennt von der laufenden Erfassung:
+  Ein Durchgang, der nur STATUS fragt oder die neue Mail liest, setzt ihre Versuche nicht
+  zurück und schließt sie nicht, denn den Altbestand des Ordners hat er nicht gelesen. Erledigt
+  ist sie erst, wenn der Altbestand übernommen ist (durch die Übernahme oder einen Neuabgleich,
+  der den Ordner von vorn liest).
+- **Laufende Erfassung (IMAP):** Ein Ordner, der drei Durchgänge in Folge verweigert wird, ist
+  eine offene Lücke; eine Nachricht, die nach drei Durchgängen aufgegeben wird, ebenso.
+- **Graph:** Eine Mail über ~150 MB (`too_large`) oder eine, die Exchange nicht in MIME umwandeln
+  kann (`not_convertible`), ist sofort eine offene Lücke; das Archiv hält nur MIME und baut aus
+  den JSON-Teilen keine Mail nach. Scheitert der MIME-Export mit einem 5xx, bleibt die Mail
+  ausstehend und wird bei den nächsten Durchgängen erneut geholt; nach drei Fehlschlägen ist sie
+  eine Lücke (`export_failed`). Eine gemeldete Mail, die sich nicht abrufen lässt (Graph
+  antwortet etwa 403 `ErrorAccessDenied` für ein Element, das die App nicht lesen darf), bleibt
+  ausstehend und zählt ihre Versuche (Migration 0085); seltener versuchte Meldungen kommen zuerst
+  an die Reihe, eine gescheiterte wartet vor dem nächsten Abruf (10 Minuten, dann doppelt so lang,
+  höchstens eine Stunde; der Stream wird zu diesem Zeitpunkt wieder fällig), auch wenn Durchgänge
+  wegen eines vollen Stapels direkt aufeinander folgen, und nach fünf Fehlschlägen wird sie als
+  offene Lücke (`fetch_failed`) aus der
+  Warteschlange genommen und dem Nachholen überlassen. Ein Durchgang, in dem keine Meldung
+  abgerufen werden konnte, schlägt nicht mehr fehl und überspringt das Nachholen nicht (vorher
+  blockierte schon eine solche Meldung jeden Durchgang des Postfachs). docs/MICROSOFT.md,
+  "Abholen". Verweigert Graph den MIME-Export einer einzelnen Nachricht mit 403
+  (oder 400, 409, 422), scheitern Nachholen und Übernahme daran nicht mehr (vorher hielt jeder
+  Durchgang an derselben Nachricht an, die Delta-Position wurde nie gespeichert und neuere Mail
+  des Ordners blockiert): Sie zählt wie ein gescheiterter Export und ist nach drei Versuchen
+  eine Lücke (`fetch_failed`).
+- **Anzeige:** Die Archiv-Seite zeigt beim Weg, wie viele Postfächer unvollständig sind, und je
+  Postfach die Zahl der offenen Lücken (gelb, nie als in Ordnung).
+  `GET /api/v1/archive/capture/mailboxes/:objectId/gaps` listet sie (Art, Ordner oder Nachricht,
+  Grund, Versuche, seit wann). Die Erfassungs-Warnung `capture_gap` (Ereignis `archive.failed`)
+  geht je Stream hinaus, wenn eine Lücke neu offen ist.
+- **Schließen:** Wird der Ordner später gelesen oder die Nachricht doch erfasst (ein Durchgang,
+  die tägliche erneute Abfrage, ein Neuabgleich, der alle Ordner von vorn liest), ist die Lücke
+  erledigt; sie bleibt als Eintrag erhalten.
+
 ## Exchange-Online-Journaling einrichten
 
 Journaling liefert die Kopie jeder Mail an Restow, bevor der Nutzer sie verändern oder
@@ -256,7 +318,8 @@ Die Adresse lautet `journal+<token>@<Journal-Host>`. Der Token ist je Mandant zu
 (32 Zeichen, nur Kleinbuchstaben und Ziffern, weil Mailsysteme die Groß-/Kleinschreibung
 des lokalen Teils nicht zuverlässig erhalten) und steht nur in der Datenbank
 (`tenants.journal_token`). Die erste Ansicht des Abschnitts erzeugt die Adresse und schreibt
-`archive.journal.address_created` ins Audit-Log. Ist `JOURNAL_HOSTNAME` nicht gesetzt oder
+`archive.journal.address_created` ins Audit-Log. Der Hinweis zum Journal-Host auf der
+Mandantenseite liest nur den Host (`GET /archive/journal/host`) und erzeugt keine Adresse. Ist `JOURNAL_HOSTNAME` nicht gesetzt oder
 ungültig, zeigt Restow keine vollständige Adresse, sondern sagt das ausdrücklich.
 
 Der Status des Abschnitts:
@@ -355,6 +418,12 @@ Verzeichnissynchronisierung speichert (`users.mail_addresses`); ein IMAP-Konto �
 Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, wie
 `archive_items`).
 
+- Als Journal-Report gilt nur eine Mail mit dem Header `X-MS-Journal-Report`, die allein an die
+  Journal-Adresse des Mandanten ging (seit 0.5.0). Header und Umschlagtext kann jeder Absender
+  schreiben; eine Mail an die Archiv-Adresse eines Kontos (`archive+<token>`) oder ohne den
+  Header wird deshalb nie nach ihrem Umschlag zugeordnet, sondern so archiviert, wie sie ankam
+  (Quelle `smtp_forward`, für eine Konto-Adresse nur diesem Konto). Ist sie wie ein Report
+  aufgebaut, trägt sie die Markierung `journal-shaped` (docs/IMAP.md, "Weiterleitung").
 - Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
   dem Mandanten. Nichts wird verworfen.
 - Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.
@@ -432,6 +501,12 @@ Wann was:
   Datensatz je Objekt: `tenants/<tid>/archive/<jahr>/<monat>/<archive_item_id>.json`
   (Format: `packages/core/src/archive/FORMAT.md`). Auf einem S3-Ziel mit Object Lock
   (Compliance-Modus) trägt dieser Datensatz eine Retention bis zum Fristende des Archivs.
+  Seit 0.5.0 kopieren der Kopie-Spiegel der Speicherprüfung, die Speichermigration (`move`)
+  und die Vollständigkeitsprüfung vor dem Hochstufen einer Kopie auch diese Datensätze, jeden
+  mit dem Fristende seiner Katalogzeile (`retention_until`); ein Repository mit Datensätzen,
+  die kein anderes Ziel hat, lässt sich nicht entfernen (docs/STORAGE.md, "Copies and the
+  archive"). Vorher erreichten Datensätze ein später hinzugefügtes Ziel nie, und nach einem
+  `move` lagen die älteren nur noch auf dem alten Ziel.
 - **Seit 0.4.0** lässt sich Object Lock je Repository einschalten (docs/STORAGE.md,
   "Immutable backups"). Dann sind auch die Packs des Chunk-Stores gesperrt, also auch die
   Inhalte archivierter Mails: für die Frist des Repositories (1 bis 3650 Tage), verlängert,
@@ -448,7 +523,14 @@ Wann was:
   ab 1 und Element), den Abgleich mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis
   zum neuesten Anker; Einträge danach sind noch nicht versiegelt) und optional eine Stichprobe
   von Nachrichten, die aus dem Speicher gelesen und mit Größe und SHA-256 der Erfassung
-  verglichen werden. Jede Prüfung steht im Audit-Log (`archive.chain.verified`). Zielbild:
+  verglichen werden. Als Fehler der Stichprobe zählt seit 0.5.0 nur ein Beleg: ein fehlender
+  Chunk oder Pack (`missing`), Daten, die sich nicht entschlüsseln oder lesen lassen
+  (`damaged`), oder ein abweichender Inhalt (`mismatch`). Liefert der Speicher nicht
+  (Zeitüberschreitung, 5xx, verweigerter Zugriff), ist die Nachricht nicht geprüft; das
+  Ergebnis heißt dann "Nicht geprüft, bitte wiederholen" (`ok: null`), nie "nicht bestanden".
+  Nach Fristablauf gelöschte Objekte zählen über ihren Löschvermerk mit
+  (Abschnitt "Löschkonzept"). Jede Prüfung steht im Audit-Log (`archive.chain.verified`, mit Element und Ursache
+  jedes Fehlers und der Zahl nicht geprüfter Nachrichten). Zielbild:
   Versand der Anker per E-Mail und externe Zeitstempel (RFC 3161).
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Seit 0.4.4 erkennt das
   Archiv dieselbe Mail aus mehreren Erfassungswegen an Message-ID und Inhalt (exakte Bytes oder
@@ -456,8 +538,15 @@ Wann was:
   Erfassungszeile an diesem Objekt (`archive_item_captures`, Beleg außerhalb der Kette) und
   eine Zuordnung zum Postfach; eine stärkere wird ein neues Objekt, das das schwächere
   ersetzt (`supersedes_item_id`; das alte bleibt unverändert). Gleiche Message-ID mit anderem
-  Body bleibt zweimal erhalten (`message-id-conflict`). Journal-Reports und importierte Mail
-  bleiben eigene Objekte. Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
+  Body bleibt zweimal erhalten (`message-id-conflict`). Vor dem Download überspringt die
+  Erfassung aus dem Postfach eine Mail nur, wenn ihre Fundstelle (Graph-ID, IMAP-Ordner und
+  UID) bekannt ist oder unter ihrer Message-ID eine Mail mit gleichem Merkmal archiviert ist:
+  bei IMAP die Größe (RFC822.SIZE), bei Graph das Datum aus dem Date-Header
+  (`sentDateTime`, auf die Sekunde). Sonst wird sie geladen und wie oben entschieden (seit
+  0.5.0; vorher genügte die Message-ID, und eine andere Mail mit derselben Message-ID kam nie
+  ins Archiv). Journal-Reports und importierte Mail
+  bleiben eigene Objekte; nur derselbe Journal-Report, von Exchange nach einem verlorenen 250
+  erneut gesendet, wird kein zweites (seit 0.5.0, docs/IMAP.md "Journal-Empfänger"). Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
   das Original wird vor der Sperre der Kette hochgeladen, unter der Sperre steigt
   `created_at` je Mandant streng monoton (seit 0.4.4 keine Gabelung der Kette bei gleichem
   Zeitstempel mehr).
@@ -480,15 +569,66 @@ und Legal Hold sind Edition Business und Service Provider.
 - Zielbild: Richtlinie je Mandant (wählbar 6/8/10/unbegrenzt), optional je Postfach-Gruppe.
   Fristbeginn = Erfassungsdatum (oder Kalenderjahresende, wie AO § 147 Abs. 4 rechnet).
 - Legal Hold mit Grund, Anleger und Datum; blockiert die Löschung und wird auditiert. Er gilt
-  mandantenweit oder je Postfach (seit 0.3.1), nicht je Suchergebnis (Zielbild). Ein Hold je
-  Postfach schützt die Archivobjekte, die diesem Postfach gehören: aus dem Datei-Import und die
-  ihm zugeordneten Journal-Reports. Reports ohne Zuordnung schützt nur ein mandantenweiter
-  Hold. Die Freigabe verlangt einen Grund (`DELETE /archive/legal-holds/:id` mit
+  mandantenweit oder je Postfach (seit 0.3.1), nicht je Suchergebnis (Zielbild; ein Hold mit
+  Suchumfang wird vom Löschlauf nicht ausgewertet). Ein Hold je Postfach schützt jedes
+  Archivobjekt, das diesem Postfach gehört (`archiveItemOfMailbox`, der Löschlauf in
+  `ee/worker/src/archive-retention/archive-retention.ts` prüft alle Postfächer eines Objekts):
+  die für das Postfach erfasste Mail (Graph-Erfassung, IMAP-Archivierung, Weiterleitung an die
+  Archiv-Adresse des Kontos, Datei-Import) und die ihm zugeordneten Objekte
+  (`archive_item_mailboxes`), also Journal-Reports und an die Journal-Adresse des Mandanten
+  weitergeleitete Kopien, deren Empfänger oder Absender das Postfach nennen, und Mail, die ein
+  anderer Weg für dieses Postfach erneut erfasst hat (Abschnitt "Speicherung", Dedupe). Nur
+  Objekte ohne jede Zuordnung (ein Journal-Report, der kein geschütztes Postfach nennt) schützt
+  allein ein mandantenweiter Hold. Die Freigabe verlangt einen Grund (`DELETE /archive/legal-holds/:id` mit
   `{ "reason": … }`), den das Audit-Log (`archive.legal_hold.released`) festhält; ein bereits
   freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
-  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild: ein Löschprotokoll
-  (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
+  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Seit 0.5.0 seitenweise: je 500
+  fällige Objekte in der Reihenfolge des Fristendes (Index aus Migration 0082), je Seite eine
+  Transaktion; der Legal Hold wird in der Löschanweisung selbst geprüft, ein während des Laufs
+  gesetzter Hold schützt also alles, was der Lauf noch nicht erreicht hat. Ein abgebrochener
+  Job hört nach der laufenden Seite auf.
+
+### Löschkonzept
+
+Was der Löschlauf für ein Objekt nach Fristablauf tut, in einer Transaktion je Seite:
+
+- Die Zeile in `archive_items` wird gelöscht, mit ihr Betreff, Text, Umschlag, Zuordnungen zu
+  Postfächern (`archive_item_mailboxes`) und weitere Erfassungen (`archive_item_captures`).
+- Das Kettenglied bleibt als Löschvermerk (`archive_chain_tombstones`, Migration 0083, seit
+  0.5.0): ID und SHA-256 des Objekts, Eingangszeit, Kettenwert des Vorgängers und eigener
+  Kettenwert, Position (`created_at` der gelöschten Zeile), Fristende und Löschzeit. Kein Inhalt,
+  kein Betreff, keine Adresse. Die Vermerke sind für beide Datenbankrollen nur anfügbar.
+- Die Chunk-Referenzen des Objekts werden in derselben Transaktion freigegeben, genau die, die
+  der Schreiber genommen hat (eine je Vorkommen eines Chunks). Chunks, die eine Sicherung oder
+  ein anderes Archivobjekt noch braucht, behalten ihre Referenzen; alle anderen räumt die
+  Speicherbereinigung (Speicherprüfung) nach ihrer Schonfrist ab. Packs werden nie direkt
+  gelöscht.
+- Der versiegelte Datensatz (`tenants/<tid>/archive/…`) wird in derselben Transaktion zum
+  Löschen vorgemerkt (`archive_record_deletions`, Migration 0084) und gleich nach dem Commit auf
+  dem primären Ziel und jeder Kopie gelöscht. Verweigert ein Ziel das Löschen (Object Lock noch
+  aktiv, Ausfall), bleibt die Vormerkung mit Versuchen und Fehler stehen, der Lauf meldet sie als
+  aufgeschoben (`recordsDeferred`, Warnung im Worker-Log, einmal `archive.record.deletion_deferred`
+  im Audit-Log) und der nächste Lauf versucht es erneut; gelöschte Datensätze stehen gesammelt in
+  `archive.records.deleted`. Ein stillgelegtes Ziel (`previous`) wird nie beschrieben und behält
+  seine Kopie, bis es entfernt wird.
+- Das Audit-Log erhält je Objekt `archive.item.deleted` mit Hash, Kettenwert, Frist und was
+  gelöscht wurde (Zeile, Zahl der freigegebenen Referenzen, Datensatz vorgemerkt). Vor 0.5.0
+  löschte der Lauf nur die Zeile: Die Mail ließ sich aus dem Speicher weiter rekonstruieren, und
+  ihr Speicher wurde nie frei.
+
+Die Archivprüfung geht Objekte und Löschvermerke zusammen in Kettenreihenfolge durch: Ein
+Vermerk wird geprüft wie das Objekt, dessen Platz er einnimmt, liefert dem nächsten Eintrag den
+Vorgänger und zählt für die Positionen der Tagesanker mit (der Ankerlauf zählt beide). Das
+Ergebnis nennt die Zahl der nach Fristablauf gelöschten Einträge ("dokumentiert gelöscht"),
+kein Bruch. Eine Zeile, die ohne Vermerk fehlt (von Hand gelöscht), bleibt ein Bruch, ebenso ein
+geänderter oder verschobener Vermerk. Das gilt für eine gelöschte Spitze der Kette (die ältesten
+Objekte), für Lücken mitten in der Kette (neben Objekten unter Legal Hold oder spät erfassten)
+und für das jüngste Objekt: Der nächste Schreiber hängt an den Vermerk an. Vor 0.5.0 löschte der
+Lauf auch das Kettenglied, und die Prüfung meldete ab der ersten berechtigten Löschung für immer
+einen Bruch; Löschungen aus dieser Zeit (frühestens sechs Jahre nach der Erfassung, der
+kürzesten Frist, die eine Aufbewahrungsregel festlegen kann; ohne eigene Regel acht Jahre) lassen
+sich nicht nachträglich mit Vermerken versehen.
 
 ## Suche und Export
 
@@ -514,6 +654,130 @@ und Legal Hold sind Edition Business und Service Provider.
   Freigabe durch den Mandanten; `CHAIN.txt` im Export; der Nachweisbericht als signiertes PDF
   in der Oberfläche.
 
+## Aus dem Archiv im Restore-Explorer
+
+Seit 0.5.0 (#48) bietet der Restore-Explorer bei einem Postfach oder IMAP-Konto unter den
+Ordnern den Eintrag **"Aus dem Archiv"**: die Mail, die nach der neuesten Sicherung ins Archiv
+kam. Damit schließt das Archiv die Lücke zwischen zwei Sicherungen, ohne dass öfter gesichert
+werden muss. Die Quelle ist nur lesend.
+
+- **Was erscheint** (`GET /api/v1/archive/gap?object=<id>`,
+  `apps/api/src/features/archive/gap.ts`): die Archivobjekte, die dem Postfach gehören (eigene
+  Erfassung und zugeordnete Journal-Reports und Kopien, wie beim Legal Hold), erfasst ab dem
+  Beginn der neuesten abgeschlossenen Sicherung (eine Mail, die während des Laufs ankam,
+  erscheint also eher doppelt als gar nicht), die neueste zuerst, 50 je Seite. Nicht darin:
+  von einem stärkeren Weg ersetzte Erfassungen (wie in der Suche), importierte Mail-Dateien und
+  die einmalige Übernahme des Altbestands (`captured-late`): sie kamen nicht nach der Sicherung
+  an, was im Postfach lag, hat die Sicherung. Ein Konto ohne Sicherung zeigt alle diese Objekte.
+  Ein importiertes Postfach bietet die Quelle nicht an.
+- **Grenze ist der Zeitpunkt der Erfassung**, nicht das Datum der Mail: Eine Mail, die kurz vor
+  Beginn der Sicherung im Postfach lag, aber erst danach erfasst wurde (Graph und IMAP erfassen
+  kurz nach der Zustellung), erscheint, statt zu fehlen; das Datum im Kopf einer Mail sagt, wann
+  sie geschrieben, nicht wann sie zugestellt wurde. Hält die neueste Sicherung eine Mail mit
+  derselben Message-ID (so geschrieben wie im Kopf der Mail oder ganz klein, mit oder ohne
+  spitze Klammern, gelöschte eingeschlossen), trägt der Eintrag den Hinweis **"Schon in der Sicherung"** (`inBackup`, kein
+  Grün); Zurückholen legt dann eine zweite Kopie an. Geprüft werden nur die Einträge der Seite, die
+  vor dem Ende dieser Sicherung geschrieben wurden (oder kein Datum tragen): eine später
+  geschriebene Mail kann nicht darin sein. Eine Sicherung, deren Index noch im Format vor 0.3.4
+  liegt, wird nicht verglichen; der Hinweis fehlt dann.
+- **Kosten.** Die Liste liest die eigenen Erfassungen des Kontos als Bereich des Index
+  `archive_items_tenant_object_received_idx` (Mandant, Konto, Erfassungszeit; Migration 0075) ab
+  Beginn der Sicherung und die zugeordneten Objekte über ihre Zuordnungen, ebenfalls als
+  Bereich ab Beginn der Sicherung (`archive_item_mailboxes_object_created_idx`: Mandant, Konto,
+  Zeitpunkt der Zuordnung; 0075), nie das ganze Archiv des Mandanten und nie die ganze
+  Zuordnungsgeschichte eines Kontos, auch nicht, wenn Journalberichte oder weitergeleitete Kopien
+  (ohne eigenes Postfach geschrieben, nur zugeordnet) fast das ganze Archiv eines Kontos
+  ausmachen. Eine Zuordnung entsteht mit ihrem Objekt oder später, nie davor; die Grenze liegt
+  eine Stunde vor Beginn der Sicherung, für den Gang der Uhren von Worker und Datenbank, und die
+  genaue Bedingung auf die Erfassungszeit gilt danach. Die Gesamtzahl wird
+  über dieselbe Menge gezählt. Die Message-IDs der Seite sucht sie in der Sicherung über
+  `manifest_versions_object_message_idx` (Konto, Message-ID; ebenfalls 0075), nicht durch Lesen
+  jeder Mail der Sicherung. Verglichen wird deshalb die Schreibweise selbst, kein Ausdruck
+  darüber: unter Row Level Security nutzt Postgres einen Index nur für Bedingungen, die als
+  leakproof gelten.
+- **Lesen und Herunterladen** gehen über die Leseansicht und den `.eml`-Download des Archivs
+  (`GET /archive/items/:id`, `/preview`, `/download`), mit denselben Audit-Einträgen wie auf
+  der Archiv-Seite.
+- **Zurückholen** (`POST /api/v1/restore/archive`, `apps/api/src/features/restore/archive.ts`):
+  ausgewählte Nachrichten (bis 500 je Auftrag) gehen in das ursprüngliche Postfach oder
+  IMAP-Konto zurück, über denselben Restore-Job, Worker und dieselben Engines wie eine
+  Wiederherstellung aus einem Sicherungsstand. Der Worker gibt die Archivobjekte den Engines als
+  Quelle (`archiveRestoreSource`, `packages/core/src/restore/archive-source.ts`): das Original
+  wird aus dem Chunk-Store gelesen, jeder Chunk gegen seine ID und die ganze Nachricht gegen
+  Größe und SHA-256 der Erfassung geprüft, bevor sie das Postfach erreicht; Microsoft 365 per
+  MIME-Import über Graph, IMAP per APPEND. Archivierte Mail kennt keinen Ordner des Postfachs,
+  keinen Gelesen- oder Kennzeichnungsstatus: Sie kommt immer in einen eigenen, neuen Ordner
+  ("Aus dem Archiv <Datum>", bei IMAP darunter `INBOX`), und Vorhandenes bleibt unberührt
+  (Modus "Beide behalten"). Ziel ist nur das ursprüngliche Konto; ein verwaistes Konto lehnt die
+  API ab (409), in der Demo ist das Zurückholen gesperrt. Ein Objekt ohne gespeicherten
+  Inhaltsverweis (erfasst, bevor Restow ihn in der Zeile speicherte) lässt sich nur
+  exportieren (422). Zurückgeholt wird nur, was die Liste zeigt: Eine ersetzte Erfassung, eine
+  importierte Datei, die einmalige Übernahme oder Mail von vor der neuesten Sicherung lehnt die
+  API ab (422 `urn:restow:problem:archive-not-in-gap`), auch in einer von Hand gebauten Anfrage;
+  lief inzwischen eine neue Sicherung, ist die Liste neu zu laden. Der Lauf steht unter "Letzte Wiederherstellungen" mit der Quelle "Aus
+  dem Archiv" (`source: "archive"`, ohne Sicherungsstand); eine Nachricht, die das Archiv zwischen Auftrag und Lauf nicht mehr für das
+  Postfach führt, wird als fehlgeschlagen gemeldet, nie stillschweigend ausgelassen.
+- **Das Archiv bleibt unverändert.** Zurückgeholt wird eine Kopie; das Archivobjekt, seine
+  Frist und ein Legal Hold ändern sich nicht, der Löschlauf behandelt es wie vorher.
+- **Wer die Quelle sieht.** Das Archiv ist Sache der Mandanten-Administratoren: Die API
+  verlangt für die Liste und das Zurückholen `tenant_admin` (Anbieter-Admins im Provider-Team ab
+  "Techniker", wie für Suche und Lesen). Restore-Operatoren (`tenant_restore`) und Endnutzer
+  (`tenant_user`) können den Explorer benutzen, sehen den Eintrag aber nicht, und für sie wird
+  nichts aus dem Archiv abgefragt; eine Selbstbedienung der Endnutzer im eigenen Archiv bleibt
+  Zielbild (Abschnitt "Suche und Export"). Der Eintrag erscheint außerdem nur, wenn der Mandant
+  das Archiv anbietet (nächster Abschnitt).
+- **Audit.** Jede Liste ist ein Eintrag `archive.searched` mit `details.view = "restore_gap"`,
+  dem Postfach und dem Beginn der Sicherung, und mit `onBehalfOf`, wenn das Postfach nicht dem
+  Lesenden gehört. Lesen und Herunterladen schreiben `archive.item.read`,
+  `archive.item.previewed` und `archive.item.downloaded`. Das Zurückholen ist ein
+  `restore.requested` mit `details.source = "archive"` und den Archivobjekten
+  (`archiveItemIds`); wie jede Wiederherstellung fremder Daten verlangt es eine Begründung und
+  nennt die Person (`onBehalfOf`). Liest der Worker die Nachrichten für den Lauf, schreibt er je
+  Nachricht einen Eintrag `archive.item.restore_read` (Ziel das Archivobjekt, Akteur die Person,
+  die den Restore angefordert hat, in `details` der Restore-Job und ob es ein fremdes Postfach
+  ist), in derselben Transaktion und bevor er den Inhalt liest. Eine Nachricht, die nicht mehr
+  da ist, wird nicht gelesen; sie steht als fehlgeschlagen im Lauf. Ein wiederholter Lauf liest
+  und protokolliert erneut. Jede Seite der Liste ist ein eigener `archive.searched`, wie jede
+  Seite der Suche.
+
+## Eintrag „Archiv“ im Menü
+
+Der Eintrag "Archiv" bleibt, wo er ist (Abschnitt "Mail & SaaS"), erscheint seit 0.5.0 aber
+nur dort, wo der Mandant ein Archiv hat (`GET /api/v1/navigation`,
+`apps/api/src/features/archive/availability.ts`):
+
+- das Archiv hält Mail des Mandanten (aus jeder Edition, auch aus einem Datei-Import mit
+  "gleichzeitig archivieren", und auch nach einem Wechsel der Edition: archivierte Mail bleibt
+  durchsuchbar und nachweisbar), **oder**
+- die Edition enthält eine Erfassung (`archive.mailboxCapture` oder `archive.smtpCapture`) und
+  im Mandanten ist eine Erfassung eingerichtet: ein Mail-Job archiviert (Archivieren oder Beides,
+  auch angehalten und auch mit noch ausstehender Wahl des Wegs), die Journal-Adresse ist
+  seit 0.5.0 ausgestellt oder bestätigt (`tenants.journal_address_issued_at`, Exchange-Journaling
+  oder Weiterleitung), ein Konto hat eine aktive Weiterleitungsadresse
+  (`archive_forward_addresses`) oder ein Erfassungsstrom ist nicht abgeschaltet
+  (`archive_capture_streams`). Eingerichtetes Journaling zählt also schon vor dem ersten Report.
+  Ausgestellt wird die Journal-Adresse nur dort, wo Journaling eingerichtet wird: auf der
+  Archiv-Seite und im Job-Editor, solange Exchange-Journaling gewählt ist. Die Mandantenseite
+  zeigt nur den Journal-Host (`GET /api/v1/archive/journal/host`) und stellt nichts aus, ein
+  Blick auf sie bringt den Eintrag also nicht. Eine Adresse aus 0.4.x allein zählt nicht: Bis
+  0.4.12 stellten die Mandantenseite und die Archiv-Seite sie beim ersten Öffnen aus, auch wo nie
+  Journaling eingerichtet wurde. Migration 0075 lässt `journal_address_issued_at` deshalb für
+  alle Mandanten leer; eine solche Adresse zählt, sobald ein Report angekommen ist (dann hält das
+  Archiv Mail), ein Job archiviert, oder sobald ein Administrator die Journal-Einrichtung auf der
+  Archiv-Seite oder im Job-Editor öffnet (das setzt den Zeitpunkt, ohne die Adresse zu ändern)
+  oder eine neue Adresse ausstellt. Die Adresse selbst funktioniert weiter.
+
+Sonst fehlt der Eintrag: in einer Edition ohne Archiv-Erfassung, solange nichts archiviert ist,
+und in einem Mandanten, in dem noch keine Erfassung eingerichtet ist. Eingerichtet wird das Archiv im
+Job-Editor ("Was soll dieser Job tun?"); sobald ein Job archiviert, erscheint der Eintrag (die
+Oberfläche fragt nach dem Speichern eines Jobs, nach dem ersten Lesen der Journal-Adresse und
+nach dem Ausstellen einer Weiterleitungsadresse neu). Wie bisher sehen ihn nur Administratoren
+(Mandanten-Admins, Anbieter-Admins); für alle anderen ist das Angebot immer aus. Bis die
+Antwort da ist, bleibt er verborgen, damit nichts erscheint und wieder verschwindet. Die Seite
+selbst bleibt unter ihrer Adresse erreichbar, und die Abschnitte des Mandanten (Legal Holds,
+Aufbewahrung) bleiben auf der Mandantenseite. Dieselbe Regel entscheidet über die Quelle "Aus
+dem Archiv" im Restore-Explorer.
+
 ## Verfahrensdokumentation (Zielbild)
 
 Generiert je Mandant aus Konfiguration und Vorlage: Systembeschreibung, Erfassungswege,
@@ -521,9 +785,9 @@ Speicherort, Verschlüsselung, Zugriffsrechte, Retention, Löschverfahren, Kontr
 (Kettenprüfung, Scrub), Verantwortliche, Änderungshistorie. Als Markdown und PDF,
 versioniert, mit Datum. Das Dokument ist Bestandteil der Prüfungsfähigkeit, nicht Kür.
 
-## Umsetzungsstand 0.4.4
+## Umsetzungsstand 0.5.0
 
-Geprüft gegen den Code von 0.4.4; was hier nicht steht, ist nicht umgesetzt.
+Geprüft gegen den Code von 0.5.0; was hier nicht steht, ist nicht umgesetzt.
 
 - **Erfassung.** Archivobjekte entstehen auf fünf Wegen: Exchange-Online-Journaling und
   weitergeleitete Kopien über den SMTP-Empfänger (Fähigkeit `archive.journalReceiver`),
@@ -538,6 +802,22 @@ Geprüft gegen den Code von 0.4.4; was hier nicht steht, ist nicht umgesetzt.
   des Altbestands läuft als Job "Archiv-Übernahme" (fortsetzbar, als nachträglich erfasst
   markiert). Er hält bei Update-Drain und Shutdown an und pausiert einen Mandanten, während
   dessen Speicher das Ziel wechselt.
+- **Übernahme des Altbestands** (seit 0.5.0 abgeglichen statt einmalig eingeplant). Ihre
+  Position steht am Stream (`archive_capture_streams.backfill_cursor`), nicht nur im Job: Ein
+  Job, der sein Zeitbudget aufgebraucht hat (Graph 2 Stunden, IMAP 30 Minuten), reiht eine
+  Fortsetzung ein, und die liest dort weiter, wo er aufgehört hat; IMAP hält dafür auch mitten
+  in einem großen Ordner an (nach jedem Stapel von Metadaten). Jeder Durchgang des
+  Erfassungsdienstes prüft für einen aktivierten Stream ohne abgeschlossene Übernahme, ob ein
+  Übernahme-Job eingereiht ist oder läuft, und reiht sonst einen ein: nach einem
+  fehlgeschlagenen Einreihen bei der Aktivierung, nach aufgebrauchten Wiederholungen, nach
+  einem Lauf, der übersprungen wurde (Stream aus, Fähigkeit geschlossen). Nach einem
+  fehlgeschlagenen Job wartet er dafür eine Stunde. Ein fehlgeschlagener Übernahme-Job lässt
+  sich unter Jobs auch von Hand wiederholen; er setzt ebenfalls an der gespeicherten Position
+  fort. Ist die Übernahme 48 Stunden nach der Aktivierung nicht abgeschlossen oder ist ihr
+  letzter Job fehlgeschlagen, zeigt die Archiv-Seite sie als hängend (gelb, beim Weg und je
+  Postfach), und die Erfassungs-Warnung `backfill_stalled` (Ereignis `archive.failed`) geht
+  einmal je Stream und Aktivierung hinaus: Mail von vor der Aktivierung ist dann noch nicht im
+  Archiv.
 - **Graph-Erfassung** (docs/MICROSOFT.md, "Archiv-Erfassung per Graph"): Abonnement je
   Postfach mit Verlängerung, Lebenszyklus-Hooks und Neuanlage bei App-Wechsel, Abholen
   benachrichtigter Mail, Nachholen per Delta über alle Ordner und
@@ -575,10 +855,23 @@ Geprüft gegen den Code von 0.4.4; was hier nicht steht, ist nicht umgesetzt.
   in einer Anfrage; ein Hintergrundlauf mit Fortschritt ist nicht umgesetzt.
 - **Suche, Lesen, Export** wie im Abschnitt "Suche und Export"; nicht über Anhänge, nur für
   Administratoren des Mandanten.
-- **Retention.** Fest 8 Jahre bis zum Jahresende des Eingangsjahres. Der tägliche Löschlauf
-  (`ee/worker/src/archive-retention/`) löscht nur abgelaufene Objekte ohne Legal Hold.
+- **Restore-Explorer** (seit 0.5.0): die Quelle "Aus dem Archiv" je Postfach oder IMAP-Konto
+  mit der Mail seit der neuesten Sicherung, Lesen, `.eml`-Download und Zurückholen in das
+  ursprüngliche Konto, nur für Administratoren und auditiert (Abschnitt "Aus dem Archiv im
+  Restore-Explorer").
+- **Menü** (seit 0.5.0): der Eintrag "Archiv" nur, wenn das Archiv Mail hält oder die Edition
+  erfasst und eine Erfassung im Mandanten eingerichtet ist (Abschnitt "Eintrag „Archiv“ im
+  Menü").
+- **Retention.** Voreinstellung 8 Jahre bis zum Jahresende des Eingangsjahres; eine andere
+  Richtlinie setzen weder API noch Oberfläche. Der tägliche Löschlauf
+  (`ee/worker/src/archive-retention/`) löscht nur abgelaufene Objekte ohne Legal Hold und
+  schreibt jede Löschung ins Audit-Log.
 - **Legal Hold** (`ee/api/src/legal-holds/`): mandantenweit oder je Postfach, Freigabe mit
-  Grund.
+  Grund. Ein Hold je Postfach schützt nicht nur Journal-Reports: jedes Objekt, das dem Postfach
+  gehört, eigene Erfassung (Graph, IMAP, Weiterleitung an die Archiv-Adresse des Kontos,
+  Datei-Import) wie zugeordnete Journal-Reports und Kopien; nur Objekte ohne Zuordnung schützt
+  allein ein mandantenweiter Hold (Abschnitt "Retention und Löschung"). Ein Hold mit Suchumfang
+  wird nicht ausgewertet.
 - **Nachweisbericht.** Nur als API (JSON), kein PDF, keine Oberfläche. Die Aufteilung nach
   Erfassungswegen der Integrations-API (Vertrag 1.5.0) nennt weitergeleitete Kopien noch nicht
   als eigenen Weg; sie zählen in der Gesamtzahl.

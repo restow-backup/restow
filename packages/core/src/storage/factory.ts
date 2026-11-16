@@ -34,6 +34,12 @@ import type { StorageBackend } from "./backend.js";
 import { parseImmutabilitySettings, withImmutability } from "./immutability.js";
 import { LocalStorageBackend } from "./local.js";
 import { S3StorageBackend } from "./s3.js";
+import {
+  type WriteOnceFinding,
+  type WriteOnceRefusal,
+  writeOnceOfConfig,
+  writeRefusalCode,
+} from "./write-once.js";
 
 // ---------------------------------------------------------------------------
 // Locations
@@ -830,6 +836,29 @@ export function openInstallationDefault(
 /** A `storage_targets` row as far as resolution is concerned. */
 export interface StorageTargetRow extends StorageTargetRecord {
   readonly role: string;
+  readonly name?: string | null;
+}
+
+/** What a run records as its target when that is the installation default (no row of its own). */
+export const INSTALLATION_DEFAULT_TARGET_ID = "installation_default";
+
+/** One opened target of a tenant, by the id a run records for it (docs/STORAGE.md). */
+export interface ResolvedStorageTarget {
+  /** The row id, {@link INSTALLATION_DEFAULT_TARGET_ID}, or `installation_default:copy:<n>`. */
+  readonly id: string;
+  readonly name: string | null;
+  readonly role: "primary" | "copy" | "previous";
+  readonly backend: StorageBackend;
+  /**
+   * The target's last probe found it write-once (write-once.ts): nothing on it is deleted,
+   * overwritten or moved. False when it was not, or never probed since 0.5.0.
+   */
+  readonly writeOnce?: boolean;
+}
+
+/** Whether a `storage_targets` row's last probe found it write-once. */
+export function rowWriteOnce(row: Pick<StorageTargetRecord, "config">): boolean {
+  return writeOnceOfConfig(row.config)?.writeOnce === true;
 }
 
 export interface ResolvedStorageTargets extends StorageTargets {
@@ -843,6 +872,22 @@ export interface ResolvedStorageTargets extends StorageTargets {
    * so the write path (new packs, manifests, wrapped keys) never reaches one.
    */
   readonly previous: readonly StorageBackend[];
+  /**
+   * Every target above with the id a run records for it (`pve_runs.storage_target`): the
+   * primary first, then the copies and the retired targets in row order. A retired
+   * installation default appears under {@link INSTALLATION_DEFAULT_TARGET_ID}.
+   */
+  readonly targets: readonly ResolvedStorageTarget[];
+  /** The id of the primary: its row id, or {@link INSTALLATION_DEFAULT_TARGET_ID}. */
+  readonly primaryTarget: string;
+}
+
+/** The backend a run recorded (`storage_target`), or null when the tenant has no such target. */
+export function storageTargetById(
+  resolved: Pick<ResolvedStorageTargets, "targets">,
+  id: string,
+): StorageBackend | null {
+  return resolved.targets.find((target) => target.id === id)?.backend ?? null;
 }
 
 /**
@@ -871,6 +916,12 @@ export async function resolveStorageTargets(
      * installation-default.ts), called at most once and only when needed.
      */
     readonly defaults: StorageTargets | (() => StorageTargets | Promise<StorageTargets>);
+    /**
+     * Whether the installation default's last probe found it write-once
+     * (`settings.default_storage_write_once`); asked only when the default is one of the
+     * tenant's targets. Without it the default counts as not write-once.
+     */
+    readonly defaultWriteOnce?: () => Promise<boolean>;
   },
 ): Promise<ResolvedStorageTargets> {
   const primaryRow = rows.find((row) => row.role === "primary");
@@ -887,25 +938,79 @@ export async function resolveStorageTargets(
     }
     return defaultsCache;
   };
+  let defaultWriteOnceCache: boolean | undefined;
+  const defaultWriteOnce = async (): Promise<boolean> => {
+    if (defaultWriteOnceCache === undefined) {
+      defaultWriteOnceCache = options.defaultWriteOnce
+        ? await options.defaultWriteOnce().catch(() => false)
+        : false;
+    }
+    return defaultWriteOnceCache;
+  };
+  const targets: ResolvedStorageTarget[] = [];
   if (primaryRow) {
     primary = (await openStorageTarget(primaryRow, options.secrets)).backend;
+    targets.push({
+      id: primaryRow.id,
+      name: primaryRow.name ?? null,
+      role: "primary",
+      backend: primary,
+      writeOnce: rowWriteOnce(primaryRow),
+    });
   } else {
     const resolved = await defaults();
     primary = resolved.primary;
     copies.push(...resolved.copies);
+    targets.push({
+      id: INSTALLATION_DEFAULT_TARGET_ID,
+      name: null,
+      role: "primary",
+      backend: primary,
+      writeOnce: await defaultWriteOnce(),
+    });
+    resolved.copies.forEach((backend, index) => {
+      targets.push({
+        id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
+        name: null,
+        role: "copy",
+        backend,
+      });
+    });
   }
   for (const row of rows) {
     if (row.role === "copy") {
-      copies.push((await openStorageTarget(row, options.secrets)).backend);
+      const backend = (await openStorageTarget(row, options.secrets)).backend;
+      copies.push(backend);
+      targets.push({
+        id: row.id,
+        name: row.name ?? null,
+        role: "copy",
+        backend,
+        writeOnce: rowWriteOnce(row),
+      });
     } else if (row.role === "previous") {
-      previous.push(
-        row.kind === "installation_default"
-          ? (await defaults()).primary
-          : (await openStorageTarget(row, options.secrets)).backend,
-      );
+      const retiredDefault = row.kind === "installation_default";
+      const backend = retiredDefault
+        ? (await defaults()).primary
+        : (await openStorageTarget(row, options.secrets)).backend;
+      previous.push(backend);
+      targets.push({
+        id: retiredDefault ? INSTALLATION_DEFAULT_TARGET_ID : row.id,
+        name: row.name ?? null,
+        role: "previous",
+        backend,
+        writeOnce: retiredDefault ? await defaultWriteOnce() : rowWriteOnce(row),
+      });
     }
   }
-  return { primary, copies, previous, usesInstallationDefault: primaryRow === undefined };
+  return {
+    primary,
+    copies,
+    previous,
+    usesInstallationDefault: primaryRow === undefined,
+    targets,
+    primaryTarget: primaryRow ? primaryRow.id : INSTALLATION_DEFAULT_TARGET_ID,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -975,6 +1080,10 @@ const S3_NAMES: Record<string, StorageErrorCode> = {
   RequestTimeoutException: "timeout",
   StorageProbeTimeout: "timeout",
   StorageIntegrityError: "integrity",
+  QuotaExceeded: "no_space",
+  StorageFull: "no_space",
+  XMinioStorageFull: "no_space",
+  InsufficientStorage: "no_space",
 };
 
 interface ErrorShape {
@@ -1125,7 +1234,12 @@ export type StorageProbeWarning =
    */
   | "insecure_endpoint"
   /** The probe object could not be removed again. */
-  | "cleanup_failed";
+  | "cleanup_failed"
+  /**
+   * The storage refuses to overwrite or delete what it holds (write-once, write-once.ts): no
+   * retention, lock files stay, a new restic chain goes to a fresh prefix.
+   */
+  | "write_once";
 
 export interface StorageProbeStepResult {
   readonly step: StorageProbeStep;
@@ -1145,6 +1259,12 @@ export interface StorageProbeResult {
   readonly errorCode: StorageErrorCode | null;
   readonly error: string | null;
   readonly warnings: readonly StorageProbeWarning[];
+  /**
+   * Whether the storage refused to overwrite or delete the probe object (write-once.ts). Null
+   * when the probe did not get that far (an earlier step failed), and in probes recorded
+   * before 0.5.0.
+   */
+  readonly writeOnce?: WriteOnceFinding | null;
 }
 
 export interface StorageProbeOptions {
@@ -1314,14 +1434,56 @@ export async function probeStorageBackend(
     return finish();
   }
 
+  // Write-once (write-once.ts): overwrite the probe object, then delete it. A refusal of either
+  // is no failure of the probe: such a target takes backups, it only keeps everything.
+  const refused: WriteOnceRefusal[] = [];
+  let refusalCode: string | null = null;
+  const replacement = randomBytes(PROBE_PAYLOAD_BYTES);
+  const overwrite = await timed("write", timeoutMs, async () => {
+    try {
+      await backend.put(key, replacement);
+    } catch (error) {
+      const code = writeRefusalCode(error);
+      if (code === null) {
+        throw error;
+      }
+      return code;
+    }
+    // Accepted, but the old content stayed: a share that keeps the first version.
+    return (await backend.get(key)).equals(replacement) ? null : "ignored";
+  });
+  if (overwrite.value) {
+    refused.push("overwrite");
+    refusalCode = overwrite.value;
+  }
+
   const remove = await timed("delete", timeoutMs, async () => {
-    await backend.delete(key);
+    try {
+      await backend.delete(key);
+    } catch (error) {
+      const code = writeRefusalCode(error);
+      if (code === null) {
+        throw error;
+      }
+      refused.push("delete");
+      refusalCode ??= code;
+      return;
+    }
     if ((await backend.head(key)) !== null) {
       throw new StorageIntegrityError(`${key} still exists after deletion`);
     }
   });
   steps.push(remove.result);
-  return finish();
+  const writeOnce: WriteOnceFinding = {
+    writeOnce: refused.length > 0,
+    refused,
+    code: refusalCode,
+    checkedAt,
+  };
+  if (writeOnce.writeOnce) {
+    warnings.push("write_once");
+  }
+  return { ...finish(), writeOnce };
 }
 
 // ---------------------------------------------------------------------------

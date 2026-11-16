@@ -56,6 +56,8 @@ compose.override.yaml
 
 # Logs and coverage
 *.log
+# ... but the vzdump task logs the node's golden tests read are fixtures
+!agent/internal/pve/testdata/*.log
 coverage/
 .nyc_output/
 

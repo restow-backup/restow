@@ -4,6 +4,7 @@ import {
   defaultImageRepositories,
   IMAGE_VARIANT_VARIABLE,
   type ImageVariant,
+  labImageRepositoryOf,
   parseImageVariant,
 } from "./image-variant.js";
 import { UPDATER_DEFAULT_PORT } from "./protocol.js";
@@ -52,6 +53,11 @@ export interface UpdaterConfig {
   imageVariant: ImageVariant;
   imageRepository: string;
   webImageRepository: string;
+  /**
+   * The recovery lab's repository (RESTOW_UPDATER_LAB_IMAGE_REPOSITORY, default next to the
+   * application image's: `.../restow-lab`); moved only where `.env` sets RESTOW_LAB_IMAGE.
+   */
+  labImageRepository: string;
   /** Image whose `docker` CLI runs the commands when the updater's own image ships none; pinned by digest. */
   cliImage: string;
   /** The cosign image that verifies release signatures; pinned by digest. */
@@ -239,6 +245,13 @@ export function loadConfig(env: Env): UpdaterConfig {
     problems,
   );
 
+  const labImageRepository = repository(
+    env,
+    "RESTOW_UPDATER_LAB_IMAGE_REPOSITORY",
+    labImageRepositoryOf(imageRepository),
+    problems,
+  );
+
   // Both images run with the Docker socket or decide what may run: a tag could be moved
   // under the updater, a digest cannot.
   const cliImage = text(env, "RESTOW_UPDATER_CLI_IMAGE") ?? DEFAULT_CLI_IMAGE;
@@ -295,6 +308,7 @@ export function loadConfig(env: Env): UpdaterConfig {
     imageVariant,
     imageRepository,
     webImageRepository,
+    labImageRepository,
     cliImage,
     cosignImage,
     verifySignatures,

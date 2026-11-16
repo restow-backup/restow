@@ -9,6 +9,8 @@ import { createArchiveRetentionTask } from "./archive-retention/archive-retentio
 export const WORKER_FEATURE_CAPABILITIES: Readonly<Record<WorkerGatedFeature, Capability>> = {
   "archive.mailboxCapture": "archive.mailboxCapture",
   "archive.smtpCapture": "archive.journalReceiver",
+  "branding.provider": "branding.provider",
+  "branding.tenant": "branding.tenant",
 };
 
 /**

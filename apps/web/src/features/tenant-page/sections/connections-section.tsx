@@ -12,7 +12,9 @@ import { ImportWizardPage } from "@/features/imports/wizard/import-wizard-page";
 import { SourceDetailPage } from "@/features/sources/source-detail-page";
 import { SourcesPage } from "@/features/sources/sources-page";
 import type { TenantSectionProps } from "@/lib/extensions";
-import { type ConnectionTab, tenantPageTo } from "@/lib/tenant-paths";
+import { type ModuleId, withShownModules } from "@/lib/modules";
+import { useSession } from "@/lib/session";
+import { CONNECTION_TABS, type ConnectionTab, tenantPageTo } from "@/lib/tenant-paths";
 
 import { cn } from "@/lib/utils";
 import { parseConnectionsSearch, SUB_PAGES } from "../presenters";
@@ -28,7 +30,10 @@ import { parseConnectionsSearch, SUB_PAGES } from "../presenters";
 export function ConnectionsSection({ tenant, sub }: TenantSectionProps) {
   const { t } = useTranslation("tenantpage");
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
-  const { tab } = parseConnectionsSearch(raw);
+  const { tab: asked } = parseConnectionsSearch(raw);
+  // Whether the address itself names a tab (the first one is the default and stays out of it).
+  const named = (CONNECTION_TABS as readonly unknown[]).includes(raw.tab) ? raw.tab : null;
+  const { modules } = useSession();
   const { importId } = useParams({ strict: false }) as { importId?: string };
 
   if (sub === SUB_PAGES.source) {
@@ -41,12 +46,25 @@ export function ConnectionsSection({ tenant, sub }: TenantSectionProps) {
     return <ImportJobPage key={importId} importId={importId} />;
   }
 
-  const tabs: { id: ConnectionTab; label: string; badge?: React.ReactNode }[] = [
-    { id: "microsoft365", label: t("connections.tabs.microsoft365") },
-    { id: "imap", label: t("connections.tabs.imap") },
+  // The kinds of connection on offer follow the installation's modules (lib/modules.ts): the tab
+  // of a module that is off is left out, unless the address opened it.
+  const allTabs: {
+    id: ConnectionTab;
+    label: string;
+    badge?: React.ReactNode;
+    modules: readonly ModuleId[];
+  }[] = [
+    {
+      id: "microsoft365",
+      label: t("connections.tabs.microsoft365"),
+      modules: ["microsoft365"],
+    },
+    { id: "imap", label: t("connections.tabs.imap"), modules: ["imap"] },
     {
       id: "google",
       label: t("connections.tabs.google"),
+      // Until it has a connection of its own its mailboxes come in through IMAP.
+      modules: ["imap"],
       badge: (
         <>
           <SoonBadge className="ml-0.5" />
@@ -54,8 +72,17 @@ export function ConnectionsSection({ tenant, sub }: TenantSectionProps) {
         </>
       ),
     },
-    { id: "imports", label: t("connections.tabs.imports") },
+    {
+      id: "imports",
+      label: t("connections.tabs.imports"),
+      modules: ["microsoft365", "imap", "archive"],
+    },
   ];
+  const offered = withShownModules(allTabs, modules);
+  // Without a tab in the address the first one on offer opens; a tab the address names opens
+  // whatever its module, and is then listed too.
+  const tab = named !== null || offered.length === 0 ? asked : (offered[0]?.id ?? asked);
+  const tabs = allTabs.filter((entry) => entry.id === tab || offered.includes(entry));
 
   return (
     <div className="space-y-6">
@@ -67,8 +94,8 @@ export function ConnectionsSection({ tenant, sub }: TenantSectionProps) {
           label: entry.label,
           badge: entry.badge,
           to: tenantPageTo(tenant.id, "connections") as string,
-          // The first tab is the default and stays out of the address.
-          search: entry.id === "microsoft365" ? {} : { tab: entry.id },
+          // The first tab on offer is the default and stays out of the address.
+          search: entry.id === offered[0]?.id ? {} : { tab: entry.id },
         }))}
       />
       {tab === "microsoft365" ? <SourcesPage kind="m365" /> : null}

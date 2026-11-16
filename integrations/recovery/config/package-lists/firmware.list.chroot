@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The fixed list of non-free firmware (firmware.md): wired network cards and storage
+# controllers only. A change is a change of firmware.md with its reason.
+firmware-bnx2
+firmware-bnx2x
+firmware-qlogic
+firmware-realtek
+firmware-misc-nonfree
+firmware-intel-misc

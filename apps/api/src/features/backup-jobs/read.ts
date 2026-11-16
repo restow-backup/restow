@@ -1,13 +1,17 @@
 import {
+  CONTAINER_IMAGE_EXCLUDES,
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SCHEDULE_TIMEZONE,
   DEFAULT_SHARE_RETENTION,
+  DEFAULT_WHOLE_MACHINE_EXCLUDES,
   defaultEndpointConfig,
   defaultSchedule,
   effectiveSchedule,
   effectiveSettings,
   mailJobObjectIds,
+  mailObjectsInNoJob,
   RECOMMENDED_SCHEDULE_DEFAULTS,
+  wholeMachineNote,
 } from "@restow/core";
 import type { Database } from "@restow/db";
 import {
@@ -25,6 +29,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
+import { config } from "../../config.js";
 import { isServiceLimitedBackup, notBackedUpOf } from "../../lib/service-limit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -154,11 +159,27 @@ async function loadFacts(
   }
   const mailIds = [...new Set([...covered.values()].flat())];
   const endpointIds = members.flatMap((member) => (member.endpointId ? [member.endpointId] : []));
+  // Rated without the age of their last backup, as on the readiness page: removed from their
+  // source, or in no enabled job.
+  const withoutAge = new Set([
+    ...objects.filter((object) => object.status === "orphaned").map((object) => object.id),
+    ...(mailJobs.length > 0
+      ? mailObjectsInNoJob(
+          mailJobs,
+          members.flatMap((member) =>
+            member.protectedObjectId === null
+              ? []
+              : [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }],
+          ),
+          objects,
+        )
+      : []),
+  ]);
   return {
     objects,
     members,
     covered,
-    mail: await loadMailFacts(tx, tenantId, mailIds),
+    mail: await loadMailFacts(tx, tenantId, mailIds, now, withoutAge),
     endpoint: await loadEndpointFacts(tx, tenantId, endpointIds, now),
     share: await loadShareJobFacts(tx, tenantId, all, now),
   };
@@ -685,6 +706,7 @@ function endpointMembers(
         : null,
       restoreCheck: { state: fact.restore.state, checkedAt: iso(fact.restore.checkedAt) },
       nextRunAt: iso(fact.nextRunAt),
+      wholeMachineNote: job.settings?.wholeMachine === true ? wholeMachineNote(fact) : null,
     });
   }
   return items.sort((a, b) => a.name.localeCompare(b.name));
@@ -1030,6 +1052,11 @@ export async function getDefaults(
       mailSourceKinds: [],
       retentionPolicies: [],
       endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },
+      wholeMachine: {
+        available: config.baremetalPreview,
+        excludes: [...DEFAULT_WHOLE_MACHINE_EXCLUDES],
+        containerImageExcludes: [...CONTAINER_IMAGE_EXCLUDES],
+      },
     };
   });
 }

@@ -1,0 +1,102 @@
+{
+  "capabilities": ["sql_native_v1"],
+  "machine": {
+    "virtualization": "vm",
+    "technology": "",
+    "desktop": false,
+    "windows": {
+      "productName": "Windows Server 2022 Standard",
+      "editionId": "ServerStandard",
+      "productType": "server",
+      "installationType": "server",
+      "build": 20348,
+      "ubr": 2340,
+      "displayVersion": "21H2",
+      "domainMember": true,
+      "domain": "corp.example",
+      "roles": { "domainController": false, "dfsr": false, "exchange": false, "hyperV": false, "sqlServer": true },
+      "sqlInstances": [
+        {
+          "name": "SQLEXPRESS",
+          "id": "MSSQL16.SQLEXPRESS",
+          "version": "16.0.1000.6",
+          "edition": "Express Edition",
+          "serviceName": "MSSQL$SQLEXPRESS",
+          "serviceAccount": "NT Service\\MSSQL$SQLEXPRESS",
+          "clustered": false,
+          "strictEncryption": false
+        },
+        {
+          "name": "RESTOWB",
+          "id": "MSSQL16.RESTOWB",
+          "version": "16.0.1000.6",
+          "edition": "Express Edition",
+          "serviceName": "MSSQL$RESTOWB",
+          "serviceAccount": "NT Service\\MSSQL$RESTOWB",
+          "clustered": false,
+          "strictEncryption": false
+        }
+      ],
+      "bitlocker": { "state": "ok", "volumes": [{ "mount": "C:", "protection": "on", "conversion": "fully_encrypted" }] }
+    }
+  },
+  "sqlInventory": {
+    "collectedAt": "2026-11-05T02:00:03Z",
+    "truncated": false,
+    "instances": [
+      {
+        "name": "SQLEXPRESS",
+        "state": "ok",
+        "version": "16.0.4135.4",
+        "edition": "Express Edition (64-bit)",
+        "engineEdition": 4,
+        "clustered": false,
+        "hadr": false,
+        "backupCompressionDefault": false,
+        "login": { "name": "NT SERVICE\\RestowAgent", "sysadmin": true, "canCreateDatabase": true },
+        "databases": [
+          {
+            "name": "master",
+            "databaseId": 1,
+            "system": true,
+            "familyGuid": "0b8f6a4c-2d1e-4f3a-9b5c-7e6d5c4b3a21",
+            "databaseGuid": "1c9a7b5d-3e2f-4a4b-8c6d-8f7e6d5c4b32",
+            "state": "ONLINE",
+            "recoveryModel": "SIMPLE",
+            "readOnly": false,
+            "encrypted": false,
+            "sizeBytes": 6291456,
+            "usedBytes": 4194304,
+            "canBackup": true
+          },
+          {
+            "name": "Sales",
+            "databaseId": 5,
+            "system": false,
+            "familyGuid": "6f1e8a52-3c1d-4a8e-9b0e-2b7d9f1c0a11",
+            "databaseGuid": "0d9c2e7a-5b44-4f61-8a2e-7c3b1d9e4f22",
+            "state": "ONLINE",
+            "recoveryModel": "FULL",
+            "readOnly": false,
+            "encrypted": false,
+            "sizeBytes": 1073741824,
+            "usedBytes": 734003200,
+            "canBackup": true,
+            "lastFullBackupAt": "2026-11-04T22:10:00Z"
+          }
+        ]
+      },
+      {
+        "name": "RESTOWB",
+        "state": "error",
+        "error": {
+          "code": "sql_login_missing",
+          "step": "connect",
+          "number": 18456,
+          "message": "Login failed for user 'NT SERVICE\\RestowAgent'."
+        },
+        "databases": []
+      }
+    ]
+  }
+}

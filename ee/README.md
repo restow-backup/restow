@@ -89,7 +89,10 @@ installation without a key runs as Community.
 | Audit log viewer (search, details, chain verification) | `audit.log` (Business) | `api/src/audit-log`, `web/src/audit-log` | session routes (guarded), routes and a locked nav entry |
 | Microsoft (Entra ID) sign-in for end users | `auth.microsoftSso` (Business) | `api/src/sso` | better-auth plugin, auth route guard, sign-in provider |
 | Members of the provider team limited to chosen tenants (the team itself, several admins with roles, is the core's in every edition: `apps/api/src/features/provider-team`, `apps/web/src/features/provider-team`) | `provider.teamTenantScope` (Service Provider) | `api/src/license/gate.ts`, `web/src/license/components/team-scope-locked.tsx` | feature gate `providerTeam.tenantScope`, `team.tenantScopeLocked` slot |
-| Scheduled summary reports | `reports.scheduled` (Business) | `api/src/reports` | `reportSummary` feature hook, feature gate `reports.timed` |
+| Scheduled summary reports (per tenant and, from 0.5.0, the provider's across tenants, with the PDF statistics) | `reports.scheduled` (Business) | `api/src/reports` | `reportSummary` feature hook, feature gate `reports.timed` |
+| Branding of the provider on mails, reports and chat webhooks (0.5.0; the core's `apps/api/src/features/branding`) | `branding.provider` (Business) | `api/src/license/gate.ts`, `worker/src/index.ts` | feature gate `branding.provider` (API and worker) |
+| A tenant's own branding (0.5.0) | `branding.tenant` (Service Provider) | `api/src/license/gate.ts`, `worker/src/index.ts` | feature gate `branding.tenant` (API and worker) |
+| Customer monthly report (0.5.0): HTML mail and PDF to a tenant's contacts | `reports.customer` (Service Provider) | `api/src/reports/customer.ts` | `reportCustomer` feature hook, feature gate `reports.customer` |
 | Further tenants beyond the installation's first | `provider.tenantManagement` (Service Provider) | `api/src/license/gate.ts`, nav lock of the core's tenants entry in `web/src/license` | feature gate `tenants.additional`, nav locks |
 | Cross-tenant provider API (`/provider/*`) and provider API keys (Installation → Provider API) | `provider.crossTenantApi` (Service Provider) | `api/src/provider-api`, `web/src/provider-api` | integration routes, feature gate `apiKeys.provider`, `installationSections` |
 | Provider view of the dashboard (tenant matrix, alerts) and statistics across tenants | `provider.tenantReporting` (Service Provider) | `api/src/provider-dashboard`, `web/src/provider-dashboard` | `providerDashboard` feature hook, `dashboard.provider` slot, feature gates `dashboard.allTenants` and `stats.allTenants` |
@@ -119,7 +122,7 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
   (`apps/api/src/lib/provider-access.ts`, `providerRule` builders); the
   core's table covers only core routes.
 - `authRouteGuards`, `signInProviders`, `integrationRoutes`, `services`,
-  `hooks` (`reportSummary`, `providerDashboard`, `updateCoverage`).
+  `hooks` (`reportSummary`, `reportCustomer`, `providerDashboard`, `updateCoverage`).
 
 Worker (`apps/worker/src/extensions.ts`): `retentionTasks`, `handlers`. Each
 task decides itself whether it runs (`installationHasCapability` from

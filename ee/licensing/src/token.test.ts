@@ -83,7 +83,7 @@ describe("verifyLicenseToken: valid keys", () => {
     });
   });
 
-  it("accepts the reserved mailbox_limit member as null, as keys are issued today", () => {
+  it("accepts the reserved mailbox_limit member as null, as keys are issued today [LICENSE-011]", () => {
     expect(businessPayload().mailbox_limit).toBeNull();
     expect(verifyLicenseToken(signed(businessPayload()), vendorKey).ok).toBe(true);
   });
@@ -121,7 +121,7 @@ describe("verifyLicenseToken: valid keys", () => {
   });
 });
 
-describe("verifyLicenseToken: tampering", () => {
+describe("verifyLicenseToken: tampering [LICENSE-001]", () => {
   const token = signed(businessPayload());
   const [prefix, payload, signature] = token.split(".") as [string, string, string];
 

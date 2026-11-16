@@ -162,7 +162,11 @@
     "file_share": "File shares",
     "warning": "Warnings",
     "database": "Database",
-    "suspicion": "Ransomware detection"
+    "suspicion": "Ransomware detection",
+    "branding": "Branding",
+    "provider_notifications": "Provider notifications",
+    "installation": "Installation",
+    "cluster": "Worker nodes"
   },
   "events": {
     "account": {
@@ -192,6 +196,9 @@
         "read": "Protected objects read via API"
       },
       "provider": {
+        "billing": {
+          "read": "Billing figures read via API"
+        },
         "tenants": {
           "read": "Tenant contacts read via API"
         },
@@ -246,7 +253,11 @@
     },
     "backup": {
       "requested": "Backup started manually",
-      "first_queued": "First backup queued"
+      "first_queued": "First backup queued",
+      "size_hold_continued": "Held unusually large backup allowed to continue once",
+      "size_limit_raised": "Size limit of a held backup raised",
+      "size_guard_changed": "Size and space check of backups changed",
+      "space_rule_changed": "Free space kept on storage targets changed"
     },
     "directory": {
       "account": {
@@ -352,6 +363,9 @@
       "pve": {
         "updated": "Proxmox VE settings of the installation changed"
       },
+      "modules": {
+        "updated": "Modules of the installation changed"
+      },
       "time_zone": {
         "changed": "Time zone of the installation changed"
       },
@@ -427,7 +441,17 @@
         "probed": "Repository probed",
         "promoted": "Repository made primary",
         "tested": "Repository tested",
-        "updated": "Repository changed"
+        "updated": "Repository changed",
+        "catch_up_started": "Catch-up of a copy started"
+      },
+      "repositories": {
+        "scan_requested": "Repository scan requested",
+        "scanned": "Repositories scanned on every storage target",
+        "repair_requested": "Repository repair requested"
+      },
+      "repository": {
+        "merged": "Repository rebuilt on the primary from its parts",
+        "lost": "Repository lost: its restore points became unavailable"
       }
     },
     "tenant": {
@@ -464,6 +488,9 @@
       },
       "agent_policy": {
         "updated": "Agent policy of the tenant changed"
+      },
+      "key_mirror": {
+        "conflict": "Wrapped key in storage differs (not overwritten)"
       }
     },
     "verify": {
@@ -503,7 +530,11 @@
         "deleted": "Report rule deleted"
       },
       "test_sent": "Report rule test sent",
-      "matrix_updated": "Notification matrix changed"
+      "matrix_updated": "Notification matrix changed",
+      "customer": {
+        "updated": "Customer monthly report changed",
+        "test_sent": "Customer monthly report test sent"
+      }
     },
     "update": {
       "check": "Update check",
@@ -541,6 +572,8 @@
       "revoked": "Machine revoked",
       "removed": "Machine removed from {appName}",
       "removal": {
+        "scheduled": "Deletion of the revoked machine's backups scheduled",
+        "cancelled": "Scheduled deletion of the revoked machine's backups cancelled",
         "held": "Deletion of the removed machine's backups held",
         "deferred": "Deletion of the removed machine's backups deferred by storage locks",
         "completed": "Backups of the removed machine deleted",
@@ -576,9 +609,55 @@
         "denied": "Machine tried to change its backups",
         "password": {
           "revealed": "Repository password shown"
+        },
+        "secret_file_revealed": "Key file of an encrypted volume handed out"
+      },
+      "update_requested": "Agent update requested",
+      "recovery_code": {
+        "created": "Recovery code issued",
+        "revoked": "Recovery code revoked",
+        "extended": "Recovery code extended",
+        "rejected": "Expired, used or revoked recovery code tried"
+      },
+      "recovery": {
+        "started": "Recovery code redeemed by the recovery ISO",
+        "approved": "Recovery session released",
+        "credentials_issued": "Repository access handed to the recovery ISO",
+        "remote_access_enabled": "Remote access to the recovery ISO switched on",
+        "keyfile_regenerated": "Key file of an encrypted volume made anew during the recovery",
+        "released": "Recovery ISO gave up its repository access",
+        "finished": "Recovery finished",
+        "report_refused": "Report of the recovery ISO to an ended session refused",
+        "expired": "Recovery code or session ran out of time",
+        "cancelled": "Recovery session rejected or ended"
+      },
+      "rebind_token": {
+        "created": "Rebind token created"
+      },
+      "rebound": "Machine rebound with a new agent secret",
+      "unrevoked": "Revoked machine brought back",
+      "sql": {
+        "inventory": {
+          "requested": "SQL Server sign-in check requested"
+        },
+        "restore": {
+          "requested": "SQL Server restore under a new name requested",
+          "finished": "SQL Server restore under a new name finished"
+        },
+        "restore_script": {
+          "downloaded": "SQL Server restore script downloaded"
+        },
+        "tde": {
+          "confirmed": "TDE certificate confirmed as backed up"
+        },
+        "verify": {
+          "requested": "SQL Server check requested"
         }
       },
-      "update_requested": "Agent update requested"
+      "boot_probe": {
+        "requested": "Boot probe of the whole machine backup requested",
+        "started": "Boot probe: the recovery ISO of the lab redeemed its code"
+      }
     },
     "backup_job": {
       "created": "Backup job created",
@@ -619,7 +698,8 @@
         "cancelled": "Guest backup cancelled"
       },
       "restore": {
-        "requested": "Restore as a new guest requested"
+        "requested": "Restore as a new guest requested",
+        "read_from_copy": "Container restore read the backups from another repository than the primary"
       },
       "verify": {
         "requested": "Restore check of the restore point requested"
@@ -640,7 +720,8 @@
       },
       "repository": {
         "reinitialized": "Container repository missing on the primary: new backup chain started",
-        "reset": "Container repository reset: new backup chain on the next backup"
+        "reset": "Container repository reset: new backup chain on the next backup",
+        "fresh_prefix": "Container repository on write-once storage: new backup chain begun under a fresh prefix, the old one kept"
       },
       "guest": {
         "restow_server": "Guest marked as the {appName} server, or the mark taken back",
@@ -677,7 +758,8 @@
       "repository_password_shown": "Repository password of the file share shown",
       "private_network_approved": "File share on a private network approved",
       "private_network_withdrawn": "Approval for a private network withdrawn",
-      "settings_changed": "File share settings of the installation changed"
+      "settings_changed": "File share settings of the installation changed",
+      "restore_read_from_copy": "File share restore read the backups from another repository than the primary"
     },
     "warning": {
       "acknowledged": "Warning acknowledged",
@@ -702,6 +784,37 @@
       "false_alarm": "Suspicious restore point marked as a false alarm",
       "false_alarm_revoked": "False alarm of a restore point taken back",
       "hold_released": "Retention hold of an object released"
+    },
+    "branding": {
+      "updated": "Branding changed",
+      "logo_uploaded": "Logo uploaded",
+      "logo_removed": "Logo removed",
+      "test_sent": "Branding test mail sent"
+    },
+    "provider_notifications": {
+      "recipients_updated": "Provider notification recipients changed",
+      "test_sent": "Test notification sent to a provider recipient",
+      "summary_updated": "Summary report across tenants changed",
+      "summary_test_sent": "Summary report across tenants test sent"
+    },
+    "installation": {
+      "restore_mode": {
+        "started": "Restore mode switched on",
+        "detected": "Restore mode switched on by itself (storage ahead of the database)",
+        "ended": "Restore mode ended",
+        "keys_imported": "Key version taken from storage"
+      }
+    },
+    "cluster": {
+      "join_token": {
+        "created": "Join token for a worker node issued",
+        "revoked": "Join token for a worker node revoked"
+      },
+      "node": {
+        "joined": "Worker node joined",
+        "join_refused": "Join of a worker node refused",
+        "removed": "Worker node removed"
+      }
     }
   },
   "targetTypes": {
@@ -732,6 +845,7 @@
     "source": "Source",
     "stats": "Statistics",
     "storage_location": "Repository",
+    "storage_repository_repair": "Repository scan or repair",
     "storage_target": "Repository",
     "tenant": "Tenant",
     "user": "User",
@@ -754,7 +868,12 @@
     "service": "Service",
     "database": "Database",
     "dump": "Database backup",
-    "restore_point": "Restore point"
+    "restore_point": "Restore point",
+    "branding": "Branding",
+    "notification_recipients": "Notification recipients",
+    "summary_report": "Summary report",
+    "cluster_join_token": "Join token",
+    "cluster_node": "Worker node"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

@@ -199,3 +199,30 @@ describe("Google Workspace", () => {
     }
   });
 });
+
+describe("SMTP allowed sender addresses (0.5.0)", () => {
+  const smtp: MailSettings = {
+    transport: "smtp",
+    smtp: {
+      host: "smtp.example.com",
+      port: 587,
+      security: "starttls",
+      from: "alerts@example.com",
+      username: null,
+      passwordStored: false,
+      allowedSenders: ["@brand.example", "noreply@other.example"],
+    },
+  };
+
+  it("is offered for SMTP (the stored entries fill it, see forms.test.ts)", () => {
+    const html = render(settings(smtp));
+    expect(html).toContain('data-slot="allowed-senders"');
+    expect(html).toContain(i18n.t("settings:mail.allowedSenders.label"));
+    expect(html).toContain("at most 20");
+  });
+
+  it("is not offered for Microsoft 365 and Google Workspace, which send from their mailbox", () => {
+    expect(render(settings(ownApp))).not.toContain('data-slot="allowed-senders"');
+    expect(render(settings(google))).not.toContain('data-slot="allowed-senders"');
+  });
+});

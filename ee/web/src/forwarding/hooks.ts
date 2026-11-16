@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { tenantNavOffersKey } from "@/lib/tenant-nav-offers";
+
 import { useJournalScope } from "../journal/hooks";
 import {
   createForwardAddress,
@@ -45,9 +47,21 @@ function useReplaceAccount() {
   };
 }
 
+/**
+ * Issue an account's address. An active forwarding address counts as a capture set up, so
+ * the tenant's menu offers are asked again: the entry "Archive" appears with the first one.
+ */
 export function useCreateForwardAddress() {
+  const { tenantId } = useJournalScope();
+  const queryClient = useQueryClient();
   const replace = useReplaceAccount();
-  return useMutation({ mutationFn: createForwardAddress, onSuccess: replace });
+  return useMutation({
+    mutationFn: createForwardAddress,
+    onSuccess: (account) => {
+      replace(account);
+      void queryClient.invalidateQueries({ queryKey: tenantNavOffersKey(tenantId) });
+    },
+  });
 }
 
 export function useRotateForwardAddress() {

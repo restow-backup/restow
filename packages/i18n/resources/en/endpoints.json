@@ -26,6 +26,7 @@
     "darwin": "macOS",
     "windows": "Windows"
   },
+  "osPreview": "Preview",
   "status": {
     "online": "Online",
     "offline": "Offline",
@@ -36,7 +37,10 @@
     "backup": "Backup running",
     "restore": "Restore running",
     "verify_sample": "Restore check running",
-    "busy": "Working"
+    "busy": "Working",
+    "sql": "SQL Server backup running",
+    "sql_restore": "SQL Server restore running",
+    "sql_verify": "SQL Server check running"
   },
   "readiness": {
     "state": {
@@ -50,12 +54,17 @@
     "overdueHint": "The newest backup has not been checked by a restore check for more than a week.",
     "frozen": "Checked {time}; no new backups are added",
     "frozenUndated": "Old restore point; no new backups are added",
+    "noSamples": "No restore check possible",
+    "noSamplesHint": "No sample files were recorded with the newest backup, so no restore check is possible for it and it is never shown as checked. The run log of the backup says why the agent could record none (on Windows, agents before 0.5.0 recorded none at all: update the agent).",
     "frozenHint": "The machine is in no backup job. The rating is for an older restore point that nothing renews."
   },
   "runKind": {
     "backup": "Backup",
     "restore": "Restore to the machine",
-    "verify_sample": "Restore check on the machine"
+    "verify_sample": "Restore check on the machine",
+    "sql": "SQL Server backup",
+    "sql_restore": "SQL Server restore under a new name",
+    "sql_verify": "SQL Server check"
   },
   "runStatus": {
     "running": "Running",
@@ -169,7 +178,7 @@
       },
       "servers": {
         "title": "No servers yet",
-        "description": "Add a Linux or macOS server: {appName} creates a one-time command that installs the backup agent and connects the server. It is backed up once you add it to a backup job."
+        "description": "Add a Linux, macOS or Windows server: {appName} creates a one-time command that installs the backup agent and connects the server. It is backed up once you add it to a backup job."
       },
       "clients": {
         "title": "No clients yet",
@@ -180,7 +189,9 @@
     "onlyRevoked": {
       "title": "Only revoked machines",
       "description": "Every machine here is revoked: it is no longer backed up, and its backups stay restorable."
-    }
+    },
+    "recovering": "Being restored",
+    "honestyBaremetal": "File-based backup with restic: single files and folders are backed up and restored. Linux machines can also be restored as a whole on new hardware (preview); there are no disk images. A file restore never overwrites anything: it goes into a new folder on the machine, or is downloaded as a ZIP."
   },
   "noJob": {
     "badge": "Without backup",
@@ -251,6 +262,11 @@
       "used": "Used",
       "expired": "Expired",
       "revoked": "Revoked"
+    },
+    "rebindFor": "Reconnect: {name}",
+    "kind": {
+      "enroll": "Enrollment",
+      "rebind": "Reconnect"
     }
   },
   "enroll": {
@@ -268,12 +284,16 @@
     "os": {
       "legend": "Operating system",
       "planned": "Planned",
+      "preview": "Preview",
       "hint": {
         "linux": "With systemd, on x86-64 or ARM64",
         "darwin": "Intel or Apple silicon",
-        "windows": "On the roadmap, not available yet"
+        "windows": "Windows 10/11 and Server 2016 or later, x64 only"
       },
-      "windowsNote": "Windows is on the roadmap and cannot be chosen yet. This release backs up Linux and macOS machines."
+      "windowsPreview": {
+        "title": "Windows is a preview",
+        "description": "The Windows agent backs files up from a shadow copy (VSS) and restores them. In this release it is a preview: x64 only (no Windows on ARM), restow-agent.exe and restic.exe carry no Authenticode signature (Microsoft Defender, Smart App Control or ASR rules may block them), and there is no restore of the whole machine. Restoring a machine means: reinstall Windows, then bring the files back."
+      }
     },
     "label": {
       "field": "Name (optional)",
@@ -292,11 +312,13 @@
     "command": {
       "heading": {
         "linux": "Run this on the Linux machine",
-        "darwin": "Run this on the Mac"
+        "darwin": "Run this on the Mac",
+        "windows": "Run this in PowerShell as administrator"
       },
       "intro": {
         "linux": "Open a terminal on the {kind} and paste the command. It needs root rights (sudo) and curl, and asks for the token below.",
-        "darwin": "Open Terminal on the {kind} and paste the command. It needs an administrator account (sudo) and asks for the token below."
+        "darwin": "Open Terminal on the {kind} and paste the command. It needs an administrator account (sudo) and asks for the token below.",
+        "windows": "On the {kind}, open PowerShell as administrator (right-click, Run as administrator) and paste the command. It asks for the token below."
       },
       "kind": {
         "server": "server",
@@ -308,6 +330,17 @@
       "validity": "Valid for 24 hours and single use.",
       "expiresAt": "Expires {time}",
       "secretNote": "The token is a one-time secret. It is not part of the command, so it ends up neither in the shell history nor in the process list of the machine. It is shown only now and cannot be shown again once you close this window."
+    },
+    "windows": {
+      "admin": "The command switches TLS 1.2 on first (Windows Server 2016 offers only TLS 1.0 otherwise) and needs Windows PowerShell 5.1, which every supported Windows includes.",
+      "file": {
+        "heading": "Without iex: download, check and run the script",
+        "intro": "If security rules (AMSI, ASR, EDR) flag the pattern iex (irm ...), download {url} as a file, compare its SHA-256 checksum (Get-FileHash .\\windows.ps1) with this value, then run it in PowerShell as administrator:",
+        "copyHash": "Copy the SHA-256 of windows.ps1",
+        "noHash": "This installation ships no windows.ps1; there is no checksum to show.",
+        "copyRun": "Copy the command that runs the file"
+      },
+      "fingerprint": "Fingerprint of the release key: {fingerprint}. The script shows it before it installs anything."
     },
     "warnings": {
       "insecure": {
@@ -356,23 +389,27 @@
       "steps": {
         "download": {
           "linux": "Downloads restow-agent and restic from this server, not from the internet.",
-          "darwin": "Downloads restow-agent and restic from this server, not from the internet."
+          "darwin": "Downloads restow-agent and restic from this server, not from the internet.",
+          "windows": "Downloads restow-agent.exe and restic.exe from this server, not from the internet."
         },
         "verify": {
           "linux": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything.",
-          "darwin": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything."
+          "darwin": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything.",
+          "windows": "Checks the maintainer's signature over the release with its own Ed25519 check written in PowerShell, and the SHA-256 checksum of both programs, before it runs anything."
         },
         "service": {
           "linux": "Installs both into /opt/restow-agent, a folder only root can change, and registers the agent as a system service (systemd unit restow-agent).",
-          "darwin": "Installs both into /Library/Application Support/Restow, a folder only root can change, and registers the agent as a system service (LaunchDaemon com.restowbackup.agent)."
+          "darwin": "Installs both into /Library/Application Support/Restow, a folder only root can change, and registers the agent as a system service (LaunchDaemon com.restowbackup.agent).",
+          "windows": "Installs both into C:\\Program Files\\Restow\\bin, a folder only SYSTEM and administrators can change, and registers the Windows service RestowAgent (LocalSystem)."
         },
         "enroll": {
           "linux": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine.",
-          "darwin": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine."
+          "darwin": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine.",
+          "windows": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine."
         }
       },
       "repair": "Running the command again repairs the installation instead of installing it twice.",
-      "hooks": "Commands before and after the backup (hooks) stay off on the machine unless you allow them there: add -s -- --hooks=scripts (only scripts in /etc/restow-agent/hooks.d) or -s -- --hooks=any after sudo sh."
+      "hooks": "{os, select, windows {Commands before and after the backup (hooks) stay off on the machine unless you allow them there: call the script with -Hooks scripts (only .ps1 and .exe files in C:\\ProgramData\\Restow\\state\\hooks.d) or -Hooks any, or run restow-agent.exe hooks scripts as administrator afterwards.} other {Commands before and after the backup (hooks) stay off on the machine unless you allow them there: add -s -- --hooks=scripts (only scripts in /etc/restow-agent/hooks.d) or -s -- --hooks=any after sudo sh.}}"
     },
     "uninstall": {
       "heading": "Remove the agent later",
@@ -385,10 +422,11 @@
     },
     "unattended": {
       "heading": "Unattended installation (RMM, scripts)",
-      "intro": "Without a terminal to type into, the installer reads the token from a file. Put the token into {tokenFile} (mode 0600, owned by root), then run:",
+      "intro": "{os, select, windows {Without anyone to type, the installer reads the token from a file. Put the token into {tokenFile} (the folder is open to SYSTEM and administrators only; a 32-bit RMM process writes it through C:\\Windows\\Sysnative\\config\\systemprofile), then run the command. It pins the fingerprint of the release key; compare it once with the release notes on GitHub.} other {Without a terminal to type into, the installer reads the token from a file. Put the token into {tokenFile} (mode 0600, owned by root), then run:}}",
       "copy": "Copy the unattended install command",
       "cleanup": "Delete the token file after the installation. The token is single use and expires after 24 hours."
-    }
+    },
+    "honestyBaremetal": "The agent backs up files and folders. It does not create disk images; Linux machines can be restored as a whole on new hardware (preview)."
   },
   "detail": {
     "title": "Machine",
@@ -401,8 +439,11 @@
     "tabs": {
       "overview": "Overview",
       "snapshots": "Snapshots",
-      "settings": "Settings"
-    }
+      "settings": "Settings",
+      "sql": "SQL Server"
+    },
+    "recoveryBanner": "This machine is being restored on bare metal: {phase}.",
+    "recoveryBannerLink": "Follow the recovery"
   },
   "actions": {
     "backup": {
@@ -514,7 +555,10 @@
       "restore": "Restore",
       "verify_sample": "Restore check",
       "update_config": "Apply new settings",
-      "uninstall": "Uninstall the agent"
+      "uninstall": "Uninstall the agent",
+      "sql_restore": "Restore a SQL Server database under a new name",
+      "sql_verify": "Check SQL Server backups",
+      "sql_inventory": "Check the SQL Server sign-in"
     },
     "restore": "{count, plural, one {Restore # item into a new folder} other {Restore # items into a new folder}}",
     "status": {
@@ -561,12 +605,24 @@
       "notFinished": "Still running",
       "duration": "Duration",
       "snapshot": "Snapshot",
+      "snapshotOfFailedRun": "Saved before the run was stopped. It does not count as a successful backup; the errors below say why.",
       "filesProcessed": "Files processed",
       "bytesProcessed": "Data processed",
       "filesNew": "New files",
       "filesChanged": "Changed files",
       "filesUnmodified": "Unchanged files",
-      "dataAdded": "Data added to storage"
+      "dataAdded": "Data added to storage",
+      "consistency": "Consistency",
+      "layout": "Layout captured"
+    },
+    "consistency": {
+      "used": "{method, select, vss {Shadow copy (file consistent)} lvm {LVM snapshot (file consistent)} btrfs {btrfs snapshot (file consistent)} mixed {LVM and btrfs snapshots (file consistent)} apfs {APFS snapshot (file consistent)} other {File system snapshot (file consistent)}}",
+      "usedWith": "{method, select, vss {Shadow copy (file consistent); read live: {live}} none {File system snapshot (file consistent); read live: {live}} other {File system snapshot {method} (file consistent); read live: {live}}}",
+      "partial": "{method, select, vss {Partly without a shadow copy} other {Partly without a file system snapshot}}",
+      "partialWith": "{method, select, vss {Partly without a shadow copy: {live}} other {Partly without a file system snapshot: {live}}}",
+      "unavailable": "{method, select, vss {Without a shadow copy (shadow copy not available)} other {Without a file system snapshot (not available)}}",
+      "unavailableWith": "{method, select, vss {Without a shadow copy: {live}} other {Without a file system snapshot: {live}}}",
+      "off": "{method, select, vss {Without a shadow copy (switched off for this machine)} other {Without a file system snapshot, read from the live file system}}"
     },
     "progress": {
       "heading": "Progress",
@@ -594,7 +650,9 @@
     "interruptedNote": "The agent was restarted while this run was going and picks the work up again by itself. This is not a failure; nothing needs to be done.",
     "incompleteNote": "This restore check could not complete, so it says nothing about the backup: nothing was rated, no alert went out, and the last restore check stays as it was. The machine gets the restore check again after a wait while this backup is its newest; otherwise the next backup brings a new one.",
     "incompleteNoteFinal": "This restore check could not complete, so it says nothing about the backup: nothing was rated and no alert went out. The machine is revoked and gets no more restore checks.",
-    "errorCount": "{count, plural, one {# error} other {# errors}}"
+    "errorCount": "{count, plural, one {# error} other {# errors}}",
+    "layoutShow": "Show on the machine's page",
+    "layoutCaptured": "Yes"
   },
   "reports": {
     "title": "Reports",
@@ -603,7 +661,8 @@
     "kind": {
       "restore_test": "Restore check",
       "repository_check": "Integrity check",
-      "retention": "Retention run"
+      "retention": "Retention run",
+      "sql_verify": "SQL Server check"
     },
     "origin": {
       "server": "Read back by the server",
@@ -625,7 +684,10 @@
       "removed": "{count, plural, one {# snapshot removed} other {# snapshots removed}}",
       "kept": "{kept} snapshots kept",
       "size": "Size of the backup data afterwards: {size}",
-      "unrecorded": "{count, plural, one {# snapshot no backup reported was kept} other {# snapshots no backup reported were kept}}"
+      "unrecorded": "{count, plural, one {# snapshot no backup reported was kept} other {# snapshots no backup reported were kept}}",
+      "targetFull": "Retention could not free space: target full",
+      "targetFullHint": "The storage target has no room left, not even for the cleanup. Free space on the target or enlarge it (for an S3 bucket: raise its quota). The next retention run then deletes the data no snapshot needs any more.",
+      "deleteOnly": "Space on the storage target was short: only data no snapshot uses was deleted. Partly used data is reorganised in a later run once there is room."
     },
     "mismatches": {
       "show": "{count, plural, one {Show # difference} other {Show # differences}}",
@@ -633,6 +695,12 @@
       "actual": "Found",
       "missing": "File could not be read back",
       "reason": "Reason"
+    },
+    "sqlVerify": {
+      "green": "{name}: restored from the backup data and checked with DBCC CHECKDB without errors",
+      "red": "{name}: the check found damage",
+      "incomplete": "{name}: the check could not complete and rates nothing",
+      "evidence": "Error {code}: {message}"
     }
   },
   "snapshots": {
@@ -719,14 +787,20 @@
     "moreItems": "{count, plural, one {and # more} other {and # more}}",
     "target": {
       "label": "Target folder (optional)",
-      "placeholder": "/srv/restore",
-      "hint": "An absolute path on the machine (Linux or macOS), for example /srv/restore-2026. The folder must not exist yet or must be empty, and the folder above it must exist; otherwise the run stops without writing anything. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
+      "placeholder": "{os, select, windows {D:\\Restore} other {/srv/restore}}",
+      "hint": "{os, select, windows {A local folder on the machine, for example D:\\Restore. It must not exist yet or must be empty, and the folder above it must exist; network drives, removable media, FAT drives, Windows, the program folders and C:\\ProgramData\\Restow are refused. The files keep their original permissions. Without one, the agent creates a new folder named Restow-Restore followed by the date and time on the system drive (C:\\Restow-Restore-...). Existing files are never overwritten.} other {An absolute path on the machine (Linux or macOS), for example /srv/restore-2026. The folder must not exist yet or must be empty, and the folder above it must exist; otherwise the run stops without writing anything. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.}}",
       "errors": {
-        "notAbsolute": "Enter an absolute path starting with /, for example /srv/restore-2026. Windows paths are not supported.",
+        "notAbsolute": "{os, select, windows {Enter a folder with a drive letter, for example D:\\Restore.} other {Enter an absolute path starting with /, for example /srv/restore-2026. Windows paths are for Windows machines only.}}",
         "controlCharacters": "The path contains control characters.",
         "tooLong": "The path is too long.",
-        "root": "The root folder / cannot be the target. Enter a folder below it.",
-        "notPlain": "Enter the path without “.”, “..”, double or trailing slashes."
+        "root": "{os, select, windows {A whole drive cannot be the target. Enter a folder on it.} other {The root folder / cannot be the target. Enter a folder below it.}}",
+        "notPlain": "{os, select, windows {Enter the path without “.”, “..”, double or trailing backslashes.} other {Enter the path without “.”, “..”, double or trailing slashes.}}",
+        "networkPath": "Network paths (\\\\server\\share) cannot be the target. The agent runs as SYSTEM and reaches no shares; choose a local folder.",
+        "forwardSlash": "Use backslashes (\\), for example D:\\Restore.",
+        "invalidCharacter": "The path contains a character Windows does not allow in folder names (<>:\"|?*).",
+        "trailingDotOrSpace": "A folder name ends in a dot or a space, which Windows would trim. Remove it.",
+        "reservedName": "The path contains a name Windows reserves (for example CON, NUL, COM1).",
+        "systemFolder": "Restores never go into Windows, the program folders, C:\\ProgramData\\Restow or System Volume Information. Choose another folder."
       }
     },
     "neverOverwrites": "A restore never overwrites existing files. Everything is written into a new folder, so files that are on the machine now stay untouched.",
@@ -809,7 +883,9 @@
       "bandwidthHint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s. It applies outside every time window.",
       "unlimited": "Unlimited",
       "acPower": "Only back up on AC power",
-      "acPowerHint": "A laptop on battery skips the backup until it is plugged in."
+      "acPowerHint": "A laptop on battery skips the backup until it is plugged in.",
+      "vss": "Shadow copy (VSS)",
+      "vssHint": "Backs up from a shadow copy, so open and locked files can be read and all files are from the same moment (file consistent). What happens when it fails is set by the agent policy (back up without the snapshot, or stop)."
     },
     "hooks": {
       "title": "Commands before and after the backup",
@@ -930,6 +1006,17 @@
       "hintDefault": "Leave empty for the installation's default of {size}.",
       "hintUnlimited": "Leave empty for no limit (the installation sets none).",
       "tenantNote": "All servers and clients of this tenant share a budget of {size}."
+    },
+    "fsSnapshot": {
+      "label": "File system snapshot (LVM, btrfs)",
+      "hint": "Backs up from an LVM or btrfs snapshot, so all files are from the same moment (file consistent). File systems without a snapshot method (a partition, a full volume group) are read live. What happens when a snapshot fails is set by the agent policy.",
+      "default": "Default",
+      "auto": "On (where possible)",
+      "off": "Off",
+      "defaultNote": {
+        "auto": "Default for this machine: on, because its job backs it up as a whole.",
+        "off": "Default for this machine: off. Whole machine backups take snapshots by default."
+      }
     }
   },
   "repositoryKey": {
@@ -958,7 +1045,7 @@
   },
   "danger": {
     "title": "Stop backing up this machine",
-    "description": "Uninstalling and revoking delete nothing: the machine stays in the inventory as revoked (hidden until you show revoked machines), and its backups stay restorable. Only removing a revoked machine deletes its backups, at once or when they expire.",
+    "description": "Uninstalling and revoking delete nothing: the machine stays in the inventory as revoked (hidden until you show revoked machines), and its backups stay restorable. Only removing a revoked machine deletes its backups, when they expire or seven days after the request.",
     "uninstall": {
       "title": "Uninstall the agent",
       "description": "The machine removes the agent by itself with its next contact, and is revoked when it does. Use this when you no longer want to back the machine up.",
@@ -992,7 +1079,7 @@
     "revokeSuggested": "{days, plural, one {This machine has not been in contact for more than # day. If it is gone for good, revoke it, then remove it.} other {This machine has not been in contact for more than # days. If it is gone for good, revoke it, then remove it.}}",
     "remove": {
       "title": "Remove from {appName}",
-      "description": "Takes the machine out of every list and deletes its backups, at once or when its retention lets them go. Its runs and the audit log keep their entries.",
+      "description": "Takes the machine out of every list and deletes its backups when its retention lets them go. An owner of the provider team can instead have every backup deleted seven days after the request. Its runs and the audit log keep their entries.",
       "revokeFirst": "Revoke the machine first. A machine that is not revoked cannot be removed.",
       "action": "Remove machine",
       "mode": {
@@ -1001,35 +1088,52 @@
           "description": "The backups stay stored until the machine's retention would have let the newest of them go, then they are deleted. Until then the page of the removed machine still offers their restore."
         },
         "delete": {
-          "label": "Delete the machine and its backups",
-          "description": "Every backup of the machine is deleted now. Not possible while a legal hold or an unresolved suspicious restore point holds them."
+          "label": "Delete every backup in seven days",
+          "description": "The machine stays listed as revoked for seven more days, then every backup of it is deleted and the machine leaves the lists. Until then the deletion can be cancelled. The provider's mandatory recipients are alerted at once. Not possible while a legal hold or an unresolved suspicious restore point holds the backups.",
+          "ownerOnly": "Only an owner of the provider team can delete backups."
         }
       },
       "confirm": {
         "title": "Remove {name}?",
-        "description": "The machine disappears from every list, dashboard and count. This cannot be undone: deleted backups cannot be restored.",
+        "description": "This cannot be undone once the deletion has run: deleted backups cannot be restored.",
         "locks": "Backup files the storage still locks (immutable backups) are deleted once their lock runs out; the machines page shows when.",
         "typeHostname": "Type the hostname {hostname} to confirm",
         "cancel": "Cancel",
         "action": {
           "expire": "Remove machine",
-          "delete": "Delete machine and backups"
-        }
+          "delete": "Delete backups in seven days"
+        },
+        "reason": "Reason (kept in the audit log)"
       },
       "toast": {
-        "delete": "{name} was removed. Its backups are being deleted.",
+        "delete": "The backups of {name} will be deleted on {date}. You can cancel that on the machine's page until then.",
         "expire": "{name} was removed. Its backups are deleted on {date}."
-      }
+      },
+      "scheduled": "The backups of this machine are scheduled for deletion; the notice at the top of the page says when. Cancel that to choose differently."
     }
+  },
+  "backupDeletion": {
+    "title": "Backups will be deleted on {date}",
+    "requested": "Requested by {person} on {date}.",
+    "reason": "Reason: {reason}",
+    "heldLegal": "A legal hold over this tenant holds the deletion: nothing is deleted while it stands, and it is checked again daily.",
+    "heldSuspicion": "An unresolved suspicious restore point of this machine holds the deletion: nothing is deleted until it is resolved, and it is checked again daily.",
+    "cancel": "Cancel deletion",
+    "cancelled": "The deletion was cancelled. The backups stay.",
+    "ownerCancels": "Only an owner of the provider team can cancel the deletion."
   },
   "errors": {
     "resticBusy": "The server is reading other backups right now. Try again in a moment.",
     "repositoryLocked": "The backup data is busy with a backup or maintenance. Try again shortly.",
     "repositoryUnavailable": "The backup data of this machine could not be opened in the repository. Check that the repository is reachable.",
+    "repositoryNotFound": "The backup data of this machine was not found on any storage target. Check that every storage target of this tenant is reachable and that the machine's folder under endpoints/ was not moved or deleted there.",
+    "repositoryPasswordRejected": "The stored password does not open the backup data of this machine: the repository was probably re-created or its keys were changed outside {appName}. Contact your provider; the details are in the server log.",
+    "repositoryPasswordMissing": "No repository password is stored for this machine, so its backup data cannot be opened here. If you saved the password earlier (“Show repository password”), you can still restore with restic outside {appName}.",
     "resticFailed": "Reading the backup data failed. The details are in the server log.",
     "resticUnavailable": "The restic program is not available on the server, so snapshots cannot be read.",
-    "unsupportedOs": "This operating system is not supported yet. This release backs up Linux and macOS machines.",
+    "unsupportedOs": "This operating system is not supported. {appName} backs up Linux, macOS and Windows on x64 (amd64); Windows on ARM is not supported in this release.",
     "revoked": "This machine is revoked and takes no changes or tasks.",
+    "noSamples": "The newest backup recorded no sample files, so no restore check of it is possible. The run log of the backup says why.",
     "nothingToTest": "There is no successful backup to test yet.",
     "instanceUnknown": "The address of this installation is not known. Set the public URL in the settings and try again.",
     "queueNotReady": "The worker has not started yet. Try again in a moment.",
@@ -1054,7 +1158,29 @@
     "confirmHostname": "The hostname does not match. Type it exactly as shown.",
     "removalLegalHold": "A legal hold covers every backup of this tenant, so they cannot be deleted now. Keep them until they expire instead, or release the hold first.",
     "removalSuspicionHold": "A suspicious restore point of this machine is not resolved and holds its backups. Resolve it first, or keep the backups until they expire.",
-    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead."
+    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead.",
+    "restorePathLocked": "This file is not handed out: the agent's own state file is never restored (the agent gets a new identity when it is enrolled again), and key files of encrypted volumes only to administrators.",
+    "recoveryCodeInvalid": "No recovery code matches. Check the code and the address.",
+    "recoveryCodeExpired": "The recovery code has expired. Issue a new one.",
+    "recoveryCodeRevoked": "The recovery code was revoked. Issue a new one.",
+    "recoveryCodeUsed": "The recovery code was redeemed already. Issue a new one.",
+    "recoveryTooOld": "The recovery ISO is too old for this server. Download the current one.",
+    "recoverySessionEnded": "The recovery session has ended.",
+    "recoveryNotApproved": "The session has not been released yet.",
+    "recoveryCredentialsCollected": "The ISO collected the credentials already.",
+    "recoveryStateConflict": "That is not possible in the current state of the recovery. Reload the page.",
+    "baremetalNotAvailable": "No recovery code can be issued for this machine.",
+    "recoveryLimitReached": "Three codes of this machine are open already. Revoke one first.",
+    "endpointRecoveryActive": "A recovery reads this machine's backups. Let it finish or end it first.",
+    "rebindOsMismatch": "The token is for a machine with another operating system.",
+    "sqlUnsupported": "The agent on this machine cannot back up SQL Server natively yet. Update the agent first.",
+    "sqlBackupPruned": "This backup is no longer kept: retention removed it. Choose a newer one.",
+    "sqlNameTaken": "A database of that name already exists on the instance. Choose another name.",
+    "sqlNothingToVerify": "No database of this machine has a backup in the backup data yet.",
+    "removalScheduled": "The backups of this machine are already scheduled for deletion. Cancel that first to choose differently.",
+    "removalReasonRequired": "Give a reason for deleting the backups.",
+    "removalNotCancellable": "The deletion can no longer be cancelled: it has started, or there is none to cancel.",
+    "ownerRequired": "Only an owner of the provider team can do this."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1065,6 +1191,7 @@
       "green": "The restore check of the newest backup matched every checked file.",
       "yellow": "The restore check passed, but the newest backup has warnings: some files could not be read.",
       "red": "The restore check of the newest backup failed, or an integrity check found damage.",
+      "noSamples": "No sample files recorded; restore check not possible for this backup.",
       "unverified": "A backup exists but was never checked.",
       "noBackup": "Nothing to verify until the first backup completes.",
       "noBackupOverdue": "No backup within 24 hours of protection starting."
@@ -1090,7 +1217,15 @@
     "unknown": "Error code {code}",
     "detail": "Technical message from the agent",
     "agent_stopped": "The agent stopped reporting while the run was in progress",
-    "cancelled": "Cancelled in the web app"
+    "snapshot_failed": "The file system snapshot (such as a shadow copy or an LVM or btrfs snapshot) of a drive or file system failed",
+    "snapshot_unavailable": "Without a file system snapshot: snapshots cannot be used on the machine",
+    "snapshot_cleanup_failed": "A file system snapshot was left behind after the backup",
+    "source_unreadable": "A backup folder could not be read, for example a drive locked by BitLocker, offline or without access, and is missing from this backup",
+    "source_is_mount_point": "A backup folder is a volume without a drive letter: only its mount point would be backed up, so it is missing from this backup",
+    "cancelled": "Cancelled in the web app",
+    "layout_capture_failed": "The disk layout could not be recorded; the mounted file systems were backed up anyway",
+    "layout_too_large": "The disk layout is too large for the server; it is in the restore point, but not shown here",
+    "layout_rejected": "The server did not keep the disk layout the agent sent"
   },
   "agentUpdates": {
     "title": "Automatic agent updates",
@@ -1171,6 +1306,8 @@
     "emptyDescription": "Once the container is backed up, its files can be browsed and downloaded here.",
     "downloadOnly": "Files of a container are downloaded as a ZIP. To put the whole container back, restore it under VMs & containers.",
     "downloadOnlyRestorer": "Files of a container are downloaded as a ZIP. Putting the whole container back is up to an administrator.",
+    "restoreWhole": "Restore whole container …",
+    "restoreWholeHint": "Puts the whole container back from this restore point (on the container's page).",
     "openGuest": "Open the container"
   },
   "vmFiles": {
@@ -1180,6 +1317,8 @@
     "emptyDescription": "Once the VM is backed up, the files on its disks can be browsed and downloaded here.",
     "downloadOnly": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; to put the whole VM back, restore it under VMs & containers.",
     "downloadOnlyRestorer": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; putting the whole VM back is up to an administrator.",
+    "restoreWhole": "Restore whole VM …",
+    "restoreWholeHint": "Puts the whole VM back from this restore point (on the VM's page).",
     "openGuest": "Open the VM",
     "unreadable": "Not readable on this restore point:",
     "unreadableItem": "{name}: {reason}",
@@ -1253,6 +1392,18 @@
       "label": "Retries",
       "hint": "0 to {max}.",
       "value": "{count, plural, one {# retry} other {# retries}}"
+    },
+    "snapshotOnFailure": {
+      "title": "When the file system snapshot fails",
+      "description": "Applies to the shadow copy (VSS) of Windows machines and to file system snapshots on Linux and macOS. A shadow copy makes a backup file consistent, not application consistent; back databases up with a command before the backup as well.",
+      "modes": {
+        "continue": "Back up without the snapshot (partial)",
+        "fail": "Stop the backup"
+      },
+      "hints": {
+        "continue": "The volumes concerned are read directly; the run ends as partial and says why.",
+        "fail": "The run ends as failed; the automatic retries apply."
+      }
     },
     "problems": {
       "days": "Choose at least one day.",
@@ -1330,6 +1481,7 @@
     "never_seen": "Never connected",
     "revoke_suggested": "Revoke suggested",
     "never": "No backup yet",
+    "no_samples": "No restore check possible",
     "restore_warning": "Restore check: attention",
     "check_overdue": "Restore check overdue",
     "interrupted": "Interrupted",
@@ -1368,5 +1520,901 @@
     "openPage": "Open machine page",
     "progressOf": "Backup progress of {name}",
     "adminOnly": "Backing up and stopping is for administrators of backup jobs."
+  },
+  "baremetal": {
+    "title": "Bare-metal restore (preview)",
+    "states": {
+      "not_enabled": "Not backed up as a whole",
+      "not_possible": "Not possible",
+      "no_layout": "No layout captured yet",
+      "unverified": "Layout captured; restore check pending",
+      "layout_checked": "Layout checked",
+      "red": "Restore check failed",
+      "green": "Starts on new hardware",
+      "overdue": "Boot probe overdue"
+    },
+    "notPossible": {
+      "container": "A container is restored with its host.",
+      "windows": "Windows machines are not restored as a whole yet.",
+      "darwin_later": "macOS follows in a later version.",
+      "agent_too_old": "The agent is too old for a whole machine backup (0.5.0 or later needed).",
+      "unsupported": "The layout uses parts the restore cannot create (see below).",
+      "arm64_later": "Bare-metal restores of arm64 machines follow in a later version."
+    },
+    "unverifiedHint": "The newest whole machine backup recorded the layout below. The server checks after every whole machine backup whether it can be restored; until that check has run, nothing here is proof.",
+    "snapshotHint": "{vg} has no free space for snapshots. Leave {size} free (10 % of the volume group), then {appName} backs up {mounts} consistently.",
+    "capturedAt": "Captured",
+    "snapshot": "Restore point",
+    "verdictLabel": "Assessment",
+    "verdict": {
+      "supported": "Supported",
+      "supported_with_warnings": "Supported, with notes",
+      "unsupported": "Not supported"
+    },
+    "codes": {
+      "fs_type_unsupported": "A file system of a system path has a type the restore cannot create (for example ZFS, bcachefs, F2FS or NTFS)",
+      "lvm_type_unsupported": "A logical volume uses a cache, writecache or VDO, which the restore cannot create",
+      "md_container_unsupported": "A RAID array lives in a firmware RAID container",
+      "md_journal_unsupported": "A RAID array uses a journal or partial parity log",
+      "md_reshape_in_progress": "A RAID array was being reshaped during the backup",
+      "multipath_unsupported": "A disk is reached over multipath",
+      "integrity_unsupported": "A volume uses dm-integrity",
+      "luks_detached_header": "An encrypted volume keeps its header apart from its data",
+      "network_root_unsupported": "The root file system comes over the network (iSCSI, NFS)",
+      "xfs_external_log": "An XFS file system has an external log or a realtime device",
+      "bootloader_unsupported": "The boot loader is none the restore can set up",
+      "initramfs_unsupported": "The initramfs generator is none the restore can run",
+      "uki_without_generator": "A unified kernel image is used, but no generator for it is installed",
+      "unknown_device_in_boot_path": "An unknown device lies on the way to /, /boot or the EFI system partition",
+      "container": "The machine is a container: it is restored with its host",
+      "fstab_unresolvable": "An fstab entry of a system path cannot be resolved to a device",
+      "luks_token": "An encrypted volume opens with a TPM2, FIDO2 or network-bound key: set it up again after a restore",
+      "snapshot_subvolumes": "Subvolumes of automatic system snapshots are created empty on restore, not backed up",
+      "lvm_snapshot_lvs": "LVM snapshots on the machine are not backed up",
+      "raw_lvs": "Logical volumes without a file system (raw) are not backed up",
+      "pve_guest_volumes": "Volumes of virtual machines and containers (Proxmox VE) are not backed up here; the Proxmox VE integration backs them up",
+      "docker_btrfs_many": "More than 200 btrfs subvolumes of container images: consider downloading them again after a restore instead of backing them up",
+      "data_fs_unsupported": "A data file system of an unsupported type is backed up, but not created again on restore",
+      "untested_distribution": "The distribution has not been tested for restores",
+      "non_systemd_init": "The machine does not start with systemd",
+      "secure_boot_own_keys": "Secure Boot is on with a boot loader or kernel signed by your own keys",
+      "dkms_mok": "Kernel modules built on the machine are signed with a machine owner key",
+      "bios_needs_csm": "The machine starts in legacy BIOS mode: replacement hardware needs CSM or legacy boot, which many current models no longer have",
+      "dual_boot_windows": "A second operating system is on the disks (dual boot); only Linux is restored",
+      "lvm_device_ids": "LVM names its devices in a devices file or filter; the restore adjusts it",
+      "device_name_refs": "Configuration files name devices by kernel name (such as /dev/sda), which can change on new hardware",
+      "md_degraded": "A RAID array was degraded during the backup",
+      "capture_failed": "A part of the layout could not be recorded"
+    },
+    "content": {
+      "esp": "EFI system partition",
+      "bios_boot": "BIOS boot partition",
+      "filesystem": "File system",
+      "luks": "Encrypted (LUKS)",
+      "md": "RAID member",
+      "pv": "LVM physical volume",
+      "swap": "Swap",
+      "plain": "Encrypted (plain)",
+      "empty": "Empty",
+      "other": "Other"
+    },
+    "stack": {
+      "disk": "Disk",
+      "partition": "Partition",
+      "md": "RAID",
+      "luks": "LUKS",
+      "plain": "dm-crypt",
+      "vg": "Volume group",
+      "lv": "Logical volume",
+      "fs": "File system",
+      "subvolume": "Subvolume",
+      "swap": "Swap"
+    },
+    "summary": {
+      "diskBar": "{disk} with {count, plural, one {# partition} other {# partitions}}",
+      "system": "System",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS (legacy)"
+      },
+      "secureBoot": "Secure Boot",
+      "on": "On",
+      "off": "Off",
+      "unknown": "Unknown",
+      "bootloader": "Boot loader",
+      "initramfs": "initramfs and keyboard layout",
+      "encryption": "Encryption",
+      "noEncryption": "None",
+      "encryptionCount": "{luks, plural, one {# LUKS volume} other {# LUKS volumes}}, {plain, plural, one {# plain dm-crypt} other {# plain dm-crypt}}",
+      "disks": "Disks",
+      "stack": "Storage stack"
+    },
+    "incompleteHint": "The layout check of the newest restore point could not finish. It runs again after the next whole machine backup; until then nothing here is proof.",
+    "layoutCheckedHint": "The newest restore point holds this layout and its boot chain, and the restore planner can put it on the same and on the smallest possible disks. That is not yet proof that the restored machine starts: the boot probe below proves it.",
+    "greenHint": "The recovery lab restored the newest whole machine backup onto other hardware through the same recovery a person runs, and the restored system started. Valid for 8 days and for this layout and boot chain.",
+    "overdueHint": "The last passed boot probe is older than 8 days. The next one runs once the recovery lab has room; you can start it now.",
+    "redHint": "The layout check found a problem in the newest restore point (see below). Fix it on the machine; the next whole machine backup is checked again.",
+    "check": {
+      "title": "Layout check",
+      "checkedAt": "Checked",
+      "snapshot": "Restore point",
+      "pending": "The layout check of this restore point has not run yet.",
+      "result": {
+        "green": "Passed",
+        "red": "Failed",
+        "yellow": "Incomplete"
+      },
+      "status": {
+        "ok": "OK",
+        "warning": "Note",
+        "failed": "Failed",
+        "skipped": "Skipped"
+      },
+      "showEvidence": "Show evidence",
+      "hideEvidence": "Hide evidence",
+      "noFindings": "Nothing to note.",
+      "plannerTitle": "Restore planner",
+      "plannerOk": "Plans without problems",
+      "plannerRefused": "The planner refused the layout",
+      "items": {
+        "L1": "Layout manifest valid",
+        "L2": "Layout supported",
+        "L3": "Restore can be planned",
+        "L4": "Manifest in the restore point",
+        "L5": "Every file system backed up",
+        "L6": "Boot chain in the restore point",
+        "L7": "Consistency",
+        "L8": "Restore sizes"
+      },
+      "targets": {
+        "same": "Same hardware",
+        "minimal": "Smallest possible disks",
+        "other-controller": "Another disk controller"
+      },
+      "incomplete": {
+        "planner_timeout": "The restore planner took too long.",
+        "planner_output_too_large": "The restore planner's answer was too large.",
+        "planner_crashed": "The restore planner stopped without an answer.",
+        "planner_unavailable": "The restore planner is not installed on the server.",
+        "planner_refused_valid_manifest": "The restore planner refused a valid layout."
+      },
+      "findings": {
+        "manifest_invalid": "The stored layout manifest is not valid: {reason}",
+        "verdict_unsupported": "The layout uses parts the restore cannot create: {codes}",
+        "planner_refused_valid_manifest": "The restore planner refused the layout for {target} ({code}).",
+        "manifest_missing": "The restore point does not hold the layout manifest {path}.",
+        "manifest_mismatch": "The layout manifest in the restore point differs from the one the machine reported (expected {expected}, found {actual}).",
+        "source_missing": "The source {source} is not in the restore point.",
+        "source_empty": "The source {source} is empty in the restore point.",
+        "fstab_entry_not_covered": "The fstab entry for {target} is neither backed up nor excluded.",
+        "subvolume_not_covered": "The btrfs subvolume at {path} is neither backed up nor excluded.",
+        "system_mount_excluded": "An exclusion hits the system file system at {target}.",
+        "paths_differ": "The restore point lists other paths than the {count} sources of the backup; its tree holds them all.",
+        "fstab_missing": "The restore point holds no /etc/fstab.",
+        "fstab_unresolvable": "The fstab entry {source} for {target} resolves to no device of the layout.",
+        "crypttab_plain_device_name": "The plain dm-crypt entry {name} names its device as {device}; on new hardware that name can point at another disk.",
+        "crypttab_unresolvable": "The crypttab entry {name} ({device}) resolves to no device of the layout.",
+        "kernel_missing": "The kernel {version} ({path}) is not in the restore point.",
+        "kernel_size_mismatch": "{path} has another size in the restore point than recorded ({actual} instead of {expected} bytes).",
+        "initramfs_missing": "The initramfs {path} of kernel {version} is not in the restore point.",
+        "loader_missing": "The boot loader {path} of boot entry {entry} is not in the restore point.",
+        "generator_missing": "The initramfs generator {tool} is not in the restore point.",
+        "bootloader_tool_missing": "The boot loader tool ({tools}) is not in the restore point.",
+        "grub_cfg_missing": "The GRUB configuration {path} is not in the restore point.",
+        "bls_kernel_missing": "The loader entry {entry} names {path}, which is not in the restore point.",
+        "modules_alias_missing": "The module lists of kernel {version} are not in the restore point; drivers cannot be checked.",
+        "keymap_mismatch": "{path} sets the keyboard layout {actual}, the layout recorded {expected}.",
+        "lvm_filter_device_names": "The LVM filter in {path} names devices by kernel name; the restore adjusts it.",
+        "device_name_refs": "{count, plural, one {# configuration entry names} other {# configuration entries name}} devices by kernel name; the restore adjusts them.",
+        "consistency_live_root": "The root file system was read without a snapshot; open files may be inconsistent.",
+        "consistency_missing": "The backup reported no consistency (agent before 0.5.0).",
+        "restore_sizes": "{bytes} to restore on {mounts, plural, one {# file system} other {# file systems}}."
+      }
+    },
+    "plan": {
+      "codes": {
+        "layout_unsupported": "The layout cannot be restored to bare metal ({reason}).",
+        "firmware_mode_mismatch": "The machine was backed up in {source} mode, the target starts in {target} mode.",
+        "bios_4kn": "BIOS cannot start from disk {target}: it has 4096-byte logical sectors.",
+        "target_missing": "No target disk for {disk} ({kname}, at least {minBytes}).",
+        "target_too_small": "Target disk {target} has {haveBytes}, {disk} needs at least {needBytes}.",
+        "target_unusable": "Target disk {target} cannot be written ({reason}).",
+        "sed_locked": "Disk {target} returns read errors; it may be a locked self-encrypting drive.",
+        "multipath_detected": "Disks {targets} have the same WWN: the storage is reached over several paths.",
+        "identity_conflict": "Device {device} carries {kind} {uuid} of this machine; disconnect or wipe it.",
+        "storage_driver_missing": "The backed-up kernel {kernel} has no driver for disk {target} ({modalias}).",
+        "secure_boot_ca_missing": "The target firmware does not trust {loader} (signed by {issuer}).",
+        "secure_boot_revoked": "The target firmware has revoked {loader}.",
+        "secure_boot_sbat_revoked": "The target firmware has revoked generation {generation} of {component} in {loader}.",
+        "mok_key_missing": "{object} is signed with the machine owner key {subject}, which is neither in the backup nor enrolled on the target.",
+        "mkfs_unsupported_type": "File system {fs} ({type}) cannot be created: {reason}.",
+        "mkfs_feature_unknown": "File system {fs} ({type}) uses the feature {feature}, which the recovery tools cannot create.",
+        "sector_size_incompatible": "{object} combines {sizes}-byte sectors that {fs} cannot use.",
+        "md_too_few_members": "The RAID array {md} would have {have} of {need} members; it cannot run.",
+        "lvm_raid_missing_pv": "The RAID logical volume {vg}/{lv} needs all its physical volumes; {disk} is missing.",
+        "btrfs_raid_missing_device": "The btrfs file system {fs} needs all its devices; {disk} is missing.",
+        "shrink_needs_confirmation": "Disk {disk} fits on {target} only if more volumes shrink than the one that may grow; this needs a confirmation.",
+        "adopt_incomplete": "{unit} cannot be kept: {reason}.",
+        "mapping_invalid": "The disk mapping is not valid: {reason}.",
+        "nic_driver_missing": "The backed-up kernel {kernel} has no driver for the network card {nic}.",
+        "fallback_kernel_driver_missing": "The fallback kernel {kernel} has no driver for disk {target}.",
+        "other_controller_driver_missing": "On another disk controller the backed-up kernel {kernel} would have no driver ({module}).",
+        "driver_facts_missing": "The module lists of kernel {kernel} are not known; drivers were not checked.",
+        "secure_boot_dbx_unknown": "The revocation list of the target firmware is not known; revoked boot loaders were not checked.",
+        "secure_boot_unsigned_chain": "{loader} is not signed: the restored machine starts only with Secure Boot off or with own keys.",
+        "secure_boot_disabled_by_choice": "By choice the checks of the boot chain are notes only: the restored machine starts only once Secure Boot is switched off in the firmware setup of the target.",
+        "mok_enroll_required": "The machine owner key {subject} must be enrolled at the first start.",
+        "md_degraded_first_boot": "The RAID array {md} is created degraded ({have} of {need} members); the first start may take longer.",
+        "redundant_boot_partition_dropped": "Partition {partition} of the missing disk {disk} is a redundant boot partition and is not created again.",
+        "raw_lvs_skipped": "{count, plural, one {# logical volume} other {# logical volumes}} without a file system {count, plural, one {is} other {are}} not created ({lvs}).",
+        "raw_lvs_created_empty": "{count, plural, one {# logical volume} other {# logical volumes}} without a file system {count, plural, one {is} other {are}} created empty ({lvs}).",
+        "dual_boot_windows_not_restored": "Another operating system on the disks (dual boot) is not restored; its boot entries are not created.",
+        "mbr_2tib_limit": "Disk {target} is larger than an MBR partition table can address; {freeBytes} stay unused.",
+        "partition_realigned": "Partition {partition} moves to a 1 MiB boundary; its PARTUUID stays.",
+        "esp_grown_4kn": "The EFI system partition {partition} grows to {sizeBytes} for FAT32 with 4096-byte sectors.",
+        "ext_block_size_raised": "File system {fs} is created with {blockSize}-byte blocks instead of {sourceBlockSize}.",
+        "vfat_sector_size_changed": "File system {fs} is created with {sectorSize}-byte sectors instead of {sourceSectorSize}.",
+        "luks_sector_size_changed": "The encrypted volume {luks} is created with {sectorSize}-byte sectors instead of {sourceSectorSize}.",
+        "lvm_mixed_block_sizes_allowed": "{object} spans disks with different sector sizes; LVM is allowed to mix them.",
+        "btrfs_csum_assumed": "The checksum type of btrfs {fs} is not recorded; crc32c is assumed.",
+        "restore_size_estimated": "The restore size of {object} is estimated from the space in use.",
+        "lv_shrunk": "Logical volume {vg}/{lv} shrinks from {fromBytes} to {toBytes}.",
+        "partition_shrunk": "Partition {partition} shrinks from {fromBytes} to {toBytes}.",
+        "grow_not_last": "Partition {partition} is marked to grow but is not the last one on {disk}; it keeps its size.",
+        "fs_not_recreated": "File system {fs} ({type}) is not created again; its partition stays empty.",
+        "bios_boot_disk": "Select {target} as the boot disk in the BIOS.",
+        "luks_tokens_not_restored": "The key bindings of the encrypted volume {luks} ({tokens}) belong to the old hardware; set them up again after the start.",
+        "keyfile_regenerated": "The key file {path} of the encrypted volume {luks} is created new.",
+        "untested_distribution": "The distribution is not among the tested ones; the restore may need manual work.",
+        "non_systemd_init": "The system does not start with systemd; the restore is not tested for that."
+      }
+    },
+    "minimum": {
+      "title": "Minimum sizes",
+      "disk": "{disk} (now {size}): at least {min}",
+      "filesystem": "{mount}: {restore} to restore, at least {min}",
+      "hint": "What replacement hardware needs at least, from what the newest restore point holds. Larger disks are used in full."
+    },
+    "probe": {
+      "title": "Boot probe",
+      "now": "Probe now",
+      "requested": "Boot probe planned. The recovery lab takes it with its next request.",
+      "requestFailed": "The boot probe could not be planned",
+      "checkedAt": "Probed",
+      "result": "Result",
+      "hardware": "Probe hardware",
+      "leftEmpty": "Left empty",
+      "serial": "Serial console of the restored system",
+      "readiness": {
+        "green": "Started",
+        "red": "Did not start",
+        "none": "No result"
+      },
+      "firmware": {
+        "uefi-sb": "UEFI with Secure Boot",
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "blocked": {
+        "no_lab": "This installation runs no recovery lab.",
+        "no_kvm": "The recovery lab has no KVM.",
+        "planned": "A boot probe is planned already.",
+        "running": "A boot probe is running."
+      },
+      "reasons": {
+        "no_lab": "This installation runs no recovery lab, so no boot probe proves that the machine starts. An administrator turns it on with the compose profile recovery-lab on a host with KVM.",
+        "no_kvm": "The recovery lab runs on a host without KVM (a VM without nested virtualization), so it cannot boot a probe.",
+        "planned": "A boot probe is planned; the recovery lab takes it with its next request.",
+        "running": "The recovery lab is restoring and starting this backup now.",
+        "incomplete": "The last boot probe proved nothing (the lab, a time limit). It is repeated within six hours.",
+        "not_systemd": "The boot probe needs a system that starts with systemd.",
+        "too_large": "The system file systems are larger than the recovery lab restores, even with the largest data folders left empty.",
+        "no_disks": "The layout has no disk the probe could restore onto."
+      },
+      "cause": {
+        "booted": "The restored system reached its normal operation.",
+        "recovery_failed": "The recovery found a problem of the backup.",
+        "verification_failed": "The check after the recovery failed.",
+        "incomplete": "The probe proved nothing; it is repeated."
+      },
+      "pattern": {
+        "kernel_panic": "The kernel stopped with a panic.",
+        "root_not_found": "The start did not find the root file system.",
+        "emergency_mode": "The system started into its emergency mode.",
+        "secure_boot_refused": "Secure Boot refused the boot chain.",
+        "no_bootable_device": "The firmware found nothing to start.",
+        "unknown": "The restored system did not start."
+      }
+    }
+  },
+  "recovery": {
+    "title": "Recovery code for {name}",
+    "description": "A one-time code for the recovery ISO: it restores this machine onto new disks from its whole machine backup.",
+    "issue": "Issue recovery code…",
+    "cancel": "Cancel",
+    "done": "Done",
+    "issueFailed": "The code could not be issued",
+    "validity": "Valid for",
+    "validityHours": "{count, plural, one {# hour} other {# hours}}",
+    "validitySuggestion": "{count, plural, one {Suggested: # hour, from the data to restore at about 50 MB/s.} other {Suggested: # hours, from the data to restore at about 50 MB/s.}}",
+    "requireApproval": "Release after the exchange",
+    "requireApprovalHint": "When the ISO redeems the code, the session waits until you release it here after comparing the match number. Only then does it read the backups.",
+    "requireApprovalOffTitle": "Issue the code without a release?",
+    "requireApprovalOffConfirm": "Whoever redeems the code first then reads every backup of this machine at once, without you seeing the match number. Switch this off only for an unattended restore.",
+    "requireApprovalOffAction": "Issue without release",
+    "browserOriginWarning": "This address comes from your browser, because no public address is configured. The ISO must reach exactly this address.",
+    "spkiMissing": "Check value not available; the ISO then needs a certificate it trusts (a public CA or a CA file).",
+    "onceHint": "The code is shown only now. Copy or print it; it cannot be shown again.",
+    "code": "Recovery code",
+    "address": "Address",
+    "addressHint": "Type it into the ISO exactly like this.",
+    "spkiCheck": "Instance check value",
+    "expiresAt": "Expires",
+    "copy": "Copy",
+    "print": "Print",
+    "printTitle": "Recovery code",
+    "machine": "Machine",
+    "readAccessHint": "Once released, the code gives read access to every backup of this machine until it expires or the session ends.",
+    "isoReported": "Reported by the recovery ISO.",
+    "status": {
+      "issued": "Issued",
+      "pending_approval": "Waiting for release",
+      "active": "Restoring",
+      "finishing": "Finishing",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    },
+    "phases": {
+      "connected": "Connected",
+      "waiting_approval": "Waiting for release",
+      "planning": "Planning",
+      "confirmed": "Confirmed",
+      "partitioning": "Partitioning",
+      "restoring": "Restoring files",
+      "configuring": "Setting up the boot chain",
+      "verifying": "Checking",
+      "done": "Done"
+    },
+    "live": {
+      "title": "Recovery",
+      "description": "Follows the recovery ISO every five seconds.",
+      "waiting": "Waiting for the recovery ISO. Boot the replacement hardware from it and type in the code and the address.",
+      "approveTitle": "Release the session",
+      "matchCode": "Match number",
+      "matchCodeHint": "Release only if the ISO shows the same number.",
+      "from": "From address",
+      "isoVersion": "ISO version",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "secureBootOn": "Secure Boot on",
+      "secureBootOff": "Secure Boot off",
+      "ram": "Memory",
+      "disks": "Disks",
+      "nics": "Network cards",
+      "unknownModel": "Unknown model",
+      "noLink": "no link",
+      "approve": "Release",
+      "reject": "Reject",
+      "step": "Step {step} of {total}",
+      "bytes": "{done} of {total}, {files} of {totalFiles} files",
+      "revoke": "Revoke code",
+      "cancel": "End session",
+      "extend": "{count, plural, one {Extend by # hour} other {Extend by # hours}}",
+      "log": "Log",
+      "cancelTitle": "End this recovery session?",
+      "cancelDescription": "The ISO loses its access to the backups within a few seconds. The code is used; issue a new one to try again.",
+      "cancelAction": "End session"
+    },
+    "sshKeys": {
+      "title": "SSH keys for remote access",
+      "hint": "Public keys, one per line. The ISO accepts them for remote access once it was switched on there.",
+      "placeholder": "ssh-ed25519 AAAA… admin@laptop",
+      "save": "Save keys",
+      "saved": "The keys were saved.",
+      "hostKeys": "Host keys of the ISO"
+    },
+    "notAvailable": {
+      "not_linux": "Recovery codes are for Linux machines.",
+      "removed": "The machine was removed.",
+      "no_layout": "The machine has no whole machine backup with a layout yet.",
+      "unsupported": "The layout of this backup cannot be restored.",
+      "iso_unverified": "This installation offers no verified recovery ISO yet.",
+      "preview_off": "Bare metal recovery is a preview this installation has not switched on.",
+      "snapshot_unknown": "This snapshot is no whole machine backup of the machine."
+    },
+    "wizard": {
+      "title": "Restore {name} on bare metal",
+      "description": "Restores the machine onto new disks from its newest whole machine backup, with the recovery ISO.",
+      "back": "Back to the machine",
+      "open": "Restore…",
+      "steps": {
+        "snapshot": "Backup",
+        "hardware": "Replacement hardware",
+        "iso": "Recovery ISO",
+        "code": "Recovery code",
+        "live": "Recovery",
+        "after": "Afterwards"
+      },
+      "snapshotHint": "The newest whole machine backup is restored.",
+      "firmware": {
+        "uefi": "The backup comes from a machine with UEFI: the replacement must start in UEFI mode.",
+        "bios": "The backup comes from a machine with BIOS: the replacement needs a legacy (CSM) boot mode, which many current models no longer have."
+      },
+      "secureBoot": "Secure Boot was on.",
+      "cable": "Network by cable, on a port without VLAN tagging.",
+      "oldDisks": "Disconnect the old disks unless you want to keep them.",
+      "codeIntro": "Issue the code when the replacement hardware is ready. Its validity is suggested from the data to restore.",
+      "liveEmpty": "No code issued yet.",
+      "liveOnly": "A new code cannot be issued right now (the preview, the recovery ISO or the machine's backup changed). The open code or session below can still be followed, released, ended or revoked.",
+      "afterIntro": "Connect the restored machine to {appName} again with a rebind token of its own.",
+      "snapshots": {
+        "choose": "Choose the backup to restore.",
+        "none": "No whole machine backup with a layout yet.",
+        "sameLayout": "Same layout as the newest",
+        "otherLayout": "Other layout than the newest",
+        "unsupported": "This layout cannot be restored.",
+        "check": {
+          "passed": "Check passed",
+          "failed": "Check failed",
+          "incomplete": "Check incomplete",
+          "none": "Not checked yet"
+        }
+      },
+      "hardware": {
+        "csm": "Choose replacement hardware with a legacy (CSM) boot mode: many current models no longer have it.",
+        "secureBootCa": "Secure Boot was on: the firmware of the replacement must trust {issuers}.",
+        "disks": "{count, plural, one {# disk is needed:} other {# disks are needed:}}",
+        "diskMin": "for {disk} at least {min} (it had {size})",
+        "diskSize": "for {disk} about {size} (the check has not computed a minimum yet)",
+        "ram": "Memory: at least {min}, {recommended} or more for large backups.",
+        "controllers": "The backed-up kernel has drivers for these disk controllers: {modules}.",
+        "controllersHint": "Prefer disk controllers of the same kind as the old machine had (AHCI, NVMe).",
+        "driverMissing": "The backed-up kernel has no driver for: {modules}. Do not use such a controller for the system disk.",
+        "mayChangeTitle": "May change:",
+        "mayChange": "disk models and sizes (within the minimums), disk controller (with a driver), network cards, memory, processor of the same architecture.",
+        "mayNotChangeTitle": "May not change:",
+        "mayNotChange": "the firmware mode (UEFI or BIOS), the architecture (amd64), and the storage stack (partitions, RAID, encryption, LVM, file systems are created as they were).",
+        "hwRaid": "Hardware RAID: create the virtual disk in the controller first, at least {min}, for {disk}.",
+        "encryption": "You set a passphrase for the encrypted volumes during the restore.",
+        "keymapAtBoot": "At the start, the keyboard layout {layout} applies to it.",
+        "keymapGrub": "The boot loader asks for it too, with the US layout.",
+        "tpm": "Key bindings to the old hardware ({tokens}) do not move with it; set them up again after the start."
+      },
+      "after": {
+        "title": "What the recovery ISO advises",
+        "none": "The recovery ISO reported nothing to do."
+      }
+    },
+    "iso": {
+      "version": "Version",
+      "file": "File",
+      "fingerprint": "Release key fingerprint",
+      "fingerprintHint": "Compare the fingerprint outside this instance: in the README and the release notes of the project.",
+      "download": "Download ISO",
+      "verifyCommands": "Check the file before you use it",
+      "system": {
+        "linux": "Linux",
+        "macos": "macOS",
+        "windows": "Windows"
+      },
+      "writeUsb": "Then write the ISO to a USB stick as it is, bit for bit (for example with dd on Linux).",
+      "source": {
+        "instance": "The download comes from this instance: it fetched the ISO once and checked it against the signed checksums.",
+        "instanceImport": "The download comes from this instance: the ISO was put into its import folder and checked against the signed checksums.",
+        "github": "The download comes from the project's public release page."
+      },
+      "sources": "Source code of the GPL packages in the image (release attachments)",
+      "firmwareLicenses": "Licences of the firmware in the image",
+      "size": "Size",
+      "rebuild": "{version}, rebuild {rebuild} (newer security updates of the base system)",
+      "githubFallback": "Download from the project's public release page instead",
+      "checksums": "Signed checksums",
+      "signature": "Signature of the checksums",
+      "local": {
+        "notFetched": "This instance has not fetched the ISO yet. It does so in the background, once for the whole installation; until then the download comes from the release page.",
+        "fetching": "This instance is fetching the ISO in the background: {done} of {total}. Until it is checked, the download comes from the release page.",
+        "fetchingUnknown": "This instance is fetching the ISO in the background ({done} so far). Until it is checked, the download comes from the release page.",
+        "failed": "This instance could not fetch the ISO: {reason}. It tries again later; until then the download comes from the release page.",
+        "disabled": "This instance does not fetch the ISO itself.",
+        "skipped": "A newer rebuild of the ISO was not taken: {reason}.",
+        "importHint": "Without internet access, put the ISO into {folder} on the server (for a rebuild also recovery-SHA256SUMS and recovery-SHA256SUMS.sig). It is checked against the signed checksums the same way before it is offered.",
+        "problem": {
+          "no_signed_release": "this installation ships no signed release",
+          "no_key": "this installation has no release key",
+          "signature_invalid": "the signature of the checksums does not match the release key",
+          "no_iso_line": "the signed checksums list no recovery ISO",
+          "wrong_release": "the checksums belong to another release",
+          "not_published": "the release page does not offer the file (yet)",
+          "network": "the release page could not be reached (network or proxy)",
+          "http_status": "the release page answered with an error",
+          "too_large": "the file is larger than allowed",
+          "truncated": "the download broke off; the next attempt continues it",
+          "hash_mismatch": "the downloaded file does not match the signed checksum and was discarded",
+          "store_not_writable": "the data volume cannot be written",
+          "store_full": "the data volume does not have enough free space (the ISO needs its size plus 1 GiB); the partial download was removed"
+        }
+      }
+    },
+    "reported": {
+      "access_expired": "The access to the backups ended (code expired or session ended) before the restore was done.",
+      "adopt_incomplete": "A part that was to be kept could not be kept.",
+      "arch_unsupported": "The recovery ISO runs on amd64 only.",
+      "bios_4kn": "BIOS cannot start from a disk with 4096-byte logical sectors.",
+      "bios_boot_disk": "Select the right boot disk in the BIOS.",
+      "boot_space_low": "Little space is left on /boot.",
+      "btrfs_csum_assumed": "The checksum type of a btrfs file system was not recorded; crc32c was assumed.",
+      "btrfs_raid_missing_device": "A btrfs file system lacks one of its devices.",
+      "cancel_requested": "The restore was cancelled.",
+      "clock_wrong": "The clock of the replacement hardware is wrong; the certificate of the instance could not be checked.",
+      "device_name_refs_found": "Configuration files still name devices by their kernel name (/dev/sdX).",
+      "disks_changed": "The disks of the replacement hardware changed after they were shown and confirmed; the recovery stopped before the next step.",
+      "driver_facts_missing": "The module lists of a kernel were not known; drivers were not checked.",
+      "dual_boot_windows_not_restored": "Another operating system on the disks is not restored, nor its boot entries.",
+      "esp_grown_4kn": "The EFI system partition grew for FAT32 with 4096-byte sectors.",
+      "ext_block_size_raised": "A file system was created with larger blocks than before.",
+      "fallback_kernel_driver_missing": "The fallback kernel has no driver for a target disk.",
+      "firmware_mode_mismatch": "The target starts in another firmware mode than the backed-up machine.",
+      "foreign_mapping_open": "Device-mapper devices outside the target disks were open (for example an old disk opened in the shell); a program of the backed-up system could have read their keys, so the recovery stopped. Close them and continue the recovery.",
+      "fs_not_recreated": "A file system was not created again; its partition stays empty.",
+      "grow_not_last": "A partition marked to grow is not the last one on its disk; it keeps its size.",
+      "holders_busy": "A target disk is still in use (mounted, RAID, LVM or encryption) and could not be released.",
+      "identity_conflict": "A connected device carries the identity of this machine's disks.",
+      "initramfs_not_rebuilt": "The initramfs of a kernel was not built again.",
+      "keyfile_regenerated": "A key file of an encrypted volume was created new.",
+      "layout_unsupported": "The layout cannot be restored as a whole.",
+      "low_memory": "The replacement hardware has little memory for this repository.",
+      "luks_sector_size_changed": "An encrypted volume was created with another sector size.",
+      "luks_tokens_not_restored": "Key bindings of an encrypted volume belong to the old hardware; set them up again.",
+      "lv_shrunk": "A logical volume was made smaller.",
+      "lvm_filter_multiline": "The LVM filter of the backed-up system spans several lines and cannot be adapted.",
+      "lvm_mixed_block_sizes_allowed": "LVM spans disks with different sector sizes.",
+      "lvm_raid_missing_pv": "A RAID logical volume lacks one of its physical volumes.",
+      "manifest_format_unknown": "The layout in the backup has a format this ISO does not know; use a newer ISO.",
+      "manifest_invalid": "The layout in the backup is not valid.",
+      "manifest_mismatch": "The layout in the backup differs from the one the instance recorded.",
+      "mapping_invalid": "The disk mapping is not valid.",
+      "mbr_2tib_limit": "A disk is larger than an MBR partition table can address; the rest stays unused.",
+      "md_degraded_first_boot": "A RAID array was created degraded; the first start may take longer.",
+      "md_too_few_members": "A RAID array would have too few members to run.",
+      "mkfs_feature_unknown": "A file system uses a feature the recovery tools cannot create.",
+      "mkfs_readback_mismatch": "A file system that was created does not read back as planned.",
+      "mkfs_unsupported_type": "A file system type cannot be created.",
+      "mok_enroll_pending": "A key for Secure Boot waits for its enrolment at the next start.",
+      "mok_enroll_required": "A machine owner key must be enrolled at the first start.",
+      "mok_key_missing": "A machine owner key the boot chain needs is neither in the backup nor enrolled.",
+      "multipath_detected": "Several disks have the same WWN: the storage is reached over several paths.",
+      "nic_driver_missing": "The backed-up kernel has no driver for a network card.",
+      "nic_rename_skipped": "Network names were not adapted to the new network cards.",
+      "no_disks_found": "The ISO found no disk it may write.",
+      "non_systemd_init": "The backed-up system does not start with systemd; the restore is not tested for that.",
+      "old_disk_present": "An old disk of this machine is still connected.",
+      "other_controller_driver_missing": "On another disk controller the backed-up kernel would have no driver.",
+      "partition_readback_mismatch": "A partition table that was written does not read back as planned.",
+      "partition_realigned": "A partition moved to a 1 MiB boundary; its PARTUUID stays.",
+      "partition_shrunk": "A partition was made smaller.",
+      "quota_rescan_failed": "The btrfs quota could not be counted again.",
+      "raw_lvs_created_empty": "Logical volumes without a file system were created empty.",
+      "raw_lvs_skipped": "Logical volumes without a file system were not created.",
+      "recovery_too_old": "The recovery ISO is too old for this instance.",
+      "redundant_boot_partition_dropped": "A redundant boot partition of a missing disk was not created again.",
+      "restore_failed": "Restoring the files failed.",
+      "restore_file_errors": "Some files could not be restored; the log names them.",
+      "restore_size_estimated": "A restore size was estimated from the space in use.",
+      "sector_size_incompatible": "Disks with sector sizes that do not fit together.",
+      "secure_boot_ca_missing": "The target firmware does not trust the backed-up boot loader.",
+      "secure_boot_dbx_unknown": "The revocation list of the target firmware was not known; revoked boot loaders were not checked.",
+      "secure_boot_disabled_by_choice": "By choice the checks of the boot chain were notes only: the restored machine starts only while Secure Boot is switched off in the firmware setup.",
+      "secure_boot_revoked": "The target firmware has revoked the backed-up boot loader.",
+      "secure_boot_sbat_revoked": "The target firmware has revoked this generation of the boot loader.",
+      "secure_boot_unsigned_chain": "The boot chain is not signed: the machine starts only with Secure Boot off or with own keys.",
+      "sed_locked": "A disk returns read errors; it may be a locked self-encrypting drive.",
+      "selinux_autorelabel": "SELinux labels everything again at the first start; it may take a while.",
+      "shrink_needs_confirmation": "A disk fits only if more volumes shrink than the one that may grow; this was not confirmed.",
+      "snapshot_id_unmatched": "The snapshot named in the answers file matched no single backup the recovery code may restore; nothing was changed.",
+      "spki_mismatch": "The check value of the instance did not match; the ISO did not connect.",
+      "step_failed": "A step of the plan failed; the log says which.",
+      "storage_driver_missing": "The backed-up kernel has no driver for a target disk.",
+      "system_files_incomplete": "Files the system needs to start are missing after the restore.",
+      "target_missing": "A disk of the backup has no target disk.",
+      "target_too_small": "A target disk is too small.",
+      "target_unusable": "A target disk cannot be written.",
+      "tls_untrusted": "The ISO does not trust the certificate of the instance.",
+      "untested_distribution": "The distribution of the backed-up system is not among the tested ones; the restore may need manual work.",
+      "verify_failed": "The check after the restore failed.",
+      "vfat_sector_size_changed": "A FAT file system was created with another sector size."
+    },
+    "serverReported": {
+      "codes": {
+        "success_checks_failed": "The recovery ISO reported a success, but its verification report holds failed checks. The recovery is stored as failed.",
+        "success_checks_missing": "The recovery ISO reported a success, but its verification report lacks checks. The recovery is stored as failed.",
+        "success_report_missing": "The recovery ISO reported a success without a verification report the server can read. The recovery is stored as failed.",
+        "success_snapshot_unknown": "The recovery ISO reported a success, but its verification report names a snapshot that is no backup of the whole machine. The recovery is stored as failed."
+      },
+      "checks": "Checks concerned: {checks}"
+    },
+    "verification": {
+      "title": "Check after the restore",
+      "isoReported": "Reported by the recovery ISO.",
+      "isoMessage": "The ISO reports: {message}",
+      "result": {
+        "ok": "Passed",
+        "warning": "With warnings",
+        "failed": "Failed"
+      },
+      "evidence": "What was checked",
+      "fixups": "Files that were adapted (a copy of each was kept)",
+      "notAdaptedKernels": "Kernels whose initramfs was not adapted: {kernels}",
+      "restoreErrors": "{count, plural, one {# file could not be restored.} other {# files could not be restored.}}",
+      "checks": {
+        "restic_verify": "Files restored and verified",
+        "storage_stack": "Partitions, RAID, encryption and LVM",
+        "fstab": "fstab",
+        "crypttab": "crypttab",
+        "initramfs": "Initramfs and drivers",
+        "boot_entries": "Boot entries in the firmware",
+        "boot_config": "Boot loader configuration",
+        "identity_conflicts": "No identity conflicts with other disks",
+        "mount_points": "Mount points and folder permissions",
+        "secure_boot": "Secure Boot chain"
+      }
+    },
+    "hints": {
+      "bios_boot_disk": "Select {model} ({identity}) as the boot disk in the BIOS.",
+      "device_name_refs": "{path} line {line} still names a device by its kernel name; check it.",
+      "initramfs_not_adapted": "The initramfs of kernel {kernel} was not adapted; start the default kernel first.",
+      "keymap_at_boot": "At the start, the passphrase is typed with the keyboard layout {layout}.",
+      "luks_reenroll_token": "Set up the key bindings of the encrypted volume {volume} ({tokenTypes}) again; they belonged to the old hardware.",
+      "md_add_disk": "Add a second disk to the RAID array {array} once there is one.",
+      "md_degraded_first_boot": "The RAID array {array} starts degraded; the first start may take longer.",
+      "mok_enroll": "At the next start, enroll the key in the blue key manager with the password shown on the recovery console.",
+      "nic_mapped": "The network name {oldName} ({oldMac}) now belongs to the card {newMac}.",
+      "old_disk_present": "Disconnect the old disk {model} ({identity}) before the start, or wipe it.",
+      "secure_boot_disabled": "The boot chain of this machine did not pass the Secure Boot checks of the replacement hardware. It starts only while Secure Boot is switched off in the firmware setup; the recovery did not switch it off.",
+      "selinux_autorelabel": "SELinux labels every file again at the first start; let it finish."
+    }
+  },
+  "rebind": {
+    "action": "Reconnect machine…",
+    "title": "Reconnect {name}",
+    "dangerTitle": "Reconnect after a reinstall",
+    "dangerDescription": "A token that gives this machine a new agent secret, for a reinstalled or restored system. Its backups, settings and history stay.",
+    "warningTitle": "Lasting access",
+    "warning": "This token gives lasting access like an installed agent. Whoever redeems it becomes this machine.",
+    "oldDisconnects": "The previous installation of the machine loses its connection.",
+    "revokedHint": "The machine is revoked: without the option below, the token is refused.",
+    "unrevoke": "Bring the revoked machine back",
+    "unrevokeHint": "Choose this only if the machine was revoked by mistake or is trustworthy again; it is noted in the audit log.",
+    "purpose": {
+      "reinstall": "For a machine whose system was installed again.",
+      "baremetal": "For the machine the recovery ISO restored."
+    },
+    "purposeShort": {
+      "reinstall": "reinstall",
+      "baremetal": "bare metal",
+      "mac_setup": "Mac setup"
+    },
+    "validity": "Valid for",
+    "created": "The token was created. It is shown only now and works once.",
+    "commands": "Run the install command on the machine; it asks for the token.",
+    "create": "Create token",
+    "cancel": "Cancel",
+    "done": "Done",
+    "tokenKind": "Rebind token"
+  },
+  "windowsFacts": {
+    "title": "Windows",
+    "description": "What the agent reads from the system. Facts only, no rating.",
+    "version": "Version",
+    "productType": "Type",
+    "productTypes": {
+      "workstation": "Workstation",
+      "server": "Server",
+      "domain_controller": "Domain controller",
+      "unknown": "Unknown"
+    },
+    "core": "without desktop",
+    "domain": "Domain",
+    "noDomain": "Not in a domain",
+    "rolesLabel": "Roles",
+    "noRoles": "None that needs more than a file backup",
+    "roles": {
+      "domainController": "Active Directory domain controller",
+      "sqlServer": "SQL Server",
+      "exchange": "Exchange",
+      "hyperV": "Hyper-V host",
+      "dfsr": "DFS replication"
+    },
+    "sqlInstances": "SQL Server instances",
+    "bitlocker": "Drive encryption",
+    "bitlockerNone": "No encrypted drive",
+    "bitlockerVolume": "{name} {status}",
+    "protection": {
+      "on": "protected",
+      "off": "not protected",
+      "unknown": "state unknown"
+    },
+    "bitlockerState": {
+      "ok": "Read",
+      "unavailable": "Not installed on this machine",
+      "error": "Could not be read"
+    }
+  },
+  "notices": {
+    "apps": {
+      "sql_server": "SQL Server",
+      "exchange": "Exchange",
+      "active_directory": "Active Directory",
+      "hyper_v": "Hyper-V"
+    },
+    "app_files_not_app_backup": {
+      "title": "The file backup does not bring these applications back",
+      "body": "This machine runs {subjects}. The file backup holds the files of their open databases, but those files are not a backup these applications can be restored from. Back them up with a tool made for them.",
+      "sqlHint": "For SQL Server, switch on the native SQL Server backup in the backup job of this machine (preview)."
+    },
+    "sql_log_growing": {
+      "title": "A transaction log keeps growing",
+      "body": "{subjects}: the recovery model is FULL, but nothing backed up the transaction log in the last 24 hours, so the log keeps growing. Back the log up with your existing tool, or switch the database to SIMPLE if you need no point-in-time restore."
+    },
+    "sql_tde_certificate": {
+      "title": "Back up the TDE certificate elsewhere",
+      "body": "{subjects}: the database is encrypted with TDE. Without its certificate and key, no other instance can restore it. The backup does not contain them; keep them safe elsewhere and confirm it on the SQL Server tab."
+    },
+    "sql_version_untested": {
+      "title": "SQL Server version not checked",
+      "body": "{subjects}: this version of SQL Server was not checked with the native backup. It runs, but a restore of it has not been tried."
+    },
+    "other": {
+      "title": "Note from the agent"
+    }
+  },
+  "sql": {
+    "title": "SQL Server",
+    "preview": "Preview",
+    "intro": "The native SQL Server backup makes a copy-only full backup of each database beside your own backups, so your backup chain stays as it is. A weekly check restores the newest backup from the backup data under a check name and runs DBCC CHECKDB on it. Green only after that check passed.",
+    "notCapable": "The agent on this machine cannot do this yet. Update it to see and use the native backup.",
+    "notEnabled": "The native backup is off. Switch it on in the backup job of this machine.",
+    "loadError": "The SQL Server part of this machine could not be loaded.",
+    "instances": {
+      "title": "Instances",
+      "inventoryAt": "Last read",
+      "noInventory": "The agent has not read the instances yet.",
+      "none": "The agent reports no SQL Server instance.",
+      "clustered": "Failover cluster instance: not supported by the native backup.",
+      "strictEncryption": "Strict encryption is on: the agent may not be able to connect.",
+      "compressionDefault": "Backup compression is on by default on this instance; the agent backs up uncompressed anyway, so the backup data stays deduplicated."
+    },
+    "signIn": {
+      "ok": "Signed in",
+      "missing": "No sign-in",
+      "permission": "Missing rights",
+      "error": "Problem",
+      "unknown": "Not checked",
+      "check": "Check sign-in",
+      "checkQueued": "The machine checks the sign-in with its next contact.",
+      "howTo": "The agent signs in as {account} with Windows authentication; no password is stored anywhere. Let a database administrator run this once on the instance:",
+      "variant": "Rights for the agent",
+      "sysadmin": "Simple",
+      "minimal": "Small rights",
+      "sysadminHint": "The account becomes a member of sysadmin. Simple, and new databases are covered at once.",
+      "minimalHint": "dbcreator, VIEW SERVER STATE and, per database, db_backupoperator and db_owner. A database created later needs these lines again.",
+      "copy": "Copy"
+    },
+    "databases": {
+      "title": "Databases",
+      "description": "Checked weekly, {day} at {time} in the zone of the backup job.",
+      "empty": "No database reported yet",
+      "emptyHint": "The databases appear once the agent read the instance.",
+      "model": "Recovery model {model}",
+      "system": "system database",
+      "dropped": "no longer on the instance",
+      "notSelected": "not taken by the backup job",
+      "lastBackup": "Newest backup",
+      "noBackup": "None in the backup data",
+      "lastCheck": "Newest check",
+      "noCheck": "Not checked yet",
+      "physicalOnly": "physical check only",
+      "evidence": "Error {code}: {message}",
+      "tde": "This database is encrypted with TDE. Back up its certificate and key elsewhere, then confirm it here.",
+      "tdeConfirm": "Certificate is backed up"
+    },
+    "rating": {
+      "green": "Checked",
+      "red": "Damage found",
+      "overdue": "Check overdue",
+      "unverified": "Not checked yet",
+      "not_protected": "Not backed up"
+    },
+    "outcome": {
+      "green": "No errors",
+      "red": "Damage found",
+      "incomplete": "Not completed",
+      "restored": "Restored",
+      "backed_up": "Backed up",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "weekday": {
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday",
+      "7": "Sunday"
+    },
+    "verify": {
+      "all": "Check all now",
+      "one": "Check now",
+      "queued": "The check of {name} waits for the machine.",
+      "alreadyQueued": "A check of this instance is already waiting."
+    },
+    "restore": {
+      "open": "Restore under a new name",
+      "title": "Restore {name} under a new name",
+      "description": "The agent fetches the backup from the backup data, checks its checksum and restores it next to the existing database, which stays as it is.",
+      "backup": "Backup",
+      "backupOption": "{at}, {size}",
+      "loading": "Loading backups",
+      "noBackup": "No backup of this database is kept.",
+      "newName": "New name",
+      "newNameHint": "The database is created under this name; an existing one is never replaced.",
+      "nameProblem": {
+        "empty": "Enter a name.",
+        "tooLong": "A name can have at most 128 characters.",
+        "control": "A name cannot contain control characters.",
+        "system": "A system database cannot be the target.",
+        "reserved": "This part of the name is reserved for check databases.",
+        "same": "Choose a name other than that of the existing database."
+      },
+      "target": "Instance",
+      "checkdb": "Check the copy with DBCC CHECKDB",
+      "checkdbHint": "Recommended. Up to the size set in the backup job the check covers everything, above it the physical structure only.",
+      "cancel": "Cancel",
+      "submit": "Restore",
+      "queued": "The restore as {name} waits for the machine."
+    },
+    "script": {
+      "download": "Restore script for another machine"
+    },
+    "run": {
+      "heading": "Databases of {instance}",
+      "restoredAs": "Restored as {name} on {instance}",
+      "checkdb": {
+        "clean": "DBCC CHECKDB found no error in the copy.",
+        "errors": "DBCC CHECKDB reported errors in the copy.",
+        "skipped": "DBCC CHECKDB did not run on the copy."
+      }
+    },
+    "codes": {
+      "sql_instance_unreachable": "The instance could not be reached. Is the SQL Server service running?",
+      "sql_login_missing": "The agent could not sign in: the instance has no login for it.",
+      "sql_permission_missing": "The agent signed in, but lacks rights for the backup.",
+      "sql_powershell_constrained": "The script environment of Windows runs restricted (Constrained Language Mode), so the agent cannot connect.",
+      "sql_strict_encryption": "The instance requires strict encryption; the native backup does not connect to it.",
+      "sql_fci_unsupported": "Failover cluster instances are not supported by the native backup.",
+      "sql_mode_unsupported": "The agent does not know the backup mode set in the job. Update the agent.",
+      "sql_staging_unusable": "The staging folder cannot be used.",
+      "sql_staging_too_small": "Not enough free space in the staging folder.",
+      "sql_database_unavailable": "The database is not online.",
+      "sql_backup_failed": "SQL Server could not make the backup.",
+      "sql_snapshot_failed": "The backup file could not be stored in the backup data.",
+      "sql_script_failed": "The SQL script of the agent ended unexpectedly.",
+      "sql_restore_name_taken": "A database of that name already exists.",
+      "sql_restore_no_space": "Not enough free space for the restore.",
+      "sql_restore_failed": "The restore failed.",
+      "sql_backup_mismatch": "The backup fetched from the backup data differs from the one made.",
+      "sql_verify_no_space": "Not enough free space for the check: incomplete, not failed.",
+      "sql_verify_timeout": "The check took too long and was stopped: incomplete, not failed.",
+      "sql_verify_system_db": "This system database cannot be checked under a new name.",
+      "sql_verify_incomplete": "The check came to no result.",
+      "unknown": "Code {code}"
+    }
   }
 }

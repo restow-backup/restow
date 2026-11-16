@@ -1,0 +1,2 @@
+UUID=f3000000-0000-4000-8000-000000000001 / ext4 rw,relatime 0 1
+UUID=F607-1829 /efi vfat rw,noauto,x-systemd.automount,x-systemd.idle-timeout=1min,fmask=0077 0 2

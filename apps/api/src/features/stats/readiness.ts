@@ -1,6 +1,11 @@
-import { readinessWithoutFreshness } from "@restow/core";
+import {
+  DEFAULT_READINESS_POLICY,
+  freshnessReason,
+  readinessWithoutFreshness,
+  worstReadiness,
+} from "@restow/core";
 import { parseReasons } from "../verify/details.js";
-import { restsOnEmpty } from "../verify/empty.js";
+import { emptyStateOf } from "../verify/empty.js";
 import {
   isOverdue,
   type ObjectState,
@@ -25,6 +30,9 @@ import type {
  *     newest check of exactly that snapshot, or a storage finding newer than
  *     it. A backup taken after a green check is unverified until a check of
  *     that backup ran, whatever the older snapshot scored;
+ *   - the age of that backup counts at the moment, not at its check (0.5.0, as on the
+ *     readiness page): yellow 48 hours after it completed, red after 7 days, unless the object
+ *     is rated without the age (orphaned, in no job) or confirmed as empty;
  *   - an object with a backup that no check rates is unverified, an object
  *     without any backup yet has no backup. The statistics count both as
  *     unverified: a backup without a verified restore counts as failed
@@ -49,8 +57,11 @@ import type {
  *
  * An object an admin confirmed as empty (verify/empty.ts) is `empty` from the moment of the
  * confirmation while the check that rates it still finds nothing but "empty", as on the
- * readiness page: never overdue, never needing attention. The counts have no column for it, so
- * it is counted with green (nothing about it needs attention, and there is nothing to lose).
+ * readiness page: never overdue, never needing attention. So is an object empty according to
+ * Microsoft 365 and to the backup (0.5.0, `snapshot_empty_confirmed_by_source`), from the check
+ * that says so, without a confirmation. The counts have no column for it, so it is counted with
+ * green (nothing about it needs attention, and there is nothing to lose). The summary reports,
+ * the provider's report and the customer monthly report read these counts (ee/api reports).
  */
 
 export interface ReadinessCounts {
@@ -253,17 +264,31 @@ export class ReadinessTimeline {
       const unaged = retained || withoutJob;
       const report = verification.report;
       const confirmedAt = object.emptyConfirmedAt ?? null;
+      // Confirmed as empty by then, or empty by Microsoft 365 as well (0.5.0): the rule of the
+      // readiness page (verify/empty.ts emptyStateOf), so the summary and customer reports and
+      // the provider's report never count an object it reads "empty" as needing attention.
       const empty =
-        confirmedAt !== null &&
-        confirmedAt.getTime() < moment.getTime() &&
-        report !== null &&
-        !isStorageFinding(report) &&
-        restsOnEmpty(parseReasons(report.reasons), unaged);
-      const state: ObjectState = empty
+        emptyStateOf(
+          report,
+          confirmedAt !== null && confirmedAt.getTime() < moment.getTime()
+            ? { confirmedAt: confirmedAt.toISOString() }
+            : null,
+          unaged,
+        ) !== null;
+      const checkedState: ObjectState = empty
         ? "empty"
         : unaged && report
           ? readinessWithoutFreshness(parseReasons(report.reasons))
           : verification.state;
+      // The backup's age at that moment, not at its check (verify/service.ts `liveFreshness`).
+      const age =
+        !unaged && !empty && report && snapshot
+          ? freshnessReason(snapshot.completedAt, moment, DEFAULT_READINESS_POLICY)
+          : null;
+      const state: ObjectState =
+        age && (checkedState === "green" || checkedState === "yellow" || checkedState === "red")
+          ? worstReadiness([checkedState, age.severity])
+          : checkedState;
       states.set(object.id, state);
       if (!isProtected(object.status, snapshot !== null)) {
         continue;

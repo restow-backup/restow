@@ -79,6 +79,44 @@ describe("LocalRunner", () => {
     await expect(fs.access(path.join(cwd, "pwned"))).rejects.toThrow();
   });
 
+  it("removes images only by ID, never forced or pruned", async () => {
+    const id = `sha256:${"a".repeat(64)}`;
+    for (const argv of [
+      ["docker", "rmi", id],
+      ["docker", "image", "rm", "-f", id],
+      // A bare name (`:latest`), several names, a name with a flag.
+      ["docker", "image", "rm", "ghcr.io/restow-backup/restow"],
+      ["docker", "image", "rm", "restow:0.1.0", "restow:0.2.0"],
+      ["docker", "image", "rm", "--force", "restow:0.1.0"],
+      ["docker", "image", "rm", "restow:0.1.0", id],
+      ["docker", "image", "rm", "restow:*"],
+      ["docker", "image", "remove", "--force", id],
+      ["docker", "image", "rm"],
+      ["docker", "image", "prune", "-a", "-f"],
+      ["docker", "system", "prune", "-a"],
+      ["docker", "builder", "prune"],
+      ["docker", "compose", "down", "--rmi", "all"],
+    ]) {
+      await expect(runner().run({ argv, timeoutMs: 5000 })).rejects.toThrow(/only removed by ID/);
+    }
+    // `args` echoes: the allowed form reaches the binary unchanged.
+    const allowed = await runner().run({
+      argv: ["docker", "args", "image", "rm", id],
+      timeoutMs: 5000,
+    });
+    expect(allowed.stdout).toBe(`image\nrm\n${id}\n`);
+    // One name with a tag or digest: how the cleanup takes the extra names off an image.
+    const { assertImageCommandAllowed } = await import("./ops.js");
+    for (const reference of [
+      "ghcr.io/restow-backup/restow:0.1.0",
+      "restow:local",
+      "registry.example.com:5000/acme/restow-web-community:0.5.0-rc.1",
+      `ghcr.io/restow-backup/restow@sha256:${"b".repeat(64)}`,
+    ]) {
+      expect(() => assertImageCommandAllowed(["docker", "image", "rm", reference])).not.toThrow();
+    }
+  });
+
   it("runs in the project directory", async () => {
     const result = await runner().run({ argv: ["docker", "cwd"], timeoutMs: 5000 });
     expect(await fs.realpath(result.stdout.trim())).toBe(await fs.realpath(cwd));

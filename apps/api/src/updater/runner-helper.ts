@@ -1,7 +1,13 @@
 import { randomBytes } from "node:crypto";
 import type { CreateContainerBody, EngineClient } from "./engine-api.js";
 import type { Logger } from "./logger.js";
-import type { CommandResult, CommandRunner, CommandSpec, RunnerReadiness } from "./ops.js";
+import {
+  assertImageCommandAllowed,
+  type CommandResult,
+  type CommandRunner,
+  type CommandSpec,
+  type RunnerReadiness,
+} from "./ops.js";
 import type { Redactor } from "./redact.js";
 
 /**
@@ -183,6 +189,7 @@ export class HelperRunner implements CommandRunner {
     if (spec.argv[0] !== "docker") {
       throw new Error("Only docker commands can be run.");
     }
+    assertImageCommandAllowed(spec.argv);
     for (const file of [spec.stdoutFile, spec.stdinFile]) {
       if (file !== undefined && (!file.startsWith(`${stateDir}/`) || file.includes("\0"))) {
         throw new Error("Command files must live inside the state directory.");

@@ -7,6 +7,8 @@ import {
   type StorageLocation,
   type StorageProbeResult,
   validateStorageLocation,
+  type WriteOnceFinding,
+  writeOnceOfConfig,
 } from "@restow/core";
 import type { StorageMigration, StorageTarget } from "@restow/db";
 import { type ImmutabilityDto, toImmutabilityDto } from "./immutability-dto.js";
@@ -66,6 +68,11 @@ export interface StorageTargetDto {
   lastProbe: StorageProbeResult | null;
   /** Null until detected (S3); a filesystem is always `unsupported`. */
   objectLock: ObjectLockCapability | null;
+  /**
+   * What the last test found about overwriting and deleting (docs/STORAGE.md, "Write-once
+   * storage"): null until a test of 0.5.0 got that far.
+   */
+  writeOnce: WriteOnceFinding | null;
   /** Whether the viewer may change, promote or remove this target. */
   canManage: boolean;
   /**
@@ -204,6 +211,11 @@ export interface InstallationDefaultDto {
   misconfigured: boolean;
   /** A directory on the server's system disk (system-disk.ts). */
   onSystemDisk: boolean;
+  /**
+   * What the newest test of the default found about overwriting and deleting (docs/STORAGE.md,
+   * "Write-once storage"); null until one of 0.5.0 got that far on its current location.
+   */
+  writeOnce: WriteOnceFinding | null;
 }
 
 export interface StorageTargetListDto {
@@ -288,6 +300,7 @@ export function toTargetDto(
       row.kind === "local"
         ? filesystemObjectLock(row.createdAt)
         : (records.objectLockDetection ?? null),
+    writeOnce: writeOnceOfConfig(row.config),
     canManage: canManageKind(row.kind, viewer.isProviderAdmin),
     migration,
     immutability: toImmutabilityDto(row, deferredDeletions, viewer),
@@ -323,6 +336,7 @@ export function toInstallationDefaultDto(
       copyLocation: null,
       misconfigured: true,
       onSystemDisk: false,
+      writeOnce: null,
     };
   }
   return {
@@ -334,5 +348,6 @@ export function toInstallationDefaultDto(
       viewer.isProviderAdmin && defaults.copy ? describeStorageLocation(defaults.copy) : null,
     misconfigured: false,
     onSystemDisk: false,
+    writeOnce: null,
   };
 }

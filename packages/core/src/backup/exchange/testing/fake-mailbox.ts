@@ -24,6 +24,11 @@ export interface FakeFolder {
   parentFolderId: string | null;
   isHidden?: boolean;
   wellKnownName?: string;
+  /**
+   * What Graph reports as the folder's `totalItemCount`, instead of the messages the fake
+   * holds in it (items the backup cannot see, or a count that changes between listings).
+   */
+  totalItemCount?: number | (() => number);
 }
 
 export interface FakeAttachment {
@@ -33,6 +38,12 @@ export interface FakeAttachment {
   bytes: Uint8Array;
   isInline?: boolean;
   odataType?: string;
+  /** File attachments: the Content-ID the HTML body's `cid:` names. */
+  contentId?: string;
+  /** Served for `$value` (or the item `$expand`) instead of the content, e.g. a 500. */
+  contentResponse?: FixtureResponse;
+  /** Item attachments: the attached item as Graph returns it under `item`. */
+  item?: Record<string, unknown>;
 }
 
 export interface FakeMessage {
@@ -60,6 +71,11 @@ export interface FakeMessage {
   attachments?: FakeAttachment[];
   /** Responses served for `$value` before the real one (e.g. a 429, or a 404 forever). */
   mimeResponses?: FixtureResponse[];
+  /**
+   * Served for every `$value` after the scripted ones while set: Exchange answering a plain
+   * 500 (`UnknownError`, no conversion code) for as long as its backend has the problem.
+   */
+  mimeUnavailable?: FixtureResponse;
 }
 
 export interface FakeCalendar {
@@ -68,11 +84,19 @@ export interface FakeCalendar {
   isDefaultCalendar?: boolean;
 }
 
+/** A modified occurrence of a series, as `/instances` lists it, with its own attachments. */
+export type FakeException = Omit<Event, "attachments"> & { attachments?: FakeAttachment[] };
+
 export interface FakeEvent extends Event {
   id: string;
   calendarId: string;
-  /** Modified occurrences, for series masters. */
-  exceptions?: Event[];
+  /**
+   * Modified occurrences, for series masters. An exception's own attachments (as Graph keeps
+   * them on the occurrence, `/events/{exceptionId}/attachments`) go in `attachments` on it.
+   */
+  exceptions?: FakeException[];
+  /** `/events/{id}/attachments` (set `hasAttachments` to match, as Graph does). */
+  attachments?: FakeAttachment[];
 }
 
 export interface FakeContactFolder {
@@ -103,6 +127,17 @@ function selectOf(params: URLSearchParams): string[] {
 }
 
 export const ROOT_FOLDER_ID = "AAMkRoot";
+
+/**
+ * The body text Graph hands out for a fake message (`Prefer: outlook.body-content-type="text"`):
+ * what follows the MIME's header block, so an edit of the body changes it. A message created
+ * without a body of its own reads as "Body of <subject>".
+ */
+export function bodyTextOf(message: Pick<FakeMessage, "mime" | "subject">): string {
+  const end = message.mime.indexOf("\r\n\r\n");
+  const body = end < 0 ? "" : message.mime.slice(end + 4).trim();
+  return body === "" || body === "Hello" ? `Body of ${message.subject}` : body;
+}
 
 /** Build a MIME body for a fake message. */
 export function mimeFor(
@@ -136,6 +171,19 @@ export class FakeMailbox {
   intercept: ((call: RecordedCall) => FixtureResponse | undefined) | undefined;
   /** Hook run before every $batch sub-request; may return a sub-response to short-circuit. */
   interceptBatchSub: ((url: string) => { status: number; body?: unknown } | undefined) | undefined;
+  /**
+   * Sub-requests whose answer the `$batch` envelope leaves out, as a misbehaving gateway or
+   * Graph itself has done: the envelope is a 200 whose `responses` lack these ids.
+   */
+  omitBatchSub: ((url: string) => boolean) | undefined;
+  /**
+   * Graph beta mailbox discovery (`GET /beta/users/{id}/settings/exchange`): the id of the
+   * online archive (In-Place Archive) when the mailbox has one, null when it has none, or the
+   * answer Graph gives instead (403 without User.Read.All).
+   */
+  onlineArchive: string | null | FixtureResponse = null;
+  /** Answer 400 to a `$select` with a type-cast property (a Graph that does not take it). */
+  refuseDerivedSelect = false;
 
   private version = 0;
   private readonly log: ChangeLogEntry[] = [];
@@ -309,10 +357,40 @@ export class FakeMailbox {
       return intercepted;
     }
     const url = new URL(call.url);
+    if (call.method === "GET" && /^\/beta\/users\/[^/]+\/settings\/exchange$/.test(url.pathname)) {
+      return this.exchangeSettings();
+    }
     if (call.method === "POST" && url.pathname.endsWith("/$batch")) {
-      return batchEnvelope(call, (sub) => this.answerBatchSub(sub.url));
+      const envelope = batchEnvelope(call, (sub) => this.answerBatchSub(sub.url));
+      const omit = this.omitBatchSub;
+      if (!omit || envelope.status !== 200) {
+        return envelope;
+      }
+      const requests = (call.json as { requests: Array<{ id: string; url: string }> }).requests;
+      const omitted = new Set(requests.filter((sub) => omit(sub.url)).map((sub) => sub.id));
+      const body = envelope.json as { responses: Array<{ id: string }> };
+      return {
+        ...envelope,
+        json: { responses: body.responses.filter((sub) => !omitted.has(sub.id)) },
+      };
     }
     return this.answer(url);
+  }
+
+  private exchangeSettings(): FixtureResponse {
+    const archive = this.onlineArchive;
+    if (archive !== null && typeof archive === "object") {
+      return archive;
+    }
+    return {
+      status: 200,
+      json: {
+        "@odata.context": `https://graph.microsoft.com/beta/$metadata#users('${this.userId}')/settings/exchange/$entity`,
+        id: this.userId,
+        primaryMailboxId: "MBX:4eba5149@a7809c93",
+        inPlaceArchiveMailboxId: archive,
+      },
+    };
   }
 
   private notFound(what: string): FixtureResponse {
@@ -350,7 +428,10 @@ export class FakeMailbox {
     ],
     [/^\/mailFolders\/([^/]+)$/, ([name = ""]) => this.wellKnownFolder(name)],
     [/^\/messages\/([^/]+)\/\$value$/, ([id = ""]) => this.mime(id)],
-    [/^\/messages\/([^/]+)\/attachments$/, ([id = ""]) => this.attachmentList(id)],
+    [
+      /^\/messages\/([^/]+)\/attachments$/,
+      ([id = ""], params) => this.attachmentList(id, selectOf(params)),
+    ],
     [
       /^\/messages\/([^/]+)\/attachments\/([^/]+)\/\$value$/,
       ([id = "", attachmentId = ""]) => this.attachmentContent(id, attachmentId),
@@ -360,18 +441,35 @@ export class FakeMailbox {
       ([id = ""], params) => {
         const message = this.messages.get(id);
         return message
-          ? { status: 200, json: this.messageJson(message, selectOf(params)) }
+          ? { status: 200, json: this.messageJson(message, selectOf(params), params) }
           : this.notFound("message");
       },
     ],
     [/^\/calendars$/, () => ({ status: 200, json: { value: [...this.calendars.values()] } })],
     [/^\/calendars\/([^/]+)\/events$/, ([id = ""]) => this.eventPage(id)],
     [
+      /^\/events\/([^/]+)\/attachments$/,
+      ([id = ""], params) => this.eventAttachmentList(id, selectOf(params)),
+    ],
+    [
+      /^\/events\/([^/]+)\/attachments\/([^/]+)\/\$value$/,
+      ([id = "", attachmentId = ""]) => this.eventAttachmentContent(id, attachmentId, false),
+    ],
+    [
+      /^\/events\/([^/]+)\/attachments\/([^/]+)$/,
+      ([id = "", attachmentId = ""]) => this.eventAttachmentContent(id, attachmentId, true),
+    ],
+    [
       /^\/events\/([^/]+)\/instances$/,
       ([id = ""]) => {
         const master = this.events.get(id);
         return master
-          ? { status: 200, json: { value: master.exceptions ?? [] } }
+          ? {
+              status: 200,
+              json: {
+                value: (master.exceptions ?? []).map(({ attachments: _a, ...rest }) => rest),
+              },
+            }
           : this.notFound("event");
       },
     ],
@@ -400,25 +498,110 @@ export class FakeMailbox {
     return folder ? { status: 200, json: { id: folder.id } } : this.notFound("well-known folder");
   }
 
-  private attachmentList(messageId: string): FixtureResponse {
+  private attachmentList(messageId: string, select: string[]): FixtureResponse {
     const message = this.messages.get(messageId);
     if (!message) {
       return this.notFound("message");
     }
+    const castContentId = select.includes("microsoft.graph.fileAttachment/contentId");
+    if (castContentId && this.refuseDerivedSelect) {
+      return {
+        status: 400,
+        json: graphError("BadRequest", "Could not find a property named 'contentId'."),
+      };
+    }
     return {
       status: 200,
       json: {
-        value: (message.attachments ?? []).map((a) => ({
-          "@odata.type": a.odataType ?? "#microsoft.graph.fileAttachment",
-          id: a.id,
-          name: a.name,
-          contentType: a.contentType,
-          size: a.bytes.length,
-          isInline: a.isInline ?? false,
-          lastModifiedDateTime: message.lastModifiedDateTime,
-        })),
+        value: (message.attachments ?? []).map((a) => {
+          const type = a.odataType ?? "#microsoft.graph.fileAttachment";
+          return {
+            "@odata.type": type,
+            id: a.id,
+            name: a.name,
+            contentType: a.contentType,
+            size: a.bytes.length,
+            isInline: a.isInline ?? false,
+            lastModifiedDateTime: message.lastModifiedDateTime,
+            // As Graph: a derived-type property only when selected in its type-cast form.
+            ...(castContentId && type === "#microsoft.graph.fileAttachment"
+              ? { contentId: a.contentId ?? null }
+              : {}),
+          };
+        }),
       },
     };
+  }
+
+  /** An event, or an exception of a series (Graph serves both under `/events/{id}`). */
+  private eventOrException(eventId: string): FakeEvent | FakeException | undefined {
+    const event = this.events.get(eventId);
+    if (event) {
+      return event;
+    }
+    for (const master of this.events.values()) {
+      const exception = master.exceptions?.find((candidate) => candidate.id === eventId);
+      if (exception) {
+        return exception;
+      }
+    }
+    return undefined;
+  }
+
+  private eventAttachmentList(eventId: string, select: string[]): FixtureResponse {
+    const event = this.eventOrException(eventId);
+    if (!event) {
+      return this.notFound("event");
+    }
+    const castContentId = select.includes("microsoft.graph.fileAttachment/contentId");
+    return {
+      status: 200,
+      json: {
+        value: (event.attachments ?? []).map((a) => {
+          const type = a.odataType ?? "#microsoft.graph.fileAttachment";
+          return {
+            "@odata.type": type,
+            id: a.id,
+            name: a.name,
+            contentType: a.contentType,
+            size: a.bytes.length,
+            isInline: a.isInline ?? false,
+            lastModifiedDateTime: event.lastModifiedDateTime,
+            ...(castContentId && type === "#microsoft.graph.fileAttachment"
+              ? { contentId: a.contentId ?? null }
+              : {}),
+          };
+        }),
+      },
+    };
+  }
+
+  private eventAttachmentContent(
+    eventId: string,
+    attachmentId: string,
+    expandItem: boolean,
+  ): FixtureResponse {
+    const attachment = this.eventOrException(eventId)?.attachments?.find(
+      (a) => a.id === attachmentId,
+    );
+    if (!attachment) {
+      return this.notFound("attachment");
+    }
+    if (attachment.contentResponse) {
+      return attachment.contentResponse;
+    }
+    if (expandItem) {
+      return {
+        status: 200,
+        json: {
+          "@odata.type": "#microsoft.graph.itemAttachment",
+          id: attachment.id,
+          name: attachment.name,
+          item: attachment.item ?? {},
+        },
+      };
+    }
+    return { status: 200, bytes: attachment.bytes };
   }
 
   private attachmentContent(messageId: string, attachmentId: string): FixtureResponse {
@@ -449,7 +632,11 @@ export class FakeMailbox {
           parentFolderId: f.parentFolderId ?? ROOT_FOLDER_ID,
           childFolderCount: [...this.folders.values()].filter((c) => c.parentFolderId === f.id)
             .length,
-          totalItemCount: [...this.messages.values()].filter((m) => m.folderId === f.id).length,
+          totalItemCount:
+            typeof f.totalItemCount === "function"
+              ? f.totalItemCount()
+              : (f.totalItemCount ??
+                [...this.messages.values()].filter((m) => m.folderId === f.id).length),
           unreadItemCount: 0,
           isHidden: f.isHidden ?? false,
         })),
@@ -577,6 +764,9 @@ export class FakeMailbox {
     if (scripted) {
       return scripted;
     }
+    if (message.mimeUnavailable) {
+      return message.mimeUnavailable;
+    }
     if (message.mimeTooLarge) {
       return {
         status: 413,
@@ -586,16 +776,37 @@ export class FakeMailbox {
     return { status: 200, headers: { "content-type": "message/rfc822" }, text: message.mime };
   }
 
-  private messageJson(message: FakeMessage, select: string[]): Record<string, unknown> {
+  private messageJson(
+    message: FakeMessage,
+    select: string[],
+    params?: URLSearchParams,
+  ): Record<string, unknown> {
     const full = {
       ...this.properties(message),
-      body: { contentType: "text", content: `Body of ${message.subject}` },
+      body: { contentType: "text", content: bodyTextOf(message) },
     };
-    return this.project(full, select);
+    const projected = this.project(full, select);
+    // As Graph: the attachment list (without bytes) only with $expand=attachments.
+    const expand = params?.get("$expand") ?? "";
+    if (/^attachments(\(|$)/.test(expand)) {
+      projected.attachments = (message.attachments ?? []).map((attachment) => ({
+        "@odata.type": attachment.odataType ?? "#microsoft.graph.fileAttachment",
+        id: attachment.id,
+        name: attachment.name,
+        size: attachment.bytes.length + 180,
+        isInline: attachment.isInline === true,
+      }));
+    }
+    return projected;
   }
 
   private eventJson(event: FakeEvent): Event {
-    const { calendarId: _calendarId, exceptions: _exceptions, ...rest } = event;
+    const {
+      calendarId: _calendarId,
+      exceptions: _exceptions,
+      attachments: _attachments,
+      ...rest
+    } = event;
     return rest;
   }
 

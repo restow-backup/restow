@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
     organizationId: string | null;
   }[],
   version: null as unknown as VersionInfo,
+  modules: [] as string[],
 }));
 
 vi.mock("../middleware/session.js", () => {
@@ -43,6 +44,11 @@ vi.mock("../db.js", () => {
   const chain = { orderBy: rows, where: () => ({ orderBy: rows }) };
   return { db: {}, providerDb: { select: () => ({ from: () => chain }) } };
 });
+
+// The installation's modules that are on (features/settings/modules.ts reads the settings row).
+vi.mock("../features/settings/modules.js", () => ({
+  loadEnabledModules: async () => state.modules,
+}));
 
 vi.mock("./v1.js", () => ({
   versionSource: { current: () => state.version },
@@ -81,6 +87,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  state.modules = ["microsoft365", "imap", "archive", "endpoints", "pve"];
   state.rows = [
     {
       id: "t-contoso",
@@ -199,6 +206,19 @@ describe("GET /api/v1/me", () => {
     const body = await getMe();
     expect(body.features).toEqual([]);
     expect(body.extensions).toEqual({});
+  });
+
+  it("carries the installation's modules that are on, for everyone signed in", async () => {
+    state.session = sessionOf({});
+    expect((await getMe()).modules).toEqual([
+      "microsoft365",
+      "imap",
+      "archive",
+      "endpoints",
+      "pve",
+    ]);
+    state.modules = ["microsoft365", "pve"];
+    expect((await getMe()).modules).toEqual(["microsoft365", "pve"]);
   });
 
   it("reports what registered extensions enable and add", async () => {

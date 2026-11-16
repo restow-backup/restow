@@ -1,0 +1,11 @@
+label: gpt
+label-id: A4B5C6D7-E8F9-4A0B-1C2D-3E4F50617283
+device: /dev/sda
+unit: sectors
+first-lba: 2048
+last-lba: 976773134
+table-length: 128
+sector-size: 512
+
+/dev/sda1 : start=        2048, size=     2097152, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=a9000000-0000-4000-8000-000000000001
+/dev/sda2 : start=     2099200, size=   972800000, type=E6D6D379-F507-44C2-A23C-238F2A3DF928, uuid=a9000000-0000-4000-8000-000000000002

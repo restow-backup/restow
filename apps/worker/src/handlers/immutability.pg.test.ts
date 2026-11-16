@@ -150,7 +150,7 @@ describe.skipIf(!adminUrl)("immutable backups in the retention job", () => {
     await db?.$client.end();
   });
 
-  it("renews what is in use, finds an object written without lock and keeps the state", async () => {
+  it("renews what is in use, finds an object written without lock and keeps the state [RETAIN-006]", async () => {
     const bucket = new LockingBucket(clock);
     const [row] = await db.select().from(storageTargets).where(eq(storageTargets.id, targetId));
     const backend = new ImmutableStorageBackend(bucket, {

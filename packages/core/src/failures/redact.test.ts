@@ -78,6 +78,22 @@ describe("redactSensitiveText", () => {
     );
   });
 
+  it("removes recovery codes and the hex values of a recovery session (docs/BAREMETAL.md 9.1)", () => {
+    const hex = "2a8abfa8cb9906290437854193ca6bca41d4d4e26d1d454bd66a35158095e737";
+    expect(redactSensitiveText("code RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS typed")).toBe(
+      "code [redacted] typed",
+    );
+    expect(redactSensitiveText("code rc7k3qxm9p2dh4tnv8wrbcj6fas typed")).toBe(
+      "code [redacted] typed",
+    );
+    expect(redactSensitiveText(`{"sessionSecretSha256":"${hex}"}`)).not.toContain(hex);
+    expect(redactSensitiveText(`codeProof=${hex}`)).toBe("codeProof=[redacted]");
+    expect(redactSensitiveText(`session: ${hex}`)).toBe("session: [redacted]");
+    // Fewer groups, or a snapshot id after another word, stay.
+    expect(redactSensitiveText("RC-12345-ABCDE is a ticket")).toBe("RC-12345-ABCDE is a ticket");
+    expect(redactSensitiveText(`snapshot ${hex}`)).toBe(`snapshot ${hex}`);
+  });
+
   it("keeps ordinary diagnostics readable", () => {
     const text = "ENOENT: no such file or directory, open '/data/tenants/t/packs/ab/abcdef'";
     expect(redactSensitiveText(text)).toBe(text);

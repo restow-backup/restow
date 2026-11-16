@@ -64,12 +64,29 @@ export interface DirectoryLastRun {
    * stored before group mailboxes existed.
    */
   readonly groupsDiscovered?: number | null;
+  /**
+   * Microsoft 365 groups whose owners and members the run read (#89); null when it read none,
+   * absent in runs stored before memberships existed.
+   */
+  readonly membershipsRead?: number | null;
 }
 
 export interface DirectoryState {
   readonly deltaLink: string | null;
   /** Delta link of the `groups/delta` stream (group mailboxes); null before the first run. */
   readonly groupsDeltaLink: string | null;
+  /**
+   * Start of the last run that read the owners and members of every Microsoft 365 group (#89);
+   * null before the first, which reads them all even between full enumerations, and again when
+   * more groups failed than {@link MEMBERSHIP_RETRY_LIMIT} (the next run then reads all of them).
+   */
+  readonly membershipsSyncedAt: string | null;
+  /**
+   * Microsoft 365 groups the next run reads again, whatever the delta reports: their owners or
+   * members could not be read (refused, throttled past the retries), or their group-connected
+   * site was not yet an object of the source. Empty when the last read was complete.
+   */
+  readonly membershipsRetryIds: readonly string[];
   /** Start of the last run that enumerated the whole directory. */
   readonly lastFullSyncAt: string | null;
   /** When an admin last asked for a full enumeration. */
@@ -79,9 +96,26 @@ export interface DirectoryState {
   readonly lastRun: DirectoryLastRun | null;
 }
 
+/**
+ * Groups a run remembers to read again (`membershipsRetryIds`); with more than that the run
+ * forgets them and clears `membershipsSyncedAt`, so the next run reads every group.
+ */
+export const MEMBERSHIP_RETRY_LIMIT = 1000;
+
+/**
+ * Whether the stored memberships of a source are complete as of its last run: every group has
+ * been read once, and nothing is waiting to be read again (#89). False tells the explorer that
+ * a person's "Teams & sites" may be missing entries.
+ */
+export function membershipsComplete(state: DirectoryState): boolean {
+  return state.membershipsSyncedAt !== null && state.membershipsRetryIds.length === 0;
+}
+
 export const EMPTY_DIRECTORY_STATE: DirectoryState = {
   deltaLink: null,
   groupsDeltaLink: null,
+  membershipsSyncedAt: null,
+  membershipsRetryIds: [],
   lastFullSyncAt: null,
   fullSyncRequestedAt: null,
   sharedOrBlockedIds: [],
@@ -242,6 +276,8 @@ export function readDirectoryState(config: unknown): DirectoryState {
   return {
     deltaLink: asString(directory.deltaLink),
     groupsDeltaLink: asString(directory.groupsDeltaLink),
+    membershipsSyncedAt: asString(directory.membershipsSyncedAt),
+    membershipsRetryIds: asStringList(directory.membershipsRetryIds),
     lastFullSyncAt: asString(directory.lastFullSyncAt),
     fullSyncRequestedAt: asString(directory.fullSyncRequestedAt),
     sharedOrBlockedIds: asStringList(directory.sharedOrBlockedIds),
@@ -257,6 +293,8 @@ export function writeDirectoryState(config: unknown, state: DirectoryState): Sou
     directory: {
       deltaLink: state.deltaLink,
       groupsDeltaLink: state.groupsDeltaLink,
+      membershipsSyncedAt: state.membershipsSyncedAt,
+      membershipsRetryIds: [...state.membershipsRetryIds],
       lastFullSyncAt: state.lastFullSyncAt,
       fullSyncRequestedAt: state.fullSyncRequestedAt,
       sharedOrBlockedIds: [...state.sharedOrBlockedIds],

@@ -49,23 +49,19 @@ export async function statfsSpace(path: string): Promise<FilesystemSpace | null>
 }
 
 /**
- * The local directory whose free space counts for the tenant, or null when
- * none does: an S3 repository, an unusable configuration, or the installation
- * default while other tenants write to it as well.
+ * The tenant's effective primary repository: its own target, else the installation default.
+ * Null when the target's configuration is unusable or there is no default. Whether its free
+ * space counts for the tenant is decided in storage-growth.ts (`resolveStorageLimit`).
  */
-export function capacityPath(
+export function primaryLocation(
   facts: Pick<StorageCapacityFacts, "ownTarget">,
   installationDefault: StorageLocation | null,
-  soleTenantOnDefault: boolean,
-): string | null {
-  let location: StorageLocation | null = null;
+): StorageLocation | null {
   if (facts.ownTarget) {
     const validated = validateStorageLocation(facts.ownTarget.kind, facts.ownTarget.config, {
       allowInsecureEndpoint: true,
     });
-    location = validated.ok ? validated.location : null;
-  } else if (soleTenantOnDefault) {
-    location = installationDefault;
+    return validated.ok ? validated.location : null;
   }
-  return location?.kind === "local" ? location.basePath : null;
+  return installationDefault;
 }

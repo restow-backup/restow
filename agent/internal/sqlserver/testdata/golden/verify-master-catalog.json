@@ -1,0 +1,44 @@
+{
+  "errors": [
+    {
+      "message": "master: DBCC CHECKDB of the copy under a check name reported 3 error row(s) (numbers 8992, 8991); a copy of master under another name shows such errors also when its backup is intact, so its backup is not checked.",
+      "code": "sql_verify_system_db"
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:master",
+    "verify:master"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "master",
+        "method": "restore+checkdb",
+        "verifyName": "master__restow_verify_20261105T020013Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": {
+          "ok": true,
+          "errors": []
+        },
+        "checkdb": {
+          "ran": false,
+          "physicalOnly": false,
+          "errors": [],
+          "durationMs": 2100
+        },
+        "dropped": true,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 3000,
+        "code": "sql_verify_system_db",
+        "message": "master: DBCC CHECKDB of the copy under a check name reported 3 error row(s) (numbers 8992, 8991); a copy of master under another name shows such errors also when its backup is intact, so its backup is not checked."
+      }
+    ]
+  },
+  "status": "failed"
+}

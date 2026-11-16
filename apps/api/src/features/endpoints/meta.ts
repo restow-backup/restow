@@ -5,3 +5,7 @@ export const mountPath = "/endpoints";
 export const AGENT_API_PATH = "/agent/v1";
 export const RESTIC_PATH = "/agent/restic";
 export const INSTALL_PATH = "/install";
+/** The recovery ISO's API (docs/BAREMETAL.md 9.3, 9.8), mounted ahead of the agent API. */
+export const RECOVERY_API_PATH = "/agent/v1/recovery";
+/** The read-only restic route of a recovery session (docs/BAREMETAL.md 9.6). */
+export const RECOVERY_RESTIC_PATH = "/agent/recovery/restic";

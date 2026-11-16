@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { ChevronDown, Database, ScanSearch, ShieldCheck } from "lucide-react";
+import { ChevronDown, Database, DatabaseZap, ScanSearch, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
@@ -15,6 +15,7 @@ const KIND_ICON: Record<ReportKind, LucideIcon> = {
   restore_test: ShieldCheck,
   repository_check: ScanSearch,
   retention: Database,
+  sql_verify: DatabaseZap,
 };
 
 function Mismatches({ report }: { report: EndpointReport }) {

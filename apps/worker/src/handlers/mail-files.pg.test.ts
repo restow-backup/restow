@@ -1023,6 +1023,24 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
       externalId: "6f1c2a9e-3b4d-4e5f-8a7b-9c0d1e2f3a4b",
       userId: bert?.id,
     });
+    // A second mailbox under Bert's address (a second Microsoft 365 source): never guessed.
+    const [second] = await db
+      .insert(sources)
+      .values({ tenantId, kind: "m365", name: "M365 (new tenant)", status: "active", config: {} })
+      .returning();
+    await db.insert(protectedObjects).values({
+      tenantId,
+      sourceId: second?.id as string,
+      kind: "mailbox",
+      externalId: "bert@example.test",
+      displayName: "Bert (new)",
+    });
+    await expect(mailboxTargetObject(run, tenantId, "bert@example.test")).rejects.toThrow(
+      /several Microsoft 365 mailboxes of this tenant have the address/,
+    );
+    await expect(
+      mailboxTargetObject(run, tenantId, "6f1c2a9e-3b4d-4e5f-8a7b-9c0d1e2f3a4b"),
+    ).resolves.toMatchObject({ userId: bert?.id });
     expect(
       restoreTargetKindOf({
         selection: { all: true, options: { targetKind: "mailbox" } },

@@ -182,6 +182,14 @@ describe("chainVerdictOf", () => {
         },
       }),
     ).toBe("content");
+    // Storage did not deliver the sample: not proven either way, never "ok".
+    expect(
+      chainVerdictOf({
+        ...passed,
+        ok: null,
+        content: { requested: 3, checked: 0, notRecorded: 0, inconclusive: 3, failures: [] },
+      }),
+    ).toBe("inconclusive");
     expect(
       chainVerdictOf({
         ...passed,

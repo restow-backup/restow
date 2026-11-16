@@ -63,7 +63,7 @@ describe("selfUpdateDecision", () => {
     expect(selfUpdateDecision({ ...base, updaterVersion: "0.3.0" })).toEqual({ action: "none" });
   });
 
-  it("never moves without a verified signature, in source mode or when switched off", () => {
+  it("never moves without a verified signature, in source mode or when switched off [UPDATE-011]", () => {
     expect(selfUpdateDecision({ ...base, enabled: false })).toEqual({
       action: "skip",
       reason: "disabled",
@@ -287,7 +287,7 @@ describe("self-update after an image-mode update", () => {
     expect(h.selfUpdater?.view().last).toMatchObject({ status: "failed", reason: "not_replaced" });
   });
 
-  it("never moves in source mode: the updater does not run what it built", async () => {
+  it("never moves in source mode: the updater does not run what it built [UPDATE-011]", async () => {
     await setup();
     const view = await update({
       mode: "source",

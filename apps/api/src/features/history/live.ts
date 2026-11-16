@@ -13,7 +13,7 @@ import {
   type SseMessage,
   type StreamStep,
 } from "../jobs/events.js";
-import { type PveRunningDto, RUNNING_LIMIT } from "../running/dto.js";
+import { LIVE_PVE_LIMIT, type PveRunningDto } from "../running/dto.js";
 import { pveRunningRuns } from "../running/read.js";
 import type { RunDto, RunState } from "./dto.js";
 import { liveRuns } from "./read.js";
@@ -95,9 +95,9 @@ export interface LiveSnapshot {
   definitions: BackupJobLiveDto[];
   machines: MachineLiveDto[];
   /**
-   * The Proxmox VE runs that go on now (the start page's "Running now"), newest first, at most
-   * {@link RUNNING_LIMIT} + 1: the page lists {@link RUNNING_LIMIT} and, with one more, says that
-   * more are going on.
+   * The Proxmox VE runs that go on now (the start page's "Running now", a job's detail panel),
+   * newest first, at most {@link LIVE_PVE_LIMIT}: the start page lists `RUNNING_LIMIT` and,
+   * with more, says that more are going on; a job's panel follows every guest of its round.
    */
   pveRuns: PveRunningDto[];
   /** The server's clock, so the client can tell how far its own is off before it ticks countdowns. */
@@ -283,9 +283,8 @@ export function databaseSources(db: Database, tenantId: string, since: Date): Li
       const { items } = await listBackupJobs(db, tenantId, {}, { revealHooks: false });
       return items.map(liveDefinition);
     },
-    // One run more than the page lists: that extra one is how the page knows that some are left out.
-    pveRuns: () =>
-      withTenantTx(db, tenantId, (tx) => pveRunningRuns(tx, tenantId, RUNNING_LIMIT + 1)),
+    // More than the start page lists (it says that some are left out): a job's panel needs all.
+    pveRuns: () => withTenantTx(db, tenantId, (tx) => pveRunningRuns(tx, tenantId, LIVE_PVE_LIMIT)),
     machines: () =>
       withTenantTx(db, tenantId, async (tx) => {
         const rows = await tx

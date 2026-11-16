@@ -14,7 +14,7 @@ import type {
 } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
-import { SnapshotsTab } from "./snapshots-tab.js";
+import { MachineNewDataChart, machineNewDataPoints, SnapshotsTab } from "./snapshots-tab.js";
 
 const session = vi.hoisted(() => ({ role: "tenant_admin" as string | null }));
 vi.mock("@/lib/session", async (importOriginal) => {
@@ -228,6 +228,40 @@ describe("SnapshotsTab", () => {
     expect(items[0]?.textContent).toContain("+2.5 MB new");
     expect(items[1]?.textContent).toContain("4 kB in the backup");
     expect(items[1]?.textContent).not.toMatch(/\+.* new/);
+  });
+
+  it("charts what each backup added above the restore points, from the same snapshot list (#58)", async () => {
+    fetchSnapshots.mockResolvedValue([
+      snapshot(FULL_ID, "2026-09-29T22:00:00.000Z", { dataAdded: 2.5 * 1024 ** 2 }),
+      snapshot(OLDER_ID, "2026-09-28T22:00:00.000Z", { dataAdded: 7 * 1024 ** 3 }),
+      snapshot("c".repeat(64), "2026-09-27T22:00:00.000Z", { dataAdded: null }),
+    ]);
+    page = mount();
+    await page.render(
+      <>
+        <MachineNewDataChart endpointId={ENDPOINT_ID} />
+        <SnapshotsTab detail={detail()} onShowOverview={() => {}} />
+      </>,
+    );
+    await page.settle();
+    const chart = document.querySelector('[data-slot="endpoint-new-data"]');
+    expect(chart?.textContent).toContain("New data per backup");
+    // The table fallback lists the two snapshots that carry the figure, oldest first.
+    const rows = [...(chart?.querySelectorAll('[data-slot="new-data-table"] tbody tr') ?? [])];
+    expect(rows.map((row) => row.lastElementChild?.textContent)).toEqual(["7 GB", "2.5 MB"]);
+    // One snapshot list for the chart and the browser: restic runs once.
+    expect(fetchSnapshots).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws no chart while fewer than two snapshots carry what they added", async () => {
+    fetchSnapshots.mockResolvedValue([
+      snapshot(FULL_ID, "2026-09-29T22:00:00.000Z", { dataAdded: 2.5 * 1024 ** 2 }),
+      snapshot(OLDER_ID, "2026-09-28T22:00:00.000Z"),
+    ]);
+    page = mount();
+    await page.render(<MachineNewDataChart endpointId={ENDPOINT_ID} />);
+    await page.settle();
+    expect(document.querySelector('[data-slot="endpoint-new-data"]')).toBeNull();
   });
 
   it("marks a snapshot retention found suspicious", async () => {
@@ -681,5 +715,24 @@ describe("SnapshotsTab", () => {
       );
       expect(hint?.querySelector("a")).toBeNull();
     });
+  });
+});
+
+describe("machineNewDataPoints (#58)", () => {
+  it("keeps the newest 30 snapshots with what they added, oldest first", () => {
+    const snapshots = Array.from({ length: 35 }, (_, index) =>
+      snapshot(
+        String(index).padStart(64, "0"),
+        new Date(Date.UTC(2026, 8, 1 + index)).toISOString(),
+        {
+          dataAdded: index === 34 ? undefined : index * 1024,
+        },
+      ),
+    ).reverse();
+    const points = machineNewDataPoints(snapshots);
+    expect(points).toHaveLength(30);
+    expect(points[0]?.added).toBe(4 * 1024);
+    expect(points.at(-1)?.added).toBe(33 * 1024);
+    expect(points.every((point) => point.type === undefined)).toBe(true);
   });
 });

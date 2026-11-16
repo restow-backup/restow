@@ -2,7 +2,8 @@
 # Tests build.sh itself, without a Go toolchain, Docker or network: a stand-in
 # `go` (a few lines of shell, first on PATH) writes placeholder files, so the
 # logic of build.sh runs for real: option handling, the per-target SHA256SUMS,
-# the combined dist/SHA256SUMS, VERSION and RESTIC_VERSION.
+# the combined dist/SHA256SUMS, VERSION and RESTIC_VERSION, and the .exe names
+# and the ZIP download of restic for windows-amd64.
 #
 # It guards against regressions such as `build.sh --no-restic` exiting silently
 # after the first target (under `set -e` a `[ -f restic ] && ...` whose test is
@@ -52,6 +53,7 @@ case "$1" in
     cmd="$1"
     out=""
     shift
+    args="$*"
     while [ $# -gt 0 ]; do
       case "$1" in
         -o | -out) out="$2"; shift 2 ;;
@@ -60,6 +62,8 @@ case "$1" in
     done
     [ -n "$out" ] || { echo "stub go: no output file given" >&2; exit 2; }
     printf 'stub %s %s/%s %s\n' "$cmd" "${GOOS:-}" "${GOARCH:-}" "$out" >"$out"
+    # go run (fetch_tool): keep the arguments, so the test sees URL, format and member.
+    if [ "$cmd" = run ]; then printf 'args %s\n' "$args" >>"$out"; fi
     ;;
   *) echo "stub go: unsupported command $1" >&2; exit 2 ;;
 esac
@@ -76,7 +80,7 @@ cp "$AGENT_DIR/build.sh" "$AGENT_DIR/tools.env" "$AGENT_DIR/THIRD_PARTY_NOTICES.
 cp "$AGENT_DIR/scripts/lib.sh" "$work/agent/scripts/"
 printf '%s\n' "$TEST_KEY" >"$work/agent/release-signing.pub"
 
-all_targets="linux-amd64 linux-arm64 darwin-amd64 darwin-arm64"
+all_targets="linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64"
 
 # build <name> [build.sh arguments]: runs build.sh into $work/<name> (log in
 # $work/<name>.log) and returns its exit status.
@@ -86,18 +90,28 @@ build() {
   sh "$work/agent/build.sh" --version 0.1.0 --out "$work/$_name" "$@" >"$work/$_name.log" 2>&1
 }
 
+# target_files <target> <files>: the file names on that target (restow-agent.exe
+# and restic.exe on windows).
+target_files() {
+  case "$1" in
+    windows-*) printf '%s\n' "$2" | sed 's/restow-agent/restow-agent.exe/; s/restic/restic.exe/' ;;
+    *) printf '%s\n' "$2" ;;
+  esac
+}
+
 # expect_layout <name> <targets> <files>: every target directory holds exactly
 # <files> (restow-agent, or restow-agent and restic, and the notices file
-# THIRD_PARTY_NOTICES.txt, a copy of the one in agent/) and a SHA256SUMS that lists
-# exactly those files with the right checksums, in this order; dist/SHA256SUMS
-# lists all of them with relative paths; VERSION and RESTIC_VERSION are there.
+# THIRD_PARTY_NOTICES.txt, a copy of the one in agent/; with .exe on windows)
+# and a SHA256SUMS that lists exactly those files with the right checksums, in
+# this order; dist/SHA256SUMS lists all of them with relative paths; VERSION and
+# RESTIC_VERSION are there.
 expect_layout() {
   _name="$1"
   _targets="$2"
-  _files="$3"
   _out="$work/$_name"
   : >"$work/expected.all"
   for _t in $_targets; do
+    _files=$(target_files "$_t" "$3")
     : >"$work/expected.target"
     for _f in $_files; do
       [ -f "$_out/$_t/$_f" ] || fail "$_name: $_t/$_f was not built"
@@ -105,7 +119,7 @@ expect_layout() {
       printf '%s  %s\n' "$_sum" "$_f" >>"$work/expected.target"
       printf '%s  %s/%s\n' "$_sum" "$_t" "$_f" >>"$work/expected.all"
     done
-    for _f in restow-agent restic; do
+    for _f in restow-agent restic restow-agent.exe restic.exe; do
       case " $_files " in
         *" $_f "*) ;;
         *) [ ! -e "$_out/$_t/$_f" ] || fail "$_name: $_t/$_f must not exist" ;;
@@ -131,7 +145,7 @@ build norestic --no-restic || rc=$?
   fail "build.sh --no-restic exited with status $rc"
 }
 expect_layout norestic "$all_targets" "restow-agent THIRD_PARTY_NOTICES.txt"
-ok "--no-restic builds all four targets, SHA256SUMS lists restow-agent and the notices only"
+ok "--no-restic builds all five targets, SHA256SUMS lists restow-agent and the notices only"
 
 # 2. The same through the environment variable that the Docker re-exec uses.
 rc=0
@@ -161,6 +175,27 @@ ok "the default build lists restow-agent, restic and the notices for every targe
 ! grep -q restow-share "$work/restic/SHA256SUMS" || fail "SHA256SUMS must not list restow-share"
 ok "restow-share is built for linux into dist/server and listed in no SHA256SUMS"
 
+# 3c. windows-amd64: restow-agent.exe and restic.exe, restic from the pinned
+# .zip (the member is the .exe inside it), no restow-share, no restow-pve.
+rc=0
+build windows --targets "windows-amd64" || rc=$?
+[ "$rc" -eq 0 ] || {
+  cat "$work/windows.log"
+  fail "build.sh for windows-amd64 exited with status $rc"
+}
+expect_layout windows "windows-amd64" "restow-agent restic THIRD_PARTY_NOTICES.txt"
+grep -q "^stub build windows/amd64 $work/windows/windows-amd64/restow-agent.exe\$" "$work/windows/windows-amd64/restow-agent.exe" ||
+  fail "restow-agent.exe was not built for windows/amd64"
+_fetch=$(sed -n 's/^args //p' "$work/windows/windows-amd64/restic.exe")
+case "$_fetch" in
+  *"restic_${RESTIC_VERSION}_windows_amd64.zip -sha256 $RESTIC_SHA256_windows_amd64 -format zip -member restic_${RESTIC_VERSION}_windows_amd64.exe "*) ;;
+  *) fail "restic.exe was not fetched from the pinned zip: $_fetch" ;;
+esac
+grep -q "  windows-amd64/restow-agent.exe\$" "$work/windows/SHA256SUMS" || fail "SHA256SUMS does not list windows-amd64/restow-agent.exe"
+grep -q "  windows-amd64/restic.exe\$" "$work/windows/SHA256SUMS" || fail "SHA256SUMS does not list windows-amd64/restic.exe"
+[ ! -e "$work/windows/server" ] || fail "restow-share must not be built for windows"
+ok "windows-amd64 ships restow-agent.exe and restic.exe (from the pinned zip), listed with .exe in SHA256SUMS"
+
 # 3b. With the PVE storage plugin shim: linux-amd64 also carries restow-pve
 # and the plugin files with its license, the other targets do not.
 mkdir -p "$work/pve-plugin"
@@ -186,6 +221,11 @@ rc=0
 build badtarget --targets "plan9-amd64" || rc=$?
 [ "$rc" -ne 0 ] || fail "an unsupported target was accepted"
 grep -q 'unsupported target plan9-amd64' "$work/badtarget.log" || fail "no message for an unsupported target"
+# No Windows on ARM in 0.5.0 (restic has no windows_arm64 release with VSS).
+rc=0
+build winarm --targets "windows-arm64" || rc=$?
+[ "$rc" -ne 0 ] || fail "windows-arm64 was accepted"
+grep -q 'unsupported target windows-arm64' "$work/winarm.log" || fail "no message for windows-arm64"
 rc=0
 build badversion --version x.y || rc=$?
 [ "$rc" -ne 0 ] || fail "an invalid version was accepted"

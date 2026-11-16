@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { EmbeddedPage } from "@/components/kit/page-context";
 import { ReadOnlyGroup } from "@/components/kit/read-only-group";
+import { ModuleHiddenHint } from "@/components/layout/module-hidden-hint";
 import { SectionAsideProvider } from "@/components/layout/section-aside";
 import { SectionNav, type SectionNavItem } from "@/components/layout/section-nav";
 import { PageHeader } from "@/components/page-header";
@@ -89,7 +90,7 @@ function OpenTenantPage({
     }
   }, [tenant.id, allTenants]);
 
-  const states = tenantSectionStates(tenantSections(), session);
+  const states = tenantSectionStates(tenantSections(session.isProviderAdmin), session);
   const active =
     states.find(({ spec }) => spec.id === section) ??
     states.find(({ spec }) => spec.id === "overview") ??
@@ -99,7 +100,9 @@ function OpenTenantPage({
   }
   const { spec, locked } = active;
 
-  const items = states.map(
+  // A section of a module that is off is left out, unless it is the one that is open.
+  const listed = states.filter((state) => !state.hidden || state.spec.id === spec.id);
+  const items = listed.map(
     ({ spec: entry, locked: isLocked }): SectionNavItem => ({
       id: entry.id,
       label: t(entry.labelKey),
@@ -143,6 +146,8 @@ function OpenTenantPage({
           data-sub={sub ?? undefined}
         >
           {closed && block ? <WriteNote block={block} /> : null}
+          {/* Opened by its address although its module is off: say so, change nothing. */}
+          <ModuleHiddenHint modules={spec.modules} />
           {!ready ? (
             <SectionSkeleton />
           ) : locked ? (

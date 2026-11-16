@@ -1,0 +1,10 @@
+{
+  "sql": {
+    "enabled": true,
+    "mode": "alongside",
+    "instances": "all",
+    "databases": "all",
+    "exclude": [{ "instance": "SQLEXPRESS", "name": "Scratch" }],
+    "stagingDir": "E:\\SqlStaging"
+  }
+}

@@ -89,8 +89,16 @@ function CommandPalette() {
   const { open, setOpen } = useCommandPalette();
   const navigate = useNavigate();
   const navItems = useNavItems();
-  const { role, features, extensions, tenants, activeTenant, isProviderAdmin, providerAllTenants } =
-    useSession();
+  const {
+    role,
+    features,
+    extensions,
+    modules,
+    tenants,
+    activeTenant,
+    isProviderAdmin,
+    providerAllTenants,
+  } = useSession();
   const { theme, setTheme, palette, setPalette } = useTheme();
   const switchTenant = useSwitchTenant();
   const { signOut } = useSignOut();
@@ -116,7 +124,7 @@ function CommandPalette() {
       buildPaletteGroups({
         navItems,
         role,
-        lockContext: { features, extensions, providerAllTenants },
+        lockContext: { features, extensions, providerAllTenants, modules },
         canAccess,
         tenants,
         activeTenantId: activeTenant?.id ?? null,
@@ -133,6 +141,7 @@ function CommandPalette() {
       features,
       extensions,
       providerAllTenants,
+      modules,
       tenants,
       activeTenant?.id,
       isProviderAdmin,

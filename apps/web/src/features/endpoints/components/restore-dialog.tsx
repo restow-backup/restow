@@ -15,9 +15,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
 
-import { type EndpointDetail, type EndpointSnapshot, LIMITS } from "../api.js";
+import { type EndpointDetail, type EndpointOs, type EndpointSnapshot, LIMITS } from "../api.js";
 import { useCreateTask, useEndpointFormat } from "../hooks.js";
 import { endpointErrorKey, endpointName, hasControlCharacters } from "../presenters.js";
+
+/**
+ * A snapshot path as the machine writes it: restic stores C:\Users\anna as /C/Users/anna, which
+ * a Windows machine shows as C:\Users\anna again; other systems show it unchanged. The API and
+ * the agent keep the /C/... form.
+ */
+export function displaySnapshotPath(path: string, os: EndpointOs): string {
+  if (os !== "windows") {
+    return path;
+  }
+  const match = /^\/([A-Za-z])(\/.*)?$/.exec(path);
+  if (!match) {
+    return path;
+  }
+  const rest = (match[2] ?? "/").replaceAll("/", "\\");
+  return `${match[1]?.toUpperCase()}:${rest}`;
+}
 
 /** How many of the chosen paths the dialog lists before it says how many more there are. */
 const PATHS_SHOWN = 5;
@@ -28,17 +45,72 @@ export type TargetProblem =
   | "notPlain"
   | "controlCharacters"
   | "tooLong"
+  | "networkPath"
+  | "forwardSlash"
+  | "invalidCharacter"
+  | "trailingDotOrSpace"
+  | "reservedName"
+  | "systemFolder"
   | null;
+
+const WINDOWS_RESERVED = new Set([
+  "CON",
+  "PRN",
+  "AUX",
+  "NUL",
+  "CONIN$",
+  "CONOUT$",
+  ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
+]);
+
+/** Folders a Windows restore never writes to (the agent checks the real ones of the machine). */
+const WINDOWS_BLOCKED = [
+  "C:\\WINDOWS",
+  "C:\\PROGRAM FILES",
+  "C:\\PROGRAM FILES (X86)",
+  "C:\\PROGRAMDATA\\RESTOW",
+];
+
+/**
+ * The Windows rules (@restow/core restoreTargetIssue, docs/WINDOWS-AGENT.md 18.1): a local drive
+ * path below the drive root, no UNC path, no forward slash, no "." or "..", none of <>"|?* or a
+ * colon after the drive, no component ending in a dot or a space, no device name, and not in the
+ * Windows folder, the program folders or the agent's own data.
+ */
+function checkWindowsTarget(target: string): TargetProblem {
+  if (target.startsWith("\\\\") || target.startsWith("//")) return "networkPath";
+  if (!/^[A-Za-z]:\\/.test(target)) return "notAbsolute";
+  if (target.includes("/")) return "forwardSlash";
+  const rest = target.slice(3);
+  if (rest === "") return "root";
+  if (/[<>"|?*:]/.test(rest)) return "invalidCharacter";
+  const parts = rest.split("\\");
+  for (const part of parts) {
+    if (part === "" || part === "." || part === "..") return "notPlain";
+    if (part.endsWith(".") || part.endsWith(" ")) return "trailingDotOrSpace";
+    if (WINDOWS_RESERVED.has((part.split(".")[0] ?? "").trimEnd().toUpperCase())) {
+      return "reservedName";
+    }
+  }
+  const full = `${target.slice(0, 1)}:\\${rest}`.toUpperCase();
+  if (
+    WINDOWS_BLOCKED.some((base) => full === base || full.startsWith(`${base}\\`)) ||
+    parts.some((part) => part.toUpperCase() === "SYSTEM VOLUME INFORMATION")
+  ) {
+    return "systemFolder";
+  }
+  return null;
+}
 
 /**
  * Checks the optional target folder by the rules the API and the agent apply
- * (apps/api/src/features/endpoints/schemas.ts `restoreTargetSchema`): an
- * absolute Linux or macOS path below `/`, in plain form. A Windows path is
- * refused here already rather than by the server. An empty one is fine (the
- * agent picks a new folder). Whether the folder is new or empty and its
- * parent exists only the machine can tell; the hint says so.
+ * (@restow/core `restoreTargetIssue`): on Linux and macOS an absolute path below `/`, in plain
+ * form; on Windows a local drive path such as D:\Restore outside the system folders. An empty
+ * one is fine (the agent picks a new folder). Whether the folder is new or empty and its parent
+ * exists only the machine can tell; the hint says so.
  */
-export function checkTargetDir(value: string): TargetProblem {
+export function checkTargetDir(value: string, os: EndpointOs = "linux"): TargetProblem {
   const target = value.trim();
   if (target === "") {
     return null;
@@ -48,6 +120,9 @@ export function checkTargetDir(value: string): TargetProblem {
   }
   if (target.length > LIMITS.pathLength) {
     return "tooLong";
+  }
+  if (os === "windows") {
+    return checkWindowsTarget(target);
   }
   if (!target.startsWith("/")) {
     return "notAbsolute";
@@ -67,7 +142,10 @@ export function checkTargetDir(value: string): TargetProblem {
 export interface RestoreDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  endpoint: Pick<EndpointDetail, "id" | "displayName" | "hostname" | "connection" | "profile">;
+  endpoint: Pick<
+    EndpointDetail,
+    "id" | "displayName" | "hostname" | "connection" | "profile" | "os"
+  >;
   snapshot: EndpointSnapshot;
   /** The paths to restore, with folders already including what is inside them. */
   paths: readonly string[];
@@ -100,7 +178,7 @@ export function RestoreDialog({
   const [target, setTarget] = React.useState("");
   const [attempted, setAttempted] = React.useState(false);
   const requested = create.isSuccess;
-  const problem = checkTargetDir(target);
+  const problem = checkTargetDir(target, endpoint.os);
 
   // Every opening starts clean.
   const { reset } = create;
@@ -198,7 +276,7 @@ export function RestoreDialog({
               <ul className="space-y-0.5 rounded-md border bg-muted/40 p-2 font-mono text-xs">
                 {shown.map((path) => (
                   <li key={path} className="break-all">
-                    {path}
+                    {displaySnapshotPath(path, endpoint.os)}
                   </li>
                 ))}
                 {hidden > 0 ? (
@@ -215,7 +293,7 @@ export function RestoreDialog({
                 id="restore-target"
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
-                placeholder={t("restore.target.placeholder")}
+                placeholder={t("restore.target.placeholder", { os: endpoint.os })}
                 autoComplete="off"
                 spellCheck={false}
                 className="font-mono text-sm"
@@ -232,8 +310,8 @@ export function RestoreDialog({
                 }
               >
                 {attempted && problem
-                  ? t(`restore.target.errors.${problem}`)
-                  : t("restore.target.hint")}
+                  ? t(`restore.target.errors.${problem}`, { os: endpoint.os })
+                  : t("restore.target.hint", { os: endpoint.os })}
               </p>
             </div>
 

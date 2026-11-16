@@ -51,6 +51,7 @@ const storedMailConfigSchema = z.discriminatedUnion("transport", [
     security: z.enum(["starttls", "implicit", "none"]),
     from: z.string(),
     username: z.string().min(1).optional(),
+    allowedSenders: z.array(z.string()).optional(),
   }),
   z.object({
     transport: z.literal("graph"),
@@ -119,7 +120,7 @@ export function toStoredMail(
   googleKey: GoogleKeyFacts | null = null,
 ): StoredMailConfig {
   if (input.transport === "smtp") {
-    const { host, port, security, from, username } = input.smtp;
+    const { host, port, security, from, username, allowedSenders } = input.smtp;
     return {
       transport: "smtp",
       host,
@@ -127,6 +128,9 @@ export function toStoredMail(
       security: toStoredSmtpSecurity(security),
       from,
       ...(username ? { username } : {}),
+      ...(allowedSenders && allowedSenders.length > 0
+        ? { allowedSenders: [...allowedSenders] }
+        : {}),
     };
   }
   if (input.transport === "google") {
@@ -510,7 +514,7 @@ function diffMail(before: StoredMailConfig | null, after: StoredMailConfig | nul
   const a = before as Record<string, unknown>;
   const b = after as Record<string, unknown>;
   return [...new Set([...Object.keys(a), ...Object.keys(b)])]
-    .filter((key) => key !== "transport" && a[key] !== b[key])
+    .filter((key) => key !== "transport" && JSON.stringify(a[key]) !== JSON.stringify(b[key]))
     .sort()
     .map((key) => `mail.${key}`);
 }
@@ -603,6 +607,8 @@ export type MailSettingsView =
         username: string | null;
         /** A password is stored (it is never returned). */
         passwordStored: boolean;
+        /** Further From addresses branding may use: addresses or `@domain` (0.5.0). */
+        allowedSenders: string[];
       };
     }
   | {
@@ -657,6 +663,7 @@ export function toMailView(
         from: mail.from,
         username: mail.username ?? null,
         passwordStored: flags.smtpPassword,
+        allowedSenders: mail.allowedSenders ?? [],
       },
     };
   }

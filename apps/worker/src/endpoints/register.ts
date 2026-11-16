@@ -9,12 +9,19 @@ import {
   type EndpointJobPayload,
   type EndpointQueue,
 } from "@restow/core";
-import { EndpointRepositoryBusyError, retryConcurrentSetup } from "@restow/db";
+import {
+  EndpointRecoveryActiveError,
+  EndpointRepositoryBusyError,
+  retryConcurrentSetup,
+} from "@restow/db";
 import type PgBoss from "pg-boss";
 import { isUuid } from "../handlers/framework.js";
+import { besidePromotion } from "../repository-copies/promotion-lock.js";
+import { BaremetalCheckIncompleteError, endpointBaremetalCheck } from "./baremetal-check.js";
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
+import { endpointRecoveryIso, RecoveryIsoRetryError } from "./recovery-iso.js";
 import { endpointRemoval } from "./removal.js";
 import { endpointRetention } from "./retention.js";
 import { endpointVerify, RestoreTestIncompleteError } from "./verify.js";
@@ -55,10 +62,35 @@ export async function registerEndpointJobs(
         try {
           await run(job);
         } catch (error) {
+          if (error instanceof EndpointRecoveryActiveError) {
+            // A bare metal recovery reads the repository (docs/BAREMETAL.md 9.7): retried later,
+            // nothing was rated or counted.
+            logger.warn("endpoint repository read by a running recovery, job will retry", {
+              queue,
+              recoveryId: error.recoveryId,
+            });
+            throw error;
+          }
           if (error instanceof EndpointRepositoryBusyError) {
             // Other server work held the repository: retried later, nothing was rated.
             logger.warn("endpoint repository busy with other server work, job will retry", {
               queue,
+            });
+            throw error;
+          }
+          if (error instanceof BaremetalCheckIncompleteError) {
+            // The snapshot could not be read for a reason that proves nothing about the backup.
+            logger.warn("endpoint bare metal check could not read the snapshot, job will retry", {
+              queue,
+              reason: error.reason,
+            });
+            throw error;
+          }
+          if (error instanceof RecoveryIsoRetryError) {
+            // The network or a cut-off download: retried, the next attempt continues the file.
+            logger.warn("recovery ISO download will retry", {
+              queue,
+              problem: error.result.state.problem,
             });
             throw error;
           }
@@ -79,10 +111,21 @@ export async function registerEndpointJobs(
       },
     );
   };
-  await work(ENDPOINT_QUEUES.retention, (job) => endpointRetention(deps, payloadOf(job.data)));
+  await work(ENDPOINT_QUEUES.retention, (job) => {
+    const payload = payloadOf(job.data);
+    // Under the tenant's repository-copy lock: never beside a promotion of a copy target.
+    return besidePromotion(deps.db, payload.tenantId, () => endpointRetention(deps, payload));
+  });
   await work(ENDPOINT_QUEUES.check, (job) => endpointCheck(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.verify, (job) => endpointVerify(deps, payloadOf(job.data)));
-  await work(ENDPOINT_QUEUES.removal, (job) => endpointRemoval(deps, payloadOf(job.data)));
+  await work(ENDPOINT_QUEUES.removal, (job) => {
+    const payload = payloadOf(job.data);
+    return besidePromotion(deps.db, payload.tenantId, () => endpointRemoval(deps, payload));
+  });
+  await work(ENDPOINT_QUEUES.baremetalCheck, (job) =>
+    endpointBaremetalCheck(deps, payloadOf(job.data)),
+  );
+  await work(ENDPOINT_QUEUES.recoveryIso, () => endpointRecoveryIso(deps));
   await work(ENDPOINT_QUEUES.monitor, async () => {
     const summary = await endpointMonitor(deps);
     if (Object.values(summary).some((count) => count > 0)) {

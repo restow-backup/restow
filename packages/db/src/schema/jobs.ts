@@ -148,6 +148,31 @@ export const jobs = pgTable(
   ],
 );
 
+/**
+ * A keyed record a job keeps beside its cursor (core `CursorStore.putEntries`):
+ * a restore's per-item progress (core restore/progress.ts). One row per entry,
+ * so a batch writes what it holds and not the whole record, as one growing
+ * `jobs.cursor` value would on every save. Kept across the retries of a job;
+ * a trigger (migration 0079) drops the rows when the job reaches a final
+ * status, and they go with the job row.
+ */
+export const jobCursorEntries = pgTable(
+  "job_cursor_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("job_cursor_entries_job_key_uq").on(t.jobId, t.key)],
+);
+
 /** Live progress for a job, streamed to the UI over SSE. One row per job. */
 export const jobProgress = pgTable(
   "job_progress",

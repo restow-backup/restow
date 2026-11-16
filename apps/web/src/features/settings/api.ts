@@ -19,6 +19,8 @@ export interface StoredSmtpSettings {
   username: string | null;
   /** A password is stored; its value is never sent to the browser. */
   passwordStored: boolean;
+  /** Further From addresses the branding may use (0.5.0; absent from an older server). */
+  allowedSenders?: string[];
 }
 
 /** Which app registration Microsoft 365 (Graph sendMail) sends as. */
@@ -108,6 +110,8 @@ export type MailInput =
         username: string | null;
         /** Omit to keep the stored password (same host and username only). */
         password?: string;
+        /** Further From addresses the branding may use (0.5.0). */
+        allowedSenders?: string[];
       };
     }
   | {
@@ -151,6 +155,8 @@ export const MAIL_TEST_FAILURE_REASONS = [
   "smtp_auth_failed",
   "smtp_connection_failed",
   "smtp_tls_failed",
+  // The SMTP server refused the sender (5xx at MAIL FROM, 0.5.0).
+  "smtp_sender_rejected",
   "graph_app_missing",
   "graph_credential_missing",
   "graph_tenant_missing",
@@ -170,6 +176,8 @@ export const MAIL_TEST_FAILURE_REASONS = [
   "google_api_disabled",
   "google_send_denied",
   "google_token_failed",
+  // The mail server refused the recipient for good (SMTP 5xx at RCPT or DATA, 0.5.0).
+  "recipient_rejected",
 ] as const;
 
 export type MailTestFailureReason = (typeof MAIL_TEST_FAILURE_REASONS)[number];

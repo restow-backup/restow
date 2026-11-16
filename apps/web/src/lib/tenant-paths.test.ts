@@ -33,8 +33,9 @@ describe("tenantPagePath", () => {
     expect(tenantRootPath("t1")).toBe("/tenants/t1");
   });
 
-  it("names the twelve sections of the core", () => {
-    expect(TENANT_SECTION_IDS).toHaveLength(12);
+  it("names the thirteen sections of the core (Branding since 0.5.0)", () => {
+    expect(TENANT_SECTION_IDS).toHaveLength(13);
+    expect(TENANT_SECTION_IDS).toContain("branding");
   });
 });
 

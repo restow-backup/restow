@@ -19,6 +19,8 @@ import type { JobContext, ProtectedObjectRef, RestoreSelection } from "../engine
 import type { ManifestObject } from "../manifest.js";
 import { chunkReaderFor } from "../restore/common.js";
 import {
+  attachmentsNotBackedUpNote,
+  attachmentsNotBackedUpOf,
   folderSegmentsOf,
   mailboxAreaOf,
   messageFormatOf,
@@ -104,7 +106,10 @@ function compareForExport(a: ManifestObject, b: ManifestObject): number {
 /** One message as an {@link ExportMessage}; `open` streams verified bytes from the chunk store. */
 export function exportMessageOf(object: ManifestObject, reader: ChunkReader): ExportMessage {
   const metadata = object.metadata ?? {};
+  // A group post whose attachments the backup does not hold is exported without them, and says so.
+  const missing = attachmentsNotBackedUpOf(object);
   const base = {
+    ...(missing !== undefined ? { incomplete: attachmentsNotBackedUpNote(missing) } : {}),
     folder: exportFolderOf(object),
     date: dateOf(object),
     size: object.size,

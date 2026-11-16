@@ -45,11 +45,14 @@ import {
   fullSyncReason,
   type GraphClient,
   type GroupMailboxPlan,
+  type GroupMembership,
   JobAbortedError,
   type KnownGroupMailbox,
   type KnownObject,
   type KnownSite,
   type Logger,
+  type MembershipsRecord,
+  membershipRoles,
   type NewlyActiveObject,
   needsFirstBackup,
   type ObjectStatusReason,
@@ -65,6 +68,7 @@ import {
   writeDirectoryState,
 } from "@restow/core";
 import {
+  directoryMemberships,
   type FailureRecordJson,
   jobs,
   protectedObjects,
@@ -101,6 +105,11 @@ type Env = Record<string, string | undefined>;
 
 /** Rows per statement for batched reads and writes. */
 const ROW_BATCH = 500;
+/**
+ * Membership rows per DELETE or INSERT statement (#89): a few hundred kilobytes of array
+ * literals at most, whatever the size of the group.
+ */
+export const MEMBERSHIP_WRITE_SLICE = 5000;
 
 /**
  * Builds the Graph client for a source, reporting every throttling wait to
@@ -116,6 +125,15 @@ export interface DirectoryHandlerDeps {
   readonly graphClientFor: GraphClientFactory;
   /** Longest time between full enumerations. */
   readonly fullSyncIntervalMs?: number;
+}
+
+/**
+ * A Postgres array literal sent as one parameter, so a chunk of thousands of memberships is one
+ * statement with three parameters instead of one per value. Only for values without commas,
+ * quotes, braces or spaces: uuids from the database and the two membership roles.
+ */
+function arrayLiteral(values: readonly string[]): string {
+  return `{${values.join(",")}}`;
 }
 
 function chunks<T>(items: readonly T[], size = ROW_BATCH): T[][] {
@@ -268,7 +286,187 @@ export class PgDirectoryRepository implements DirectoryRepository {
         knownSites,
         knownGroups,
         groupsDeltaLink: state.groupsDeltaLink,
+        membershipsSyncedAt: state.membershipsSyncedAt,
+        membershipsRetryIds: state.membershipsRetryIds,
       };
+    });
+  }
+
+  /**
+   * Replace the stored membership of each group of the part and of its group-connected site
+   * (#89), in one tenant-pinned transaction: rows of people no longer listed go, new ones come,
+   * a changed role is updated, everything else stays untouched. The difference to the stored
+   * rows is worked out here and sent in slices of {@link MEMBERSHIP_WRITE_SLICE} rows, so a group
+   * with tens of thousands of members is several bounded statements, not one huge parameter.
+   * A group the source does not have as an object, and a person not in the directory table,
+   * are skipped. Returns the groups whose site is not (yet) an object of the source.
+   */
+  async writeMemberships(memberships: readonly GroupMembership[]): Promise<readonly string[]> {
+    if (memberships.length === 0) {
+      return [];
+    }
+    return this.run(async (tx) => {
+      const externalIds = [
+        ...new Set(
+          memberships.flatMap((membership) =>
+            membership.siteId ? [membership.groupId, membership.siteId] : [membership.groupId],
+          ),
+        ),
+      ];
+      const objects = new Map<string, string>();
+      for (const batch of chunks(externalIds)) {
+        const rows = await tx
+          .select({
+            id: protectedObjects.id,
+            kind: protectedObjects.kind,
+            externalId: protectedObjects.externalId,
+          })
+          .from(protectedObjects)
+          .where(
+            and(
+              eq(protectedObjects.tenantId, this.tenantId),
+              eq(protectedObjects.sourceId, this.sourceId),
+              inArray(protectedObjects.kind, ["group", "site"]),
+              inArray(protectedObjects.externalId, batch),
+            ),
+          );
+        for (const row of rows) {
+          objects.set(`${row.kind}:${row.externalId}`, row.id);
+        }
+      }
+      const entraIds = [
+        ...new Set(memberships.flatMap((membership) => [...membershipRoles(membership).keys()])),
+      ];
+      const people = new Map<string, string>();
+      for (const batch of chunks(entraIds)) {
+        const rows = await tx
+          .select({ id: users.id, entraObjectId: users.entraObjectId })
+          .from(users)
+          .where(and(eq(users.tenantId, this.tenantId), inArray(users.entraObjectId, batch)));
+        for (const row of rows) {
+          if (row.entraObjectId) {
+            people.set(row.entraObjectId, row.id);
+          }
+        }
+      }
+
+      // Object id -> (user id -> role), as Graph lists it now.
+      const wanted = new Map<string, Map<string, "owner" | "member">>();
+      const siteMissing: string[] = [];
+      for (const membership of memberships) {
+        const group = objects.get(`group:${membership.groupId}`);
+        // An unknown site (undefined) keeps its rows; a group without one has nothing to add.
+        const site = membership.siteId ? objects.get(`site:${membership.siteId}`) : undefined;
+        if (membership.siteId && !site) {
+          // Not listed by the sites discovery yet (a Team created a moment ago): next run.
+          siteMissing.push(membership.groupId);
+        }
+        const roles = membershipRoles(membership);
+        for (const objectId of [group, site]) {
+          if (!objectId || wanted.has(objectId)) {
+            continue;
+          }
+          const rows = new Map<string, "owner" | "member">();
+          for (const [entraId, role] of roles) {
+            const userId = people.get(entraId);
+            if (userId) {
+              rows.set(userId, role);
+            }
+          }
+          wanted.set(objectId, rows);
+        }
+      }
+      if (wanted.size === 0) {
+        return siteMissing;
+      }
+
+      const removed: Array<[string, string]> = [];
+      const upserts: Array<[string, string, "owner" | "member"]> = [];
+      const stored = new Map<string, Map<string, string>>();
+      for (const batch of chunks([...wanted.keys()])) {
+        const rows = await tx
+          .select({
+            objectId: directoryMemberships.protectedObjectId,
+            userId: directoryMemberships.userId,
+            role: directoryMemberships.role,
+          })
+          .from(directoryMemberships)
+          .where(
+            and(
+              eq(directoryMemberships.tenantId, this.tenantId),
+              inArray(directoryMemberships.protectedObjectId, batch),
+            ),
+          );
+        for (const row of rows) {
+          let byUser = stored.get(row.objectId);
+          if (!byUser) {
+            byUser = new Map();
+            stored.set(row.objectId, byUser);
+          }
+          byUser.set(row.userId, row.role);
+        }
+      }
+      for (const [objectId, rows] of wanted) {
+        const before = stored.get(objectId) ?? new Map<string, string>();
+        for (const userId of before.keys()) {
+          if (!rows.has(userId)) {
+            removed.push([objectId, userId]);
+          }
+        }
+        for (const [userId, role] of rows) {
+          if (before.get(userId) !== role) {
+            upserts.push([objectId, userId, role]);
+          }
+        }
+      }
+      for (let i = 0; i < removed.length; i += MEMBERSHIP_WRITE_SLICE) {
+        const slice = removed.slice(i, i + MEMBERSHIP_WRITE_SLICE);
+        await tx.execute(sql`
+          DELETE FROM directory_memberships d
+          USING unnest(
+            ${arrayLiteral(slice.map(([objectId]) => objectId))}::uuid[],
+            ${arrayLiteral(slice.map(([, userId]) => userId))}::uuid[]
+          ) AS n(object_id, user_id)
+          WHERE d.tenant_id = ${this.tenantId}::uuid
+            AND d.protected_object_id = n.object_id
+            AND d.user_id = n.user_id
+        `);
+      }
+      for (let i = 0; i < upserts.length; i += MEMBERSHIP_WRITE_SLICE) {
+        const slice = upserts.slice(i, i + MEMBERSHIP_WRITE_SLICE);
+        await tx.execute(sql`
+          INSERT INTO directory_memberships (tenant_id, protected_object_id, user_id, role)
+          SELECT ${this.tenantId}::uuid, n.object_id, n.user_id, n.role
+          FROM unnest(
+            ${arrayLiteral(slice.map(([objectId]) => objectId))}::uuid[],
+            ${arrayLiteral(slice.map(([, userId]) => userId))}::uuid[],
+            ${arrayLiteral(slice.map(([, , role]) => role))}::text[]
+          )
+            AS n(object_id, user_id, role)
+          ON CONFLICT (protected_object_id, user_id) DO UPDATE
+            SET role = excluded.role, updated_at = now()
+            WHERE ${directoryMemberships}.role IS DISTINCT FROM excluded.role
+        `);
+      }
+      return siteMissing;
+    });
+  }
+
+  async recordMemberships(record: MembershipsRecord): Promise<void> {
+    await this.run(async (tx) => {
+      const source = await selectSource(tx, this.tenantId, this.sourceId, true);
+      const state = readDirectoryState(source.config);
+      await tx
+        .update(sources)
+        .set({
+          config: writeDirectoryState(source.config, {
+            ...state,
+            membershipsSyncedAt:
+              record.syncedAt === undefined ? state.membershipsSyncedAt : record.syncedAt,
+            membershipsRetryIds: record.retryIds,
+          }),
+        })
+        .where(eq(sources.id, this.sourceId));
     });
   }
 
@@ -619,6 +817,7 @@ function successRun(result: DirectorySyncResult, finishedAt: Date): DirectoryLas
     error: null,
     sitesDiscovered: result.sitesDiscovered,
     groupsDiscovered: result.groupsDiscovered,
+    membershipsRead: result.membershipsRead,
   };
 }
 
@@ -944,6 +1143,9 @@ export async function runDirectoryJob(
       // Microsoft 365 groups (group mailboxes) likewise, through their own delta stream;
       // a refusal is a warning and the known groups stay as they are.
       groups: true,
+      // Owners and members of the groups and their sites, for the restore explorer's "Teams &
+      // sites" of a person (#89); a refusal is a warning and the stored rows stay.
+      memberships: true,
       logger,
       progress: recorder,
       signal: ctx.signal,
@@ -995,6 +1197,7 @@ export async function runDirectoryJob(
         fullReason: reason ?? undefined,
         pages: result.pages,
         warnings: result.warnings.length,
+        membershipsRead: result.membershipsRead ?? undefined,
         ...result.counts,
         firstBackupsQueued,
         inactiveNotices,

@@ -30,6 +30,7 @@ func fileExists(p string) bool { _, err := os.Lstat(p); return err == nil }
 // TestBackupRestoreVerifyAppendOnly is the proof the product stands on: a real
 // backup with real restic, a restore into a new folder with matching hashes, a
 // restore test (verify_sample), and a repository the agent cannot damage.
+// claim: VERIFY-008, RETAIN-013
 func TestBackupRestoreVerifyAppendOnly(t *testing.T) {
 	e := newEnv(t)
 	hashes := e.populate()

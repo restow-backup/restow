@@ -2,10 +2,13 @@ import {
   catalogEventsOf,
   isInstallationReportEvent,
   isReportEvent,
+  isSummaryEntry,
   nextRunAt,
   REPORT_EVENT_INFO,
+  type ReportCadence,
   type ReportEvent,
   type ReportEventLevel,
+  SUMMARY_ENTRIES,
 } from "@restow/core";
 import { type NewReportRule, type ReportRule, reportRules } from "@restow/db";
 import { createI18n } from "@restow/i18n";
@@ -24,7 +27,10 @@ import type { DbExecutor } from "../../lib/tenant-context.js";
  *   jobFailures, readinessRed  the two rules the 0010 migration made from the earlier flags, kept
  *                              with their events (an administrator may have changed them); their
  *                              addresses are the recipients who want any of those events;
- *   weeklyReport               the weekly summary, for the recipients with `report.weekly`;
+ *   dailyReport, weeklyReport, monthlyReport
+ *                              the summary of the previous day, Monday to Sunday or calendar
+ *                              month (0.5.0), for the recipients with `report.daily`,
+ *                              `report.weekly` or `report.monthly`; the monthly one with the PDF;
  *   errors, warnings, notices  every other event some recipient wants, one rule per severity, so
  *                              that a success notice never throttles an error about the same
  *                              mailbox; their events follow the recipients.
@@ -42,12 +48,40 @@ export const WEEKLY_REPORT_ENTRY = "report.weekly";
 export const RECIPIENT_RULE_CATEGORIES = [
   "jobFailures",
   "readinessRed",
+  "dailyReport",
   "weeklyReport",
+  "monthlyReport",
   "errors",
   "warnings",
   "notices",
 ] as const;
 export type RecipientRuleCategory = (typeof RECIPIENT_RULE_CATEGORIES)[number];
+
+/** The category of the customer monthly report (Service Provider), synced from the contacts. */
+export const CUSTOMER_REPORT_CATEGORY = "customerReport";
+
+/** The summary report categories, their entry in a recipient's column, cadence and cron. */
+export const SUMMARY_CATEGORIES: Readonly<
+  Record<
+    "dailyReport" | "weeklyReport" | "monthlyReport",
+    { entry: string; cadence: ReportCadence; cron: string; attachPdf: boolean }
+  >
+> = {
+  dailyReport: { entry: "report.daily", cadence: "daily", cron: "0 7 * * *", attachPdf: false },
+  weeklyReport: { entry: "report.weekly", cadence: "weekly", cron: "0 7 * * 1", attachPdf: false },
+  monthlyReport: {
+    entry: "report.monthly",
+    cadence: "monthly",
+    cron: "0 7 1 * *",
+    attachPdf: true,
+  },
+};
+
+function summaryCategory(category: RecipientRuleCategory) {
+  return category === "dailyReport" || category === "weeklyReport" || category === "monthlyReport"
+    ? SUMMARY_CATEGORIES[category]
+    : null;
+}
 
 /** The rules for whatever the two fixed event rules do not cover, by severity. */
 const LEVEL_CATEGORIES: readonly {
@@ -83,15 +117,12 @@ export const CATEGORY_EVENTS: Readonly<Record<WizardCategory, readonly string[]>
 
 /** Whether `value` may be in a recipient's column. */
 export function isRecipientEntry(value: string): boolean {
-  return value === WEEKLY_REPORT_ENTRY || isReportEvent(value);
+  return isSummaryEntry(value) || isReportEvent(value);
 }
 
 /** A recipient's column, in catalog order and without duplicates or unknown names. */
 export function normalizeRecipientEvents(events: readonly string[]): string[] {
-  return [
-    ...catalogEventsOf(events),
-    ...(events.includes(WEEKLY_REPORT_ENTRY) ? [WEEKLY_REPORT_ENTRY] : []),
-  ];
+  return [...catalogEventsOf(events), ...SUMMARY_ENTRIES.filter((entry) => events.includes(entry))];
 }
 
 /** The events of the chosen categories. */
@@ -147,16 +178,19 @@ export function recipientRuleFor(
     emailRecipients: [...addresses],
     createdBy: context.createdBy,
   };
-  if (category === "weeklyReport") {
+  const summary = summaryCategory(category);
+  if (summary) {
     const timezone = context.timeZone?.trim() || "UTC";
     return {
       ...common,
       trigger: "schedule",
-      cron: WEEKLY_CRON,
+      cron: summary.cron,
+      cadence: summary.cadence,
+      attachPdf: summary.attachPdf,
       timezone,
-      periodDays: 7,
+      periodDays: summary.cadence === "daily" ? 1 : summary.cadence === "weekly" ? 7 : 30,
       sections: ["backups", "readiness", "failures", "storage", "restores"],
-      nextRunAt: nextRunAt({ cron: WEEKLY_CRON, timezone }, { now: context.now }),
+      nextRunAt: nextRunAt({ cron: summary.cron, timezone }, { now: context.now }),
     };
   }
   const listened =
@@ -201,9 +235,11 @@ export function rulesFromRecipients(
       for (const event of events) covered.add(event);
     }
   }
-  const weekly = addressesFor(input.recipients, [WEEKLY_REPORT_ENTRY]);
-  if (weekly.length > 0 && input.scheduledAllowed) {
-    rules.push(recipientRuleFor("weeklyReport", weekly, input));
+  for (const category of ["dailyReport", "weeklyReport", "monthlyReport"] as const) {
+    const addresses = addressesFor(input.recipients, [SUMMARY_CATEGORIES[category].entry]);
+    if (addresses.length > 0 && input.scheduledAllowed) {
+      rules.push(recipientRuleFor(category, addresses, input));
+    }
   }
   for (const { category, level } of LEVEL_CATEGORIES) {
     const events = levelEvents(input.recipients, level, covered);
@@ -224,6 +260,9 @@ const sameSet = (a: readonly string[], b: readonly string[]) => {
 function looksLikeRuleOf(category: RecipientRuleCategory, rule: ReportRule): boolean {
   if (category === "weeklyReport") {
     return rule.trigger === "schedule" && rule.cron === WEEKLY_CRON;
+  }
+  if (category === "dailyReport" || category === "monthlyReport") {
+    return false;
   }
   if (category === "jobFailures" || category === "readinessRed") {
     return rule.trigger === "event" && sameSet(rule.events, RECIPIENT_RULE_EVENTS[category]);
@@ -269,7 +308,7 @@ export async function syncRecipientRules(
   // The events a fixed rule (still) listens for, for the recipients who want them.
   const covered = new Set<string>();
   for (const category of RECIPIENT_RULE_CATEGORIES) {
-    if (category === "weeklyReport" && !input.scheduledAllowed) {
+    if (summaryCategory(category) && !input.scheduledAllowed) {
       continue;
     }
     const rules = await tx
@@ -295,8 +334,9 @@ export async function syncRecipientRules(
     }
     const level = LEVEL_CATEGORIES.find((entry) => entry.category === category)?.level;
     let events: readonly string[];
-    if (category === "weeklyReport") {
-      events = [WEEKLY_REPORT_ENTRY];
+    const summary = summaryCategory(category);
+    if (summary) {
+      events = [summary.entry];
     } else if (level) {
       events = levelEvents(input.recipients, level, covered);
     } else {
@@ -307,7 +347,7 @@ export async function syncRecipientRules(
       if (addresses.length > 0) {
         await tx.insert(reportRules).values(recipientRuleFor(category, addresses, input, events));
         change.created += 1;
-        if (!level) for (const event of events) covered.add(event);
+        if (!level && !summary) for (const event of events) covered.add(event);
       }
       continue;
     }
@@ -316,7 +356,7 @@ export async function syncRecipientRules(
       change.removed += 1;
       continue;
     }
-    if (!level && addresses.length > 0) {
+    if (!level && !summary && addresses.length > 0) {
       for (const event of events) covered.add(event);
     }
     const patch: Partial<NewReportRule> = {};

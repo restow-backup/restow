@@ -1,6 +1,6 @@
 import type { StorageTargetList } from "@/features/storage/types";
 
-import type { ArchiveSearchParams, ChainVerification } from "./api.js";
+import type { ArchiveSearchParams, ArchiveSource, ChainVerification } from "./api.js";
 
 /** Rows of one page of search results. */
 export const ARCHIVE_PAGE_SIZE = 50;
@@ -143,8 +143,11 @@ export function archiveProtectionOf(list: StorageTargetList | undefined): Archiv
   }
 }
 
-/** The overall verdict of an archive check: passed, or which part failed first. */
-export type ChainVerdict = "empty" | "ok" | "broken" | "anchor" | "content";
+/**
+ * The overall verdict of an archive check: passed, which part failed first, or
+ * `inconclusive` (nothing failed, but sampled content could not be read: not proven).
+ */
+export type ChainVerdict = "empty" | "ok" | "broken" | "anchor" | "content" | "inconclusive";
 
 export function chainVerdictOf(result: ChainVerification): ChainVerdict {
   if (result.brokenAt) {
@@ -156,5 +159,19 @@ export function chainVerdictOf(result: ChainVerification): ChainVerdict {
   if ((result.content?.failures.length ?? 0) > 0) {
     return "content";
   }
+  if ((result.content?.inconclusive ?? 0) > 0) {
+    return "inconclusive";
+  }
   return result.checked === 0 ? "empty" : "ok";
 }
+
+/** The archive namespace's labels of each capture way, in a list and in the detail. */
+export const ARCHIVE_SOURCE_KEYS: Readonly<
+  Record<ArchiveSource, { list: string; detail: string }>
+> = {
+  journal: { list: "table.sources.journal", detail: "detail.sourceJournal" },
+  smtp_forward: { list: "table.sources.smtp_forward", detail: "detail.sourceSmtpForward" },
+  graph_sync: { list: "table.sources.graph_sync", detail: "detail.sourceGraphSync" },
+  imap_sync: { list: "table.sources.imap_sync", detail: "detail.sourceImapSync" },
+  file_import: { list: "table.sources.file_import", detail: "detail.sourceFileImport" },
+};

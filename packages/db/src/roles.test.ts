@@ -249,3 +249,26 @@ describe("scramSha256Verifier", () => {
     expect(scramSha256Verifier("same")).not.toBe(scramSha256Verifier("same"));
   });
 });
+
+describe("worker node logins (node-roles.ts)", () => {
+  it("derives the node key from the node id and recognises only node logins", async () => {
+    const { isNodeLogin, nodeKeyOf } = await import("./node-roles.js");
+    expect(nodeKeyOf("0B8C8E5E-6D6A-4F7E-9D3C-1F2E3D4C5B6A")).toBe("0b8c8e5e6d6a");
+    expect(() => nodeKeyOf("not-a-node")).toThrow();
+    expect(isNodeLogin("restow_node_0b8c8e5e6d6a_app")).toBe(true);
+    expect(isNodeLogin("restow_node_0b8c8e5e6d6a_inst")).toBe(true);
+    for (const name of [
+      "restow_app",
+      "restow",
+      "restow_node_x_app",
+      "restow_node_0b8c8e5e6d6a_owner",
+    ]) {
+      expect(isNodeLogin(name), name).toBe(false);
+    }
+  });
+
+  it("places the cluster tables with the installation role", () => {
+    expect(TABLE_ACCESS.cluster_join_tokens).toBe("installation");
+    expect(TABLE_ACCESS.cluster_nodes).toBe("installation");
+  });
+});

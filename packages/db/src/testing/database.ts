@@ -42,3 +42,30 @@ export async function dropTestDatabase(adminUrl: string, name: string): Promise<
     await admin.end();
   }
 }
+
+/**
+ * Copy the database `from` into a new database `to` (`CREATE DATABASE ... TEMPLATE`), as it
+ * stands now: what a dump taken at this moment would restore. The suite's own connections to
+ * `from` must be closed first (a template must have no other session); this waits for them
+ * like {@link dropTestDatabase} does.
+ */
+export async function cloneTestDatabase(adminUrl: string, from: string, to: string): Promise<void> {
+  const admin = new pg.Pool({ connectionString: adminUrl });
+  try {
+    const deadline = Date.now() + DISCONNECT_WAIT_MS;
+    while (Date.now() < deadline) {
+      const { rows } = await admin.query<{ sessions: number }>(
+        "SELECT count(*)::int AS sessions FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+        [from],
+      );
+      if ((rows[0]?.sessions ?? 0) === 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, DISCONNECT_POLL_MS));
+    }
+    await admin.query(`DROP DATABASE IF EXISTS ${to} WITH (FORCE)`);
+    await admin.query(`CREATE DATABASE ${to} TEMPLATE ${from}`);
+  } finally {
+    await admin.end();
+  }
+}

@@ -124,6 +124,15 @@ const VALUES = {
   price: "€2.50",
   quantity: "340",
   unit: "GB",
+  // The customer monthly report and the tenant's own branding (0.5.0).
+  next: "3 Dec 2026, 08:00",
+  last: "never",
+  zone: "Europe/Berlin",
+  day: 3,
+  to: "ops@example.test",
+  at: "3 Nov 2026, 08:00",
+  status: "Sent",
+  appName: "Restow",
 };
 
 /**
@@ -133,6 +142,11 @@ const VALUES = {
 const TENANT_MANAGEMENT = [
   /^overview\.(actions|suspend|resume|suspended|deleting|toasts|danger)/,
   /^masterData\.own\./,
+  // The tenant's own branding and the customer monthly report (0.5.0) are Service Provider
+  // features: only an installation that manages tenants has them.
+  /^(sections|descriptions)\.branding$/,
+  /^branding\./,
+  /^customerReport\./,
 ];
 
 describe("tenant page translations", () => {

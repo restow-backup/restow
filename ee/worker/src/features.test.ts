@@ -47,6 +47,8 @@ describe("the worker's feature gate", () => {
     expect(WORKER_FEATURE_CAPABILITIES).toEqual({
       "archive.mailboxCapture": "archive.mailboxCapture",
       "archive.smtpCapture": "archive.journalReceiver",
+      "branding.provider": "branding.provider",
+      "branding.tenant": "branding.tenant",
     });
   });
 

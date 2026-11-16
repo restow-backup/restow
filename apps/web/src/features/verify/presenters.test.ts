@@ -391,6 +391,45 @@ describe("reasonMessage", () => {
     });
   });
 
+  it("words the source signal's findings (0.5.0): bytes for a OneDrive, items for a mailbox", () => {
+    expect(
+      reasonMessage(
+        {
+          code: "backup_missing_source_content",
+          severity: "red",
+          count: null,
+          ageHours: null,
+          bytes: 20_480,
+        },
+        (bytes) => `${bytes / 1024} KB`,
+      ),
+    ).toEqual({ key: "reason.backup_missing_source_content", values: { size: "20 KB" } });
+    expect(
+      reasonMessage({
+        code: "backup_missing_source_content",
+        severity: "red",
+        count: 4,
+        ageHours: null,
+      }),
+    ).toEqual({ key: "reason.backup_missing_source_content_items", values: { count: 4 } });
+    expect(
+      reasonMessage({
+        code: "backup_missing_source_content",
+        severity: "red",
+        count: null,
+        ageHours: null,
+      }),
+    ).toEqual({ key: "reason.backup_missing_source_content_unsized" });
+    expect(
+      reasonMessage({
+        code: "snapshot_empty_confirmed_by_source",
+        severity: "yellow",
+        count: 2,
+        ageHours: null,
+      }),
+    ).toMatchObject({ key: "reason.snapshot_empty_confirmed_by_source", values: { count: 2 } });
+  });
+
   it("falls back to a generic text for codes from a newer worker", () => {
     expect(
       reasonMessage({ code: "quantum_drift", severity: "yellow", count: null, ageHours: null }),

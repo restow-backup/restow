@@ -343,6 +343,8 @@ interface PveGuestRow extends Record<string, unknown> {
   present: boolean;
   job_id: string | null;
   excluded_at: Date | string | null;
+  pool: string | null;
+  tags: string[] | null;
   status: string | null;
   finished_at: Date | string | null;
   unreadable: number | null;
@@ -360,7 +362,7 @@ async function pveJobItems(db: Database, tenantId: string, now: Date): Promise<T
       return [];
     }
     const guests = await tx.execute<PveGuestRow>(sql`
-      SELECT g.id, g.kind, g.template, g.present, g.job_id, g.excluded_at,
+      SELECT g.id, g.kind, g.template, g.present, g.job_id, g.excluded_at, g.pool, g.tags,
              newest.status, newest.finished_at, newest.unreadable,
              EXISTS (SELECT 1 FROM pve_runs r WHERE r.guest_id = g.id AND r.kind = 'backup'
                        AND r.status = 'running') AS running,
@@ -383,6 +385,8 @@ async function pveJobItems(db: Database, tenantId: string, now: Date): Promise<T
             template: guest.template,
             present: guest.present,
             excludedAt: guest.excluded_at,
+            pool: guest.pool,
+            tags: guest.tags,
           }) &&
           (guest.job_id === job.id || (guest.job_id === null && job.scope_all)),
       );

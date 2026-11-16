@@ -8,6 +8,7 @@ import {
   type KeyProvider,
   kekFromBase64,
   openSecret,
+  type StorageBackend,
   sealSecret,
   secretAad,
 } from "@restow/core";
@@ -84,22 +85,78 @@ export function installationSecretsKey(): Dek {
   return deriveInstallationSecretsKey(masterKek());
 }
 
+export const KEY_VERSION_UNSAFE_PROBLEM = "urn:restow:problem:key-version-unsafe";
+
+/** Where a new key version must not exist yet: every target of the tenant. */
+export interface KeyVersionStorage {
+  /** Primary, copies, previous targets and the installation default, as the tenant has them. */
+  readonly backends: readonly Pick<StorageBackend, "list">[];
+}
+
+export interface CreateTenantKeyOptions {
+  /**
+   * The tenant's storage (a rotation): the new version lies above every version listed under
+   * `tenants/<tid>/keys/` on any target, so a version the database lost after restoring a dump
+   * is never handed out again with another key. A target that cannot be listed refuses (503).
+   * Without it only a tenant without any key may get one (its first, at its creation: a new
+   * tenant id has nothing in storage).
+   */
+  readonly storage?: KeyVersionStorage;
+  readonly provider?: KeyProvider;
+}
+
+/** The highest key version any target holds for the tenant (0 without one). */
+export async function highestStoredKeyVersion(
+  storage: KeyVersionStorage,
+  tenantId: string,
+): Promise<number> {
+  let highest = 0;
+  for (const backend of storage.backends) {
+    let keys: string[];
+    try {
+      keys = await backend.list(`tenants/${tenantId}/keys/`);
+    } catch (error) {
+      throw new ProblemError(503, "Key version cannot be chosen safely", {
+        type: KEY_VERSION_UNSAFE_PROBLEM,
+        detail: `A storage target of the tenant could not be listed, so a new key version could collide with one stored there (${error instanceof Error ? error.message.slice(0, 200) : "unknown error"}).`,
+      });
+    }
+    for (const key of keys) {
+      const version = Number(/\/keys\/(\d+)$/.exec(key)?.[1] ?? 0);
+      if (Number.isInteger(version) && version > highest) {
+        highest = version;
+      }
+    }
+  }
+  return highest;
+}
+
 /**
  * Create a fresh DEK for a tenant, wrap it and persist it as the next key
- * version. Runs inside the caller's tenant-pinned transaction.
+ * version. Runs inside the caller's tenant-pinned transaction. The version is
+ * above the database's newest and, with `storage`, above every version stored
+ * for the tenant; without `storage` the tenant must have no key yet.
  */
 export async function createTenantKey(
   tx: DbExecutor,
   tenantId: string,
-  provider: KeyProvider = keyProvider(),
+  options: CreateTenantKeyOptions | KeyProvider = {},
 ): Promise<{ keyVersion: number }> {
+  const { storage, provider = keyProvider() } =
+    "wrapDek" in options ? { storage: undefined, provider: options } : options;
   const [latest] = await tx
     .select({ keyVersion: tenantKeys.keyVersion })
     .from(tenantKeys)
     .where(eq(tenantKeys.tenantId, tenantId))
     .orderBy(desc(tenantKeys.keyVersion))
     .limit(1);
-  const keyVersion = (latest?.keyVersion ?? 0) + 1;
+  if (latest && !storage) {
+    throw new Error(
+      "createTenantKey: a tenant that has a key gets a new version only with its storage (the versions stored there)",
+    );
+  }
+  const stored = storage ? await highestStoredKeyVersion(storage, tenantId) : 0;
+  const keyVersion = Math.max(latest?.keyVersion ?? 0, stored) + 1;
   const dek = generateDek(keyVersion);
   const wrapped = await provider.wrapDek(dek);
   await tx.insert(tenantKeys).values({

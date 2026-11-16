@@ -250,6 +250,10 @@ const PROBLEM_KEYS: Record<string, RestoreErrorDisplay> = {
     field: "accountId",
     key: "restore:dialog.errors.targetUnknown",
   },
+  "urn:restow:problem:restore-target-ambiguous": {
+    field: "accountId",
+    key: "restore:dialog.errors.targetAmbiguous",
+  },
   "urn:restow:problem:restore-selection-unknown": {
     field: null,
     key: "restore:dialog.errors.selectionUnknown",

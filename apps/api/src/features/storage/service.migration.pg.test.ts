@@ -16,6 +16,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  archive,
   InstallationDefaultResolver,
   LocalStorageBackend,
   manifestKey,
@@ -25,6 +26,7 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
+  archiveItems,
   auditLog,
   createDb,
   type Database,
@@ -887,6 +889,7 @@ describe.skipIf(!testDatabaseAdminUrl)("deleteTarget: finished migration referen
     await db.delete(jobs).where(eq(jobs.tenantId, tenantId));
     await db.delete(storageTargets).where(eq(storageTargets.tenantId, tenantId));
     await db.delete(packs).where(eq(packs.tenantId, tenantId));
+    await db.delete(archiveItems).where(eq(archiveItems.tenantId, tenantId));
     // Cascades onto protectedObjects, then onto snapshots.
     await db.delete(sources).where(eq(sources.tenantId, tenantId));
     await db.delete(tenantKeys).where(eq(tenantKeys.tenantId, tenantId));
@@ -1050,6 +1053,39 @@ describe.skipIf(!testDatabaseAdminUrl)("deleteTarget: finished migration referen
     expect(error).toBeInstanceOf(ProblemError);
     expect((error as ProblemError).status).toBe(409);
     expect((error as ProblemError).extensions?.code).toBe("previous_holds_exclusive_data");
+  });
+
+  it("refuses to remove a 'previous' target that is the only one holding sealed archive records", async () => {
+    const { previousId, previousDir } = await seedRetiredPrevious({ legacyOnPrimaryToo: true });
+    const receivedAt = new Date("2026-03-01T10:00:00.000Z");
+    const itemId = randomUUID();
+    const storagePath = archive.archiveItemKey(tenantId, receivedAt, itemId);
+    await new LocalStorageBackend(previousDir).put(storagePath, Buffer.from("sealed record"));
+    await db.insert(archiveItems).values({
+      id: itemId,
+      tenantId,
+      messageId: "journal@contoso.example",
+      itemHash: "a".repeat(64),
+      prevChainHash: null,
+      chainHash: "b".repeat(64),
+      receivedAt,
+      capturedVia: "journal",
+      storagePath,
+      retentionUntil: new Date("2035-01-01T00:00:00.000Z"),
+      createdAt: receivedAt,
+    });
+
+    const error = await deleteTarget(db, tenantId, previousId, actor).catch((e) => e);
+    expect(error).toBeInstanceOf(ProblemError);
+    expect((error as ProblemError).status).toBe(409);
+    expect((error as ProblemError).extensions?.code).toBe("previous_holds_exclusive_data");
+    expect((error as ProblemError).extensions?.exclusiveKeys).toEqual([storagePath]);
+
+    // The record of an item deleted after its retention is no reason to keep the location.
+    await db.delete(archiveItems).where(eq(archiveItems.id, itemId));
+    await deleteTarget(db, tenantId, previousId, actor);
+    const [gone] = await db.select().from(storageTargets).where(eq(storageTargets.id, previousId));
+    expect(gone).toBeUndefined();
   });
 
   it("removes a 'previous' target and clears its finished migration once nothing is exclusive there", async () => {

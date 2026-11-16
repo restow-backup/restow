@@ -84,6 +84,22 @@ describe("IMAP limits", () => {
     }
   });
 
+  it("Gmail's command or bandwidth cap on a FETCH (an ALERT without a limit code) is a server limit", () => {
+    const cause = classifyFailure(
+      new ImapSessionError("UID FETCH: NO", false, {
+        cause: imapflowError({
+          responseStatus: "NO",
+          responseText: "Account exceeded command or bandwidth limits. (Failure)",
+          serverResponseCode: "ALERT",
+          executedCommand: "4 UID FETCH 1:1000 (UID RFC822.SIZE FLAGS INTERNALDATE ENVELOPE)",
+        }),
+      }),
+      { role: "imap" },
+    );
+    expect(cause.code).toBe("imap.server_limit");
+    expect(cause.transient).toBe(true);
+  });
+
   it("OVERQUOTA on an append (a restore) is still a full mailbox", () => {
     const cause = classifyFailure(
       imapflowError({

@@ -14,7 +14,12 @@ import {
 import { timestamps } from "./_shared.js";
 import { retentionPolicies } from "./archive.js";
 import { user } from "./auth.js";
-import { type EndpointBandwidthWindow, type EndpointRetention, endpoints } from "./endpoints.js";
+import {
+  type EndpointBandwidthWindow,
+  type EndpointRetention,
+  type EndpointSqlConfig,
+  endpoints,
+} from "./endpoints.js";
 import { fileShares } from "./file-shares.js";
 import { protectedObjects } from "./sources.js";
 import { storageTargets } from "./storage.js";
@@ -90,11 +95,22 @@ export type BackupJobEndpointSettings = {
   /** Server-side retention of the machine's repository (`restic forget --keep-*`). */
   retention?: EndpointRetention;
   /**
+   * The native SQL Server backup of Windows members (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3), with
+   * the check plan (`verify`, the server's only); absent or `enabled: false` = off.
+   */
+  sql?: EndpointSqlConfig;
+  /**
    * The job's level of the agent policy (@restow/core endpoints/agent-policy.ts): backup window,
    * catching up missed backups, AC power, retries; a key left out inherits from the tenant and
    * the installation. Not overridable per member.
    */
   policy?: BackupJobAgentPolicy;
+  /**
+   * Back up every local file system of a Linux machine with its disk layout (preview,
+   * docs/BAREMETAL.md 5.1); absent or false: the job's folders. Not overridable per member: a job
+   * is whole or it is not. The folders stay for agents older than 0.5.0.
+   */
+  wholeMachine?: boolean;
 };
 
 /** A weekly range in which agents may start backups (days start it, 1 = Monday ... 7 = Sunday). */
@@ -114,6 +130,8 @@ export type AgentPolicyLevel = {
   bandwidthKbps?: number | null;
   onlyOnAcPower?: boolean;
   retries?: number;
+  /** What a backup does when its file system snapshot fails (0.5.0); absent inherits, default continue. */
+  snapshotOnFailure?: "continue" | "fail";
 };
 
 /** The job's level of the agent policy (its upload limit is the job's own field). */
@@ -122,7 +140,14 @@ export type BackupJobAgentPolicy = Omit<AgentPolicyLevel, "bandwidthKbps">;
 /** The installation's agent policy: its settings, and the ones no tenant or job may change. */
 export type GlobalAgentPolicyRecord = {
   settings?: AgentPolicyLevel;
-  locks?: ("backupWindow" | "catchUp" | "bandwidthKbps" | "onlyOnAcPower" | "retries")[];
+  locks?: (
+    | "backupWindow"
+    | "catchUp"
+    | "bandwidthKbps"
+    | "onlyOnAcPower"
+    | "retries"
+    | "snapshotOnFailure"
+  )[];
 };
 
 /** What a file share job does (docs/FILESHARES.md 7.5); every field has a documented default. */

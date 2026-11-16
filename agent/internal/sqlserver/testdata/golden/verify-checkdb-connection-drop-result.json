@@ -1,0 +1,44 @@
+{
+  "errors": [
+    {
+      "message": "Sales: DBCC CHECKDB did not run to its end: A transport-level error has occurred when receiving results from the server. (provider: Shared Memory Provider, error: 0 - No process is on the other end of the pipe.) (233).",
+      "code": "sql_script_failed"
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:Sales",
+    "verify:Sales"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "verifyName": "Sales__restow_verify_20261105T020013Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": {
+          "ok": true,
+          "errors": []
+        },
+        "checkdb": {
+          "ran": false,
+          "physicalOnly": false,
+          "errors": [],
+          "durationMs": 95000
+        },
+        "dropped": false,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 3000,
+        "code": "sql_script_failed",
+        "message": "Sales: DBCC CHECKDB did not run to its end: A transport-level error has occurred when receiving results from the server. (provider: Shared Memory Provider, error: 0 - No process is on the other end of the pipe.) (233)."
+      }
+    ]
+  },
+  "status": "failed"
+}

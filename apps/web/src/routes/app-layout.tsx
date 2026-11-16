@@ -15,6 +15,7 @@ import {
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AuthLayout } from "@/components/layout/auth-layout";
 import { ChooseTenantPage } from "@/components/layout/choose-tenant";
+import { ShellModuleHint } from "@/components/layout/module-hidden-hint";
 import { RouteErrorPage } from "@/components/layout/route-error";
 import { useShellEntry } from "@/components/layout/shell-entry";
 import { useShellHeaderHeight } from "@/components/layout/shell-header-height";
@@ -28,6 +29,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { toast } from "@/components/ui/sonner";
 import { DisclaimerDialog } from "@/features/disclaimer/disclaimer-dialog";
 import { LiveChannelProvider } from "@/features/history/live/provider";
+import { RestoreModeBanner } from "@/features/installation/restore-mode-banner";
 import { jobsOverviewArea, TenantJobsOverview } from "@/features/tenant-jobs";
 import {
   MaintenanceBanner,
@@ -150,6 +152,8 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
                   <MaintenanceBanner />
                   <TopBar />
                 </div>
+                {/* Restore mode after restoring a database dump: provider administrators only. */}
+                <RestoreModeBanner />
                 {/* A service that needs a restart: provider administrators only, scrolls away. */}
                 <RestartBanner />
                 <ShellMain>{children}</ShellMain>
@@ -170,8 +174,8 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
  * fixed height below the top bar instead of a fixed max width, so it can lay
  * out its own independently scrolling panes. The width-sized `<main>` itself
  * is `PageMain`; this function only adds what belongs to the shell
- * specifically — the demo banner, the suspended-tenant notice and the routed
- * page.
+ * specifically — the demo banner, the suspended-tenant notice, the hint on a
+ * page whose module is hidden and the routed page.
  */
 function ShellMain({ children }: { children: React.ReactNode }) {
   const width = usePageWidthValue();
@@ -179,6 +183,8 @@ function ShellMain({ children }: { children: React.ReactNode }) {
     <PageMain id={MAIN_CONTENT_ID}>
       <DemoBanner />
       <SuspendedTenantNotice />
+      {/* A page of a module that is off, opened by its address: one discreet line says so. */}
+      <ShellModuleHint />
       {/*
         Always a `div` here, whatever the width — only its class changes
         (pageContentWrapperClass). Branching the element type itself on the

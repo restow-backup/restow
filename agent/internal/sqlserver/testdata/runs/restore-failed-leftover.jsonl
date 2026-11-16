@@ -1,0 +1,4 @@
+{"type":"progress","step":"restore","percent":60}
+{"type":"sqlmessage","step":"restore","number":3203,"class":16,"state":1,"message":"Read on \"C:\\ProgramData\\Restow\\data\\staging\\sql-restore\\run-7\\full.bak\" failed: 23(Data error (cyclic redundancy check).)"}
+{"type":"result","data":{"restore":{"ok":false,"errors":[{"number":3203,"severity":16,"state":1,"message":"Read on \"C:\\ProgramData\\Restow\\data\\staging\\sql-restore\\run-7\\full.bak\" failed: 23(Data error (cyclic redundancy check).)"},{"number":3013,"severity":16,"state":1,"message":"RESTORE DATABASE is terminating abnormally."}]},"checkdb":null,"cleanedUp":false,"leftover":"RECOVERY_PENDING"}}
+#exit 0

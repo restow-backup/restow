@@ -7,12 +7,17 @@
  * fetched from, and applies the docs/MICROSOFT.md rule for 410 Gone: drop the
  * token and enumerate this drive again from scratch (OneDrive names the fresh
  * URL in the `Location` header), signalling `reset` so the caller discards
- * what earlier pages of the same walk produced.
+ * what earlier pages of the same walk produced. Every page asks for sharing
+ * changes too ({@link DRIVE_DELTA_HEADERS}).
  */
 import type { GraphClient } from "../../graph/client.js";
 import type { DeltaMode } from "../../graph/delta.js";
 import { isGone } from "../../graph/errors.js";
-import { type DriveDeltaItem, driveDeltaUrl } from "../../graph/resources/drive.js";
+import {
+  DRIVE_DELTA_HEADERS,
+  type DriveDeltaItem,
+  driveDeltaUrl,
+} from "../../graph/resources/drive.js";
 
 /** Where a walk starts: a stored delta link, a page link from a checkpoint, or nothing (full enumeration). */
 export interface DeltaStart {
@@ -62,7 +67,9 @@ export async function* walkDriveDelta(
     let items = 0;
     try {
       let pageUrl = url;
-      for await (const page of options.client.delta<DriveDeltaItem>(url)) {
+      for await (const page of options.client.delta<DriveDeltaItem>(url, {
+        ...DRIVE_DELTA_HEADERS,
+      })) {
         pages += 1;
         items += page.value.length;
         yield {

@@ -22,6 +22,12 @@ export interface ExportMessage {
   /** Expected SHA-256 (hex) of the bytes `open` yields; the writer verifies it while streaming. */
   readonly sha256?: string;
   /**
+   * The backup holds the message without some of its parts (a group post
+   * whose attachments Microsoft did not hand out): written as it is, but
+   * marked incomplete with this reason in the manifest and the report.
+   */
+  readonly incomplete?: string;
+  /**
    * The RFC 5322 bytes. An error before the first byte (the message cannot be
    * opened, its chunks are missing) marks just this message as failed; an error
    * later, once bytes are in the archive, aborts the whole export.
@@ -42,6 +48,8 @@ export interface ExportEntry {
   readonly sha256: string | null;
   readonly bytes: number;
   readonly note?: string;
+  /** Written, but the message lacks parts the backup does not hold ({@link ExportMessage.incomplete}). */
+  readonly incomplete?: string;
 }
 
 export interface ExportSummary {
@@ -51,6 +59,8 @@ export interface ExportSummary {
   readonly messages: number;
   /** Messages that could not be written (status `failed` or `missing`). */
   readonly failed: number;
+  /** Messages written without parts the backup does not hold. */
+  readonly incomplete: number;
   /** Sum of `bytes` of the written entries. */
   readonly bytes: number;
 }

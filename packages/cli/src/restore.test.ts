@@ -100,7 +100,7 @@ afterAll(async () => {
 });
 
 describe("standalone restore", () => {
-  it("reassembles every object byte-for-byte", async () => {
+  it("reassembles every object byte-for-byte [RESTORE-014]", async () => {
     const store = await ChunkStore.build(backend, TENANT_ID);
     expect(store.chunkCount).toBe(3);
     const keyring = new Keyring([dek], tenantKey);
@@ -227,7 +227,7 @@ describe("damaged packs", () => {
     await expect(stat(join(outDir, "lost.txt"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("leaves no partial file when a later chunk of an object is missing", async () => {
+  it("leaves no partial file when a later chunk of an object is missing [RESTORE-014]", async () => {
     const store = await ChunkStore.build(backend, TENANT_ID);
     const keyring = new Keyring([dek], tenantKey);
     const outDir = join(root, "out-partial");

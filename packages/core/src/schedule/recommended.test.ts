@@ -18,7 +18,7 @@ const existing = (overrides: Partial<ExistingSchedule>): ExistingSchedule => ({
 });
 
 describe("recommendedSchedules", () => {
-  it("recommends the full set for a Microsoft 365 tenant, in Berlin time by default", () => {
+  it("recommends the full set for a Microsoft 365 tenant, in Berlin time by default [VERIFY-006]", () => {
     const set = recommendedSchedules({ hasMicrosoftSource: true });
     expect(set.map((entry) => entry.slot)).toEqual([
       "backup",
@@ -45,7 +45,7 @@ describe("recommendedSchedules", () => {
     expect(set.every((entry) => entry.timezone === "America/New_York")).toBe(true);
   });
 
-  it("recommends a weekly sampled and a monthly full scrub", () => {
+  it("recommends a weekly sampled and a monthly full scrub [SCRUB-001]", () => {
     const scrubs = recommendedSchedules({ hasMicrosoftSource: false }).filter(
       (entry) => entry.kind === "scrub",
     );

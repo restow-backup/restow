@@ -41,6 +41,7 @@ function state(overrides: Partial<StateView> = {}): StateView {
     restart: null,
     projectDir: null,
     database: null,
+    restore: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...overrides,
   };

@@ -155,16 +155,20 @@ describe("reportFromJson", () => {
         folders: 3,
         bytes: 2048,
         failed: 1,
+        incomplete: 2,
         skipped: { calendar: 2, contacts: 1 },
         items: [{ ref: "mail/a.eml", reason: "data missing" }, { ref: 1 }, "junk", {}],
+        incompleteItems: [{ ref: "mail/b.eml", reason: "attachments not backed up" }, "junk"],
       }),
     ).toEqual({
       messages: 12,
       folders: 3,
       bytes: 2048,
       failed: 1,
+      incomplete: 2,
       skipped: { calendar: 2, contacts: 1, other: 0 },
       items: [{ ref: "mail/a.eml", reason: "data missing" }],
+      incompleteItems: [{ ref: "mail/b.eml", reason: "attachments not backed up" }],
     });
   });
 
@@ -176,8 +180,10 @@ describe("reportFromJson", () => {
       folders: 0,
       bytes: 0,
       failed: 0,
+      incomplete: 0,
       skipped: { calendar: 0, contacts: 0, other: 0 },
       items: [],
+      incompleteItems: [],
     });
   });
 });

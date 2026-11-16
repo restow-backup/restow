@@ -16,6 +16,8 @@ type Options struct {
 	Stderr bool
 	// Debug enables debug level.
 	Debug bool
+	// Protect is applied to the log file when it is opened (RotatingFile.Protect).
+	Protect func(path string) error
 }
 
 // Setup builds the process logger. The returned close function flushes and
@@ -29,7 +31,7 @@ func Setup(o Options) (*slog.Logger, func()) {
 	}
 	var fileErr error
 	if o.LogFile != "" {
-		f, err := NewRotatingFile(o.LogFile, 5<<20, 3)
+		f, err := newRotatingFile(o.LogFile, 5<<20, 3, o.Protect)
 		if err != nil {
 			fileErr = err
 			if !o.Stderr {

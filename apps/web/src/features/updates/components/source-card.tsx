@@ -44,7 +44,7 @@ import { ChoiceOption } from "./choice-option";
 
 const FORM_ID = "updates-source-form";
 
-/** Where releases come from: the daily check, the source, the channel and the access token. */
+/** Where releases come from: the regular check, the source, the channel and the access token. */
 export function SourceCard({ view, canChange }: { view: UpdatesView; canChange: boolean }) {
   const { t } = useTranslation("updates");
   const { t: tc } = useTranslation();

@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -42,10 +44,18 @@ export const endpointArchEnum = pgEnum("endpoint_arch", ["amd64", "arm64"]);
 /** `revoked` endpoints are refused everywhere; their repository stays restorable. */
 export const endpointStatusEnum = pgEnum("endpoint_status", ["active", "revoked"]);
 
+/**
+ * `sql`, `sql_restore`, `sql_verify` (W2a, docs/BAREMETAL-WINDOWS.md 5.1): the native SQL Server
+ * backup of one instance, a restore of one database under a new name, and the check of a backup
+ * restored from the repository with `DBCC CHECKDB`.
+ */
 export const endpointRunKindEnum = pgEnum("endpoint_run_kind", [
   "backup",
   "restore",
   "verify_sample",
+  "sql",
+  "sql_restore",
+  "sql_verify",
 ]);
 
 /** `partial` = a snapshot exists but some files could not be read. */
@@ -64,6 +74,10 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   "verify_sample",
   "update_config",
   "uninstall",
+  // W2a (docs/BAREMETAL-WINDOWS.md 5.1): `sql_inventory` finishes on delivery, like `update_config`.
+  "sql_restore",
+  "sql_verify",
+  "sql_inventory",
 ]);
 
 /**
@@ -83,6 +97,12 @@ export const endpointReportKindEnum = pgEnum("endpoint_report_kind", [
   "restore_test",
   "repository_check",
   "retention",
+  // One database's backup restored from the repository and checked with DBCC CHECKDB (W2a).
+  "sql_verify",
+  // Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot.
+  "baremetal_check",
+  // Bare metal stage 2 (docs/BAREMETAL.md 12.3): the snapshot restored and booted in the lab.
+  "boot_probe",
 ]);
 
 export type EndpointProfile = (typeof endpointProfileEnum.enumValues)[number];
@@ -152,6 +172,51 @@ export type EndpointConfig = {
    * wire form (`GET /agent/v1/config`, field `policy`).
    */
   policy?: EndpointConfigPolicy;
+  /**
+   * Back up the whole machine (preview, docs/BAREMETAL.md 5); written from a whole machine job to
+   * Linux machines that are no container, absent otherwise.
+   */
+  wholeMachine?: boolean;
+  /**
+   * File system snapshots on Linux (LVM, btrfs), set on the machine; absent means the default (on
+   * for a whole machine backup, off otherwise).
+   */
+  fsSnapshot?: "auto" | "off";
+  /**
+   * The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3): Windows only, written from
+   * a backup job and absent when no job sets it. The agent gets it without `verify`, which only the
+   * server plans (@restow/core `agentFacingConfig`).
+   */
+  sql?: EndpointSqlConfig;
+};
+
+/** A database of the SQL settings: its name, and the instance when only that one's is meant. */
+export type EndpointSqlDatabaseRef = { instance?: string; name: string };
+
+/** When and how the server checks the newest backup of each database (W2a, 5.1.7). */
+export type EndpointSqlVerifyConfig = {
+  enabled: boolean;
+  /** 1 = Monday ... 7 = Sunday, read in the zone of the schedule. */
+  weekday: number;
+  /** Local `HH:MM`. */
+  time: string;
+  /** Above this many GiB of used pages CHECKDB runs with PHYSICAL_ONLY. */
+  maxGiB: number;
+  /** Always PHYSICAL_ONLY. */
+  physicalOnly: boolean;
+};
+
+export type EndpointSqlConfig = {
+  enabled: boolean;
+  /** W2a knows `alongside` only: copy-only fulls beside the customer's own backups. */
+  mode: "alongside";
+  instances: "all" | string[];
+  databases: "all" | EndpointSqlDatabaseRef[];
+  exclude: EndpointSqlDatabaseRef[];
+  /** A staging folder of its own; absent: the agent's (`C:\ProgramData\Restow\data\staging\sql`). */
+  stagingDir?: string;
+  /** Server only; never sent to the agent. */
+  verify?: EndpointSqlVerifyConfig;
 };
 
 /** The effective agent policy stored with a machine's configuration. */
@@ -163,6 +228,8 @@ export type EndpointConfigPolicy = {
   bandwidthLocked: boolean;
   onlyOnAcPower: boolean;
   onlyOnAcPowerLocked: boolean;
+  /** Only `fail` is stored (0.5.0); absent means `continue`. */
+  snapshotOnFailure?: "continue" | "fail";
 };
 
 /** Retention of one endpoint's repository (`restic forget --keep-*`). */
@@ -182,7 +249,10 @@ export type EndpointRetention = {
  * while its runs, reports and audit entries stay (the row is kept as a tombstone).
  *
  *   delete   its restic repository (`endpoints/<id>/` on every target of the tenant that holds
- *            files of it) is deleted as soon as nothing holds it.
+ *            files of it) is deleted as soon as nothing holds it, at the earliest seven days
+ *            after the request (since 0.5.0; a provider owner asks, with a reason, and may
+ *            cancel until the worker starts). Until it starts the machine stays listed as
+ *            revoked (`removed_at` stays NULL); the worker sets `removed_at` when it starts.
  *   expire   its backups stay until the machine's retention would have let the newest of them
  *            go (`expiresAt`), then they are deleted the same way.
  *
@@ -203,6 +273,15 @@ export type EndpointRemoval = {
   requestedAt: string;
   /** `expire`: when the machine's retention lets the newest backup go. */
   expiresAt?: string | null;
+  /** `delete` (0.5.0): why, as the requester gave it (also in the audit entry). */
+  reason?: string | null;
+  /**
+   * `delete` (0.5.0): when the worker started deleting. From then on the removal can no longer be
+   * cancelled, and the machine is removed (`removed_at`).
+   */
+  startedAt?: string | null;
+  /** Snapshots deleted so far, over every attempt and target (distinct snapshot ids). */
+  deletedSnapshots?: number;
   /** `held`: what holds it. */
   heldBy?: "legal_hold" | "suspicion" | null;
   /** `deferred`: the latest retain-until of the objects the storage refused to delete. */
@@ -244,6 +323,12 @@ export type EndpointSettings = {
   /** What the agent reports about the machine; written by the server from enrollment and heartbeat only. */
   agent?: EndpointAgentFacts;
   /**
+   * The SQL Server instances of the machine's last SQL inventory, without their databases (those
+   * are rows of `endpoint_sql_databases`). Written only by a heartbeat that carries an inventory,
+   * with a `jsonb_set` of its own, so a heartbeat without one never removes it (W2a).
+   */
+  sqlInstances?: EndpointSqlInventoryState;
+  /**
    * The machine was enrolled with a client token but got the server profile, because its agent
    * reported a container or a virtual machine without a desktop (release 0.4.0, #59). Written once
    * at enrollment.
@@ -254,6 +339,12 @@ export type EndpointSettings = {
     /** What it runs in as the agent named it (`lxc`, `kvm`); empty when unknown. */
     technology: string;
   };
+  /**
+   * The machine was rebound (docs/BAREMETAL.md 11): its next good backup is the new baseline of
+   * the ransomware signals (`endpoint_runs.activity_baseline`); cleared by that backup. Server
+   * only, so it bumps no configuration version.
+   */
+  activityBaselinePending?: boolean;
 };
 
 /** The machine's local hook policy (set by root on the machine, never by the server). */
@@ -274,6 +365,11 @@ export type EndpointAgentFacts = {
    * the agent does not report them.
    */
   dataFolders?: string[];
+  /**
+   * What the agent can do beyond the base contract, e.g. `sql_native_v1` (W2a): the server offers
+   * SQL actions only to an agent that names it. Absent: an older agent, nothing beyond the base.
+   */
+  capabilities?: string[];
 };
 
 /** How the agent sees the machine it runs on. */
@@ -282,6 +378,69 @@ export type EndpointMachineFacts = {
   /** `lxc`, `docker`, `kvm`, `vmware`, ...; empty when unknown. */
   technology: string;
   desktop: boolean;
+  /** Windows only (agent 0.5.0, W1): version, roles, SQL Server instances, BitLocker. */
+  windows?: EndpointWindowsFacts;
+};
+
+/** A SQL Server instance as the registry and the service configuration name it (W1). */
+export type EndpointWindowsSqlInstance = {
+  name: string;
+  id: string;
+  version: string;
+  edition: string;
+  serviceName: string;
+  serviceAccount: string;
+  clustered: boolean;
+  strictEncryption: boolean;
+};
+
+/** What a Windows agent reports about its system (W1, docs/BAREMETAL-WINDOWS.md 6.1). */
+export type EndpointWindowsFacts = {
+  productName: string;
+  editionId: string;
+  productType: "workstation" | "server" | "domain_controller" | "unknown";
+  installationType: string;
+  build: number;
+  ubr: number;
+  displayVersion: string;
+  domainMember: boolean;
+  domain: string;
+  roles: {
+    domainController: boolean;
+    dfsr: boolean;
+    exchange: boolean;
+    hyperV: boolean;
+    sqlServer: boolean;
+  };
+  sqlInstances: EndpointWindowsSqlInstance[];
+  bitlocker: {
+    /** `unavailable`: the feature is not installed; `error`: it could not be read. */
+    state: "ok" | "unavailable" | "error";
+    volumes: { mount: string; protection: "on" | "off" | "unknown"; conversion: string }[];
+  };
+};
+
+/** A problem the agent met with one SQL Server instance or database (W2a). */
+export type EndpointSqlProblem = { code: string; step?: string; number?: number; message?: string };
+
+/** One instance of the SQL inventory, without its databases. */
+export type EndpointSqlInstanceState = {
+  name: string;
+  state: "ok" | "error";
+  version?: string;
+  edition?: string;
+  engineEdition?: number;
+  clustered?: boolean;
+  hadr?: boolean;
+  backupCompressionDefault?: boolean;
+  login?: { name: string; sysadmin: boolean; canCreateDatabase: boolean };
+  error?: EndpointSqlProblem;
+};
+
+export type EndpointSqlInventoryState = {
+  collectedAt: string;
+  truncated: boolean;
+  instances: EndpointSqlInstanceState[];
 };
 
 /** A machine with an agent enrolled. */
@@ -392,10 +551,28 @@ export const endpointEnrollmentTokens = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // A rebind token (0.5.0, docs/BAREMETAL.md 11): the existing machine it gives a new agent
+    // secret; null for an enrollment token, which creates a new machine.
+    endpointId: uuid("endpoint_id").references(() => endpoints.id, {
+      onDelete: "cascade",
+    }),
+    // What a rebind token is for: `baremetal` (after a restore), `reinstall`, `mac_setup` (M6).
+    purpose: text("purpose").$type<"baremetal" | "reinstall" | "mac_setup">(),
+    // A rebind token that may bring a revoked machine back (chosen when it was issued).
+    unrevoke: boolean("unrevoke").notNull().default(false),
   },
   (t) => [
     uniqueIndex("endpoint_enrollment_tokens_hash_uq").on(t.tokenHash),
     index("endpoint_enrollment_tokens_tenant_idx").on(t.tenantId, t.createdAt),
+    check(
+      "endpoint_enrollment_tokens_purpose_ck",
+      sql`${t.purpose} IS NULL OR ${t.purpose} IN ('baremetal', 'reinstall', 'mac_setup')`,
+    ),
+    // A rebind token gives lasting access like an installed agent: valid for at most a day.
+    check(
+      "endpoint_enrollment_tokens_rebind_24h",
+      sql`${t.endpointId} IS NULL OR ${t.expiresAt} <= ${t.createdAt} + interval '24 hours'`,
+    ),
   ],
 );
 
@@ -413,6 +590,44 @@ export type EndpointRunStats = {
   totalBytesProcessed?: number;
   /** What the backup changed (agent 0.4.0 and newer): @restow/core `ActivityReport`. */
   activity?: Record<string, unknown>;
+  /**
+   * Whether a file system snapshot was used (agent 0.5.0 and newer): @restow/core
+   * `RunConsistency`. Kept for a failed run too, when the snapshot is why it failed.
+   */
+  consistency?: { method?: string; state: string; liveFilesystems?: string[] };
+  /** A `sql`, `sql_restore` or `sql_verify` run (W2a): its instance and what became of each database. */
+  sql?: EndpointRunSqlStats;
+  /** Fixed warnings of the run (W1, W2a): `app_files_not_app_backup`, `sql_log_growing`, ... */
+  notices?: EndpointRunNotice[];
+  /**
+   * A restore that read the repository from another target than the primary (a copy target's
+   * repository copy, docs/STORAGE.md "Restoring from a copy"): which one.
+   */
+  readFrom?: { targetId: string; targetName: string | null; role: string };
+};
+
+export type EndpointRunNotice = { code: string; subjects?: string[]; message?: string };
+
+/** One database of a SQL run, as the run sheet shows it. */
+export type EndpointRunSqlDatabase = {
+  name: string;
+  /**
+   * `sql`: `backed_up`, `skipped`, `failed`; `sql_verify`: `green`, `red`, `incomplete`;
+   * `sql_restore`: `restored`, `failed`.
+   */
+  outcome: string;
+  code?: string;
+  message?: string;
+  bytes?: number;
+  durationMs?: number;
+};
+
+export type EndpointRunSqlStats = {
+  instance: string;
+  databases?: EndpointRunSqlDatabase[];
+  /** `sql_restore`: the name the copy got and whether CHECKDB ran on it. */
+  newName?: string;
+  checkdb?: "clean" | "errors" | "skipped";
 };
 
 export type EndpointRunProgress = {
@@ -454,10 +669,17 @@ export const endpointRuns = pgTable(
     // label of who asked.
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     cancelledBy: text("cancelled_by"),
+    // The layout manifest a whole machine backup recorded (0.5.0, docs/BAREMETAL.md 4.3).
+    layoutId: uuid("layout_id").references(() => endpointLayouts.id, { onDelete: "set null" }),
+    // The first good backup after a rebind (0.5.0, docs/BAREMETAL.md 11): the new baseline of the
+    // ransomware signals, nothing before it is compared with what comes after (docs/RANSOMWARE.md).
+    activityBaseline: boolean("activity_baseline").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("endpoint_runs_endpoint_started_idx").on(t.endpointId, t.startedAt),
+    // The layouts still referenced by a run (the monitor keeps them, apps/worker monitor.ts).
+    index("endpoint_runs_layout_idx").on(t.layoutId).where(sql`${t.layoutId} IS NOT NULL`),
     // The runs an agent is told to stop with its heartbeat.
     index("endpoint_runs_cancelling_idx")
       .on(t.endpointId)
@@ -475,6 +697,190 @@ export const endpointRuns = pgTable(
   ],
 );
 
+/**
+ * The layout manifest of a whole machine backup (preview, docs/BAREMETAL.md 4.3, 14.2), stored
+ * once per machine and content: the SHA-256 of its canonical encoding (@restow/core
+ * `canonicalLayoutJson`) is the same in the snapshot (`layout.json`) and here, and the runs that
+ * recorded it point at it (`endpoint_runs.layout_id`). `summary` is what the machine's page shows
+ * (@restow/core `LayoutSummary`); the full manifest carries serial numbers and is read by admins
+ * only. A layout no run points at and that is not the machine's newest is removed by the monitor.
+ */
+export const endpointLayouts = pgTable(
+  "endpoint_layouts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    endpointId: uuid("endpoint_id")
+      .notNull()
+      .references(() => endpoints.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    format: text("format").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    platform: text("platform").notNull(),
+    manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
+    summary: jsonb("summary").$type<Record<string, unknown>>().notNull(),
+    verdict: text("verdict").notNull(),
+    layoutFingerprint: text("layout_fingerprint").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("endpoint_layouts_endpoint_sha_uq").on(t.endpointId, t.sha256),
+    index("endpoint_layouts_endpoint_created_idx").on(t.endpointId, t.createdAt),
+    check("endpoint_layouts_platform_ck", sql`${t.platform} IN ('linux', 'darwin')`),
+  ],
+);
+
+/**
+ * A bare metal recovery (docs/BAREMETAL.md 9.9): a code was issued, exchanged by the ISO for a
+ * session, released by an admin, read the backups, ended.
+ *
+ *   issued -> pending_approval | active (exchange) | revoked | expired
+ *   pending_approval -> active (release) | cancelled (rejected) | failed (not released in time)
+ *   active -> finishing (the ISO gave up its repository access) | succeeded | failed | cancelled
+ *   finishing -> succeeded | failed | cancelled
+ */
+export const endpointRecoveryStatusEnum = pgEnum("endpoint_recovery_status", [
+  "issued",
+  "pending_approval",
+  "active",
+  "finishing",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+  "revoked",
+]);
+
+/**
+ * `code`: a recovery code for the ISO (M3). `probe`: a boot probe of the lab (M5, docs/BAREMETAL.md
+ * 12.3), which runs the same code exchange and session without an operator. macOS migrations come
+ * later.
+ */
+export const endpointRecoveryKindEnum = pgEnum("endpoint_recovery_kind", ["code", "probe"]);
+
+export type EndpointRecoveryStatus = (typeof endpointRecoveryStatusEnum.enumValues)[number];
+export type EndpointRecoveryKind = (typeof endpointRecoveryKindEnum.enumValues)[number];
+
+/** The hardware the ISO found (docs/BAREMETAL.md 9.3), as it reported it. */
+export type EndpointRecoveryHardware = {
+  firmware: "uefi" | "bios";
+  secureBoot: boolean | null;
+  ramBytes: number;
+  disks: {
+    sizeBytes: number;
+    logicalSectorSize: number;
+    model: string;
+    serial: string;
+    wwn: string;
+    transport: string;
+  }[];
+  nics: { mac: string; driver: string; link: boolean }[];
+};
+
+/** The last progress the ISO reported (docs/BAREMETAL.md 9.8). */
+export type EndpointRecoveryProgress = {
+  phase: string;
+  step: number;
+  stepsTotal: number;
+  bytesDone: number;
+  totalBytes: number;
+  filesDone: number;
+  totalFiles: number;
+  message: string;
+  updatedAt: string;
+};
+
+/**
+ * One recovery code and the session it became (docs/BAREMETAL.md 9, 14.2). The code itself is never
+ * stored: `code_hash` is SHA-256 of the proof the ISO sends, bound to `instance_origin`; the session
+ * secret only as its hash. A session lasts until `expires_at` of its code, at most 48 hours after
+ * it was issued (CHECK). Everything the ISO reports (hardware, progress, verification, warnings)
+ * is shown as reported by the ISO.
+ */
+export const endpointRecoveries = pgTable(
+  "endpoint_recoveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    endpointId: uuid("endpoint_id")
+      .notNull()
+      .references(() => endpoints.id, { onDelete: "cascade" }),
+    kind: endpointRecoveryKindEnum("kind").notNull(),
+    status: endpointRecoveryStatusEnum("status").notNull().default("issued"),
+    // SHA-256 of the code proof (kind `code`).
+    codeHash: text("code_hash"),
+    // The canonical origin the code was issued for, and the SHA-256 of its TLS public key.
+    instanceOrigin: text("instance_origin"),
+    spkiSha256: text("spki_sha256"),
+    requireApproval: boolean("require_approval").notNull().default(true),
+    snapshotId: text("snapshot_id"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: text("revoked_by").references(() => user.id, { onDelete: "set null" }),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    usedIp: text("used_ip"),
+    sessionSecretHash: text("session_secret_hash"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedBy: text("approved_by").references(() => user.id, { onDelete: "set null" }),
+    credentialsIssuedAt: timestamp("credentials_issued_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    recoveryVersion: text("recovery_version"),
+    hardware: jsonb("hardware").$type<EndpointRecoveryHardware>(),
+    sshKeys: jsonb("ssh_keys").$type<string[]>(),
+    sshHostKeys: jsonb("ssh_host_keys").$type<{ type: string; fingerprint: string }[]>(),
+    progress: jsonb("progress").$type<EndpointRecoveryProgress>(),
+    verification: jsonb("verification").$type<Record<string, unknown>>(),
+    warnings: jsonb("warnings").$type<{ code: string; message: string }[]>(),
+    logBytes: integer("log_bytes").notNull().default(0),
+    /**
+     * The stored log ends inside a key block (a BEGIN line without its END yet): the next batch
+     * goes on masking until the END line (docs/BAREMETAL.md 9.8).
+     */
+    logInKeyBlock: boolean("log_in_key_block").notNull().default(false),
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("endpoint_recoveries_code_uq").on(t.codeHash).where(sql`${t.codeHash} IS NOT NULL`),
+    index("endpoint_recoveries_endpoint_idx").on(t.endpointId, t.issuedAt),
+    // The sessions that hold the repository open (retention and removal wait for them).
+    index("endpoint_recoveries_active_idx")
+      .on(t.endpointId)
+      .where(sql`${t.status} IN ('active', 'finishing')`),
+    check(
+      "endpoint_recoveries_max_48h",
+      sql`${t.expiresAt} <= ${t.issuedAt} + interval '48 hours'`,
+    ),
+  ],
+);
+
+/** Lines the ISO sent for a recovery session, redacted and without control characters (9.8). */
+export const endpointRecoveryLog = pgTable(
+  "endpoint_recovery_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    recoveryId: uuid("recovery_id")
+      .notNull()
+      .references(() => endpointRecoveries.id, { onDelete: "cascade" }),
+    // The lines of one call, joined with newlines.
+    lines: text("lines").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Read in pages in the order they came (the cursor is the time and the id).
+  (t) => [index("endpoint_recovery_log_recovery_idx").on(t.recoveryId, t.createdAt, t.id)],
+);
+
 /** Params of a restore task: into a new folder on the endpoint, never over files. */
 export type EndpointRestoreParams = { snapshotId: string; paths: string[]; targetDir?: string };
 
@@ -482,6 +888,45 @@ export type EndpointRestoreParams = { snapshotId: string; paths: string[]; targe
 export type EndpointVerifySampleParams = {
   snapshotId: string;
   files: { path: string; sha256: string }[];
+};
+
+/** A file of a SQL Server backup as `RESTORE FILELISTONLY` names it (W2a). */
+export type EndpointSqlBackupFile = {
+  logicalName: string;
+  /** `D` data, `L` log, `F` FILESTREAM or full text, `S` memory-optimized. */
+  type: string;
+  fileGroup: string;
+  fileId: number;
+  sizeBytes: number;
+  physicalName: string;
+};
+
+/** The backup a `sql_verify` or `sql_restore` task fetches from the repository. */
+export type EndpointSqlBackupRef = {
+  backupId: string;
+  snapshotId: string;
+  pathInSnapshot: string;
+  sha256: string;
+  bytes: number;
+  fileList: EndpointSqlBackupFile[];
+};
+
+/** Params of a `sql_verify` task: the newest full of each database of one instance (W2a, 5.1.7). */
+export type EndpointSqlVerifyParams = {
+  instance: string;
+  maxGiB: number;
+  physicalOnly: boolean;
+  databases: (EndpointSqlBackupRef & { databaseId: string; name: string; usedBytes: number })[];
+};
+
+/** Params of a `sql_restore` task: one backup restored under a new name (W2a, 5.1.4). */
+export type EndpointSqlRestoreParams = EndpointSqlBackupRef & {
+  instance: string;
+  targetInstance: string;
+  database: string;
+  newName: string;
+  checkdb: boolean;
+  maxGiB: number;
 };
 
 /** A job for the agent, delivered with its next heartbeat. */
@@ -563,6 +1008,28 @@ export type EndpointReportSummary = {
   futureSnapshots?: number;
   /** Agent lock files removed before the run (no backup of the agent was running). */
   removedLocks?: number;
+  /** How the prune of this run went: restic's normal prune, or one that only deleted (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Why it only deleted: too little free space for the repack, or the normal prune ran out of it. */
+  pruneReason?: "low_space" | "storage_full";
+  /** A prune is still due (repacking deferred, or a prune that failed): the next run prunes. */
+  prunePending?: boolean;
+  /** Retention could not free space: the storage target is full (docs/STORAGE.md, "A full target"). */
+  targetFull?: boolean;
+  /** SQL backups whose snapshot retention forgot (W2a). */
+  prunedSqlBackups?: number;
+  // sql_verify (W2a): one report per database; `outcome` is the server's judgement.
+  databaseId?: string;
+  backupId?: string;
+  outcome?: "green" | "red" | "incomplete";
+  instance?: string;
+  database?: string;
+  method?: string;
+  code?: string;
+  physicalOnly?: boolean;
+  backupLsn?: string;
+  durationMs?: number;
+  evidence?: { source: "checkdb" | "restore" | "sha256"; number?: number; message: string }[];
   // any failed step
   errorMessage?: string;
   [key: string]: unknown;
@@ -713,9 +1180,14 @@ export type EndpointSample = typeof endpointSamples.$inferSelect;
 export type NewEndpointSample = typeof endpointSamples.$inferInsert;
 export type EndpointReport = typeof endpointReports.$inferSelect;
 export type NewEndpointReport = typeof endpointReports.$inferInsert;
+export type EndpointLayout = typeof endpointLayouts.$inferSelect;
+export type NewEndpointLayout = typeof endpointLayouts.$inferInsert;
 export type EndpointRepositoryLock = typeof endpointRepositoryLocks.$inferSelect;
 export type NewEndpointRepositoryLock = typeof endpointRepositoryLocks.$inferInsert;
 export type EndpointSnapshotFlag = typeof endpointSnapshotFlags.$inferSelect;
 export type NewEndpointSnapshotFlag = typeof endpointSnapshotFlags.$inferInsert;
+export type EndpointRecovery = typeof endpointRecoveries.$inferSelect;
+export type NewEndpointRecovery = typeof endpointRecoveries.$inferInsert;
+export type EndpointRecoveryLogEntry = typeof endpointRecoveryLog.$inferSelect;
 export type EndpointDownload = typeof endpointDownloads.$inferSelect;
 export type NewEndpointDownload = typeof endpointDownloads.$inferInsert;

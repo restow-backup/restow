@@ -1,0 +1,27 @@
+{
+   "partitiontable": {
+      "device": "/dev/sdb",
+      "firstlba": 2048,
+      "id": "11111111-2222-3333-4444-555555555555",
+      "label": "gpt",
+      "lastlba": 3907029134,
+      "partitions": [
+         {
+            "node": "/dev/sdb1",
+            "start": 2048,
+            "size": 2048,
+            "type": "21686148-6449-6E6F-744E-656564454649",
+            "uuid": "aaaaaaa1-0000-0000-0000-000000000001"
+         },
+         {
+            "node": "/dev/sdb2",
+            "start": 4096,
+            "size": 3901440000,
+            "type": "A19D880F-05FC-4D3B-A006-743F0F84911E",
+            "uuid": "aaaaaaa1-0000-0000-0000-000000000002"
+         }
+      ],
+      "sectorsize": 512,
+      "unit": "sectors"
+   }
+}

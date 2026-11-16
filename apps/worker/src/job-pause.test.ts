@@ -136,4 +136,43 @@ describe("JobPauseGate", () => {
     await gate.refresh();
     expect(gate.paused()).toBe(true);
   });
+
+  it("holds a job its hold check names on every queue, ungated ones included", async () => {
+    const boss = fakeBoss();
+    const ran: string[] = [];
+    const held: string[] = [];
+    const gate = new JobPauseGate({
+      read: async () => NOT_PAUSED,
+      logger: noopLogger as never,
+      ungated: new Set(["file-share-purge"]),
+      hold: async (queue, job) => {
+        if (job.id === "old") {
+          held.push(`${queue}:${job.id}`);
+          return true;
+        }
+        return false;
+      },
+    });
+    const handlers = new Map<string, (jobs: unknown) => Promise<unknown>>();
+    const capturing = {
+      ...boss,
+      work: async (queue: string, options?: object, handler?: unknown) => {
+        handlers.set(queue, handler as (jobs: unknown) => Promise<unknown>);
+        return boss.work(queue, options, handler);
+      },
+    };
+    const wrapped = gate.wrap(capturing);
+    await gate.refresh();
+    const record = async (jobs: unknown) => {
+      for (const job of jobs as { id: string }[]) {
+        ran.push(job.id);
+      }
+    };
+    await wrapped.work("restore", {}, record);
+    await wrapped.work("file-share-purge", {}, record);
+    await handlers.get("restore")?.([{ id: "old" }, { id: "new" }]);
+    await handlers.get("file-share-purge")?.([{ id: "old" }]);
+    expect(ran).toEqual(["new"]);
+    expect(held).toEqual(["restore:old", "file-share-purge:old"]);
+  });
 });

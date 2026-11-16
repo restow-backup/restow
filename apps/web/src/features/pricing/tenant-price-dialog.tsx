@@ -24,13 +24,16 @@ import {
   saveTenantPricing,
   type TenantPricing,
   tenantPricingKey,
+  UNIT_LINES,
+  type UnitPriceKey,
 } from "./api.js";
 import "./i18n.js";
 import { formatMoney, parsePrice, priceText } from "./presenters.js";
 
 /**
  * The prices of one tenant (0.4.8, Service Provider): a price per mailbox and a price per GB or
- * TB that replace the installation's for this tenant alone. The currency and the unit stay the
+ * TB that replace the installation's for this tenant alone, and (0.5.0) a price per server,
+ * client, VM, container and file share. The currency and the unit stay the
  * installation's. An empty field takes the installation's price again ("use installation
  * price"). Only the owner opens it; the server decides (a refusal is shown in the dialog).
  */
@@ -102,17 +105,32 @@ function TenantPriceForm({
   const id = React.useId();
   const [mailbox, setMailbox] = React.useState(priceText(pricing.overrides.mailboxPrice, language));
   const [storage, setStorage] = React.useState(priceText(pricing.overrides.storagePrice, language));
+  const [unitTexts, setUnitTexts] = React.useState(() => {
+    const texts = {} as Record<UnitPriceKey, string>;
+    for (const def of UNIT_LINES) {
+      texts[def.price] = priceText(pricing.overrides[def.price] ?? null, language);
+    }
+    return texts;
+  });
   const mailboxPrice = parsePrice(mailbox);
   const storagePrice = parsePrice(storage);
-  const valid = mailboxPrice !== undefined && storagePrice !== undefined;
+  const unitPrices = UNIT_LINES.map(
+    (def) => [def.price, parsePrice(unitTexts[def.price])] as const,
+  );
+  const valid =
+    mailboxPrice !== undefined &&
+    storagePrice !== undefined &&
+    unitPrices.every(([, price]) => price !== undefined);
   const changed =
     mailboxPrice !== pricing.overrides.mailboxPrice ||
-    storagePrice !== pricing.overrides.storagePrice;
+    storagePrice !== pricing.overrides.storagePrice ||
+    unitPrices.some(([key, price]) => price !== (pricing.overrides[key] ?? null));
   const save = useMutation({
     mutationFn: () =>
       saveTenantPricing(pricing.tenantId, {
         mailboxPrice: mailboxPrice ?? null,
         storagePrice: storagePrice ?? null,
+        ...Object.fromEntries(unitPrices.map(([key, price]) => [key, price ?? null])),
       }),
     onSuccess: async () => {
       // Every figure derived from the prices (the cards, the sum, the list in the installation
@@ -164,6 +182,24 @@ function TenantPriceForm({
         hint={installation(pricing.global.storagePrice)}
         onChange={setStorage}
       />
+      <p className="border-t pt-3 text-sm font-medium">{t("editor.unitsTitle")}</p>
+      {UNIT_LINES.map((def) => {
+        const global = pricing.global[def.price] ?? null;
+        return (
+          <PriceField
+            key={def.price}
+            id={`${id}-${def.flag}`}
+            label={t(`editor.${def.flag}`)}
+            value={unitTexts[def.price]}
+            invalid={unitPrices.find(([key]) => key === def.price)?.[1] === undefined}
+            errorId={`${id}-error`}
+            disabled={disabled}
+            placeholder={priceText(global, language)}
+            hint={installation(global)}
+            onChange={(value) => setUnitTexts((current) => ({ ...current, [def.price]: value }))}
+          />
+        );
+      })}
       {!valid ? (
         <p id={`${id}-error`} className="text-sm text-destructive-text" role="alert">
           {t("editor.invalid")}

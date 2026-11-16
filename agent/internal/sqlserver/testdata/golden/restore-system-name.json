@@ -1,0 +1,22 @@
+{
+  "errors": [
+    {
+      "message": "The restore was not started: the new name must not be that of the system database msdb.",
+      "code": "sql_script_failed"
+    }
+  ],
+  "ops": null,
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "MSDB",
+    "fetched": false,
+    "sha256Match": false,
+    "restored": false,
+    "moves": [],
+    "durationMs": 1000,
+    "code": "sql_script_failed",
+    "message": "The restore was not started: the new name must not be that of the system database msdb."
+  },
+  "status": "failed"
+}

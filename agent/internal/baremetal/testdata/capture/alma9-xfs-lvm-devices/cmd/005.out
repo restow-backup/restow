@@ -1,0 +1,4 @@
+use_devicesfile=1
+filter="a|.*|"
+global_filter="a|.*|"
+allow_mixed_block_sizes=0

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mailfiles } from "@restow/core";
+import { mailfiles, withDeletionPermit } from "@restow/core";
 import {
   type Database,
   type ImportUpload,
@@ -198,9 +198,12 @@ async function deleteStagedSegments(
   }
   try {
     const store = await segmentStoreFor(db, tenantId);
-    for (const uploadId of uploadIds) {
-      await store.delete(stagingScope(tenantId, uploadId));
-    }
+    // Refused in restore mode: the clean-up task deletes it once restore mode ended.
+    await withDeletionPermit({ pass: "import_staging", tenantId }, async () => {
+      for (const uploadId of uploadIds) {
+        await store.delete(stagingScope(tenantId, uploadId));
+      }
+    });
   } catch {
     // The upload rows are terminal; the expiry cleanup removes what is left.
   }

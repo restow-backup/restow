@@ -284,7 +284,8 @@
     "onePrimaryContact": "Mark exactly one contact as primary.",
     "atLeastOneContact": "Add at least one contact.",
     "duplicateEmail": "This email address is used more than once.",
-    "customerNumberTaken": "This customer number is already in use. Choose another one."
+    "customerNumberTaken": "This customer number is already in use. Choose another one.",
+    "monthlyReportNeedsEmail": "A contact who receives the monthly report needs an e-mail address."
   },
   "errors": {
     "featureUnavailable": "This installation manages one tenant. Another tenant cannot be created.",
@@ -509,5 +510,17 @@
       "exists": "Another organisation is already marked as your own. Reload the page to see it."
     }
   },
-  "backToList": "Manage tenants"
+  "backToList": "Manage tenants",
+  "contacts": {
+    "monthlyReport": "Receives the monthly report",
+    "monthlyReportHint": "The customer monthly report goes to this contact's e-mail address.",
+    "monthlyReportBadge": "Monthly report"
+  },
+  "recipients": {
+    "summaryReports": "Summary reports",
+    "summaryLocked": "Daily, weekly and monthly reports:",
+    "delivery": "How mail arrives",
+    "criticalNote": "Critical events always come at once.",
+    "failing": "Mail fails since {since}: {reason}"
+  }
 }

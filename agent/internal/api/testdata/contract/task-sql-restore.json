@@ -1,0 +1,21 @@
+{
+  "id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+  "kind": "sql_restore",
+  "params": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "targetInstance": "SQLEXPRESS",
+    "database": "Sales",
+    "newName": "Sales_restored_20261105",
+    "snapshotId": "18eb0f31e91b9c0452a42c9fcf31d37b771774327c9370af2b19bd2d64b4ea1e",
+    "pathInSnapshot": "/C/ProgramData/Restow/data/staging/sql/SQLEXPRESS/Sales~8de4e0ea/full-20261105T020011Z.bak",
+    "sha256": "d1eaf3a515cec69d9d87a01baf2dcb0f23ed1d11eba77aa652c69bd95a78e607",
+    "bytes": 734265344,
+    "fileList": [
+      { "logicalName": "Sales", "type": "D", "fileGroup": "PRIMARY", "fileId": 1, "sizeBytes": 1073741824, "physicalName": "Q:\\Data\\Sales.mdf" },
+      { "logicalName": "Sales_log", "type": "L", "fileGroup": "", "fileId": 2, "sizeBytes": 268435456, "physicalName": "L:\\Log\\Sales_log.ldf" }
+    ],
+    "checkdb": true,
+    "maxGiB": 200
+  }
+}

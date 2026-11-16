@@ -7,6 +7,7 @@
     "label": "Bereiche der Installation",
     "select": "Bereich",
     "server": "Server",
+    "modules": "Module",
     "mail": "Benachrichtigungs-Mail",
     "microsoftApp": "Microsoft-Multi-Tenant-App",
     "journal": "Journal-Empfang",
@@ -21,10 +22,15 @@
     "ransomware": "Ransomware-Erkennung",
     "agentPolicy": "Richtlinie der Agenten",
     "proxmox": "Proxmox VE",
-    "pricing": "Preise"
+    "pricing": "Preise",
+    "notifications": "Benachrichtigungen",
+    "branding": "Branding",
+    "restoreMode": "Wiederherstellungsmodus",
+    "cluster": "Cluster"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "modules": "Was diese Installation schützt. Ein ausgeschaltetes Modul ist im Menü, in der Übersicht und beim Anlegen neuer Einträge ausgeblendet.",
     "mail": "Der Transport für Berichte, Warnungen und Einladungen. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
     "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -39,12 +45,38 @@
     "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts."
+    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach, je GB oder TB gesicherter Daten und auf Wunsch je Server, Client, VM, Container oder Dateifreigabe. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
+    "notifications": "Wer auf Ihrer Seite was über {scope, select, organisation {Ihre Organisation} other {jeden Mandanten}} und die Installation erfährt: die Empfänger, die verpflichtenden, Sammelmails und die Zusammenfassungen.",
+    "branding": "Ihr Logo, Absender, Akzentfarbe und Fußzeile in den Mails und Chat-Nachrichten {scope, select, organisation {Ihrer Organisation} other {aller Mandanten}}.",
+    "restoreMode": "Nach dem Zurückspielen eines Datenbank-Dumps: Nichts wird gelöscht, bis ein Provider-Inhaber die zurückgespielte Datenbank geprüft hat.",
+    "cluster": "Worker-Knoten auf anderen Hosts: was sie brauchen, Einmal-Beitrittstoken, einen Knoten entfernen."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
     "administrator": "Sie können diese Seite ansehen. Den Test auszuführen erfordert im Provider-Team mindestens die Rolle Administrator.",
     "demo": "Dies ist eine öffentliche Demo. Diese Einstellungen sind hier schreibgeschützt."
+  },
+  "modules": {
+    "title": "Was {appName} hier schützt",
+    "description": "Schalten Sie aus, was diese Installation nicht nutzt: Die Menüeinträge, die Karten in der Übersicht und die Einträge beim Anlegen sind dann für alle ausgeblendet. Es wird nichts gelöscht und kein Job angehalten. Schalten Sie ein Modul wieder ein, ist alles wieder da, wo es war.",
+    "saved": "Module gespeichert.",
+    "loadError": "Die Module konnten nicht geladen werden",
+    "lastOne": "Ein Modul bleibt immer eingeschaltet.",
+    "access": "Sie können die Module ansehen. Zum Ein- und Ausschalten brauchen Sie im Provider-Team mindestens die Rolle Administrator.",
+    "hidden": "Ausgeblendet. Es enthält keine Daten.",
+    "hiddenWithData": "Ausgeblendet, enthält aber noch Daten in {scope, select, organisation {Ihrer Organisation} other {allen Mandanten}}: {held}. Es wurde nichts gelöscht, die Jobs laufen weiter, und die Seiten lassen sich über ihre Adresse weiterhin öffnen.",
+    "open": "Öffnen",
+    "kinds": {
+      "connections": "{count, plural, one {# Verbindung} other {# Verbindungen}}",
+      "objects": "{count, plural, one {# geschütztes Objekt} other {# geschützte Objekte}}",
+      "archivingJobs": "{count, plural, one {# archivierender Job} other {# archivierende Jobs}}",
+      "archives": "{count, plural, one {# Archiv mit Mails} other {# Archive mit Mails}}",
+      "machines": "{count, plural, one {# Rechner} other {# Rechner}}",
+      "fileShares": "{count, plural, one {# Freigabe} other {# Freigaben}}",
+      "jobs": "{count, plural, one {# Job} other {# Jobs}}",
+      "nodes": "{count, plural, one {# Knoten} other {# Knoten}}",
+      "guests": "{count, plural, one {# VM oder Container} other {# VMs und Container}}"
+    }
   },
   "locked": {
     "title": "{section} ist noch nicht freigeschaltet",
@@ -449,10 +481,22 @@
     "disks": {
       "database": "Datenträger unter der Datenbank",
       "repository": "Datenträger unter dem lokalen Standard-Repository",
+      "shared": "Ein Datenträger für die Datenbank und das lokale Standard-Repository",
       "free": "{free} von {total} frei",
       "low": "Knapp",
       "lowTitle": "Wenig freier Speicherplatz",
-      "lowBody": "Weniger als ein Zehntel des Datenträgers ist frei (und weniger als 5 GiB). Ein voller Datenträger hält die Datenbank oder die Sicherungen an. Geben Sie Platz frei, vergrößern Sie den Datenträger oder verschieben Sie die Datenbank unten auf einen anderen Datenträger. Provider-Administratoren werden einmal in der Glocke und über Benachrichtigungsregeln mit „Wenig Speicherplatz“ benachrichtigt."
+      "lowBody": "Weniger als ein Zehntel des Datenträgers ist frei (und weniger als 5 GiB). Ein voller Datenträger hält die Datenbank oder die Sicherungen an. Geben Sie Platz frei, vergrößern Sie den Datenträger oder verschieben Sie die Datenbank unten auf einen anderen Datenträger. Provider-Administratoren werden einmal in der Glocke und über Benachrichtigungsregeln mit „Wenig Speicherplatz“ benachrichtigt.",
+      "viaVolume": "Ohne Updater auf dem Datenvolume neben dem Volume der Datenbank gelesen (derselbe Datenträger)."
+    },
+    "reserve": {
+      "title": "Notreserve auf dem Datenträger",
+      "releasedBadge": "Freigegeben",
+      "present": "{size} unter {path}. {appName} gibt sie von selbst frei, wenn weniger als {floor} auf dem Datenträger frei sind, damit die Datenbank weiterläuft, und benachrichtigt Sie.",
+      "released": "Freigegeben, weil der Datenträger fast voll war. Schaffen Sie jetzt Platz: Die Reserve wird von selbst wieder angelegt, sobald {createAt} frei sind.",
+      "missing": "Noch nicht angelegt: Sie wird angelegt, sobald {createAt} auf dem Datenträger frei sind.",
+      "off": "Ausgeschaltet (RESTOW_DISK_RESERVE_MB=0). Ein voller Datenträger hält die Datenbank an.",
+      "foreign": "Unter {path} liegt etwas anderes (nicht die Reserve, oder ein Link). Es bleibt unberührt, und es gibt keine Reserve: Verschieben Sie es oder setzen Sie RESTOW_DISK_RESERVE_PATH auf einen anderen Namen.",
+      "byHand": "So geben Sie sie von Hand frei:"
     },
     "updateSpace": {
       "title": "Platz für das nächste Update",
@@ -589,6 +633,11 @@
         "succeeded": "{location} wurde entfernt.",
         "failed": "{location} konnte nicht entfernt werden."
       }
+    },
+    "restored": {
+      "title": "Nach dem Zurückspielen eines Dumps",
+      "description": "Haben Sie einen Dump dieser Datenbank von Hand zurückgespielt? Der Wiederherstellungsmodus hält alles an, was löscht, bis ein Inhaber die wiederhergestellten Daten geprüft hat.",
+      "open": "Wiederherstellungsmodus öffnen"
     }
   },
   "pricing": {
@@ -621,7 +670,244 @@
       "hint": "Die Preise eines einzelnen Mandanten legen Sie auf der Preiskachel in dessen Übersicht fest. Das kann nur der Eigentümer; jeder andere Mandant nutzt die Preise oben.",
       "mailbox": "{price} je Postfach",
       "storage": "{price} je {unit}",
-      "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden."
+      "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden.",
+      "server": "{price} je Server",
+      "client": "{price} je Client",
+      "vm": "{price} je VM",
+      "container": "{price} je Container",
+      "fileShare": "{price} je Dateifreigabe"
+    },
+    "units": {
+      "title": "Preise je geschützter Einheit",
+      "description": "Optional, je Monat und Einheit, zusätzlich zu Postfächern und Speicher. Eine Einheit zählt, solange sie geschützt ist: in einem Backup-Job und weder gesperrt, entfernt noch stillgelegt. Lassen Sie einen Preis leer, wenn Sie die Art nicht berechnen.",
+      "server": "Preis je Server",
+      "serverHint": "Je Server mit Agent in einem Backup-Job. Gesperrte und entfernte Rechner zählen nicht.",
+      "client": "Preis je Client",
+      "clientHint": "Je Client (Desktop oder Notebook) mit Agent in einem Backup-Job. Gesperrte und entfernte Rechner zählen nicht.",
+      "vm": "Preis je VM",
+      "vmHint": "Je Proxmox-VE-VM in einem aktiven Job. Ausgeschlossene Gäste und Vorlagen zählen nicht.",
+      "container": "Preis je Container",
+      "containerHint": "Je Proxmox-VE-Container in einem aktiven Job. Ausgeschlossene Gäste zählen nicht.",
+      "fileShare": "Preis je Dateifreigabe",
+      "fileShareHint": "Je Dateifreigabe in einem aktiven Backup-Job. Stillgelegte Freigaben zählen nicht."
+    }
+  },
+  "featureLocked": "Nicht Teil dieses Builds",
+  "restoreMode": {
+    "banner": {
+      "text": "Der Wiederherstellungsmodus ist aktiv: {appName} löscht nichts (keine Aufbewahrung, keine Bereinigung, kein Löschen von Freigaben). Sicherungen laufen weiter. Ein Provider-Inhaber beendet ihn nach der Prüfung.",
+      "link": "Wiederherstellungsmodus öffnen"
+    },
+    "loadError": "Der Wiederherstellungsmodus konnte nicht geladen werden.",
+    "state": {
+      "title": "Zustand",
+      "on": "Der Wiederherstellungsmodus ist aktiv",
+      "off": "Der Wiederherstellungsmodus ist aus",
+      "offText": "Löschen läuft wie gewohnt. Wenn Sie einen Datenbank-Dump zurückspielen, schalten Sie den Wiederherstellungsmodus mit der Kommandozeile ein, bevor der Worker startet (docs/UPDATING.md, Rollback), oder hier.",
+      "since": "Aktiv seit {when}",
+      "by": "Von {actor}",
+      "reason": "Grund: {reason}",
+      "holds": "Aufträge, die vor {when} angelegt wurden, werden angehalten und laufen nicht. Neue Sicherungen und Prüfungen laufen wie gewohnt.",
+      "detection": "Erkannt auf Ziel {target} des Mandanten {tenant}: Stand im Speicher {marker}, Stand der Datenbank {db}.",
+      "sources": {
+        "cli": "Mit der Kommandozeile eingeschaltet",
+        "api": "In der Weboberfläche eingeschaltet",
+        "detected": "Von selbst eingeschaltet: Ein Speicherziel zeigt einen Stand, den die Datenbank nicht kennt",
+        "other": "Eingeschaltet",
+        "setup": "Eingeschaltet durch eine Wiederherstellung aus einem Dump (Einrichtungsassistent oder install.sh), bevor irgendetwas anderes lief"
+      }
+    },
+    "start": {
+      "title": "Wiederherstellungsmodus einschalten",
+      "description": "Für die ganze Installation: Nichts wird gelöscht, und Aufträge, die vor jetzt angelegt wurden, werden angehalten, bis ein Provider-Inhaber die Datenbank geprüft und den Wiederherstellungsmodus beendet hat. Sicherungen und Prüfungen laufen weiter.",
+      "reason": "Grund",
+      "submit": "Wiederherstellungsmodus einschalten"
+    },
+    "targets": {
+      "title": "Speicher im Vergleich mit der Datenbank",
+      "description": "Jedes Speicherziel hält fest, wie weit die Datenbank war, als Daten darauf geschrieben wurden. Ein Ziel, das der Datenbank voraus ist, bedeutet: Die Datenbank ist älter als ihr Speicher.",
+      "check": "Jetzt vergleichen",
+      "empty": "Noch kein Vergleich.",
+      "tenant": "Mandant",
+      "target": "Ziel",
+      "outcome": "Ergebnis",
+      "storage": "Speicher",
+      "database": "Datenbank",
+      "checked": "Verglichen",
+      "outcomes": {
+        "ok": "Stimmt überein",
+        "none": "Noch keine Markierung",
+        "ahead": "Der Datenbank voraus",
+        "unreachable": "Nicht lesbar",
+        "foreign": "Markierungen einer anderen Installation"
+      }
+    },
+    "refusals": {
+      "title": "Abgelehnte Löschungen",
+      "empty": "Bisher wurde nichts abgelehnt.",
+      "row": "{pass}: {count, plural, one {# Mal} other {# Mal}}, zuletzt {when}"
+    },
+    "passes": {
+      "orphan_sweep": "Bereinigung verwaister Dateien",
+      "gc_repack": "Speicherbereinigung (Umpacken)",
+      "superseded_release": "Freigabe ersetzter Daten",
+      "abandoned_checkpoint": "Verwaiste Zwischenstände",
+      "job_checkpoint_discard": "Verworfene Zwischenstände von Aufträgen",
+      "snapshot_retention": "Aufbewahrung der Sicherungsstände",
+      "mail_files_cleanup": "Bereinigung der Mail-Dateien",
+      "import_staging": "Bereinigung der Import-Ablage",
+      "export_reset": "Bereinigung der Exporte",
+      "archive_retention": "Aufbewahrung des Archivs",
+      "file_share_purge": "Löschen von Freigaben",
+      "file_share_retention": "Aufbewahrung der Freigaben",
+      "endpoint_retention": "Aufbewahrung der Geräte",
+      "endpoint_removal": "Entfernen von Geräten",
+      "pve_retention": "Aufbewahrung Proxmox VE",
+      "pve_reconcile_forget": "Abgleich der Proxmox-VE-Repositories",
+      "pve_repository_reset": "Zurücksetzen eines Proxmox-VE-Repositorys",
+      "pve_chain_clear": "Zurücksetzen einer Proxmox-VE-Kette",
+      "repository_repair_apply": "Reparatur eines Repositorys",
+      "enrollment_cleanup": "Bereinigung nach der Registrierung",
+      "progress_marker_prune": "Aufräumen der Fortschrittsmarkierungen",
+      "repository_copy_retention": "Aufbewahrung der Repository-Kopien",
+      "storage_target_removal": "Entfernen eines Speicherziels",
+      "primary_replacement": "Ersetzen des primären Speicherziels",
+      "other": "Andere Löschung"
+    },
+    "jobs": {
+      "title": "Angehaltene Aufträge",
+      "text": "{held, plural, =0 {Bisher wurde kein Auftrag angehalten.} one {# Auftrag von vor dem Zurückspielen wurde angehalten.} other {# Aufträge von vor dem Zurückspielen wurden angehalten.}} {waiting, plural, =0 {} one {# weiterer wartet noch.} other {# weitere warten noch.}}",
+      "hint": "Starten Sie einen angehaltenen Auftrag erneut, wenn er noch gebraucht wird. Wiederherstellungen in Postfächer und Speicherumzüge von vor dem Zurückspielen werden nie fortgesetzt."
+    },
+    "keys": {
+      "title": "Schlüsselversionen im Speicher",
+      "none": "Jede Schlüsselversion im Speicher ist in der Datenbank.",
+      "unknown": "Mandant {tenant}, Ziel {target}: Die Versionen {versions} liegen im Speicher, aber nicht in der Datenbank.",
+      "import": "Schlüssel übernehmen",
+      "imported": "{count, plural, =0 {Kein Schlüssel wurde übernommen.} one {# Schlüssel wurde übernommen.} other {# Schlüssel wurden übernommen.}}",
+      "refused": "{count, plural, one {# Schlüsselversion konnte nicht übernommen werden.} other {# Schlüsselversionen konnten nicht übernommen werden.}} Prüfen Sie sie mit der Kommandozeile (restow restore-mode import-keys).",
+      "conflicts": "Abweichende Schlüssel",
+      "conflict": "Mandant {tenant}, Ziel {target}, Version {version}: {kind, select, conflict {Unter dieser Version liegt ein anderer gültiger Schlüssel} other {Der gespeicherte Schlüssel lässt sich nicht öffnen}}. Er wurde nicht überschrieben.",
+      "passwordConflict": "Mandant {tenant}, Ziel {target}, {object}: {kind, select, conflict {Das versiegelte Repository-Passwort enthält ein anderes Passwort als die Datenbank} other {Das versiegelte Repository-Passwort lässt sich nicht öffnen}}. Es wurde nicht überschrieben.",
+      "conflictHint": "Daten, die mit dem gespeicherten Schlüssel geschrieben wurden, brauchen ihn möglicherweise. Behalten Sie das gespeicherte Objekt; docs/STORAGE.md beschreibt, wie Sie es vergleichen und klären."
+    },
+    "end": {
+      "title": "Wiederherstellungsmodus beenden",
+      "description": "Beendet den Wiederherstellungsmodus für die ganze Installation, nachdem Sie die zurückgespielte Datenbank geprüft haben: Aufbewahrung, Bereinigungen und Löschungen laufen wieder.",
+      "checked": "Was Sie geprüft haben",
+      "checkedHint": "Mindestens 20 Zeichen, im Audit-Log festgehalten, zum Beispiel welche Wiederherstellungspunkte Sie verglichen haben.",
+      "storageOnly": "Daten im Speicher, die die Datenbank nicht kennt",
+      "keep": "Dauerhaft behalten (empfohlen)",
+      "keepHint": "Sicherungen, die nach dem Dump geschrieben wurden, bleiben im Speicher und lassen sich mit dem eigenständigen Wiederherstellungswerkzeug weiterhin wiederherstellen. Bereinigungen entfernen nie Daten, die älter als dieser Zeitpunkt sind.",
+      "release": "Von den Bereinigungen entfernen lassen",
+      "releaseHint": "Die Bereinigung verwaister Dateien und die anderen Bereinigungen dürfen Daten im Speicher, zu denen die Datenbank keine Zeile hat, nach ihren üblichen Wartezeiten löschen.",
+      "unreachable": "Diese Ziele konnten nicht gelesen werden. Akzeptieren Sie sie als nicht erreichbar, um den Wiederherstellungsmodus trotzdem zu beenden:",
+      "accept": "Als nicht erreichbar akzeptieren",
+      "confirm": "Geben Sie END zur Bestätigung ein",
+      "submit": "Wiederherstellungsmodus beenden",
+      "ownerOnly": "Nur ein Provider-Inhaber kann den Wiederherstellungsmodus beenden.",
+      "done": "Der Wiederherstellungsmodus wurde beendet."
+    },
+    "history": {
+      "title": "Frühere Wiederherstellungsmodi",
+      "row": "{from} bis {to}, beendet von {actor}: {checked}"
+    },
+    "errors": {
+      "checked_length": "Beschreiben Sie in 20 bis 2000 Zeichen, was Sie geprüft haben.",
+      "confirmation": "Geben Sie END zur Bestätigung ein.",
+      "off": "Der Wiederherstellungsmodus ist nicht aktiv.",
+      "unreachable": "Ein Speicherziel konnte nicht gelesen werden. Akzeptieren Sie es unten als nicht erreichbar oder warten Sie, bis es antwortet, und beenden Sie dann den Wiederherstellungsmodus.",
+      "unknown_key_versions": "Im Speicher liegen Schlüsselversionen, die nicht in der Datenbank sind. Übernehmen Sie sie zuerst (Schlüssel übernehmen) und beenden Sie dann den Wiederherstellungsmodus.",
+      "changed": "Der Wiederherstellungsmodus wurde inzwischen beendet."
+    },
+    "checklist": {
+      "title": "Bevor Sie den Wiederherstellungsmodus beenden",
+      "description": "Arbeiten Sie diese Punkte ab und beenden Sie den Wiederherstellungsmodus dann unten.",
+      "items": {
+        "compare": "Vergleichen Sie den Speicher erneut mit der Datenbank (oben): Jedes Ziel stimmt überein, oder was voraus ist, ist erklärt.",
+        "importKeys": "Übernehmen Sie im Speicher gefundene Schlüsselversionen, damit neuere Backups lesbar bleiben.",
+        "testRestore": "Testen Sie einen Wiederherstellungspunkt je Mandant.",
+        "users": "Prüfen Sie die Benutzer und Inhaber: Sie kamen mit dem Dump, Passkeys funktionieren nur unter der Adresse, für die sie angelegt wurden.",
+        "address": "Prüfen Sie die Adresse dieser Installation (Server) und die Anmelde-Einstellungen.",
+        "mail": "Prüfen Sie die Benachrichtigungs-Mail und senden Sie eine Test-Nachricht.",
+        "agents": "Hat sich die Adresse geändert, stellen Sie die Agenten und die Knoten auf die neue um.",
+        "nodes": "Lassen Sie die Worker-Knoten der alten Installation erneut beitreten (Cluster).",
+        "end": "Beenden Sie den Wiederherstellungsmodus unten und beschreiben Sie in eigenen Worten, was Sie geprüft haben."
+      }
+    }
+  },
+  "cluster": {
+    "intro": "Worker-Knoten sind Hosts, die weitere Worker für diese Installation betreiben: Sie arbeiten auf derselben Datenbank und demselben Speicher. Datenbank, Weboberfläche, Updater und Mounter bleiben auf diesem Host.",
+    "loadError": "Der Cluster konnte nicht geladen werden.",
+    "replication": {
+      "title": "Echte Replikation ist in Entwicklung",
+      "text": "Ein zweiter Server, der übernimmt, wenn dieser ausfällt (aktiv/passiv mit Datenbank-Replikation), ist in Entwicklung. Worker-Knoten bringen mehr Kapazität; ist dieser Host nicht erreichbar, warten sie auf ihn."
+    },
+    "nodes": {
+      "title": "Knoten",
+      "description": "Dieser Host und die beigetretenen Worker-Knoten mit ihren Prozessen. Diese Installation läuft mit {version}.",
+      "main": "Dieser Host (Haupt-Host)",
+      "outdated": "anderes Release",
+      "versionMismatch": "wartet auf ein Update",
+      "noProcesses": "Gerade meldet sich kein Prozess.",
+      "process": "{role}: {state}, letzte Meldung {when}",
+      "running": "läuft",
+      "gone": "meldet sich nicht",
+      "update": "Führen Sie auf diesem Host aus: sudo bash install.sh --update-worker",
+      "remove": "Knoten entfernen",
+      "confirmTitle": "Den Knoten {name} entfernen?",
+      "confirmDescription": "Seine Datenbank-Anmeldungen werden gelöscht und seine Verbindungen beendet: Er kann nicht mehr für diese Installation arbeiten. Halten Sie ihn auch auf seinem Host an. Was er kannte, vor allem den Hauptschlüssel, lässt sich nicht zurücknehmen."
+    },
+    "requirements": {
+      "title": "Was ein Worker-Knoten braucht",
+      "description": "Dasselbe Release wie dieser Host, die Datenbank über TLS vom neuen Host aus und jedes Speicherziel von dort erreichbar.",
+      "storage": "Speicherziele",
+      "noTargets": "Es gibt noch keine Speicherziele.",
+      "installationDefault": "Standard der Installation",
+      "kinds": {
+        "s3": "S3: von jedem Host erreichbar",
+        "directory": "Verzeichnis: muss auf dem Worker-Host unter demselben Pfad liegen",
+        "volume": "in einem Volume dieses Hosts: kein anderer Host erreicht es"
+      },
+      "volumeBlocks": "Ein Speicherziel liegt in einem Volume dieses Hosts. Verlegen Sie es auf S3 oder in ein geteiltes Verzeichnis, bevor ein Knoten beitreten kann.",
+      "database": "Datenbank",
+      "exposed": "Für Worker-Knoten erreichbar unter {address} ({ssl}).",
+      "sslOn": "TLS an",
+      "sslOff": "TLS aus",
+      "notExposed": "Nicht aus dem Netzwerk erreichbar (die Voreinstellung). Knoten können erst beitreten, wenn sie es ist.",
+      "howToExpose": "Führen Sie auf diesem Host einmal je Worker-Host aus (TLS, nur die eigenen Anmeldungen der Knoten, nur von dieser Adresse):",
+      "version": "Knoten müssen mit Release {version} laufen, dem Release dieses Hosts."
+    },
+    "join": {
+      "title": "Beitrittstoken für einen neuen Knoten",
+      "description": "Ein Einmal-Token für install.sh --join auf dem neuen Host. Es trägt kein Geheimnis: Es lässt diesen Host einmal seine eigene Konfiguration über TLS abholen.",
+      "nodeName": "Name des Knotens",
+      "address": "Adresse des neuen Hosts (empfohlen)",
+      "ttl": "Gültig für",
+      "ttlOption": "{minutes, plural, =15 {15 Minuten} =60 {1 Stunde} =240 {4 Stunden} =1440 {24 Stunden} other {# Minuten}}",
+      "standby": "Auf dem Knoten auch einen Scheduler in Bereitschaft betreiben",
+      "issue": "Beitrittstoken ausstellen",
+      "createdTitle": "Beitrittstoken ausgestellt",
+      "createdOnce": "Es wird nur jetzt angezeigt und gilt einmal, bis {when}. Führen Sie auf dem neuen Host aus:",
+      "hide": "Ausblenden",
+      "blockedVolume": "Kein Knoten kann beitreten, solange ein Speicherziel in einem Volume dieses Hosts liegt.",
+      "blockedDatabase": "Die Datenbank ist noch nicht aus dem Netzwerk erreichbar: Führen Sie zuerst den Befehl oben auf diesem Host aus.",
+      "open": "Offene Beitrittstoken",
+      "tokenRow": "für {name}, gültig bis {when}",
+      "revoke": "Widerrufen"
+    },
+    "security": {
+      "title": "Sicherheit",
+      "logins": "Jeder Knoten bekommt eigene Datenbank-Anmeldungen; das Entfernen des Knotens löscht sie. Sie können, was ein Worker kann, aber weder Anmeldedaten, das Provider-Team noch Beitrittstokens lesen oder ändern.",
+      "masterKey": "Ein Knoten kennt den Hauptschlüssel: Er öffnet jedes Backup. Der Hauptschlüssel lässt sich noch nicht wechseln, das Entfernen eines Knotens nimmt ihn also nicht zurück. Lassen Sie nur Hosts beitreten, denen Sie so vertrauen wie diesem.",
+      "singleInstance": "Nur einmal, nur auf diesem Host: die Datenbank, die API mit ihren Migrationen, der Web-Eingang, der Updater, der Mounter (Dateifreigaben), der Empfang von Journal-Mails, Importe aus dem Server-Ordner und Speicher in Volumes dieses Hosts."
+    },
+    "errors": {
+      "database_not_exposed": "Die Datenbank ist noch nicht aus dem Netzwerk erreichbar. Führen Sie zuerst install.sh --allow-worker auf diesem Host aus.",
+      "volume_targets": "Ein Speicherziel liegt in einem Volume dieses Hosts; kein Knoten könnte es erreichen.",
+      "name_in_use": "Ein Knoten mit diesem Namen ist bereits aktiv.",
+      "not_found": "Er ist bereits weg.",
+      "owner_missing": "Der API fehlt die Eigentümer-Verbindung der Datenbank (DATABASE_MIGRATION_URL)."
     }
   }
 }

@@ -23,6 +23,8 @@ import { authClient } from "@/lib/auth-client";
 import { LOGIN_PATH } from "@/lib/entry";
 import { validationKey, zodResolver } from "@/lib/form";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
+import { useFocusOnMount } from "@/lib/use-focus-on-mount";
+import { usePhoneBlocked } from "@/lib/use-phone";
 
 /** What a failed reset says: the link is unusable, too many attempts, or something else. */
 export type ResetFailure = "invalidLink" | "tooMany" | "generic";
@@ -43,9 +45,12 @@ export function resetFailureOf(error: { status: number; code?: string } | null):
  * apps/api lib/password-reset.ts): choose a new password. better-auth checks
  * the token, ends every session of the account, and the person signs in again
  * with the new password and a code from the authenticator app, which stays.
+ * The page works on a phone, because the link comes by mail; there the sign-in
+ * is left for a computer (lib/device.ts).
  */
 export function ResetPasswordPage() {
   const { t } = useTranslation("auth");
+  const phone = usePhoneBlocked();
   const search = useSearch({ strict: false }) as { token?: string };
   const token = search.token?.trim() ?? "";
   const [state, setState] = React.useState<"form" | "done" | "invalid">(
@@ -59,13 +64,23 @@ export function ResetPasswordPage() {
         <ResultCard
           icon={CheckCircle2}
           title={t("passwordReset.page.doneTitle")}
-          description={t("passwordReset.page.doneDescription")}
+          description={t(
+            phone
+              ? "passwordReset.page.donePhoneDescription"
+              : "passwordReset.page.doneDescription",
+          )}
+          signIn={!phone}
         />
       ) : state === "invalid" ? (
         <ResultCard
           icon={MailQuestion}
           title={t("passwordReset.page.invalidTitle")}
-          description={t("passwordReset.page.invalidDescription")}
+          description={t(
+            phone
+              ? "passwordReset.page.invalidPhoneDescription"
+              : "passwordReset.page.invalidDescription",
+          )}
+          signIn={!phone}
         />
       ) : (
         <ResetForm
@@ -177,28 +192,40 @@ function ResultCard({
   icon: Icon,
   title,
   description,
+  signIn,
 }: {
   icon: typeof CheckCircle2;
   title: string;
   description: string;
+  /** False on a phone, where the sign-in page is closed. */
+  signIn: boolean;
 }) {
   const { t } = useTranslation("auth");
   const navigate = useNavigate();
+  // The form is gone; focus on the title makes a screen reader announce the outcome.
+  const heading = useFocusOnMount<HTMLDivElement>();
   return (
     <Card data-slot="reset-password-result">
       <CardHeader className="flex flex-col items-center text-center">
         <div className="mb-2 flex size-12 items-center justify-center rounded-full bg-muted text-foreground">
           <Icon aria-hidden="true" className="size-5" />
         </div>
-        <CardTitle className="text-xl">{title}</CardTitle>
+        <CardTitle ref={heading} tabIndex={-1} className="text-xl outline-none">
+          {title}
+        </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardFooter>
-        <Button className="w-full" onClick={() => void navigate({ to: LOGIN_PATH, replace: true })}>
-          <ShieldCheck />
-          {t("passwordReset.page.signIn")}
-        </Button>
-      </CardFooter>
+      {signIn ? (
+        <CardFooter>
+          <Button
+            className="w-full"
+            onClick={() => void navigate({ to: LOGIN_PATH, replace: true })}
+          >
+            <ShieldCheck />
+            {t("passwordReset.page.signIn")}
+          </Button>
+        </CardFooter>
+      ) : null}
     </Card>
   );
 }

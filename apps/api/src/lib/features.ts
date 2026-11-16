@@ -28,6 +28,12 @@ import type { DbExecutor } from "./tenant-context.js";
  *                         capture service checks the same gate)
  *   archive.smtpCapture   archive capture by SMTP: Exchange journaling and copies
  *                         a mail provider forwards to an archive address
+ *   branding.provider     the provider's branding on mails, reports and chat
+ *                         webhooks (features/branding); off = the product name only
+ *   branding.tenant       a tenant's own branding, overriding the provider's
+ *   reports.customer      the customer monthly report to a tenant's contacts
+ *                         (features/reports customer-report.ts; the content comes
+ *                         from the `reportCustomer` hook)
  *
  * The gates decide on installation-level state (in the full build the
  * installed license), which only the installation role may read
@@ -45,6 +51,9 @@ export const GATED_FEATURES = [
   "providerTeam.tenantScope",
   "archive.mailboxCapture",
   "archive.smtpCapture",
+  "branding.provider",
+  "branding.tenant",
+  "reports.customer",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];

@@ -162,8 +162,13 @@ export const UPDATE_PROBLEMS = {
   notCovered: "urn:restow:problem:update-not-covered",
 } as const;
 
-/** The check runs once a day; after a failure it tries again after an hour at the earliest. */
-export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/**
+ * The check runs every six hours (0.5.0; a day before), so a release shows up in the
+ * installation the same day. That is four requests a day for the release list, far below the
+ * 60 an hour GitHub allows without a token. After a failure it tries again after an hour at
+ * the earliest (and not before a rate limit lifts), so a failing source is never hammered.
+ */
+export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const CHECK_RETRY_MS = 60 * 60 * 1000;
 /** How often the pause of new job starts is advanced (#46). */
 export const PAUSE_STEP_MS = 10_000;
@@ -741,7 +746,7 @@ export class UpdateService {
       throw blocked(state.capabilities.blockers);
     }
     // The digests of the full images, read from the notes of the running version's release
-    // (this request reads the release list once, also when the daily check is off).
+    // (this request reads the release list once, also when the scheduled check is off).
     const result = await fetchReleases({
       releasesUrl: snapshot.source.releasesUrl,
       token: null,
@@ -1809,7 +1814,7 @@ export class UpdateService {
   // Background work
   // -------------------------------------------------------------------------
 
-  /** Start the daily check and the updater sync; `close` stops both. */
+  /** Start the scheduled check and the updater sync; `close` stops both. */
   start(): { close(): void } {
     if (this.demo) {
       return { close: () => undefined };

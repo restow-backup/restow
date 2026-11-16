@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalStorageBackend } from "@restow/core";
+import { type DeletionGuard, installDeletionEnforcement, LocalStorageBackend } from "@restow/core";
 import {
   auditLog,
   createDb,
@@ -390,6 +390,45 @@ describe.skipIf(!testDatabaseAdminUrl)("default storage against Postgres", () =>
       ).resolves.toMatchObject({ view: { location: path } });
 
       await db.delete(storageTargets).where(eq(storageTargets.kind, "installation_default"));
+    });
+
+    it("refuses to move or remove the default while restore mode is on, even with no tenant data known", async () => {
+      // The restored database knows no data on the default; data written after the dump may be there.
+      const path = join(root, "gui-chunks");
+      const restoreMode: DeletionGuard = {
+        decide: async () => ({ allowed: false, reason: "restore_mode", restoreModeId: null }),
+        holding: () => true,
+      };
+      const uninstall = installDeletionEnforcement(restoreMode);
+      try {
+        expect((await service.getDefaultStorage(providerDb, { env: env() })).blockers).toEqual([]);
+        const elsewhere = join(root, "elsewhere");
+        await mkdir(elsewhere, { recursive: true });
+        await expect(
+          service.saveDefaultStorage(
+            providerDb,
+            { kind: "local", config: { basePath: elsewhere } },
+            actor,
+            { env: env() },
+          ),
+        ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:restore-mode" });
+        // Back to the environment (another directory) replaces it just the same.
+        await expect(
+          service.removeDefaultStorage(providerDb, actor, { env: env() }),
+        ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:restore-mode" });
+        expect(await saved()).toHaveLength(1);
+        // Nothing moves: still possible.
+        await expect(
+          service.saveDefaultStorage(
+            providerDb,
+            { kind: "local", config: { basePath: path } },
+            actor,
+            { env: env() },
+          ),
+        ).resolves.toMatchObject({ view: { location: path } });
+      } finally {
+        uninstall();
+      }
     });
 
     it("removes the saved default, so the environment applies again", async () => {

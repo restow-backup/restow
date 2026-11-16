@@ -199,7 +199,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the explorer's people, against Postgres"
     expect(seen.every((entry) => entry.objects[0]?.kind === "site")).toBe(true);
   });
 
-  it("shows a person only their own entry, and answers the entry of one object", async () => {
+  it("shows a person only their own entry, and answers the entry of one object [RESTORE-009]", async () => {
     const mine = await listPeople(db, f.tenantId, f.anna, query({}));
     expect(mine.items.map((entry) => [entry.name, entry.own])).toEqual([["Anna", true]]);
     const of = await listPeople(db, f.tenantId, admin, query({ objectId: f.annaDrive }));

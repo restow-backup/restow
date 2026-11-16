@@ -91,7 +91,7 @@ describe("the repository password sealed next to the repository", () => {
     ).toThrow(/is not a/);
   });
 
-  it("is written once, kept when intact and rewritten when damaged or stale", async () => {
+  it("is written once, kept when intact and never replaced when it differs", async () => {
     const storage = new MemoryStorage();
     const keys = new Keyring(TENANT, [dek(1, 0x11), dek(2, 0x22)]);
     const input = { tenantId: TENANT, endpointId: ENDPOINT, password: "pw-1", keys };
@@ -103,16 +103,28 @@ describe("the repository password sealed next to the repository", () => {
     expect(openEndpointPassword(first, (blob) => keys.open(blob), ENDPOINT).password).toBe("pw-1");
     expect(readEndpointPasswordDocument(first).sealed.readUInt32BE(5)).toBe(2);
 
-    await storage.put(endpointPasswordKey(ENDPOINT), Buffer.from("garbage"));
-    expect(await ensureEndpointPasswordFile(storage, input)).toBe("written");
-    expect(await ensureEndpointPasswordFile(storage, { ...input, password: "pw-2" })).toBe(
-      "written",
-    );
+    // Another password (a restored database that generated a new one): reported, never
+    // replaced; the stored document may be the only copy of the password of newer backups.
+    const reported: { kind: string; storedSha256: string }[] = [];
+    const onDifferent = (finding: { kind: string; storedSha256: string }) => {
+      reported.push(finding);
+    };
     expect(
-      openEndpointPassword(await storage.get(endpointPasswordKey(ENDPOINT)), (blob) =>
-        keys.open(blob),
-      ).password,
-    ).toBe("pw-2");
+      await ensureEndpointPasswordFile(storage, { ...input, password: "pw-2", onDifferent }),
+    ).toBe("kept");
+    expect((await storage.get(endpointPasswordKey(ENDPOINT))).equals(first)).toBe(true);
+    expect(reported.map((finding) => finding.kind)).toEqual(["conflict"]);
+    // Bytes that do not open with the tenant's keys (sealed with a key the database lost, or
+    // damaged): reported as damaged, never replaced.
+    await storage.put(endpointPasswordKey(ENDPOINT), Buffer.from("garbage"));
+    expect(await ensureEndpointPasswordFile(storage, { ...input, onDifferent })).toBe("kept");
+    expect((await storage.get(endpointPasswordKey(ENDPOINT))).toString()).toBe("garbage");
+    expect(reported.map((finding) => finding.kind)).toEqual(["conflict", "damaged"]);
+    const other = new Keyring(TENANT, [dek(3, 0x33)]);
+    await storage.delete(endpointPasswordKey(ENDPOINT));
+    expect(await ensureEndpointPasswordFile(storage, { ...input, keys: other })).toBe("written");
+    expect(await ensureEndpointPasswordFile(storage, { ...input, onDifferent })).toBe("kept");
+    expect(reported.at(-1)?.kind).toBe("damaged");
   });
 });
 

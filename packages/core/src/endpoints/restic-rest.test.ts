@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { isDeleteRefused } from "../storage/backend.js";
 import { MemoryStorage } from "../verify/testing.js";
 import type { ResticPrincipal } from "./restic-authz.js";
 import {
@@ -9,6 +10,7 @@ import {
   parseRange,
   QUOTA_EXCEEDED_PROBLEM,
   type ResticLockRegistry,
+  RUN_SIZE_HELD_PROBLEM,
 } from "./restic-rest.js";
 
 /** The lock registry of the API, in memory. */
@@ -43,6 +45,10 @@ async function call(
     locks?: ResticLockRegistry;
     remainingBytes?: number | null;
     quotaProblem?: { type: string; detail: string };
+    admitUpload?: (
+      declared: number | null,
+      resource: { kind: string; type?: string },
+    ) => Promise<{ type: string; detail: string } | null>;
   } = {},
 ) {
   const request = new Request(`http://localhost${path}${init.query ?? ""}`, {
@@ -68,6 +74,7 @@ async function call(
     remainingBytes:
       init.remainingBytes === undefined ? undefined : async () => init.remainingBytes ?? null,
     quotaProblem: init.quotaProblem,
+    admitUpload: init.admitUpload,
     onQuotaExceeded: ({ declaredBytes }) => {
       overBudget.push(declaredBytes);
     },
@@ -120,7 +127,7 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(storage.files.size).toBe(0);
   });
 
-  it("never overwrites an object for an agent (403), while maintenance may", async () => {
+  it("never overwrites an object for an agent (403), while maintenance may [RETAIN-013]", async () => {
     const storage = new MemoryStorage();
     const bytes = Buffer.from("original");
     const name = sha256(bytes);
@@ -134,7 +141,7 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(maintenance.response.status).toBe(200);
   });
 
-  it("lets an agent delete the locks it wrote and nothing else", async () => {
+  it("lets an agent delete the locks it wrote and nothing else [RETAIN-013]", async () => {
     const storage = new MemoryStorage();
     const locks = lockRegistry();
     const lock = Buffer.from("lock");
@@ -250,6 +257,115 @@ describe("restic REST protocol on the storage abstraction", () => {
     const storage = new MemoryStorage();
     const missing = await call(storage, "maintenance", "DELETE", `/locks/${"a".repeat(64)}`);
     expect(missing.response.status).toBe(404);
+  });
+
+  it("answers 403 when the storage refuses deletes (write-once share), so restic stops at once [RETAIN-010]", async () => {
+    // A 500 restic would try again for a quarter of an hour per file (restic unlock on a
+    // write-once share: the PVE pass held up for an hour); a 403 it takes as final.
+    class WriteOnceStorage extends MemoryStorage {
+      override async delete(key: string): Promise<void> {
+        throw Object.assign(new Error(`EPERM: operation not permitted, unlink '${key}'`), {
+          code: "EPERM",
+        });
+      }
+    }
+    const storage = new WriteOnceStorage();
+    const lock = Buffer.from("lock");
+    await call(storage, "maintenance", "POST", `/locks/${sha256(lock)}`, { body: lock });
+    const refused = await call(storage, "maintenance", "DELETE", `/locks/${sha256(lock)}`);
+    expect(refused.response.status).toBe(403);
+    expect((await refused.text()).toString()).toContain("refuses deletes");
+    expect(storage.files.size).toBe(1);
+    const repository = await call(storage, "maintenance", "DELETE", "/");
+    expect(repository.response.status).toBe(403);
+    expect((await repository.text()).toString()).toContain("refuses to delete 1 objects");
+    // Anything else still fails as before (the listener answers 500).
+    class BrokenStorage extends MemoryStorage {
+      override async delete(): Promise<void> {
+        throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+      }
+    }
+    const broken = new BrokenStorage();
+    await call(broken, "maintenance", "POST", `/locks/${sha256(lock)}`, { body: lock });
+    await expect(call(broken, "maintenance", "DELETE", `/locks/${sha256(lock)}`)).rejects.toThrow(
+      "connection reset",
+    );
+  });
+
+  it("tells a refused deletion from a passing fault", () => {
+    const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    expect(isDeleteRefused(eperm)).toBe(true);
+    expect(isDeleteRefused(new Error("wrapped", { cause: eperm }))).toBe(true);
+    expect(isDeleteRefused(Object.assign(new Error("ro"), { code: "EROFS" }))).toBe(true);
+    expect(isDeleteRefused(Object.assign(new Error("x"), { code: "ETIMEDOUT" }))).toBe(false);
+    expect(isDeleteRefused(new Error("plain"))).toBe(false);
+  });
+
+  describe("the run size guard (#99)", () => {
+    const pack = Buffer.alloc(2048, 9);
+    const name = sha256(pack);
+    const held = { type: RUN_SIZE_HELD_PROBLEM, detail: "The backup of fs1 was held." };
+
+    it("refuses an upload of a held run with its problem and writes nothing", async () => {
+      const storage = new MemoryStorage();
+      const asked: (number | null)[] = [];
+      const refused = await call(storage, "agent", "POST", `/data/${name}`, {
+        body: pack,
+        headers: { "content-length": String(pack.length) },
+        admitUpload: async (declared) => {
+          asked.push(declared);
+          return held;
+        },
+      });
+      expect(refused.response.status).toBe(403);
+      expect(JSON.parse((await refused.text()).toString())).toMatchObject({
+        type: RUN_SIZE_HELD_PROBLEM,
+        title: "Backup held as unusually large",
+        detail: held.detail,
+      });
+      expect(asked).toEqual([pack.length]);
+      expect(storage.files.size).toBe(0);
+      expect(refused.allowed).toEqual([]);
+    });
+
+    it("answers 503 when the guard cannot answer, so restic tries again, and says what an upload is", async () => {
+      const storage = new MemoryStorage();
+      const seen: string[] = [];
+      const failing = await call(storage, "agent", "POST", `/data/${name}`, {
+        body: pack,
+        admitUpload: async (_declared, resource) => {
+          seen.push(resource.type ?? resource.kind);
+          throw new Error("deadlock detected");
+        },
+      });
+      expect(failing.response.status).toBe(503);
+      expect(storage.files.size).toBe(0);
+      const index = Buffer.from("{}");
+      await call(storage, "agent", "POST", `/index/${sha256(index)}`, {
+        body: index,
+        admitUpload: async (_declared, resource) => {
+          seen.push(resource.type ?? resource.kind);
+          return null;
+        },
+      });
+      expect(seen).toEqual(["data", "index"]);
+    });
+
+    it("never asks for a lock file, so a held run can still release its lock", async () => {
+      const storage = new MemoryStorage();
+      const lock = Buffer.from("lock");
+      let asked = 0;
+      const written = await call(storage, "agent", "POST", `/locks/${sha256(lock)}`, {
+        body: lock,
+        locks: lockRegistry(),
+        admitUpload: async () => {
+          asked++;
+          return held;
+        },
+      });
+      expect(written.response.status).toBe(200);
+      expect(asked).toBe(0);
+    });
   });
 
   describe("storage budget", () => {

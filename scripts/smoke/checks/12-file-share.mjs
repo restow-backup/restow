@@ -23,6 +23,7 @@
  * 16.3 cover it), and a file locked by an open handle (needs a Windows client holding the
  * handle; the denied file stands in for the per-file warning path).
  */
+// claim: RESTORE-012 (docs/CLAIMS.md: a folder restored into a new folder with its permissions, and "keep both")
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ApiError } from "../lib/api.mjs";

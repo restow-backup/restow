@@ -253,6 +253,8 @@ export function imapMode(input: {
 export interface ImapCaptureWayOptions {
   readonly connector?: ImapConnector;
   readonly settings?: Partial<ImapCaptureSettings>;
+  /** Batch sizes of the capture (tests make them small); the core's defaults otherwise. */
+  readonly limits?: archive.ImapCaptureLimits;
   readonly env?: Env;
   /** Account resolution (tests replace it). */
   readonly loadAccount?: typeof loadImapAccount;
@@ -345,10 +347,24 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
         archive.catchUpImapCapture(session, previous, sink(ctx), {
           gmail: loaded.gmail,
           rescan: ctx.reason === "resync",
+          ...(options.limits ? { limits: options.limits } : {}),
+          gaps: ctx.gaps,
           logger: ctx.logger,
           checkpoint: (state) => ctx.checkpoint(withImapState(ctx.stream.state, state)),
         }),
       );
+      if (result.serverLimited) {
+        ctx.logger.warn(
+          "imap archive capture stopped at the account's server limit; the next pass resumes",
+        );
+      }
+      if (result.foldersFailed > 0 || result.undeliverable > 0) {
+        // Recorded as gaps (./gaps.ts): the stream shows them, the capture alert names them.
+        ctx.logger.warn("imap archive capture left folders or messages out this pass", {
+          foldersFailed: result.foldersFailed,
+          undeliverable: result.undeliverable,
+        });
+      }
       const watched = settings.idleMax > 0 && (await idleWatched(ctx.db, ctx.stream.id));
       const minutes = watched ? settings.watchedPassMinutes : settings.loginPollMinutes;
       return {
@@ -365,13 +381,30 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
       const start = archive.readImapBackfillCursor(saved?.[CURSOR_KEY]);
       const result = await withSession(ctx, loaded, (session) =>
         archive.backfillImapCapture(session, state, start, sink(ctx), {
+          ...(options.limits ? { limits: options.limits } : {}),
+          gaps: ctx.gaps,
           logger: ctx.logger,
           deadline: ctx.now().getTime() + settings.backfillBudgetMs,
           now: () => ctx.now().getTime(),
           saveCursor: (cursor) => ctx.job.cursor.save({ ...(saved ?? {}), [CURSOR_KEY]: cursor }),
         }),
       );
-      return { captured: result.captured, skipped: result.skipped, completed: result.completed };
+      // What waits for a later job is a failed item of this one: a run that could not take
+      // those in is never a plain success in Jobs.
+      for (const item of result.waiting) {
+        ctx.job.progress.fail(
+          item.ref,
+          item.reason === "undelivered"
+            ? "the server listed this message but did not deliver it; a later run asks again"
+            : `the server refused this folder (${item.reason}); a later run tries again`,
+        );
+      }
+      return {
+        captured: result.captured,
+        skipped: result.skipped,
+        completed: result.completed,
+        retryLater: result.retryLater,
+      };
     },
 
     start(services) {

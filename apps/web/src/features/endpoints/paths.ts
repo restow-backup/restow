@@ -76,6 +76,13 @@ export function endpointDetailTo(endpointId: string): LinkProps["to"] {
   return `${INVENTORY_PATH}/${encodeURIComponent(endpointId)}` as LinkProps["to"];
 }
 
+/** The bare metal restore wizard of a machine (docs/BAREMETAL.md 14.6). */
+export const BAREMETAL_WIZARD_PATTERN = `${INVENTORY_PATH}/$endpointId/bare-metal`;
+
+export function baremetalWizardTo(endpointId: string): LinkProps["to"] {
+  return `${INVENTORY_PATH}/${encodeURIComponent(endpointId)}/bare-metal` as LinkProps["to"];
+}
+
 /** The list a machine of this profile belongs to. */
 export function areaOfProfile(profile: EndpointProfile): EndpointArea {
   return profile === "server" ? "servers" : "clients";
@@ -92,7 +99,8 @@ export function profileOfArea(area: EndpointArea): EndpointProfile | undefined {
   return undefined;
 }
 
-export const ENDPOINT_TABS = ["overview", "snapshots", "settings"] as const;
+/** `sql`: SQL Server (preview), shown only for a Windows machine that reports SQL Server. */
+export const ENDPOINT_TABS = ["overview", "snapshots", "sql", "settings"] as const;
 export type EndpointTab = (typeof ENDPOINT_TABS)[number];
 
 /** The tab named in the URL (`?tab=snapshots`); anything else opens the overview. */

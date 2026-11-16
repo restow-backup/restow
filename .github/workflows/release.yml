@@ -4,8 +4,20 @@ name: Release
 # package.json and have a finished CHANGELOG.md section with a real date. Then:
 #
 #   verify -> ci (the full CI on the tagged commit)
-#          -> agent (the endpoint agent for every target; its SHA256SUMS goes
-#                    to a DRAFT GitHub release as agent-SHA256SUMS)
+#          -> agent (builds the endpoint agent for every target and keeps the
+#                    build as a workflow artifact; it does not touch the release)
+#          -> agent-windows-check (on a Windows runner: the Windows files match
+#                    their SHA256SUMS and report the release versions)
+#          -> recovery-iso, recovery-iso-rebuild (the recovery ISO from the
+#                    linux-amd64 agent of this build, twice, on two runner images;
+#                    the first also writes the firmware licences and the source
+#                    bundle of the GPL packages, docs/BAREMETAL.md 8.3 to 8.7)
+#          -> recovery-e2e-full (every restore case in QEMU/KVM against that ISO,
+#                    recovery-nightly.yml)
+#          -> agent-sums (adds recovery/restow-recovery_<v>_amd64.iso to the
+#                    build's SHA256SUMS when both ISO builds are equal, puts it on a
+#                    DRAFT GitHub release as agent-SHA256SUMS and asks the maintainer
+#                    to rebuild the ISO and sign it)
 #          -> agent-signature (waits in the environment agent-release-signing
 #                    until the maintainer signed agent-SHA256SUMS offline with
 #                    scripts/release/sign-agent.sh; checks the signature
@@ -71,6 +83,7 @@ jobs:
       community_web_image: ${{ steps.names.outputs.community_web_image }}
       demo_seed_image: ${{ steps.names.outputs.demo_seed_image }}
       demo_dovecot_image: ${{ steps.names.outputs.demo_dovecot_image }}
+      lab_image: ${{ steps.names.outputs.lab_image }}
       previous_version: ${{ steps.previous.outputs.version }}
       created: ${{ steps.names.outputs.created }}
     steps:
@@ -205,6 +218,7 @@ jobs:
             echo "community_web_image=$image-web-community"
             echo "demo_seed_image=$image-demo-seed"
             echo "demo_dovecot_image=$image-demo-dovecot"
+            echo "lab_image=$image-lab"
             echo "created=$(git log -1 --format=%cI "$GITHUB_SHA")"
           } >> "$GITHUB_OUTPUT"
 
@@ -230,13 +244,24 @@ jobs:
     permissions:
       contents: read
 
+  sql-server:
+    # The native SQL Server backup (docs/BAREMETAL-WINDOWS.md 8.2): strict, so a release is never
+    # published on an "incomplete" because SQL Server could not be downloaded.
+    name: SQL Server
+    needs: verify
+    uses: ./.github/workflows/sql-server.yml
+    with:
+      strict: true
+    permissions:
+      contents: read
+
   agent:
-    name: Agent release (draft)
+    name: Agent release (build)
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      contents: write # the draft release
+      contents: read
     env:
       VERSION: ${{ needs.verify.outputs.version }}
     steps:
@@ -266,6 +291,186 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  agent-windows-check:
+    name: Agent release (Windows check)
+    # The Windows binaries are cross-compiled on Linux; they run here once before the
+    # checksum list goes on the draft, so nothing that does not start on Windows is ever
+    # signed (docs/WINDOWS-AGENT.md, section 3.6).
+    needs: [verify, agent]
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: agent-dist
+
+      - name: The Windows files match their SHA256SUMS and report the release versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $PWD 'agent-dist\windows-amd64'
+          $lines = Get-Content -LiteralPath (Join-Path $dir 'SHA256SUMS')
+          foreach ($name in 'restow-agent.exe', 'restic.exe', 'THIRD_PARTY_NOTICES.txt') {
+            $line = $lines | Where-Object { $_ -match "^[0-9a-f]{64}  $([regex]::Escape($name))$" }
+            if (-not $line) { throw "windows-amd64/SHA256SUMS does not list $name" }
+            $want = ($line -split '  ')[0]
+            $have = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir $name)).Hash.ToLowerInvariant()
+            if ($have -ne $want) { throw "$name hashes to $have, SHA256SUMS says $want" }
+          }
+          $agent = (& (Join-Path $dir 'restow-agent.exe') version --short).Trim()
+          if ($LASTEXITCODE -ne 0 -or $agent -ne $env:VERSION) { throw "restow-agent.exe reports '$agent', expected $env:VERSION" }
+          $pinned = (Get-Content -LiteralPath 'agent-dist\RESTIC_VERSION').Trim()
+          $restic = (& (Join-Path $dir 'restic.exe') version) -join ' '
+          if ($LASTEXITCODE -ne 0 -or $restic -notmatch "^restic $([regex]::Escape($pinned)) ") { throw "restic.exe reports '$restic', pinned $pinned" }
+          Write-Output "restow-agent.exe $agent and restic.exe $pinned run on Windows"
+          # Creating and removing the service joins this job with the Windows service
+          # manager (docs/WINDOWS-AGENT.md, section 9.1).
+
+  recovery-iso:
+    name: Recovery ISO (build, image checks, licences, sources)
+    # docs/BAREMETAL.md 8.5: from the linux-amd64 agent just built. The privileged build
+    # container gets the build variables only; no secret is in this job.
+    needs: [verify, agent]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO and the source bundle
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$VERSION" --out "$RUNNER_TEMP/recovery" --sources
+          rm -rf "$RUNNER_TEMP/recovery/build" "$RUNNER_TEMP/recovery/sources" "$RUNNER_TEMP/recovery/build.env"
+
+      - name: Image checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools xorriso
+          sudo sh integrations/recovery/test/check-image.sh "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" "$VERSION"
+
+      - name: Keep the ISO, its licences and sources
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-recovery-iso
+          path: ${{ runner.temp }}/recovery
+          if-no-files-found: error
+          retention-days: 7
+
+  recovery-iso-rebuild:
+    name: Recovery ISO (second build on another runner image)
+    needs: [verify, agent]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TZ: Pacific/Auckland
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO again
+        run: |
+          set -euo pipefail
+          umask 077
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$VERSION" --out "$RUNNER_TEMP/recovery"
+
+      - name: Keep the hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-recovery-iso-rebuild
+          path: ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  recovery-e2e-full:
+    name: Recovery end to end (every case)
+    needs: [verify, agent, recovery-iso]
+    uses: ./.github/workflows/recovery-nightly.yml
+    permissions:
+      contents: read
+    with:
+      cases: all
+      iso-artifact: release-recovery-iso
+      agent-artifact: agent-dist
+
+  agent-sums:
+    name: Agent release (checksums on the draft)
+    # After the Windows check: only now does the checksum list go on the draft and the
+    # maintainer get the request to sign it.
+    needs: [verify, agent, agent-windows-check, recovery-iso, recovery-iso-rebuild, recovery-e2e-full]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the draft release
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: The two ISO builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-recovery-iso*
+          path: ${{ runner.temp }}/recovery
+
+      - name: Add the recovery ISO to the checksums when both builds agree (docs/BAREMETAL.md 8.5)
+        run: |
+          set -euo pipefail
+          name="restow-recovery_${VERSION}_amd64.iso"
+          first="$(cut -d ' ' -f 1 "$RUNNER_TEMP/recovery/release-recovery-iso/$name.sha256")"
+          second="$(cut -d ' ' -f 1 "$RUNNER_TEMP/recovery/release-recovery-iso-rebuild/$name.sha256")"
+          have="$(sha256sum "$RUNNER_TEMP/recovery/release-recovery-iso/$name" | cut -d ' ' -f 1)"
+          if [ "$first" != "$second" ] || [ "$first" != "$have" ]; then
+            echo "::error::the two builds of the recovery ISO differ ($first, $second); it is not listed or released."
+            exit 1
+          fi
+          printf '%s  recovery/%s\n' "$first" "$name" >> "$RUNNER_TEMP/agent-dist/SHA256SUMS"
+          echo "::notice::recovery/$name SHA-256 $first (both builds)"
+
+      - name: Hand the checksums with the ISO line to the signature job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-dist-sums
+          path: ${{ runner.temp }}/agent-dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Put agent-SHA256SUMS on the draft release (the maintainer signs it)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -283,11 +488,22 @@ jobs:
               --notes "Draft: waiting for the agent signature (scripts/release/sign-agent.sh $GITHUB_REF_NAME)." \
               "$RUNNER_TEMP/agent-SHA256SUMS"
           fi
-          echo "::notice::Sign the agent now, on the signing machine: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key>"
+          # The Windows binaries are unsigned (no Authenticode): Defender allow-listing
+          # and the Microsoft submission go by their SHA-256 (docs/WINDOWS-AGENT.md, section 15).
+          sums="$RUNNER_TEMP/agent-dist/windows-amd64/SHA256SUMS"
+          if [ -f "$sums" ]; then
+            while read -r sum name; do
+              case "$name" in
+                restow-agent.exe | restic.exe) echo "::notice::windows-amd64/$name SHA-256 $sum" ;;
+              esac
+            done < "$sums"
+            echo "::notice::Before signing: submit windows-amd64/restow-agent.exe and restic.exe of this build to Microsoft (https://www.microsoft.com/wdsi/filesubmission, Software developer) unless they were submitted for this prerelease already (docs/WINDOWS-AGENT.md, section 15)."
+          fi
+          echo "::notice::Rebuild the recovery ISO from the tag on your own Docker host (scripts/release/sign-agent.sh --help), then sign: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key> --iso <rebuilt ISO>"
 
   agent-signature:
     name: Agent signature (maintainer, offline)
-    needs: [verify, agent]
+    needs: [verify, agent, agent-windows-check, agent-sums]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The maintainer approves this job after signing (sign-agent.sh does it).
@@ -302,6 +518,12 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-dist
+          path: agent-dist
+
+      - name: The checksums with the recovery ISO's line (agent-sums)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist-sums
           path: agent-dist
 
       - name: Download the signature from the draft
@@ -363,7 +585,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -482,6 +704,26 @@ jobs:
           cache-from: type=gha,scope=release-demo-dovecot-${{ matrix.arch }}
           cache-to: type=gha,scope=release-demo-dovecot-${{ matrix.arch }},mode=max
 
+      # The recovery lab of the boot probe (docs/BAREMETAL.md 12.3): amd64 only (QEMU and OVMF
+      # for x86_64 guests). Optional in an installation (install.sh --with-recovery-lab).
+      - name: Build and push the recovery lab image by digest
+        id: lab
+        if: matrix.arch == 'amd64'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: lab
+          platforms: linux/amd64
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.lab_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
       - name: Record the digests
         env:
           APP_DIGEST: ${{ steps.app.outputs.digest }}
@@ -490,8 +732,13 @@ jobs:
           COMMUNITY_WEB_DIGEST: ${{ steps.community_web.outputs.digest }}
           DEMO_SEED_DIGEST: ${{ steps.demo_seed.outputs.digest }}
           DEMO_DOVECOT_DIGEST: ${{ steps.demo_dovecot.outputs.digest }}
+          LAB_DIGEST: ${{ steps.lab.outputs.digest }}
         run: |
           mkdir -p digests
+          if [ -n "$LAB_DIGEST" ]; then
+            printf '%s' "$LAB_DIGEST" > "digests/lab-${{ matrix.arch }}"
+            echo "recovery lab   ${{ matrix.arch }}: $LAB_DIGEST"
+          fi
           printf '%s' "$APP_DIGEST" > "digests/app-${{ matrix.arch }}"
           printf '%s' "$WEB_DIGEST" > "digests/web-${{ matrix.arch }}"
           printf '%s' "$COMMUNITY_APP_DIGEST" > "digests/community-app-${{ matrix.arch }}"
@@ -558,7 +805,7 @@ jobs:
           path: digests
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -627,9 +874,9 @@ jobs:
 
   publish:
     name: Publish
-    needs: [verify, ci, release-smoke]
+    needs: [verify, ci, sql-server, release-smoke, recovery-iso]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write # the GitHub release and its assets
       packages: write # the image tags and signatures
@@ -641,6 +888,7 @@ jobs:
       COMMUNITY_WEB_IMAGE: ${{ needs.verify.outputs.community_web_image }}
       DEMO_SEED_IMAGE: ${{ needs.verify.outputs.demo_seed_image }}
       DEMO_DOVECOT_IMAGE: ${{ needs.verify.outputs.demo_dovecot_image }}
+      LAB_IMAGE: ${{ needs.verify.outputs.lab_image }}
       VERSION: ${{ needs.verify.outputs.version }}
       TAGS: ${{ needs.verify.outputs.tags }}
     steps:
@@ -666,7 +914,7 @@ jobs:
           path: reports
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -702,13 +950,26 @@ jobs:
           demo_seed $DEMO_SEED_IMAGE demo-seed
           demo_dovecot $DEMO_DOVECOT_IMAGE demo-dovecot
           EOF
+          # The recovery lab: amd64 only, one manifest of one platform.
+          refs=()
+          for tag in "${tags[@]}"; do
+            refs+=(--tag "$LAB_IMAGE:$tag")
+          done
+          lab_amd64="$LAB_IMAGE@$(cat digests/lab-amd64)"
+          docker buildx imagetools create "${refs[@]}" "$lab_amd64"
+          lab_index="$(docker buildx imagetools inspect "$LAB_IMAGE:$first" --format '{{json .Manifest}}' | jq -r .digest)"
+          {
+            echo "lab_index=$lab_index"
+            echo "lab_amd64=$lab_amd64"
+          } >> "$GITHUB_OUTPUT"
+          echo "$LAB_IMAGE@$lab_index"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: v3.1.3
 
-      - name: Sign all six images (keyless, GitHub OIDC)
+      - name: Sign all seven images (keyless, GitHub OIDC)
         env:
           APP_INDEX: ${{ steps.tag.outputs.app_index }}
           WEB_INDEX: ${{ steps.tag.outputs.web_index }}
@@ -716,6 +977,7 @@ jobs:
           COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
           DEMO_SEED_INDEX: ${{ steps.tag.outputs.demo_seed_index }}
           DEMO_DOVECOT_INDEX: ${{ steps.tag.outputs.demo_dovecot_index }}
+          LAB_INDEX: ${{ steps.tag.outputs.lab_index }}
         run: |
           set -euo pipefail
           cosign sign --yes "$IMAGE@$APP_INDEX"
@@ -724,6 +986,7 @@ jobs:
           cosign sign --yes "$COMMUNITY_WEB_IMAGE@$COMMUNITY_WEB_INDEX"
           cosign sign --yes "$DEMO_SEED_IMAGE@$DEMO_SEED_INDEX"
           cosign sign --yes "$DEMO_DOVECOT_IMAGE@$DEMO_DOVECOT_INDEX"
+          cosign sign --yes "$LAB_IMAGE@$LAB_INDEX"
 
       - name: Install syft
         uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
@@ -742,6 +1005,7 @@ jobs:
           DEMO_SEED_ARM64: ${{ steps.tag.outputs.demo_seed_arm64 }}
           DEMO_DOVECOT_AMD64: ${{ steps.tag.outputs.demo_dovecot_amd64 }}
           DEMO_DOVECOT_ARM64: ${{ steps.tag.outputs.demo_dovecot_arm64 }}
+          LAB_AMD64: ${{ steps.tag.outputs.lab_amd64 }}
         run: |
           set -euo pipefail
           mkdir -p assets
@@ -762,7 +1026,15 @@ jobs:
           restow-demo-seed-$VERSION-linux-arm64 $DEMO_SEED_ARM64
           restow-demo-dovecot-$VERSION-linux-amd64 $DEMO_DOVECOT_AMD64
           restow-demo-dovecot-$VERSION-linux-arm64 $DEMO_DOVECOT_ARM64
+          restow-lab-$VERSION-linux-amd64 $LAB_AMD64
           EOF
+
+      - name: The Debian sources of the recovery lab image (licenses/restow-lab-NOTICES.md)
+        env:
+          LAB_AMD64: ${{ steps.tag.outputs.lab_amd64 }}
+        run: |
+          set -euo pipefail
+          sh scripts/docker/lab-sources.sh --image "$LAB_AMD64" --version "$VERSION" --out assets
 
       - name: The agent binaries (taken from the image that was smoke-tested)
         env:
@@ -775,7 +1047,9 @@ jobs:
           mkdir -p assets
           for dir in agent-tree/*/; do
             target="$(basename "$dir")"
-            cp "$dir/restow-agent" "assets/restow-agent_${VERSION}_${target}"
+            exe=""
+            case "$target" in windows-*) exe=".exe" ;; esac
+            cp "$dir/restow-agent$exe" "assets/restow-agent_${VERSION}_${target}$exe"
           done
           # The license notices that travel with the agent (the same file in every target folder).
           cp agent-tree/linux-amd64/THIRD_PARTY_NOTICES.txt assets/restow-agent-THIRD_PARTY_NOTICES.txt
@@ -789,6 +1063,7 @@ jobs:
           WEB_INDEX: ${{ steps.tag.outputs.web_index }}
           COMMUNITY_APP_INDEX: ${{ steps.tag.outputs.community_app_index }}
           COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
+          LAB_INDEX: ${{ steps.tag.outputs.lab_index }}
         run: |
           set -euo pipefail
           cp reports/smoke-report-amd64/smoke-report-amd64.md assets/smoke-report.md
@@ -797,6 +1072,8 @@ jobs:
           cp reports/smoke-report-community-arm64/smoke-report-community-arm64.md assets/smoke-report-community-arm64.md
           cp deploy/release/docker-compose.yml assets/docker-compose.yml
           cp deploy/release/.env.example assets/env.example
+          # A worker node of another host (install.sh --join, docs/SIZING.md): signed in SHA256SUMS too.
+          cp deploy/release/docker-compose.worker.yml assets/docker-compose.worker.yml
           # The server install script and its own checksum file (for `sha256sum -c` right
           # after the download); both are listed in SHA256SUMS below and so signed with it.
           cp deploy/install/install.sh assets/install.sh
@@ -820,13 +1097,14 @@ jobs:
             echo "$COMMUNITY_WEB_IMAGE:$VERSION"
             echo "\`\`\`"
             echo
-            echo "The digests of the multi-arch manifests (the opt-in updater verifies the pulled images against the two lines of its build):"
+            echo "The digests of the manifests (the opt-in updater verifies the pulled images against the two lines of its build, and the recovery lab's against the restow-lab line where an installation runs the lab):"
             echo
             echo "\`\`\`"
             echo "restow: $APP_INDEX"
             echo "restow-web: $WEB_INDEX"
             echo "restow-community: $COMMUNITY_APP_INDEX"
             echo "restow-web-community: $COMMUNITY_WEB_INDEX"
+            echo "restow-lab: $LAB_INDEX"
             echo "\`\`\`"
             echo
             echo "The release date the images carry (RESTOW_RELEASED_AT, the commit date of the tag). Licence keys with an update period cover the releases made up to its end; the updater reads this line to offer only those (docs/LICENSING.md):"
@@ -845,9 +1123,34 @@ jobs:
             done
             echo "\`\`\`"
             echo
+            echo "The recovery lab's image, \`$LAB_IMAGE:$VERSION\` (linux/amd64 only; install.sh --with-recovery-lab, docs/BAREMETAL.md), serves both builds and is signed the same way."
+            echo
             echo "The public demo's own images, \`$DEMO_SEED_IMAGE:$VERSION\` and \`$DEMO_DOVECOT_IMAGE:$VERSION\` (deploy/demo), carry the same tags, signatures and SBOMs; they are no part of an installation."
             echo
-            echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
+            winsums="agent-tree/windows-amd64/SHA256SUMS"
+            if [ -f "$winsums" ]; then
+              echo "### Windows agent (preview)"
+              echo
+              echo "restow-agent.exe and restic.exe are not Authenticode-signed. Their SHA-256, for Microsoft Defender allow-listing by hash (the release signature in agent-SHA256SUMS.sig covers them as well):"
+              echo
+              echo "\`\`\`"
+              grep -E '  (restow-agent|restic)\.exe$' "$winsums"
+              echo "\`\`\`"
+              echo "Release signing key (agent/release-signing.pub): $(ssh-keygen -l -f agent/release-signing.pub)"
+              echo
+            fi
+            echo "### Recovery ISO (preview)"
+            echo
+            echo "restow-recovery_${VERSION}_amd64.iso restores a Linux machine from its whole machine backup onto new disks (docs/BAREMETAL.md). agent-SHA256SUMS lists it as recovery/restow-recovery_${VERSION}_amd64.iso and is signed with the release key; check it with the key of the Git tag (agent/release-signing.pub), not with one an instance shows:"
+            echo
+            echo "\`\`\`"
+            echo "scripts/release/verify-agent-signature.sh agent-SHA256SUMS agent-SHA256SUMS.sig release-signing.pub"
+            echo "grep ' recovery/restow-recovery_${VERSION}_amd64.iso\$' agent-SHA256SUMS | sed 's# recovery/# #' | sha256sum -c -"
+            echo "\`\`\`"
+            echo
+            echo "restow-recovery_${VERSION}_FIRMWARE-LICENSES.txt holds the licences of the non-free firmware in the image; restow-recovery_${VERSION}_sources.txt and restow-recovery_${VERSION}_sources.tar (in parts when large) are the source code of every package in it."
+            echo
+            echo "docker-compose.yml and env.example are the release stack (deploy/release/), docker-compose.worker.yml the stack of a worker node on another host (install.sh --join); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md
 
           (cd assets && sha256sum -- * > SHA256SUMS)
@@ -871,12 +1174,32 @@ jobs:
           # The agent in the image is the signed one: every binary taken from it is in the signed list.
           for file in assets/restow-agent_"$VERSION"_*; do
             target="${file##*_}"
+            exe=""
+            case "$target" in *.exe) target="${target%.exe}"; exe=".exe" ;; esac
             sum="$(sha256sum "$file" | cut -d ' ' -f 1)"
-            grep -qx "$sum  $target/restow-agent" agent-signed/agent-SHA256SUMS || {
+            grep -qx "$sum  $target/restow-agent$exe" agent-signed/agent-SHA256SUMS || {
               echo "::error::The agent for $target in the image is not the signed build."
               exit 1
             }
           done
+
+      - name: The recovery ISO, its firmware licences and the GPL source bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-recovery-iso
+          path: recovery-assets
+
+      - name: The recovery ISO is the one the signed checksums name
+        run: |
+          set -euo pipefail
+          name="restow-recovery_${VERSION}_amd64.iso"
+          sum="$(sha256sum "recovery-assets/$name" | cut -d ' ' -f 1)"
+          grep -qx "$sum  recovery/$name" agent-signed/agent-SHA256SUMS || {
+            echo "::error::recovery-assets/$name is not the ISO of the signed agent-SHA256SUMS."
+            exit 1
+          }
+          rm -f "recovery-assets/$name.sha256"
+          ls -l recovery-assets
 
       - name: Publish the GitHub release
         env:
@@ -891,10 +1214,13 @@ jobs:
             flags+=(--prerelease)
           fi
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            # The draft of the agent job (or a re-run of a release that got this far): fill and publish it.
+            # The draft of the agent-sums job (or a re-run of a release that got this far): fill and publish it.
             gh release upload "$GITHUB_REF_NAME" --clobber assets/*
+            # The recovery ISO and its attachments (docs/BAREMETAL.md 8.5, 8.7): covered by
+            # agent-SHA256SUMS (the ISO) or plain attachments, not in the SHA256SUMS above.
+            gh release upload "$GITHUB_REF_NAME" --clobber recovery-assets/*
             gh release edit "$GITHUB_REF_NAME" --title "Restow $VERSION" --notes-file notes.md --draft=false "${flags[@]}"
           else
-            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent job did not run."
+            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent-sums job did not run."
             exit 1
           fi

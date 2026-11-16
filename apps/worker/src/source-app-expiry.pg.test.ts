@@ -121,12 +121,12 @@ describe.skipIf(!adminUrl)("source.app_secret_expiring against Postgres", () => 
       )
     )[0]?.config;
 
-  it("stays silent while the end is further than 30 days away", async () => {
+  it("stays silent while the end is further than 30 days away [ALERT-007]", async () => {
     expect(await alertSourceAppSecrets(deps, at(40))).toBe(0);
     expect(await q("SELECT 1 FROM notifications")).toHaveLength(0);
   });
 
-  it("reminds 30 days before, once, and keeps the API's config keys", async () => {
+  it("reminds 30 days before, once, and keeps the API's config keys [ALERT-007]", async () => {
     expect(await alertSourceAppSecrets(deps, at(30))).toBe(1);
     const [first] = await bell(secretSource);
     expect(first).toMatchObject({
@@ -165,7 +165,7 @@ describe.skipIf(!adminUrl)("source.app_secret_expiring against Postgres", () => 
     expect(await bell(secretSource)).toHaveLength(1);
   });
 
-  it("reminds again 7 days before and once it has expired, the last time as an error", async () => {
+  it("reminds again 7 days before and once it has expired, the last time as an error [ALERT-007]", async () => {
     expect(await alertSourceAppSecrets(deps, at(7))).toBe(1);
     expect(await alertSourceAppSecrets(deps, at(3))).toBe(0);
     expect(await alertSourceAppSecrets(deps, at(0))).toBe(1);

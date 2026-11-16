@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# A lock of three packages for test/unit.sh.
+kmod 34.2-1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+lvm2 2.03.31-2 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+mdadm 4.4-11 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc

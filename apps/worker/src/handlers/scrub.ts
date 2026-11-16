@@ -33,6 +33,12 @@
  *     at the next weekly verify; and a green "cleared" finding for every
  *     object whose latest finding named only packs this run read intact
  *     again, which ends that finding (verification-state.ts in the API)
+ *   - asks every target for the manifest of each active snapshot (a sample
+ *     run: the newest of each object; core `findMissingManifests`), except
+ *     while a storage migration runs and for snapshots from before a "keep"
+ *     replacement; a manifest no target has while the targets hold the
+ *     tenant's other data files a red `manifest_missing` finding for its
+ *     object, the same evidence a restore check records
  *   - keeps the run of failed checks of every unreadable pack in
  *     `pack_read_failures` (core `runScrub` through {@link PgPackCatalog})
  *   - excludes packs a "keep" storage replacement left on its retired,
@@ -57,11 +63,18 @@
  * by SHA-256.
  */
 import {
+  type ActiveManifest,
+  type ArchiveRecordCatalog,
+  type ArchiveRecordPosition,
+  type ArchiveRecordRetention,
   type CatalogChunk,
   type CatalogPack,
+  deletionDecision,
+  findMissingManifests,
   type GcBlocker,
   isPersistentlyUnreadable,
   type JobQueue,
+  type ManifestPresence,
   mirrorTenantStorage,
   type PackCatalog,
   type PackCheck,
@@ -84,6 +97,7 @@ import {
   objectsReferencingChunks,
   packReadFailures,
   packs,
+  snapshots,
   storageMigrations,
   storageTargets,
   verifyReports,
@@ -91,11 +105,15 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
+import { pruneTenantProgressMarkers } from "../restore-mode.js";
+import { archiveRecordRetention, pgArchiveRecordCatalog } from "./archive-records.js";
 import {
   abandonedCheckpointProbe,
   discardAbandonedSnapshots,
   type JobHandler,
   type JobOutcome,
+  primaryWriteOnce,
+  type ResolvedTenantStorage,
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
@@ -816,17 +834,21 @@ export function scrubNotifications(
   report: Pick<ScrubReport, "corrupt" | "repaired" | "mode"> &
     Partial<Pick<ScrubReport, "unreadable">>,
   affectedObjects: number,
+  missingManifests: readonly ActiveManifest[] = [],
 ): NewNotification[] {
   const result: NewNotification[] = [];
   // A pack that is only temporarily unreadable raises nothing: the next check reads it first.
   const persistent = (report.unreadable ?? []).filter((pack) => pack.unreadable.persistent);
-  if (report.corrupt.length > 0 || persistent.length > 0) {
+  if (report.corrupt.length > 0 || persistent.length > 0 || missingManifests.length > 0) {
     const parts = [
       report.corrupt.length > 0
         ? `${report.corrupt.length} pack files are damaged on every storage target and could not be repaired.`
         : null,
       persistent.length > 0
         ? `${persistent.length} pack files could not be read in several consecutive storage checks over more than a day.`
+        : null,
+      missingManifests.length > 0
+        ? `${missingManifests.length} backup manifests are gone from every storage target; those backups cannot be restored.`
         : null,
     ].filter((part): part is string => part !== null);
     result.push({
@@ -839,6 +861,7 @@ export function scrubNotifications(
         mode: report.mode,
         corrupt: report.corrupt.length,
         unreadable: persistent.length,
+        ...(missingManifests.length > 0 ? { manifests: missingManifests.length } : {}),
         affectedObjects,
         packs: [...report.corrupt, ...persistent].slice(0, 20).map((pack) => pack.path),
       },
@@ -861,11 +884,66 @@ export function scrubNotifications(
   return result;
 }
 
+/**
+ * The manifests the storage check asks for: every active snapshot's on a full run, the newest
+ * of each object otherwise; none from before a "keep" replacement (they live on the retired
+ * target only).
+ */
+export async function loadActiveManifests(
+  run: TenantTxRunner,
+  tenantId: string,
+  options: { readonly newestOnly: boolean; readonly keepCutover: Date | null },
+): Promise<ActiveManifest[]> {
+  const result = await run((tx) =>
+    tx.execute<{ id: string; protected_object_id: string; manifest_path: string }>(sql`
+      SELECT ${options.newestOnly ? sql`DISTINCT ON (s.protected_object_id)` : sql``}
+             s.id, s.protected_object_id, s.manifest_path
+        FROM ${snapshots} AS s
+       WHERE s.tenant_id = ${tenantId}::uuid
+         AND s.status = 'active'
+         AND s.manifest_path IS NOT NULL
+         ${options.keepCutover ? sql`AND s.completed_at >= ${options.keepCutover.toISOString()}::timestamptz` : sql``}
+       ORDER BY s.protected_object_id, s.sequence DESC`),
+  );
+  return result.rows.map((row) => ({
+    snapshotId: row.id,
+    protectedObjectId: row.protected_object_id,
+    path: row.manifest_path,
+  }));
+}
+
+/** The missing manifests whose snapshot is still active (retention may have pruned it meanwhile). */
+async function stillActive(
+  tx: TenantTx,
+  tenantId: string,
+  missing: readonly ActiveManifest[],
+): Promise<ActiveManifest[]> {
+  if (missing.length === 0) {
+    return [];
+  }
+  const rows = await tx
+    .select({ id: snapshots.id })
+    .from(snapshots)
+    .where(
+      and(
+        eq(snapshots.tenantId, tenantId),
+        eq(snapshots.status, "active"),
+        inArray(
+          snapshots.id,
+          missing.map((manifest) => manifest.snapshotId),
+        ),
+      ),
+    );
+  const active = new Set(rows.map((row) => row.id));
+  return missing.filter((manifest) => active.has(manifest.snapshotId));
+}
+
 async function persistReport(
   run: TenantTxRunner,
   ctx: WorkerJobContext,
   report: ScrubReport,
   copies: CopyMirrorSummary | null,
+  manifests: ManifestPresence | null = null,
 ): Promise<number> {
   return run(async (tx) => {
     const flagged: PackCheck[] = [...report.corrupt, ...report.unreadable];
@@ -873,6 +951,17 @@ async function persistReport(
       flagged.length > 0
         ? await objectsUsingPacks(tx, ctx.tenantId, flagged)
         : new Map<string, PackCheck[]>();
+    const missingManifests = await stillActive(tx, ctx.tenantId, manifests?.missing ?? []);
+    const manifestsOf = new Map<string, ActiveManifest[]>();
+    for (const manifest of missingManifests) {
+      manifestsOf.set(manifest.protectedObjectId, [
+        ...(manifestsOf.get(manifest.protectedObjectId) ?? []),
+        manifest,
+      ]);
+      if (!affected.has(manifest.protectedObjectId)) {
+        affected.set(manifest.protectedObjectId, []);
+      }
+    }
     const checkedAt = ctx.now();
     for (const batch of batches([...affected.entries()])) {
       await tx.insert(verifyReports).values(
@@ -881,6 +970,7 @@ async function persistReport(
             ctx.jobId,
             used.filter((pack) => !isUnreadableCheck(pack)),
             used.filter(isUnreadableCheck),
+            manifestsOf.get(protectedObjectId) ?? [],
           );
           return {
             tenantId: ctx.tenantId,
@@ -917,10 +1007,12 @@ async function persistReport(
     const persistentlyUnreadable = new Set(
       report.unreadable.filter((pack) => pack.unreadable.persistent).map((pack) => pack.path),
     );
-    const notified = [...affected.values()].filter((used) =>
-      used.some((pack) => !isUnreadableCheck(pack) || persistentlyUnreadable.has(pack.path)),
+    const notified = [...affected.entries()].filter(
+      ([objectId, used]) =>
+        manifestsOf.has(objectId) ||
+        used.some((pack) => !isUnreadableCheck(pack) || persistentlyUnreadable.has(pack.path)),
     ).length;
-    const raised = scrubNotifications(ctx.tenantId, ctx.jobId, report, notified);
+    const raised = scrubNotifications(ctx.tenantId, ctx.jobId, report, notified, missingManifests);
     await raiseEvents(tx, raised);
     await tx.execute(sql`
       UPDATE ${storageTargets}
@@ -931,7 +1023,21 @@ async function persistReport(
     await tx
       .update(jobs)
       .set({
-        payload: sql`coalesce(${jobs.payload}, '{}'::jsonb) || ${JSON.stringify({ result: { ...report, copies } })}::jsonb`,
+        payload: sql`coalesce(${jobs.payload}, '{}'::jsonb) || ${JSON.stringify({
+          result: {
+            ...report,
+            copies,
+            ...(manifests
+              ? {
+                  manifests: {
+                    checked: manifests.checked,
+                    missing: missingManifests,
+                    unknown: manifests.unknown,
+                  },
+                }
+              : {}),
+          },
+        })}::jsonb`,
       })
       .where(and(eq(jobs.tenantId, ctx.tenantId), eq(jobs.id, ctx.jobId)));
     return affected.size;
@@ -950,6 +1056,13 @@ export interface CopyMirrorSummary {
   readonly repaired: number;
   readonly failed: number;
   readonly bytesWritten: number;
+  /**
+   * The sealed archive records from the catalog: every record up to this position is on
+   * every copy of `copySet`; the next scheduled check starts after it.
+   */
+  readonly archiveThrough?: ArchiveRecordPosition | null;
+  /** Which copies `archiveThrough` holds for (see {@link copyTargetSet}). */
+  readonly copySet?: string;
 }
 
 export function copyMirrorSummary(report: TenantMirrorReport): CopyMirrorSummary {
@@ -962,7 +1075,92 @@ export function copyMirrorSummary(report: TenantMirrorReport): CopyMirrorSummary
     repaired: sum("repaired"),
     failed: sum("failed"),
     bytesWritten: sum("bytesWritten"),
+    ...(report.archiveThrough !== undefined ? { archiveThrough: report.archiveThrough } : {}),
   };
+}
+
+/**
+ * Records younger than this are left to the next check: a record's `created_at` is taken when
+ * its row is inserted, before the append commits, so a check must not move its position past
+ * a record that is not visible yet.
+ */
+export const ARCHIVE_MIRROR_SETTLE_MS = 15 * 60_000;
+
+/** The sealed archive records the copy mirror takes from the catalog, and from where. */
+export interface ArchiveMirrorInput {
+  readonly catalog: ArchiveRecordCatalog;
+  /** The position the last check reached for these copies; null: every record. */
+  readonly after: ArchiveRecordPosition | null;
+  readonly copySet: string;
+}
+
+/**
+ * The tenant's primary and copies (ids, roles and configuration) and how many copies the
+ * resolved storage has: the archive mirror's position holds only for these. A copy added,
+ * replaced or pointed elsewhere starts the records over, so it receives every old record.
+ */
+export async function copyTargetSet(
+  run: TenantTxRunner,
+  tenantId: string,
+  copies: number,
+): Promise<string> {
+  const [row] = await run((tx) =>
+    tx.execute<{ targets: string | null }>(sql`
+      SELECT md5(string_agg(id::text || ':' || role::text || ':' || md5(config::text), ',' ORDER BY id))
+               AS targets
+        FROM ${storageTargets}
+       WHERE tenant_id = ${tenantId}::uuid AND role IN ('primary', 'copy')
+    `),
+  ).then((result) => result.rows);
+  return `${row?.targets ?? "installation"}:${copies}`;
+}
+
+/**
+ * Where the newest completed check left the archive records, when it mirrored the same copies;
+ * null otherwise (every record again).
+ */
+export async function previousArchiveMirror(
+  run: TenantTxRunner,
+  tenantId: string,
+  copySet: string,
+): Promise<ArchiveRecordPosition | null> {
+  const [row] = await run((tx) =>
+    tx
+      .select({ copies: sql<unknown>`${jobs.payload}->'result'->'copies'` })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.tenantId, tenantId),
+          eq(jobs.queue, "scrub"),
+          eq(jobs.status, "completed"),
+          isNotNull(jobs.completedAt),
+          sql`${jobs.payload}->'result'->'copies' IS NOT NULL`,
+          sql`jsonb_typeof(${jobs.payload}->'result'->'copies') = 'object'`,
+        ),
+      )
+      .orderBy(desc(jobs.completedAt))
+      .limit(1),
+  );
+  const copies = row?.copies as { copySet?: unknown; archiveThrough?: unknown } | undefined;
+  const through = copies?.archiveThrough as
+    | { createdAt?: unknown; id?: unknown }
+    | null
+    | undefined;
+  return copies?.copySet === copySet &&
+    typeof through?.createdAt === "string" &&
+    typeof through.id === "string"
+    ? { createdAt: through.createdAt, id: through.id }
+    : null;
+}
+
+/** The copy set and where its archive mirror stands. */
+async function archiveMirrorStart(
+  run: TenantTxRunner,
+  tenantId: string,
+  copies: number,
+): Promise<{ copySet: string; after: ArchiveRecordPosition | null }> {
+  const copySet = await copyTargetSet(run, tenantId, copies);
+  return { copySet, after: await previousArchiveMirror(run, tenantId, copySet) };
 }
 
 /** Bring every copy target up to the primary; null when the tenant has no copy. */
@@ -970,6 +1168,8 @@ export async function mirrorCopies(
   ctx: Pick<WorkerJobContext, "tenantId" | "storage" | "signal" | "logger" | "now">,
   catalog: Pick<PackCatalog, "listPacks">,
   mode: ScrubJobPayload["mode"],
+  archiveRetention?: ArchiveRecordRetention,
+  archive?: ArchiveMirrorInput,
 ): Promise<CopyMirrorSummary | null> {
   const storage = ctx.storage;
   if (storage.copies.length === 0) {
@@ -980,12 +1180,28 @@ export async function mirrorCopies(
     tenantId: ctx.tenantId,
     storage,
     packs: await catalog.listPacks(),
+    archiveRetention,
+    // The sealed archive records from the catalog: a scheduled check only those written since
+    // the last one reached for the same copies, a full check (and a copy set that changed)
+    // every one, page by page.
+    ...(archive
+      ? {
+          archiveRecords: {
+            catalog: archive.catalog,
+            after: mode === "full" ? null : archive.after,
+            before: new Date(ctx.now().getTime() - ARCHIVE_MIRROR_SETTLE_MS),
+          },
+        }
+      : {}),
     verify: mode === "full" ? "hash" : "size",
     signal: ctx.signal,
     logger,
     now: ctx.now,
   });
-  const summary = copyMirrorSummary(report);
+  const summary = {
+    ...copyMirrorSummary(report),
+    ...(archive ? { copySet: archive.copySet } : {}),
+  };
   if (!summary.complete) {
     logger.warn("copy targets incomplete after mirror", {
       failed: summary.failed,
@@ -1020,14 +1236,25 @@ export const scrubHandler: JobHandler<"scrub"> = {
     // Snapshots whose job ended for good but whose own cleanup did not run
     // (a crash between the last attempt and its bookkeeping, or a job
     // cancelled while it waited for a retry): nothing resumes them.
-    const abandonedSnapshots = await discardAbandonedSnapshots(
-      run,
-      { tenantId: ctx.tenantId, storage: ctx.storage, logger: ctx.logger },
-      { tenant: true },
-    );
+    // Deleting is paused after restoring a database dump (restore mode, docs/STORAGE.md):
+    // no abandoned checkpoint, no collection, no orphan sweep. The check itself runs.
+    const deletions = await deletionDecision({ pass: "gc_repack", tenantId: ctx.tenantId });
+    const abandonedSnapshots = deletions.allowed
+      ? await discardAbandonedSnapshots(
+          run,
+          { tenantId: ctx.tenantId, storage: ctx.storage, logger: ctx.logger },
+          { tenant: true },
+        )
+      : 0;
     // A recheck reads a handful of packs again; bringing every copy up to date waits for the next
     // scheduled check.
-    const copies = mode === "recheck" ? null : await mirrorCopies(ctx, catalog, mode);
+    const copies =
+      mode === "recheck"
+        ? null
+        : await mirrorCopies(ctx, catalog, mode, archiveRecordRetention(run, ctx.tenantId), {
+            catalog: pgArchiveRecordCatalog(run, ctx.tenantId),
+            ...(await archiveMirrorStart(run, ctx.tenantId, ctx.storage.copies.length)),
+          });
     const previous = await loadPreviousScrub(run, ctx.tenantId);
     // A storage migration reads the primary's packs to copy them elsewhere
     // and, once verified, retires it to `previous`; garbage collection must
@@ -1038,6 +1265,9 @@ export const scrubHandler: JobHandler<"scrub"> = {
     // was collected this time). Corruption checking and the copy mirror above
     // are unaffected: they do not touch what the migration is moving.
     const migrationActive = await hasActiveMigration(run, ctx.tenantId);
+    // Write-once storage (docs/STORAGE.md, "Write-once storage"): nothing there can be deleted,
+    // so a re-pack would only write the surviving chunks a second time. No collection at all.
+    const writeOnce = primaryWriteOnce(ctx.storage as Partial<ResolvedTenantStorage>);
     const report = await runScrub(
       {
         tenantId: ctx.tenantId,
@@ -1053,20 +1283,46 @@ export const scrubHandler: JobHandler<"scrub"> = {
         mode,
         previouslyCorrupt: previous.corrupt,
         previouslySuperseded: previous.superseded,
-        gc: migrationActive
-          ? null
-          : {
-              cutoff: gcCutoff(ctx.now()),
-              blockedBy: () => gcBlockerFor(run, ctx.tenantId),
-              abandonedCheckpoint: abandonedCheckpointProbe(run, ctx.tenantId),
-            },
+        gc:
+          migrationActive || writeOnce || !deletions.allowed
+            ? null
+            : {
+                cutoff: gcCutoff(ctx.now()),
+                blockedBy: () => gcBlockerFor(run, ctx.tenantId),
+                abandonedCheckpoint: abandonedCheckpointProbe(run, ctx.tenantId),
+              },
       },
     );
-    const affectedObjects = await persistReport(run, ctx, report, copies);
+    // A manifest no target has is evidence like a damaged pack; not while a migration moves the
+    // tenant's data (the new targets may not hold everything yet).
+    const manifests =
+      migrationActive || mode === "recheck"
+        ? null
+        : await findMissingManifests(
+            ctx.storage,
+            ctx.tenantId,
+            await loadActiveManifests(run, ctx.tenantId, {
+              newestOnly: mode !== "full",
+              keepCutover,
+            }),
+            { signal: ctx.signal },
+          );
+    const affectedObjects = await persistReport(run, ctx, report, copies, manifests);
+    // Old progress markers go on mutable targets (docs/STORAGE.md, "Restore mode and progress
+    // markers"); never in restore mode, never on write-once storage.
+    if (deletions.allowed && !writeOnce && mode === "full") {
+      await pruneTenantProgressMarkers(ctx).catch((error: unknown) =>
+        ctx.logger.warn("old progress markers could not be removed", {
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     return {
       summary: {
         mode,
         ...(migrationActive ? { migrationActive: true } : {}),
+        ...(writeOnce ? { writeOnce: true } : {}),
+        ...(deletions.allowed ? {} : { restoreMode: true }),
         ...(copies ? { copies } : {}),
         packsTotal: report.packsTotal,
         packsChecked: report.packsChecked,
@@ -1075,6 +1331,9 @@ export const scrubHandler: JobHandler<"scrub"> = {
         unreadable: report.unreadable.length,
         retired: report.retired.length,
         affectedObjects,
+        ...(manifests
+          ? { manifestsChecked: manifests.checked, manifestsMissing: manifests.missing.length }
+          : {}),
         abandonedSnapshots,
         gc: report.gc.status === "completed" ? "completed" : report.gc.reason,
         supersededReleased: report.superseded.released,

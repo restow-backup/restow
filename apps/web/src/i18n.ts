@@ -39,11 +39,33 @@ function detectInitialLanguage(): SupportedLanguage | undefined {
 
 export const i18n = createI18n({ lng: detectInitialLanguage() });
 
+/**
+ * The cookie that tells the edge which language the app shows, so its static page for
+ * "Restow is temporarily unavailable" (Caddyfile, @app_down_page_de) speaks the same
+ * language as the app, not the browser's. Not a secret and read by nothing else.
+ */
+export const LANGUAGE_COOKIE = "restow_lang";
+
+function writeLanguageCookie(language: string): void {
+  if (typeof document === "undefined" || !isSupported(language)) {
+    return;
+  }
+  const secure =
+    typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+  try {
+    // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is missing in Firefox and older Safari; the value is a fixed language code
+    document.cookie = `${LANGUAGE_COOKIE}=${language}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  } catch {
+    // Ignore cookie failures (disabled cookies); the edge then follows the browser.
+  }
+}
+
 /** Keep <html lang> in sync and persist the chosen language. */
 function applyLanguageSideEffects(language: string): void {
   if (typeof document !== "undefined") {
     document.documentElement.lang = language;
   }
+  writeLanguageCookie(language);
   try {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   } catch {

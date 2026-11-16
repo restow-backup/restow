@@ -197,6 +197,89 @@ describe("SharePointBackupEngine", () => {
     );
   });
 
+  it("marks a library Graph refuses as carried forward, at its folder and in site.json", async () => {
+    const { sp, documents } = world();
+    const ids = { snap: 1, pack: 1 };
+    const day = (n: number) => () => new Date(`2026-09-${String(n).padStart(2, "0")}T10:00:00Z`);
+    const first = await engine(sp, ids).run(harness.context({ now: day(20) }), siteObject, {});
+    const before = await harness.manifest(first);
+    expect(at(before, "Libraries/Documents").metadata?.carriedForward).toBeUndefined();
+
+    documents.refuse = 403;
+    const siteInfo = async (manifest: SnapshotManifest) =>
+      JSON.parse((await harness.readObject(at(manifest, "site.json"))).toString()) as {
+        libraries: Array<{ folder: string; readThisRun: boolean; lastReadAt: string | null }>;
+      };
+    for (const [job, now] of [
+      ["job-2", day(21)],
+      ["job-3", day(22)],
+    ] as const) {
+      const result = await engine(sp, ids).run(
+        harness.context({ jobId: job, now }),
+        siteObject,
+        {},
+      );
+      expect(result.failures.map((failure) => failure.itemRef)).toEqual(["Libraries/Documents"]);
+      const manifest = await harness.manifest(result);
+      // Read on the 20th, whichever run carried it on since.
+      expect(at(manifest, "Libraries/Documents").metadata).toMatchObject({
+        carriedForward: "true",
+        lastReadAt: "2026-09-20T10:00:00.000Z",
+      });
+      // The files themselves stay as they were: not stale, so their reuse check still works.
+      const readme = at(manifest, "Libraries/Documents/readme.txt");
+      expect(readme.metadata?.stale).toBeUndefined();
+      expect(readme.chunks).toEqual(at(before, "Libraries/Documents/readme.txt").chunks);
+      expect(at(manifest, "Libraries/Site Pages").metadata?.carriedForward).toBeUndefined();
+      const libraries = (await siteInfo(manifest)).libraries;
+      expect(libraries.find((library) => library.folder === "Documents")).toMatchObject({
+        readThisRun: false,
+        lastReadAt: "2026-09-20T10:00:00.000Z",
+      });
+      expect(libraries.find((library) => library.folder === "Site Pages")).toMatchObject({
+        readThisRun: true,
+        lastReadAt: now().toISOString(),
+      });
+    }
+
+    documents.refuse = null;
+    const healed = await harness.manifest(
+      await engine(sp, ids).run(harness.context({ jobId: "job-4", now: day(23) }), siteObject, {}),
+    );
+    expect(at(healed, "Libraries/Documents").metadata?.carriedForward).toBeUndefined();
+    expect(
+      (await siteInfo(healed)).libraries.find((library) => library.folder === "Documents"),
+    ).toMatchObject({ readThisRun: true, lastReadAt: "2026-09-23T10:00:00.000Z" });
+  });
+
+  it("keeps the carried-forward mark when a resumed attempt skips the refused library", async () => {
+    const { sp, documents } = world();
+    const ids = { snap: 1, pack: 1 };
+    await engine(sp, ids).run(harness.context(), siteObject, {});
+    documents.refuse = 403;
+    const controller = new AbortController();
+    const ctx = harness.context({
+      jobId: "job-2",
+      signal: controller.signal,
+      // Documents (refused, carried forward) is finished; stop in the next library.
+      onProgress: (update) => {
+        if (update.snapshot.done >= 1) controller.abort();
+      },
+    });
+    await expect(engine(sp, ids).run(ctx, siteObject, {})).rejects.toBeInstanceOf(JobAbortedError);
+    sp.graph.calls.length = 0;
+    const result = await engine(sp, ids).run(harness.context({ jobId: "job-2" }), siteObject, {});
+    expect(sp.graph.calls.some((call) => call.url.includes("b!docs/root/delta"))).toBe(false);
+    const manifest = await harness.manifest(result);
+    expect(at(manifest, "Libraries/Documents").metadata?.carriedForward).toBe("true");
+    const info = JSON.parse((await harness.readObject(at(manifest, "site.json"))).toString()) as {
+      libraries: Array<{ folder: string; readThisRun: boolean }>;
+    };
+    expect(info.libraries.find((library) => library.folder === "Documents")?.readThisRun).toBe(
+      false,
+    );
+  });
+
   it("reports a list Graph refuses and keeps the items it had", async () => {
     const { sp, tasks } = world();
     const ids = { snap: 1, pack: 1 };

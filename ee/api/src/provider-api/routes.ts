@@ -2,7 +2,12 @@ import { type Database, tenantContacts, tenants } from "@restow/db";
 import { asc, eq, gt, gte } from "drizzle-orm";
 import { z } from "zod";
 import { hasScope } from "../../../../apps/api/src/features/apikeys/scopes.js";
+import {
+  estimateFiguresCache,
+  loadPricingEstimate,
+} from "../../../../apps/api/src/features/settings/pricing-estimate.js";
 import { withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
+import { ProblemError } from "../../../../apps/api/src/problem.js";
 import type { IntegrationApi, V1Deps } from "../../../../apps/api/src/routes/v1/api.js";
 import { readRecorder, V1_AUDIT_ACTIONS } from "../../../../apps/api/src/routes/v1/audit.js";
 import { component } from "../../../../apps/api/src/routes/v1/components.js";
@@ -27,6 +32,13 @@ import {
   directoryUserSchema,
   loadDirectoryUsers,
 } from "../../../../apps/api/src/routes/v1/users.js";
+import {
+  billingFromEstimate,
+  billingQuerySchema,
+  billingSchema,
+  loadBillingFacts,
+  tenantByCustomerNumber,
+} from "./billing.js";
 
 /**
  * Cross-tenant overviews for provider keys (Service Provider edition):
@@ -296,6 +308,55 @@ export function registerProviderRoutes(api: IntegrationApi, deps: V1Deps): void 
         }
       }
       return page;
+    },
+  );
+
+  api.provider(
+    {
+      method: "get",
+      path: "/provider/billing",
+      operationId: "getProviderBilling",
+      summary: "What each tenant would be billed this month, for PSA and billing tools",
+      description:
+        "Per tenant (not those being deleted): customer number, one line per priced quantity (protected mailboxes, stored data, servers, clients, VMs, containers, file shares) with quantity, unit, unit price, the price's source (the tenant's own or the installation's) and amount, and the tenant's total, in the installation's currency. The same estimate as the price cards of the web UI, live as of `generatedAt`; `?tenant=` or `?customerNumber=` narrows it to one tenant. The read is recorded in the audit log of every tenant it contains.",
+      tag: "Provider",
+      scope: "billing:read",
+      audited: true,
+      query: billingQuerySchema,
+      errors: [400, 404, 422],
+      response: {
+        status: 200,
+        description: "The billing figures per tenant.",
+        schema: billingSchema,
+      },
+    },
+    async ({ actor, input: { query } }) => {
+      const facts = await loadBillingFacts(deps.providerDb);
+      let tenantId = query.tenant;
+      if (query.customerNumber !== undefined) {
+        const named = tenantByCustomerNumber(facts, query.customerNumber);
+        if (!named || (tenantId !== undefined && tenantId !== named)) {
+          throw new ProblemError(404, "Tenant not found", {
+            detail: "No tenant has this customer number.",
+          });
+        }
+        tenantId = named;
+      }
+      const estimate = await loadPricingEstimate(
+        { db: deps.db, providerDb: deps.providerDb, cache: estimateFiguresCache },
+        null,
+        tenantId ? { tenantId } : {},
+      );
+      const billing = billingFromEstimate(estimate, facts, deps.now());
+      for (const tenant of billing.tenants) {
+        await recordRead(tenant.tenantId, actor, {
+          action: V1_AUDIT_ACTIONS.providerBillingRead,
+          target: tenant.tenantId,
+          targetType: "tenant",
+          details: { lines: tenant.lines.length, ...(tenantId ? { filtered: true } : {}) },
+        });
+      }
+      return billing;
     },
   );
 

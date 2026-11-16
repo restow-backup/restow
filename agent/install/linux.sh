@@ -336,6 +336,53 @@ read_token() {
   unset RESTOW_TOKEN
 }
 
+# ---- enrollment ------------------------------------------------------------------
+
+# credentials_state sets CREDENTIALS to readable, unreadable or missing: what
+# the installed agent says about the enrollment (restow-agent status --json),
+# and CREDENTIALS_ERROR to its reason. A state file that exists is no
+# enrollment by itself: one that can no longer be read leaves the service
+# waiting. Should status not run or not answer, the state file decides as before.
+credentials_state() {
+  CREDENTIALS_ERROR=''
+  _json=$("$AGENT_BIN" status --json 2>/dev/null) || _json=''
+  case "$_json" in
+    *'"credentials": "readable"'*) CREDENTIALS=readable ;;
+    *'"credentials": "unreadable"'*)
+      CREDENTIALS=unreadable
+      CREDENTIALS_ERROR=$(printf '%s\n' "$_json" | sed -n 's/^ *"credentialsError": "\(.*\)",\{0,1\}$/\1/p' | head -n 1)
+      ;;
+    *'"credentials": "missing"'*) CREDENTIALS=missing ;;
+    *) if [ -f "$STATE_FILE" ]; then CREDENTIALS=readable; else CREDENTIALS=missing; fi ;;
+  esac
+}
+
+# enroll_failed explains a failed `restow-agent enroll` by its exit code: 4 the
+# instance refused the token (only then does a new token help), 5 the instance
+# could not be reached, anything else is said by the agent's own message.
+enroll_failed() {
+  say ""
+  case "$1" in
+    4)
+      say "The agent is installed but not enrolled: the Restow instance did not accept the token."
+      say "Create a new token in the Restow UI (the old one may have expired or been used) and run"
+      say "the install command again."
+      ;;
+    5)
+      say "The agent is installed but not enrolled: it could not reach $INSTANCE_URL (see its message"
+      say "above). Check the network, the firewall and the clock of this machine. If it reaches the"
+      say "internet only through a proxy, run the install command with HTTPS_PROXY=http://<proxy>:<port>"
+      say "after sudo and give the service the same setting with: systemctl edit restow-agent (Environment=HTTPS_PROXY=...)."
+      ;;
+    *)
+      say "The agent is installed but not enrolled (restow-agent enroll ended with exit code $1)."
+      say "Its message above says why and whether the token was used; fix the cause and run the"
+      say "install command again."
+      ;;
+  esac
+  exit 1
+}
+
 # ---- legacy (an earlier pre-release installation below /usr/local) -------------
 
 has_legacy() {
@@ -488,6 +535,8 @@ main() {
     read_token
     [ -n "$TOKEN" ] || die "this machine is not enrolled and no enrollment token was given. Create a server or client in the Restow UI (Endpoints), run the command shown there and paste the token when asked (or set RESTOW_TOKEN_FILE)."
   else
+    # Kept (not exported) in case the existing enrollment cannot be read.
+    SAVED_TOKEN=${RESTOW_TOKEN:-}
     unset RESTOW_TOKEN
   fi
 
@@ -570,10 +619,33 @@ main() {
   make_link
 
   # ---- enroll ----------------------------------------------------------------
+  enroll_force=''
+  if [ "$enrolled" = yes ]; then
+    credentials_state
+    case "$CREDENTIALS" in
+      readable) ;;
+      unreadable)
+        warn "the existing enrollment in $STATE_FILE cannot be read (${CREDENTIALS_ERROR:-no reason given}); this machine has to be enrolled again with a new token (the old endpoint stays in the Restow UI until you revoke it)"
+        RESTOW_TOKEN=${SAVED_TOKEN:-}
+        read_token
+        [ -n "$TOKEN" ] || die "the existing enrollment of this machine cannot be read (${CREDENTIALS_ERROR:-no reason given}), and no enrollment token was given. Create a new token in the Restow UI (Endpoints) and run the install command again with it; the agent then enrolls again (restow-agent enroll --force)."
+        enrolled=no
+        enroll_force=yes
+        ;;
+      *)
+        RESTOW_TOKEN=${SAVED_TOKEN:-}
+        read_token
+        [ -n "$TOKEN" ] || die "this machine is not enrolled and no enrollment token was given. Create a server or client in the Restow UI (Endpoints), run the command shown there and paste the token when asked (or set RESTOW_TOKEN_FILE)."
+        enrolled=no
+        ;;
+    esac
+  fi
   if [ "$enrolled" = yes ]; then
     step "This machine is already enrolled; keeping the existing enrollment"
     if [ -n "$HOOKS" ]; then
-      "$AGENT_BIN" hooks "$HOOKS" >/dev/null
+      hooks_rc=0
+      "$AGENT_BIN" hooks "$HOOKS" >/dev/null || hooks_rc=$?
+      [ "$hooks_rc" = 0 ] || die "the hook policy could not be set to $HOOKS (restow-agent hooks ended with exit code $hooks_rc; see its message above)."
       say "    hooks from the Restow server: $HOOKS"
     fi
   else
@@ -581,16 +653,15 @@ main() {
     enroll_flags=''
     [ -n "$ALLOW_HTTP" ] && enroll_flags='--allow-insecure-http'
     [ -n "$HOOKS" ] && enroll_flags="$enroll_flags --hooks=$HOOKS"
+    [ -n "$enroll_force" ] && enroll_flags="$enroll_flags --force"
     # The token goes to the agent through the environment of this one command.
+    enroll_rc=0
     # shellcheck disable=SC2086
-    RESTOW_TOKEN="$TOKEN" RESTOW_URL="$INSTANCE_URL" "$AGENT_BIN" enroll $enroll_flags || {
-      say ""
-      say "The agent is installed but not enrolled. Create a new token in the Restow UI"
-      say "(the old one may have expired or been used) and run the install command again."
-      exit 1
-    }
+    RESTOW_TOKEN="$TOKEN" RESTOW_URL="$INSTANCE_URL" "$AGENT_BIN" enroll $enroll_flags || enroll_rc=$?
+    [ "$enroll_rc" = 0 ] || enroll_failed "$enroll_rc"
   fi
   TOKEN=''
+  SAVED_TOKEN=''
 
   # ---- start -------------------------------------------------------------------
   if [ -z "$SKIP_SERVICE" ]; then

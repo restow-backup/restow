@@ -1,5 +1,6 @@
-import { type Database, pveGuests, pveJobs, pveRuns } from "@restow/db";
+import { type Database, pveGuests, pveJobs, pveRuns, pveTasks } from "@restow/db";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { activeRuns } from "../history/read.js";
 import { type PveRunningDto, RUNNING_LIMIT, type RunningNowDto } from "./dto.js";
@@ -20,6 +21,7 @@ type PveRunningRow = {
   vmid: number;
   guestName: string | null;
   guestKind: PveRunningDto["guest"]["kind"];
+  jobId: string | null;
   jobName: string | null;
 };
 
@@ -29,6 +31,7 @@ export function pveRunning(row: PveRunningRow): PveRunningDto {
     id: row.id,
     kind: row.kind,
     guest: { id: row.guestId, vmid: row.vmid, name: row.guestName, kind: row.guestKind },
+    jobId: row.jobId,
     jobName: row.jobName,
     startedAt: row.startedAt.toISOString(),
     cancelling: row.cancelRequestedAt !== null,
@@ -44,10 +47,14 @@ export function pveRunning(row: PveRunningRow): PveRunningDto {
   };
 }
 
+/** The job a run's task names (`params.jobId`): the job that started it (its round, its boot test). */
+const taskJobs = alias(pveJobs, "task_job");
+
 /**
  * The runs of Proxmox VE guests that go on now, newest first (one indexed read of
- * `pve_runs_status_idx`, the guests and jobs joined for their names). The same read the live
- * channel repeats every few seconds, so it touches nothing else.
+ * `pve_runs_status_idx`, the guests and jobs joined for their names, the run's task by its key
+ * for the job of its round). The same read the live channel repeats every few seconds, so it
+ * touches nothing else.
  */
 export async function pveRunningRuns(
   tx: Transaction,
@@ -65,11 +72,15 @@ export async function pveRunningRuns(
       vmid: pveGuests.vmid,
       guestName: pveGuests.name,
       guestKind: pveGuests.kind,
-      jobName: pveJobs.name,
+      jobId: taskJobs.id,
+      // A guest of a job over all guests is in no job of its own: the task names the job.
+      jobName: sql<string | null>`coalesce(${taskJobs.name}, ${pveJobs.name})`,
     })
     .from(pveRuns)
     .innerJoin(pveGuests, eq(pveGuests.id, pveRuns.guestId))
     .leftJoin(pveJobs, eq(pveJobs.id, pveGuests.jobId))
+    .leftJoin(pveTasks, eq(pveTasks.id, pveRuns.taskId))
+    .leftJoin(taskJobs, sql`${taskJobs.id}::text = ${pveTasks.params}->>'jobId'`)
     .where(and(eq(pveRuns.tenantId, tenantId), eq(pveRuns.status, "running")))
     .orderBy(desc(pveRuns.startedAt), desc(pveRuns.id))
     .limit(limit);

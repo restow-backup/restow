@@ -23,6 +23,7 @@ import {
   LocalStorageBackend,
   noopLogger,
   partialManifestKey,
+  RestoreProgress,
   SnapshotWriter,
   type StorageTargets,
   wrapDek,
@@ -32,6 +33,7 @@ import {
   createDb,
   type Database,
   itemFailures,
+  jobCursorEntries,
   jobProgress,
   jobs,
   manifestEntries,
@@ -55,6 +57,7 @@ import {
   abandonedCheckpointProbe,
   discardAbandonedSnapshots,
   type JobHandler,
+  type KeyMirrorFinding,
   loadTenantKeyring,
   mirrorTenantKeys,
   PgChunkIndex,
@@ -224,17 +227,99 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     expect(await storage.copies[0].head(key)).not.toBeNull();
     const wrapped = await storage.primary.get(key);
 
-    // A truncated or damaged mirror is rewritten, not taken for present.
+    // A stored key that differs is never overwritten (0.5.0): after restoring a database dump
+    // it may be the only key that opens data written under it. It is reported instead, as a
+    // different valid key ("conflict") or as damaged bytes ("damaged").
     await storage.primary.put(key, wrapped.subarray(0, 7));
-    const flipped = Buffer.from(wrapped);
-    flipped[flipped.length - 1] = (flipped[flipped.length - 1] ?? 0) ^ 0xff;
-    await storage.copies[0].put(key, flipped);
-    await mirrorTenantKeys({ run, tenantId: fixture.tenantId, storage, logger: noopLogger });
-    expect((await storage.primary.get(key)).equals(wrapped)).toBe(true);
-    expect((await storage.copies[0].get(key)).equals(wrapped)).toBe(true);
+    const other = await new EnvKeyProvider(kek).wrapDek(generateDek(1));
+    await storage.copies[0].put(key, other);
+    const reported: KeyMirrorFinding[] = [];
+    const findings = await mirrorTenantKeys({
+      run,
+      tenantId: fixture.tenantId,
+      storage,
+      logger: noopLogger,
+      unwraps: async (bytes) => {
+        await new EnvKeyProvider(kek).unwrapDek(bytes);
+        return true;
+      },
+      report: async (finding) => {
+        reported.push(finding);
+      },
+    });
+    expect(findings.map((finding) => finding.kind)).toEqual(["damaged", "conflict"]);
+    expect(reported).toEqual(findings);
+    expect((await storage.primary.get(key)).equals(wrapped.subarray(0, 7))).toBe(true);
+    expect((await storage.copies[0].get(key)).equals(other)).toBe(true);
     await expect(
       loadTenantKeyring({ db, tenantId: randomUUID(), keyProvider: new EnvKeyProvider(kek) }),
     ).rejects.toThrow(/no data-encryption key/);
+  });
+
+  it("skips a stored key it cannot read this time and resolves findings once storage matches [CRYPT-004]", async () => {
+    const { EnvKeyProvider } = await import("@restow/core");
+    const run = tenantRunner(db, fixture.tenantId);
+    await mirrorTenantKeys({ run, tenantId: fixture.tenantId, storage, logger: noopLogger });
+    const key = `tenants/${fixture.tenantId}/keys/1`;
+    const wrapped = await storage.primary.get(key);
+    const reported: KeyMirrorFinding[] = [];
+    const resolved: { targetId: string; keepSha256: string | null }[] = [];
+    const options = {
+      run,
+      tenantId: fixture.tenantId,
+      logger: noopLogger,
+      unwraps: async (bytes: Buffer) => {
+        await new EnvKeyProvider(kek).unwrapDek(bytes);
+        return true;
+      },
+      report: async (finding: KeyMirrorFinding) => {
+        reported.push(finding);
+      },
+      resolve: async (input: { targetId: string; keepSha256: string | null }) => {
+        resolved.push({ targetId: input.targetId, keepSha256: input.keepSha256 });
+      },
+    };
+    // A GET that fails (throttling, a timeout) is neither a finding nor an overwrite.
+    let failures = 1;
+    const flaky = {
+      ...storage.primary,
+      head: storage.primary.head.bind(storage.primary),
+      put: storage.primary.put.bind(storage.primary),
+      get: async (name: string) => {
+        if (name === key && failures-- > 0) {
+          throw new Error("503 Slow Down");
+        }
+        return storage.primary.get(name);
+      },
+    };
+    const findings = await mirrorTenantKeys({
+      ...options,
+      storage: { ...storage, primary: flaky as typeof storage.primary },
+    });
+    expect(findings).toEqual([]);
+    expect(reported).toEqual([]);
+    expect((await storage.primary.get(key)).equals(wrapped)).toBe(true);
+    // The next run reads it, finds the database's bytes and resolves what was open.
+    resolved.length = 0;
+    await mirrorTenantKeys({
+      ...options,
+      storage: { ...storage, primary: flaky as typeof storage.primary },
+    });
+    expect(reported).toEqual([]);
+    expect(resolved.map((entry) => entry.keepSha256)).toEqual([null, null]);
+
+    // Another key in storage is reported; once the operator puts the database's bytes back,
+    // its finding is resolved.
+    const other = await new EnvKeyProvider(kek).wrapDek(generateDek(1));
+    await storage.primary.put(key, other);
+    resolved.length = 0;
+    const conflict = await mirrorTenantKeys({ ...options, storage });
+    expect(conflict.map((finding) => finding.kind)).toEqual(["conflict"]);
+    expect(resolved[0]?.keepSha256).toBe(conflict[0]?.storedSha256);
+    await storage.primary.put(key, wrapped);
+    resolved.length = 0;
+    expect(await mirrorTenantKeys({ ...options, storage })).toEqual([]);
+    expect(resolved).toContainEqual({ targetId: "primary", keepSha256: null });
   });
 
   it("round-trips objects through the pack store with the Postgres chunk index", async () => {
@@ -287,7 +372,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     ).toBe(true);
   });
 
-  it("stops deduplicating against a damaged pack, moves its chunks to the intact copy and retires it", async () => {
+  it("stops deduplicating against a damaged pack, moves its chunks to the intact copy and retires it [SCRUB-005]", async () => {
     const run = tenantRunner(db, fixture.tenantId);
     const index = new PgChunkIndex(run, fixture.tenantId);
     const catalog = new PgPackCatalog(run, fixture.tenantId);
@@ -634,6 +719,26 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       previous: [],
       keepGeneration: null,
       defaultGeneration: null,
+      // The storage generation and every target by the id a run records (docs/STORAGE.md,
+      // "Runs and storage changes").
+      storageGeneration: expect.any(String),
+      primaryTarget: "installation_default",
+      targets: [
+        // Not write-once: the default's location was never probed here (`defaultWriteOnce`).
+        {
+          id: "installation_default",
+          name: null,
+          role: "primary",
+          backend: storage.primary,
+          writeOnce: false,
+        },
+        ...storage.copies.map((backend, index) => ({
+          id: `installation_default:copy:${index}`,
+          name: null,
+          role: "copy",
+          backend,
+        })),
+      ],
     });
 
     await db.insert(storageTargets).values([
@@ -1105,6 +1210,84 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       // Its own time limit needs a checkpoint to earn the attempt back (continuation.test.ts).
     });
 
+    it("gives an expired restore attempt its attempt back only when it recorded progress", async () => {
+      // A restore that hangs on one item until its time limit: it opens its record and saves
+      // it in a finally block, as the restore engines do (core restore/progress.ts).
+      const handler = (restores: number) =>
+        handlerFor(async (ctx) => {
+          const progress = await RestoreProgress.open(ctx.cursor, {
+            restoreJobId: ctx.jobId,
+            retry: ctx.attempt > 0,
+          });
+          try {
+            for (let i = 0; i < restores; i++) {
+              await progress.done(`mail/${i}.eml`, true);
+            }
+            await new Promise<void>((resolve) =>
+              ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+            );
+            throw new JobAbortedError();
+          } finally {
+            await progress.flush();
+          }
+        });
+      const granted: string[] = [];
+      const continueInterrupted = async (_queue: string, pgBossJobId: string) => {
+        granted.push(pgBossJobId);
+        return { retryCount: 2, retryLimit: 3 };
+      };
+      const expiring = (jobId: string) => ({
+        ...pgBossJob({ jobId, tenantId: fixture.tenantId }, 3, 3),
+        expireInSeconds: 0.2,
+      });
+      // Nothing restored: the attempt counts, and on its last one the job fails.
+      const stuck = randomUUID();
+      const stuckJob = expiring(stuck);
+      await expect(
+        runJob(runtime({ continueInterrupted }), handler(0), stuckJob),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      expect(granted).toEqual([]);
+      expect((await jobRow(stuck)).status).toBe("failed");
+      // Two messages restored before the time limit: progress, the attempt is given back.
+      const moving = randomUUID();
+      const movingJob = expiring(moving);
+      await expect(
+        runJob(runtime({ continueInterrupted }), handler(2), movingJob),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      expect(granted).toEqual([movingJob.id]);
+      expect((await jobRow(moving)).status).toBe("queued");
+      const kept = await db
+        .select()
+        .from(jobCursorEntries)
+        .where(eq(jobCursorEntries.jobId, moving));
+      expect(kept).toHaveLength(2);
+    });
+
+    it("keeps a job's entries per key across attempts and drops them when the job ends", async () => {
+      const jobId = randomUUID();
+      await db
+        .insert(jobs)
+        .values({ id: jobId, tenantId: fixture.tenantId, queue: "restore", status: "active" });
+      const store = new PgCursorStore(tenantRunner(db, fixture.tenantId), jobId);
+      await store.save({ page: 3 });
+      await store.putEntries({ a: "d1", b: "c:AAMk1" });
+      await store.putEntries({ b: "d1:INBOX:7", c: "d?" });
+      await store.putEntries({});
+      expect(await store.loadEntries()).toEqual({ a: "d1", b: "d1:INBOX:7", c: "d?" });
+      // Putting entries never rewrites the cursor, and the cursor never the entries.
+      expect((await jobRow(jobId)).cursor).toEqual({ page: 3 });
+      // A retry keeps them.
+      await db.update(jobs).set({ status: "queued" }).where(eq(jobs.id, jobId));
+      expect(Object.keys(await store.loadEntries())).toHaveLength(3);
+      // Any path that ends the job (here a cancel as the API writes it) drops them.
+      await db.update(jobs).set({ status: "cancelled", cursor: null }).where(eq(jobs.id, jobId));
+      expect(await store.loadEntries()).toEqual({});
+      // clear() drops them as well.
+      await store.putEntries({ z: "d1" });
+      await store.clear();
+      expect(await store.loadEntries()).toEqual({});
+    });
+
     it("never gives back the attempt of a job that failed with an error", async () => {
       const jobId = randomUUID();
       let asked = false;
@@ -1226,7 +1409,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       };
     }
 
-    it("lets restore read an object that lives only on the previous target, and never writes there", async () => {
+    it("lets restore read an object that lives only on the previous target, and never writes there [COPY-003]", async () => {
       const { primary, previous, targets } = await setUp();
       let read: Buffer | undefined;
       const handler: AnyJobHandler = {

@@ -37,6 +37,7 @@ const smtpDraft: SmtpInput = {
   from: "restow@example.com",
   username: "restow",
   password: undefined,
+  allowedSenders: undefined,
 };
 
 function issuesOf(fn: () => unknown): unknown {
@@ -276,6 +277,7 @@ describe("views", () => {
         from: "restow@example.com",
         username: "restow",
         passwordStored: true,
+        allowedSenders: [],
       },
     });
     expect(toMailView(null, false)).toEqual({ transport: null });

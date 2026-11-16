@@ -202,7 +202,7 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     }
   });
 
-  it("gives a tenant with an active source the recommended set and runs the due ones at once", async () => {
+  it("gives a tenant with an active source the recommended set and runs the due ones at once [VERIFY-006]", async () => {
     const contoso = await tenant("contoso");
     const m365 = await source(contoso, "m365", "active");
     const mailboxes = [

@@ -27,6 +27,7 @@ export const TENANT_SECTION_IDS = [
   "agents",
   "archive",
   "notifications",
+  "branding",
   "integrations",
   "members",
   "master-data",

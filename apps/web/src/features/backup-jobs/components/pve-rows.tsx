@@ -1,11 +1,14 @@
 import { Link } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
 import { CalendarClock, Clock, Hand, LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
-import type { PveGuest, PveJob, PveOverview } from "@/features/pve/api";
+import type { PveGuest, PveJob, PveJobSchedule, PveOverview } from "@/features/pve/api";
 import { BackupProgress } from "@/features/pve/backup-progress";
 import { guestTo, pveTo } from "@/features/pve/paths";
+import { cadenceOfPveSchedule } from "@/features/pve/schedule";
+import { describeCadence } from "@/features/schedules/presenters";
 
 import type { BackupJob, JobState } from "../api.js";
 import { JobStateBadge } from "./job-cells.js";
@@ -138,24 +141,47 @@ export function PveScopeCell({ row }: { row: PveListRow }) {
   );
 }
 
+/**
+ * How often a Proxmox VE job runs, in the words of every other schedule ("Every 8 hours", "Daily
+ * at 22:00", "Every Monday and Thursday at 01:00", "Monthly on day 1 at 03:00", a custom cron
+ * expression): the formatter the Proxmox VE page uses.
+ */
+export function describePveSchedule(
+  schedule: PveJobSchedule | null,
+  ctx: { t: TFunction; tSchedules: TFunction; language: string },
+): string {
+  if (!schedule) {
+    return ctx.t("list.pve.noSchedule");
+  }
+  return describeCadence(cadenceOfPveSchedule(schedule), ctx.tSchedules, ctx.language);
+}
+
+/** Whether the zone matters for reading the schedule (clock times: daily, cron), as for the others. */
+export function pveScheduleUsesZone(schedule: PveJobSchedule | null): boolean {
+  return schedule !== null && schedule.kind !== "interval";
+}
+
+/** The words of a Proxmox VE row's schedule, in the language of the page. */
+export function usePveScheduleText(row: PveListRow): string {
+  const { t, i18n } = useTranslation("backupjobs");
+  const { t: tSchedules } = useTranslation("schedules");
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return row.rowType === "manual"
+    ? t("list.pve.manualSchedule")
+    : describePveSchedule(row.job.schedule, { t, tSchedules, language });
+}
+
 export function PveScheduleCell({ row }: { row: PveListRow }) {
-  const { t } = useTranslation("backupjobs");
+  const text = usePveScheduleText(row);
   if (row.rowType === "manual") {
     return (
       <span className="flex items-start gap-1.5 text-muted-foreground">
         <Hand aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        {t("list.pve.manualSchedule")}
+        {text}
       </span>
     );
   }
   const schedule = row.job.schedule;
-  const text = !schedule
-    ? t("list.pve.noSchedule")
-    : schedule.kind === "daily"
-      ? t("auto.schedule.daily", { time: schedule.timeOfDay ?? "" })
-      : t("auto.schedule.intervalHours", {
-          hours: Math.round((schedule.intervalMinutes ?? 0) / 60),
-        });
   return (
     <div className="min-w-0">
       <div className="flex items-start gap-1.5">
@@ -163,9 +189,11 @@ export function PveScheduleCell({ row }: { row: PveListRow }) {
           aria-hidden="true"
           className="mt-0.5 size-4 shrink-0 text-muted-foreground"
         />
-        <span>{text}</span>
+        <span data-slot="pve-schedule">{text}</span>
       </div>
-      {schedule ? <div className="text-xs text-muted-foreground">{schedule.timeZone}</div> : null}
+      {schedule && pveScheduleUsesZone(schedule) ? (
+        <div className="text-xs text-muted-foreground">{schedule.timeZone}</div>
+      ) : null}
     </div>
   );
 }

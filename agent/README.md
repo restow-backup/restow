@@ -7,8 +7,9 @@ small Go program (standard library only, no third-party Go dependencies) that dr
 - **One agent, two profiles.** `server` (daily backup, default 22:00) and `client`
   (back up when the Restow instance becomes reachable, at most once per 4 hours).
 - **File-based backups with restic.** Deduplicated, compressed, encrypted with a
-  repository password that is unique per endpoint. No disk images, no bare-metal
-  restore (see [Known limits](#known-limits)).
+  repository password that is unique per endpoint. No disk images; a whole Linux machine
+  can be restored to bare metal from the recovery ISO (preview, see
+  [Recovery ISO](#recovery-iso-preview) and [Known limits](#known-limits)).
 - **Outbound only.** The agent opens no port. It connects to the instance over HTTPS
   and to nothing else.
 - **Append-only.** The agent writes to a restic repository that the instance exposes in
@@ -20,10 +21,11 @@ small Go program (standard library only, no third-party Go dependencies) that dr
   files. The server later asks the agent to restore those files from the snapshot and
   compares the hashes.
 
-Supported in 0.1.0: **Linux** (systemd, x86_64 and aarch64) and **macOS** (13 Ventura or
-newer, Intel and Apple Silicon). **Windows is planned for a later release**; the code
-keeps the platform specifics behind small per-OS files so it can be added, but nothing
-Windows-specific ships in 0.1.0.
+Supported: **Linux** (systemd, x86_64 and aarch64), **macOS** (13 Ventura or newer, Intel
+and Apple Silicon) and, as a **preview in 0.5.0**, **Windows** 10/11 and Server 2016 or
+newer on x64 (amd64): a Windows service under LocalSystem that backs up from a volume shadow
+copy (VSS). No Windows on ARM, no Authenticode signature (see "Known limits" and
+docs/WINDOWS-AGENT.md).
 
 ## Installing
 
@@ -118,6 +120,34 @@ the instance are kept;
 revoke the endpoint in the Restow UI to finish the removal there. (The UI can also send
 an `uninstall` task.)
 
+**Windows (preview).** In a PowerShell started as administrator (right-click > Run as
+administrator); Windows PowerShell 5.1 is enough:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<your instance>/install/windows.ps1')
+# unattended (RMM as SYSTEM): token file and the pinned release key
+$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'
+$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o'
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing 'https://<your instance>/install/windows.ps1')
+# remove
+& ([scriptblock]::Create((irm -UseBasicParsing 'https://<your instance>/install/windows.ps1'))) -Uninstall
+```
+
+The installer checks the release signature itself (its own Ed25519 check in PowerShell, no
+other tool) before it runs anything, prints the fingerprint of the release key and stops
+when it differs from a pin. Options: `-Hooks off|scripts|any`, `-Proxy http://proxy:3128`
+(no credentials; used for the downloads, the enrollment and the service),
+`-ReleaseKeyFingerprint`, `-Uninstall`, or the same as `RESTOW_HOOKS`, `RESTOW_PROXY`,
+`RESTOW_RELEASE_KEY_FINGERPRINT`, `RESTOW_UNINSTALL=1`. A 32-bit host
+(Intune runs scripts 32-bit by default) is fine: the installer starts itself again as
+64-bit; write the token file there to `C:\Windows\Sysnative\config\systemprofile\`. Where
+`iex (irm ...)` is blocked (AMSI, ASR, EDR), download `windows.ps1`, compare its SHA-256 and
+run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` (the script
+enables TLS 1.2 for its own downloads; a download that fails while setting up TLS names TLS
+1.2 and `SchUseStrongCrypto` as the cause). Neither
+`restow-agent.exe` nor the script carry an Authenticode signature in this preview; see
+"Known limits" for Defender and Smart App Control.
+
 **macOS: grant Full Disk Access.** macOS protects Desktop, Documents, Downloads, iCloud
 Drive and other folders. Add `/Library/Application Support/Restow/bin/restow-agent`
 under System Settings > Privacy & Security > Full Disk Access (on managed Macs: a Privacy
@@ -126,27 +156,74 @@ the path). Without it those files are skipped, the backup finishes as `partial` 
 run log says so. If protected folders are still reported after that, also add
 `/Library/Application Support/Restow/bin/restic`.
 
+### Reconnect a reinstalled machine
+
+`state.json` holds the agent's credentials and is never backed up, so a machine whose
+operating system was installed again (or that was restored from a whole-machine backup)
+has no enrollment. Instead of adding it as a new machine, reconnect it to its existing
+entry (server 0.5.0): on the machine's page in the Restow UI choose **Reconnect machine...**
+(danger zone, administrators only, with a fresh sign-in). The dialog creates a one-time
+**reconnect token** (`rset_...`, valid for 1 hour by default, at most 24) and shows the
+usual install command; run it on the reinstalled machine, and `restow-agent enroll` prints
+
+```
+Reconnected as the existing machine <id>; its backups, settings and history are kept. The previous installation of this machine no longer has access.
+```
+
+The instance issues a new agent secret for the existing machine: repository, password,
+backup job, settings and run history stay; the next backup continues the snapshot chain
+(restic reads every file once, but uploads hardly anything thanks to deduplication) and
+starts a new baseline for the ransomware signals. The operating system must be the same
+(Linux stays Linux), a different host name is accepted. The token gives **permanent**
+access like an installed agent, which is why it has its own dialog and is never part of a
+recovery code: whoever redeems it becomes this machine, and an installation that still
+runs with the old secret gets 401 from then on. A revoked machine is only reactivated when
+the token was created with "reactivate" (`unrevoke`); otherwise the enrollment is refused
+with `endpoint-revoked`. A machine that is still enrolled needs `restow-agent enroll
+--force` with the token in `RESTOW_TOKEN`.
+
 ## Command line
 
 ```
 restow-agent enroll        Enroll this machine (RESTOW_TOKEN and RESTOW_URL from the environment)
-restow-agent run           The service main loop (what systemd / launchd execute)
-restow-agent status        Local state, no root needed (--json for scripts)
+restow-agent run           The service main loop (what systemd / launchd execute; Windows: run --service)
+restow-agent status        Local state, no root or administrator needed (--json for scripts)
 restow-agent backup-now    Run one backup in the foreground (exit 0 ok, 3 partial, 1 failed)
 restow-agent update        Install the release the server offers now, then restart the service
 restow-agent service ...   install | start | stop | restart | status
 restow-agent hooks ...     status | off | scripts | any: whether hooks from the server run here
-restow-agent uninstall     Remove the agent (--yes, --keep-logs)
+restow-agent baremetal capture [--raw-dir DIR] [--out FILE]
+                           Capture the disk layout of this machine (Linux, preview; prints the manifest, sends nothing)
+restow-agent baremetal plan --manifest FILE|- --target same|minimal|other-controller|FILE [--json]
+                           Plan the restore of a layout manifest (pure; any system; see "Whole machine")
+restow-agent recover [--console TTY] [--answers FILE] [--plan-only] [--log FILE] [--restic PATH]
+                           Restore a whole machine to bare metal (Linux, on the recovery ISO, preview)
+restow-agent recover --list-tools
+                           The programs recover calls and their Debian packages (any Linux, no root)
+restow-agent uninstall     Remove the agent (--yes, --keep-logs, --keep-binaries)
 restow-agent version       Version, commit, build date (--short for the number only)
 ```
 
 `--debug` (or `RESTOW_DEBUG=1`) turns on verbose logging. `enroll --force` enrolls again
-with a new token (the old endpoint stays on the server until you revoke it).
+with a new token (the old endpoint stays on the server until you revoke it). `enroll` ends
+with exit code 4 when the instance refused the token (expired, used or unknown: HTTP 401
+with the problem type `urn:restow:problem:enrollment-token-invalid`), 5 when it could not reach
+the instance (DNS, connection, TLS, proxy, HTTP 407 of a proxy that wants a login) and 1 for
+anything else, also for another 4xx answer such as a 404 of a wrong URL or a 403 of a web
+application firewall; the
+install scripts ask for a new token only on 4. They decide whether a machine is enrolled
+with `status --json` (`"credentials": "readable"`), not by the existence of the state file:
+an enrollment that cannot be read any more is enrolled again with a new token (`--force`).
 `enroll --hooks=off|scripts|any` sets the hook policy of a new enrollment (default off;
 a new enrollment of an enrolled machine keeps its policy).
 `enroll --allow-insecure-http` exists for local development only and is refused by the
 install scripts unless `RESTOW_ALLOW_INSECURE_HTTP=1` is set; it makes the agent accept
 `http://` URLs and prints a warning every time.
+
+On Windows every command except `status` and `version` needs a PowerShell or Command Prompt
+started as administrator (an administrator without elevation is refused), or SYSTEM.
+`run --service` only runs under the service control manager; `run` without it runs the
+agent in the current window for troubleshooting (Ctrl+C stops it).
 
 ## What the agent does
 
@@ -175,7 +252,8 @@ failure.
 Configured paths that do not exist are skipped and logged; if none exists the run fails
 with an explanation. A path that is a symbolic link is backed up through its target
 (restic would otherwise store the link itself; on macOS `/etc` and `/var` are links). The
-agent always excludes its own cache and temporary folders and every folder named
+agent always excludes its own cache and temporary folders, its state file with the agent
+secret (see [Secrets are not backed up](#secrets-are-not-backed-up)) and every folder named
 `Restow-Restore-*`, so earlier restores are not backed up again. Snapshots carry the
 host name recorded at enrollment and the tag `restow-agent`.
 
@@ -195,8 +273,197 @@ host name recorded at enrollment and the tag `restow-agent`.
 - `onlyOnAcPower` is checked before a scheduled start and, if the device is on battery,
   the backup waits (see the limits below). An administrator's "Back up now" is not held
   back. A running backup is not stopped when the charger is unplugged.
-- `useVss` is a Windows option and has no effect on Linux and macOS (it is logged).
+- `useVss` (Windows; on by default, switched per machine in the Restow UI) backs up from a
+  volume shadow copy: restic `--use-fs-snapshot -o vss.timeout=5m`, with removable drives,
+  FAT and exFAT volumes passed as `-o vss.exclude-volumes` (read live, noted in the run
+  log). The result is file consistent, not application consistent (restic asks for a copy
+  backup without writer components). For SQL Server use the
+  [native SQL Server backup](#sql-server-native-backup-preview). A pre hook with `sqlcmd`
+  is no way around it without a login: hooks run as SYSTEM, and SQL Server 2012 and later
+  give neither SYSTEM nor the Administrators sysadmin, so such a hook needs a login for the
+  agent's service SID `NT SERVICE\RestowAgent`. On Linux and macOS `useVss` has no effect
+  (it is logged).
+- **When the snapshot fails** the policy `snapshotOnFailure` decides (the same setting for
+  VSS, LVM, btrfs and APFS). restic ends with exit code 0 when a shadow copy fails and reads
+  that volume live; the agent tells from restic's error entries (`failed to create snapshot
+  for [c:\]: ...`). `continue` (default): the run ends `partial` with `snapshot_failed` for
+  each such volume; when VSS cannot be used at all (service disabled, COM, no rights,
+  restic's `VSS error` before any progress) the agent runs restic once more without
+  `--use-fs-snapshot` and reports `snapshot_unavailable` when that run succeeds (when it
+  fails, its error is the cause). Any other early failure, a network or repository error
+  among them, is an ordinary failure; it is never blamed on VSS. `fail`: the agent stops restic
+  (CTRL_BREAK) at the first failed volume, or does not back up at all; the run ends
+  `failed`. A volume the provider does not support (`Snapshots are not supported for
+  volume`) is only a note in the run log, under both policies. A shadow copy restic could
+  not delete is reported as `snapshot_cleanup_failed`, which does not change the status.
+  Every backup report carries `consistency: { method, state, liveFilesystems }` (`state`
+  is `used`, `partial`, `unavailable` or `off`).
+- On Windows the agent also excludes `pagefile.sys`, `hiberfil.sys`, `swapfile.sys`,
+  `System Volume Information`, `$Recycle.Bin` and its own `C:\ProgramData\Restow`,
+  compares exclusion patterns without case (`--iexclude-file`), skips online-only cloud
+  files (`--exclude-cloud-files`, so OneDrive does not download anything) and writes the
+  drive letter of every source in capitals (restic stores `C:\Users` as `/C/Users`).
+  Paths of the other system in a mixed job (`/etc` on Windows, `C:\Users` on Linux) are
+  skipped with one log line.
 - A backup is limited to 72 hours; a wedged restic is then stopped and the run fails.
+
+### Whole machine (preview)
+
+With `RESTOW_BAREMETAL_PREVIEW` on the instance, a backup job can back up the **whole
+machine** (`wholeMachine` in the configuration, server and agent 0.5.0; Linux machines
+that are not containers). The job's folders stay in the job (older agents back them up);
+an agent 0.5.0 instead backs up every local file system:
+
+- Before restic it triggers automount points (10 s each) and captures the **disk layout**
+  (2 minutes at most): disks and partition tables, md arrays, LUKS and plain dm-crypt
+  (header metadata only, never keys, salts, digests or tokens), LVM, file systems with
+  their creation parameters, btrfs subvolumes, mounts, `fstab`, swap, firmware boot
+  entries and Secure Boot state, boot loader, initramfs and keymap, kernels, network
+  interfaces. `lsblk`, `blkid` and `sfdisk` are required; every other tool is optional
+  (a missing part is a warning in the manifest). The result is the canonical JSON
+  manifest `restow-layout-v1` with a verdict (`supported`, `supported_with_warnings`,
+  `unsupported`) and the reasons.
+- The sources are every mounted file system of a supported type on a local device (each
+  mount point once), the local `fstab` entries including `noauto` and automount ones, and
+  every btrfs subvolume below a mounted path except snapper, timeshift and the agent's own
+  snapshots. restic runs with `--one-file-system`, `--group-by host` and the additional
+  tag `restow-baremetal`. Swap files and snapper/timeshift folders are excluded.
+- The manifest is written to `/var/lib/restow-agent/baremetal/layout.json` (folder 0700,
+  sanitized tool outputs below `raw/`) **before** the snapshots are taken, so it is part
+  of the snapshot it describes, and the same bytes go to the instance with the run report
+  (`layout`, at most 512 KiB; a larger one stays in the snapshot only, `layout_too_large`).
+  A failed capture still backs up the mounted file systems (`layout_capture_failed`, run
+  `partial`).
+- `restow-agent baremetal capture` shows what a whole-machine backup would record.
+- `restow-agent baremetal plan` computes the restore plan of a manifest (contract
+  `restow-plan-v1`): which disk goes where, partition and LV sizes in bytes and target
+  sectors, the `mkfs` arguments from the recorded parameters, the driver and Secure Boot
+  checks and the steps a restore would take. It is a pure function: it starts no program,
+  reads only its arguments (and standard input) and, on Linux, limits itself (data segment
+  512 MiB, CPU 30 s). The Restow server runs it in a sandbox after each whole-machine
+  backup to check the layout (stage 1) and to show the minimum disk sizes.
+
+  ```
+  restow-agent baremetal plan --manifest layout.json --target same --json
+  restow-agent baremetal plan --manifest - --facts - --target minimal --json < manifest-then-facts
+  ```
+
+  `--target` is `same` (the recorded hardware), `minimal` (every disk at its minimum size,
+  shrinking allowed), `other-controller` (NVMe and SATA swapped, for the driver check) or a
+  target file (`restow-plan-target-v1`). `--facts` (`restow-plan-facts-v1`) holds the
+  kernel module lists and the restore sizes per mount point from the snapshot; without it
+  the sizes are estimated from the space in use and drivers are not checked. With both
+  `--manifest -` and `--facts -`, standard input carries the manifest and then the facts.
+  `--choices FILE` sets the operator's decisions (disk mapping, adoption, shrinking, raw
+  LVs, Secure Boot off), `--snapshot ID` the snapshot of the restore step. Exit codes: `0`
+  a plan was computed (problems are part of it: `ok` is false), `1` the input was refused
+  or the planner failed (with `--json` an `error` object with a code on standard output),
+  `2` usage.
+
+macOS and Windows machines ignore `wholeMachine` and back up their folders (one log line).
+
+### Recovery ISO (preview)
+
+The bare-metal restore runs from the Restow recovery ISO, a separate work under the GPL
+(GPL-3.0-or-later) in `integrations/recovery/` of the repository: Debian trixie with the
+Debian kernel and shim, the tools of `restow-agent recover --list-tools`, this agent and
+restic in `/usr/lib/restow-recovery/`, and a fixed list of non-free firmware packages
+whose licences are in `restow-recovery_<version>_FIRMWARE-LICENSES.txt`. The ISO is built
+reproducibly in CI (twice, on different runners; the release lists it only when both
+builds give the same bytes). The sources of every package are attached to the release
+(`restow-recovery_<version>_sources.tar`, split into parts of 1900 MiB when large).
+
+**Verify the ISO before you start a machine from it.** Its SHA-256 is a line of the
+release's signed `SHA256SUMS` (`recovery/restow-recovery_<version>_amd64.iso`):
+
+```sh
+scripts/release/verify-agent-signature.sh agent-SHA256SUMS agent-SHA256SUMS.sig release-signing.pub
+grep ' recovery/restow-recovery_0.5.0_amd64.iso$' agent-SHA256SUMS
+sha256sum restow-recovery_0.5.0_amd64.iso
+```
+
+Take `release-signing.pub` from the Git tag of the release (not from the instance) and
+compare its fingerprint with the one in the repository's README.
+
+**The restore.** Start the machine from the ISO, then `restow-agent recover` runs on the
+console (`tty1`; `restow.console=ttyS0|ttyS1` on the kernel command line moves it to a
+serial console): keyboard layout and language, network (DHCP, or a static address and an
+HTTP proxy), the address of the instance and its certificate (system CAs, the instance's
+own CA from a second USB stick, or the whole check value of the code dialog typed in), the
+recovery code, the match code to compare with the web interface, the approval there, the
+snapshot, the plan with every command (`p`), the confirmation (the last four characters of
+the identity of each disk that is erased, then `ERASE` or `LÖSCHEN`), the execution, the
+check after the restore, the report to the instance, optionally the reconnection of the
+restored machine with a reconnect token, and the restart. `?` opens the menu at any prompt
+(network, clock, shell, remote access over SSH, log, restart, power off); `a` and Enter,
+Ctrl+C, or the web interface cancel a running restore cleanly, and a later run with a new
+code offers to continue it without partitioning.
+
+Programs of the restored system (initramfs generators, `grub-install`, `bootctl`,
+`vgimportdevices`, `restorecon`) run through the hidden helper `restow-agent chroot-exec`:
+new mount, PID, network, IPC, UTS and cgroup namespaces, `pivot_root` into the target, a
+fresh `/proc` (with `/proc/sys`, `/proc/sysrq-trigger`, `/proc/irq`, `/proc/bus` and `/proc/fs`
+read-only and `kcore`, `kallsyms` and the other kernel views masked, so a program cannot set a
+core pattern that runs outside the isolation), `/sys` read-only, a `/dev` with only the null
+devices and the target devices,
+a reduced capability bounding set (`CAP_SYS_ADMIN` only for the boot loader and LVM tools
+when a device-mapper volume is among the target devices), no new privileges, a new session
+without a controlling terminal and a seccomp filter (no `mount` or other mount API call
+including `open_tree_attr`, `mknod`, `chroot`, module loading, `ptrace`, `kexec`, namespaces,
+file handles, system calls newer than its table, device-mapper commands that change mappings,
+NVMe passthrough, `TIOCSTI`). The
+repository password is cleared and the session's read access ends before the first of
+them runs; the passphrases are cleared after the key files are written.
+
+`--answers FILE` (and fw_cfg in QEMU, or a medium labelled `RESTOWANS` with
+`restow.answers=media`) runs unattended (`restow-answers-v1`); without `confirmErase`
+naming exactly the disks that are erased, nothing is erased. `--plan-only` shows the plan
+and changes nothing. `recover` runs only as root and only on the ISO
+(`--i-know-this-is-not-the-iso` for tests); this release restores amd64 machines.
+
+**Recovery code (preview, server side only).** The instance can issue a one-time
+**recovery code** for a Linux machine (`RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`, valid for 4
+hours by default, at most 48, read-only access to that machine's repository only). The
+recovery ISO redeems it: it never sends the code itself, only
+`SHA-256("restow-recovery-code:" + origin + ":" + code)` for the address it actually
+connects to, so a code typed into a look-alike address opens nothing. An administrator
+then approves the session in the Restow UI after comparing a six-digit match code, the
+ISO collects the repository credentials once, releases its read access before the
+machine restarts and reports the result; a prune of the repository waits while a session
+runs. The agent contains the code math and the client of this API (`internal/recovery`),
+but the recovery ISO with `recover` is not shipped yet, so the UI keeps the code dialog
+hidden until a release contains a verified ISO. After a recovery the machine is
+reconnected with a separate reconnect token (see "Reconnect a reinstalled machine").
+
+### File system snapshots on Linux (LVM, btrfs)
+
+`fsSnapshot` (per machine in the Restow UI, `auto` or `off`; default `auto` for whole-machine
+backups, `off` otherwise) lets the agent back up from snapshots instead of the live file
+systems:
+
+- **LVM:** a thick snapshot `<lv>_restowsnap` with the tag `restow-agent-snapshot` and a
+  copy-on-write area of 10 percent of the LV (at least 1 GiB, at most 32 GiB), all
+  snapshots of a volume group together at most 90 percent of its free space; with less
+  than 1 GiB free the LV is read live and the machine's page says how much space to
+  leave. Thin LVs get a thin snapshot while the pool's data and metadata are below 80
+  percent. While restic runs the agent checks every 30 seconds and stops reading from the
+  snapshots when a thin pool passes 90 percent or a snapshot 95 percent (under the policy
+  `continue` it backs up again from the live file systems).
+- **btrfs:** one read-only snapshot per subvolume below `.restow-snapshots/<run>/` of the
+  file system's top level, when at least 5 percent and 2 GiB are free.
+- Partitions, md arrays, FAT, LUKS on an LV and other file systems have no snapshot method
+  and are read live; that is not an error.
+- restic reads the snapshots under the **real paths**: the hidden helper
+  `restow-agent snapshot-exec` builds the snapshot tree in a private mount namespace
+  (read-only mounts, `noauto` entries mounted read-only only there) and starts restic in it
+  with `chroot`. Nothing is mounted on the host; the helper dies with the agent. The sample
+  hashes and the ransomware entropy are measured in the same tree.
+- Snapshots are removed after the backup; leftovers of a crash are removed when the agent
+  starts and before every backup (only LVs with both the tag and the suffix, only
+  subvolumes below `.restow-snapshots/`).
+- `snapshotOnFailure` applies as for VSS: a snapshot that failed is `snapshot_failed`, no
+  snapshot possible at all (tools missing, no rights) is `snapshot_unavailable`. The report's
+  `consistency.method` is `lvm`, `btrfs` or `mixed`.
 
 **Restore task.** Restores into `targetDir`, or by default into
 `<first backed-up folder>/Restow-Restore-<yyyyMMdd-HHmmss>` (the first backed-up folder
@@ -256,6 +523,66 @@ task and no hook and says why in its log, every 30 minutes; re-running the insta
 command repairs it. The service definition is rewritten when it differs from what the
 running version installs (location, hardening).
 
+### SQL Server (native backup, preview)
+
+On Windows the backup job can switch on a native backup of SQL Server (`config.sql`,
+docs/BAREMETAL-WINDOWS.md 5.1, stage W2a). It changes no backup chain of the customer:
+
+- **Sign-in.** The agent connects over Shared Memory (`lpc:.\<instance>`) with integrated
+  authentication as its service SID `NT SERVICE\RestowAgent`; no SQL credential is stored
+  anywhere. A database administrator creates the login once per instance (the installer
+  prints the lines, the Restow UI shows them with a variant with smaller rights):
+  `CREATE LOGIN [NT SERVICE\RestowAgent] FROM WINDOWS;` and
+  `ALTER SERVER ROLE [sysadmin] ADD MEMBER [NT SERVICE\RestowAgent];`.
+- **Script.** The T-SQL runs in Windows PowerShell 5.1 with `System.Data.SqlClient`, from a
+  script compiled into the agent (`internal/sqlserver/sql.ps1`), written to
+  `C:\ProgramData\Restow\data\tmp` with a DACL for SYSTEM and Administrators and checked
+  against the embedded copy before each start; no hook permission is needed. Every T-SQL
+  text is fixed (`internal/sqlserver/statements.go`); names and paths go in as parameters,
+  or through `QUOTENAME` on the server for commands that take no variable.
+- **Backup.** After the file run of a slot (also after a failed one; without paths only
+  these runs start) one run of kind `sql` per instance: `BACKUP DATABASE ... WITH
+  COPY_ONLY, CHECKSUM, NO_COMPRESSION` of each selected database into
+  `C:\ProgramData\Restow\data\staging\sql\<instance>` (or the job's `stagingDir`), written by
+  SQL Server itself under its service SID, which gets Modify on that folder only. A job's
+  `stagingDir` must have a trusted parent and be new or empty: the agent takes it over (owner
+  Administrators, protected DACL, the marker `.restow-sql-staging`); a folder with other files
+  in it is refused (`sql_staging_unusable`) and never re-permitted or emptied. The space is
+  planned first (`sql_staging_too_small`, never a silent fallback). Then one restic snapshot
+  of the folder with the tags `restow-sql` and `restow-sql-instance=<name>`, without a shadow
+  copy. The staging files are deleted after the snapshot, and on every other way out of the
+  run too (a failed or partial `BACKUP`, a stop, a failed snapshot): the next run writes them
+  again. The report carries the facts of each backup from `RESTORE HEADERONLY`
+  and `RESTORE FILELISTONLY` of the file (LSNs as decimal strings), its SHA-256 and size.
+  While the native backup covers a database, the file backup leaves its files out.
+  `tempdb`, database snapshots and databases that are not `ONLINE` are not backed up.
+- **Check** (task `sql_verify`, planned by the server). The newest full of each database is
+  fetched from the repository, its SHA-256 compared, restored as
+  `<db>__restow_verify_<time>` with `MOVE` targets from `FILELISTONLY` of the fetched file,
+  cut off the Service Broker (`SET NEW_BROKER`), checked with `DBCC CHECKDB ... WITH
+  NO_INFOMSGS, ALL_ERRORMSGS, TABLERESULTS` (`PHYSICAL_ONLY` above `maxGiB`) and dropped.
+  The planned name goes into `data\sql-verify-journal.json` before the `RESTORE`; a copy
+  left by a crash is dropped before the next check, and only a name from that journal. The
+  agent reports facts only; the server decides green, red or incomplete. What a CHECKDB
+  proves is decided in the agent (`internal/sqlserver/checkdb.go`): its TABLERESULTS rows and
+  raised consistency errors are evidence; anything that only stopped it (tempdb or log full,
+  out of memory, a broken connection) makes the check incomplete, never red. Restore and
+  check keep a reserve free on every volume they write to: 1 GiB, and on the volumes of the
+  data and log files the larger of 1 GiB and a tenth of the volume.
+- **Restore under a new name** (task `sql_restore`): fetched, hash checked, restored into the
+  target instance's default folders, optionally checked with `CHECKDB`. A name that exists
+  is refused, also in the batch of the `RESTORE` itself; the existing database is never
+  touched. After a `RESTORE` that failed or did not end (time limit, crash, stop) the new
+  name is dropped only while it is in `RESTORING`; anything else that is left is named in
+  the run with its state and files.
+- **Inventory.** Every 6 hours while the native backup is on, or once when the Restow UI
+  asks for it ("Check sign-in"), the heartbeat carries the SQL inventory (at most 64 KiB).
+  Without the native backup the agent never connects on its own: a connection without a
+  login writes a failed login into the instance's error log.
+- Heartbeat and enrollment announce the capability `sql_native_v1`; the server offers no
+  SQL Server action to an agent without it. On Linux and macOS the setting is logged once
+  and ignored.
+
 ## Hooks
 
 Hooks are commands the Restow server asks the agent to run before and after a backup, for
@@ -278,6 +605,20 @@ post hook still runs. A failing post hook turns a successful backup into `partia
 must not print secrets: the agent masks its own secrets and common secret patterns,
 nothing more. The policy is read at every backup, so a change applies without a restart;
 the server learns it with the next heartbeat (within five minutes).
+
+**Windows.** Hooks run as SYSTEM in Windows PowerShell 5.1
+(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand`, from
+the system folder). Every command is wrapped so the exit code means something: a failing
+cmdlet stops the hook with 1, a native program keeps its code (`cmd /c exit 7` gives 7), an
+own `exit 5` gives 5. A native program failing in the middle of a command does not stop it
+(as `sh -c` without `set -e`). The `scripts` policy runs `.ps1` (through the same wrapper)
+and `.exe` files from `C:\ProgramData\Restow\state\hooks.d` that only SYSTEM,
+Administrators and TrustedInstaller can change and that one of them owns (where
+administrators own what they create, run `icacls <file> /setowner *S-1-5-32-544` on a script
+you copied there); `.cmd` and `.bat` are not run (call them from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
+over `-ExecutionPolicy Bypass`; the run log then names it. Each hook runs in its own Job
+Object: a timeout or a cancelled run ends the hook and everything it started at once,
+without a grace period; after a normal end, background processes it started live on.
 
 **Networking.** HTTPS only (TLS 1.2 or newer, system trust store, redirects to `http://`
 refused). Calls have timeouts and retry with exponential backoff and jitter, honoring
@@ -307,6 +648,13 @@ are passed on when they are set in the service environment, for example with
   root) holds the agent secret and the repository password in plain text; the agent
   corrects looser permissions and refuses a file owned by someone else. Nothing else
   secret is stored. `status.json` is world-readable and contains no secrets.
+- <a id="secrets-are-not-backed-up"></a>**Secrets are not backed up.** Every backup, on every
+  system and with or without whole machine, excludes the agent's state file and its
+  temporary copies (`/etc/restow-agent/state.json` and `.state-*.tmp`; macOS also in the
+  `/private/etc` and `/System/Volumes/Data` spellings; Windows
+  `C:\ProgramData\Restow\state\state.json`), and on Linux the state of restow-pve
+  (`/etc/restow-pve/state.json`, `.state.json.*`). Older snapshots may still contain it;
+  the restore dialog of the instance hides it.
 - **Secrets in use.** The enrollment token is read from the environment, never from a
   flag or URL, and removed from the environment at once. restic receives the repository
   password and the REST credentials only through environment variables, never on a
@@ -346,7 +694,7 @@ are passed on when they are set in the service environment, for example with
   what that still allows: `NoNewPrivileges`, `ProtectKernelTunables`,
   `ProtectKernelLogs`, `ProtectControlGroups`, `ProtectHostname`, no kernel module loading
   (`CapabilityBoundingSet=~CAP_SYS_MODULE`, `SystemCallFilter=~@module`),
-  `RestrictNamespaces`, `RestrictRealtime`, `LockPersonality`,
+  `RestrictNamespaces=mnt` (only the snapshot helper's mount namespace), `RestrictRealtime`, `LockPersonality`,
   `SystemCallArchitectures=native` and `UMask=0077` (launchd: `Umask` 077). Not used, on
   purpose: `ProtectSystem`, `ProtectHome`, `PrivateTmp` (backups of arbitrary paths and
   restores into them), `ProtectKernelModules` (hides `/usr/lib/modules` from a backup of
@@ -355,6 +703,20 @@ are passed on when they are set in the service environment, for example with
   (rootless containers) does not work.
 - The service runs with low CPU and I/O priority and is restarted by systemd / launchd if
   it stops.
+- **Windows (preview).** The service `RestowAgent` runs as LocalSystem with a reduced list of
+  privileges (backup, restore, security, take ownership, symbolic links, change notify,
+  impersonate, create global, manage volume): the service control manager removes all
+  others, so restic and hooks never hold `SeDebugPrivilege` or `SeTcbPrivilege`. The
+  folders below `C:\ProgramData\Restow` have a protected DACL (SYSTEM and Administrators;
+  `status.json` readable by Users). The agent secret and the repository password are
+  additionally encrypted with DPAPI for the machine; that only protects a copy of the file
+  alone: any process on the machine that can read the file can decrypt it, so the DACL is
+  the boundary. The trust check reads owner and DACL of every folder from the file up to the
+  drive root (SYSTEM, Administrators and TrustedInstaller are trusted; nobody else may
+  write, delete or change permissions; adding entries to `C:\` or `C:\ProgramData` is
+  allowed above the folder itself) and refuses links, junctions and mount points. restic and
+  hooks run in Job Objects, so they end with the agent. Security-relevant events go to the
+  Application event log, source `Restow`.
 
 ## Files
 
@@ -367,10 +729,17 @@ are passed on when they are set in the service environment, for example with
 | `/etc/restow-agent/state.json` | Enrollment: instance URL, endpoint id, agent secret, repository URL and password, hook policy (0600) |
 | `/var/lib/restow-agent/status.json` | Runtime status for `restow-agent status` (no secrets) |
 | `/var/lib/restow-agent/cache` | restic cache (metadata of the repository; can grow to a few GB for large repositories and can be deleted) |
+| `/var/lib/restow-agent/baremetal/` | Layout manifest `layout.json` and sanitized `raw/` tool outputs of the last whole-machine backup (0700; Linux, preview) |
 | `/var/lib/restow-agent/{tmp,restic-tmp,outbox}` | Temporary restore copies, restic option files, undelivered run reports |
 | `/var/log/restow-agent/agent.log` | Agent log, rotated at 5 MB, 3 files kept (Linux: also in the journal; macOS: `launchd.log` for crash traces) |
 | `/etc/systemd/system/restow-agent.service` | systemd unit (Linux) |
 | `/Library/LaunchDaemons/com.restowbackup.agent.plist` | LaunchDaemon (macOS) |
+| `C:\Program Files\Restow\bin\{restow-agent.exe,restic.exe}` | Binaries (Windows; `restow-agent.exe.prev`: previous agent after an update) |
+| `C:\Program Files\Restow\THIRD_PARTY_NOTICES.txt` | License notices (Windows) |
+| `C:\ProgramData\Restow\state\state.json`, `hooks.d\` | Enrollment with DPAPI-protected secrets, hook scripts (Windows; SYSTEM and Administrators only) |
+| `C:\ProgramData\Restow\data\{status.json,cache,tmp,restic-tmp,outbox,run.lock}` | Status (readable by Users), restic cache, temporary files, run lock (Windows) |
+| `C:\ProgramData\Restow\logs\agent.log` | Agent log (Windows); security events also in the Application event log, source `Restow` |
+| `HKLM\SYSTEM\CurrentControlSet\Services\RestowAgent` | The Windows service; `Environment` holds the proxy set with `-Proxy` |
 
 ## Build
 
@@ -378,12 +747,13 @@ Go is not required on the host; the scripts use the pinned `golang` image (`GO_I
 `tools.env`) when no `go` is on the PATH. The Go version is 1.26 or newer (`go.mod`).
 
 ```sh
-./build.sh                          # development build 0.0.0-dev, all four targets into dist/<os>-<arch>/
+./build.sh                          # development build 0.0.0-dev, all five targets into dist/<os>-<arch>/
 ./build.sh --version 0.1.0          # a release build (needs the release key in release-signing.pub; signed separately)
 ```
 
-`build.sh` cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64` and `darwin/arm64`
-with `CGO_ENABLED=0 -trimpath -buildvcs=false` and the version injected through
+`build.sh` cross-compiles `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and
+`windows/amd64` (a preview, see below; the files are `restow-agent.exe` and `restic.exe`, restic
+from the pinned `.zip`) with `CGO_ENABLED=0 -trimpath -buildvcs=false` and the version injected through
 `-ldflags`, downloads the pinned restic release for every target and verifies its SHA-256
 against `tools.env` before unpacking, and writes checksums:
 
@@ -481,6 +851,13 @@ build, builds the images with the signed agent (the Dockerfile checks the signat
 again), runs the release smoke, checks the signature once more and only then publishes
 the draft. The private key never enters the repository or CI.
 
+**Windows preview: Defender submission.** `restow-agent.exe` and `restic.exe` carry no
+Authenticode signature. Before signing every prerelease and release, submit both files
+(SHA-256 in the request to sign from the job `agent-sums`) at Microsoft's "Submit a file for
+malware analysis" as a software developer, and wait for a clean verdict; the builds are
+reproducible, so the hashes are final once the job `agent` ran. This is a manual step of the
+maintainer.
+
 The script runs from any directory and needs no clone of the repository with the tag. The
 repository is `--repo <owner/name>`; without it the script uses the GitHub repository of the
 clone it lives in (as `gh repo view` reports it) and otherwise `restow-backup/restow`.
@@ -497,6 +874,24 @@ needs to be logged in with push rights to the repository either way.
 # from anywhere, for a release of another repository (a fork with its own key)
 scripts/release/sign-agent.sh v0.2.0 --repo my-org/restow --key ~/restow-keys/restow-agent-release
 ```
+
+### Signing a rebuild of the recovery ISO
+
+A rebuild of the recovery ISO of a published release against a newer Debian snapshot (tag
+`recovery-v<version>.<n>`, workflow `recovery-rebuild.yml`, docs/CI.md "Recovery ISO rebuilds")
+is signed with the same key and the same script, in the same namespace:
+
+```sh
+scripts/release/sign-agent.sh recovery-v0.5.0.1 --key ~/restow-keys/restow-agent-release --iso <rebuilt ISO>
+```
+
+The draft carries `recovery-SHA256SUMS` with exactly two lines: the rebuilt ISO
+(`recovery/restow-recovery_0.5.0.1_amd64.iso`) and `release/agent-SHA256SUMS`, the SHA-256 of
+the signed checksums of `v0.5.0`. The script refuses anything else, checks that `v0.5.0` is
+published and its `agent-SHA256SUMS` verifies against the key at the tag, compares the binding
+line with it, compares the ISO rebuilt on your machine (`--iso` is required here), signs, uploads
+`recovery-SHA256SUMS.sig` and approves the waiting job. Installations of 0.5.0 take only a
+rebuild whose signed list names their own release (docs/BAREMETAL.md 26.13).
 
 ### Checking a release by hand
 
@@ -516,7 +911,7 @@ on another machine and pass the SHA-256 of the checked `SHA256SUMS` to the insta
 ## Tests
 
 ```sh
-scripts/test.sh                 # gofmt, go vet for all four targets, unit tests with the race detector, build.sh test, ShellCheck
+scripts/test.sh                 # gofmt, go vet for all five targets, unit tests with the race detector, build.sh test, ShellCheck
 scripts/test-build.sh           # build.sh with a stand-in go (layout, checksums, --no-restic); no Go, Docker or network
 scripts/integration.sh          # real restic + rest-server (append-only) on Linux, in Docker
 scripts/integration.sh --native # the same natively on this machine (macOS or Linux)
@@ -524,7 +919,21 @@ scripts/test-install.sh         # install/linux.sh end to end in a container (fa
 scripts/test-install-macos.sh   # install/macos.sh on a Mac, unprivileged, relocated root
 scripts/test-systemd.sh         # real systemd (privileged container): hardening and the move of an older installation (RESTOW_TEST_OLD_REF)
 scripts/lint.sh                 # ShellCheck only
+go run ./scripts/sigdiff -n 400 # Ed25519 vectors for the differential test of the Windows installer
+# on Windows (CI job agent-windows):
+go test -tags windowsintegration ./internal/...   # service, DPAPI, ACLs, Job Objects, hooks (as administrator)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-windows.ps1
 ```
+
+The Windows installer checks the release signature with its own Ed25519 code in
+PowerShell. `scripts/sigdiff/ref.go` is the same algorithm in Go (`math/big`); `go test`
+compares it with `crypto/ed25519` on the RFC 8032 vectors and 600 mutated signatures (bit
+flips in R and S, S + L, high bits, non-canonical R, other message or key, wrong length).
+On Windows, `test-install-windows.ps1` compares the PowerShell code itself with Go on the
+committed vectors and 300 new ones, checks the SSHSIG fixtures in `install/testdata/sshsig`
+(regenerate with `go run ./scripts/sigdiff -sshsig install/testdata/sshsig`) and a signature
+made by `ssh-keygen`, and installs, repairs and removes the agent against the fake instance
+below a prefix.
 
 The install test builds a release from a copy of the checkout with a throwaway signing
 key and checks: the signature (ssh-keygen and OpenSSL 3), a re-hashed `SHA256SUMS`, an
@@ -574,7 +983,7 @@ There is no `go.sum` because there is nothing to fetch.
 
 | Component | License | How it is used |
 | --- | --- | --- |
-| [restic](https://github.com/restic/restic) 0.19.1 | BSD-2-Clause; the 79 Go modules compiled into it are Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause and, for `github.com/hashicorp/golang-lru/v2`, MPL-2.0 (used unmodified) | External binary shipped next to the agent and executed with `RESTIC_*` environment variables |
+| [restic](https://github.com/restic/restic) 0.19.1 | BSD-2-Clause; the Go modules compiled into it (79 or 80 per target, 82 in all) are Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause and, for `github.com/hashicorp/golang-lru/v2`, MPL-2.0 (used unmodified) | External binary shipped next to the agent and executed with `RESTIC_*` environment variables |
 | [rest-server](https://github.com/restic/rest-server) 0.14.0 | BSD-2-Clause | Integration tests only, not shipped |
 | Go toolchain (`golang` image) | BSD-3-Clause | Build and tests only |
 | [ShellCheck](https://www.shellcheck.net) | GPL-3.0 | Linting only, run from its Docker image, not part of any build output |
@@ -606,14 +1015,61 @@ carries all of them.
 - **No mTLS yet.** v1 authenticates each agent with a per-agent secret over HTTPS. A
   stolen secret (root on the endpoint) allows writing new backups to that endpoint's
   repository and reading it; it does not allow deleting anything.
-- **No LVM, ZFS or btrfs snapshots yet.** Consistency on Linux and macOS comes from the
-  optional pre/post hooks (database dumps, `fsfreeze`, and so on). Files that change while
-  they are read can end up inconsistent in the snapshot. On macOS there is no APFS
-  snapshot integration either.
-- **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine
-  means reinstalling the operating system and restoring the files.
-- **Windows is not part of 0.1.0** (planned): no Windows build, installer or service, and
-  therefore no VSS.
+- **No ZFS or APFS snapshots yet.** LVM and btrfs snapshots on Linux need `fsSnapshot: auto`;
+  file systems without a snapshot method (partitions, md, FAT, ZFS) and macOS are read live.
+  Consistency there comes from the optional pre/post hooks (database dumps, `fsfreeze`, and so
+  on). Files that change while they are read can end up inconsistent in the snapshot.
+- **Windows shadow copies are file consistent, not application consistent.** Open
+  databases (SQL Server, Exchange) are crash consistent and their logs are not truncated;
+  for SQL Server use the native backup. restic makes the shadow copy of each volume on its
+  own, at its own time: a database with its data on one volume and its log on another is
+  not of one moment in a file backup (CI job `windows-multivolume`). The run warns
+  (`app_files_not_app_backup`) on a machine with SQL Server, Exchange, Active Directory or
+  Hyper-V.
+- **Native SQL Server backup is a preview (W2a).** Only COPY_ONLY fulls: no log chain, no
+  point-in-time restore, no restore over the existing database, no automatic restore of
+  `master`, no failover cluster instances (`sql_fci_unsupported`), strict encryption (TDS
+  8.0) and Constrained Language Mode are detected, not worked around
+  (`sql_strict_encryption`, `sql_powershell_constrained`). A long check delays the next
+  scheduled backup (one job at a time). TDE certificates are not backed up. Files listed under
+  `HKLM\SYSTEM\CurrentControlSet\Control\BackupRestore\FilesNotToSnapshot` (by default
+  Outlook OST files) are missing from the snapshot.
+- **File-based backups; bare metal for Linux only, as a preview.** No disk images. A whole
+  Linux machine (amd64) can be restored from the recovery ISO onto new disks; macOS and
+  Windows machines are reinstalled and their files restored. The bare-metal restore keeps
+  the storage stack as it was (no change of RAID level, file system or BIOS to UEFI); a
+  machine backed up in BIOS mode needs replacement hardware with CSM. TPM2, FIDO2 and
+  Clevis bindings of LUKS volumes are set up again after the start; LVM VG and LV UUIDs
+  and btrfs subvolume IDs are new; file attributes (`chattr`) other than `+C` are not
+  restored; LUKS on an LV is backed up live; LVs without a file system (`raw`) are not
+  backed up; the initramfs of older kernels stays unchanged when `/boot` is short of
+  space; a Secure Boot chain the new firmware has revoked needs Secure Boot off or an
+  update after the start. Distributions that are not tested are restored with a warning
+  in the plan.
+- **Windows is a preview in 0.5.0.** Backups with shadow copies, restores and the service
+  work as described in docs/WINDOWS-AGENT.md, but are tested on real machines only by the
+  maintainer's checklist there. No Windows on ARM (installer and server refuse it). No
+  Authenticode for `restow-agent.exe`, `restic.exe` or `windows.ps1`: Defender may flag a new
+  build until Microsoft has cleared it (the maintainer submits every prerelease), ASR rules
+  may block it, and Smart App Control (fresh Windows 11) blocks the agent, which the
+  installer detects. In evaluation mode (the start of a fresh Windows 11) Smart App Control
+  blocks nothing yet, but Windows may switch it on later and then block the agent and its
+  updates without the agent being able to report it (the machine only shows as offline); the
+  installer warns about this and says how to switch it off (for good: only a reset of Windows
+  switches it on again). No alternate data streams (so no Mark of the Web after a restore), no
+  EFS files of other users (read errors), online-only cloud files are left out, junctions
+  inside a backed-up folder are backed up as links (a junction configured as a path is
+  followed), no system state or registry, no bare-metal restore: restoring a Windows machine
+  means reinstalling Windows, then restoring the files. Further data drives
+  (`D:\`) are not reported as data folders yet. Hooks under
+  Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
+  proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an
+  uninstall through the agent itself, `restow-agent.exe` stays, renamed to
+  `restow-agent.exe.old-<hex>`, until the next restart (the installer's `-Uninstall` removes
+  everything); installing again before that restart is safe. The restore target defaults to
+  `C:\Restow-Restore-<time>`, not into a backed-up folder as on Unix. Tests that use `/bin/sh`
+  stand-ins carry `//go:build unix`; new Linux-only code needs `//go:build linux`, new
+  macOS-only code `//go:build darwin`, or `GOOS=windows go vet` fails.
 - **Power detection is best effort.** Linux reads `/sys/class/power_supply`; macOS reads
   `pmset -g batt` (a UPS counts as battery). When the state cannot be determined the agent
   assumes AC power so that a detection failure never blocks backups, and logs that once a
@@ -666,3 +1122,13 @@ the agent does this, and the server should expect it:
   `/etc/restow-agent/hooks.d`, scripts policy) with every heartbeat. The server treats an
   agent that reports no policy (a pre-release build) like `off` and refuses hooks for it.
 - A task id that was already handled is ignored (the last 100 ids are remembered).
+- The enrollment answer may carry `rebound: true` (server 0.5.0, a reconnect token): the
+  instance issued a new agent secret for an existing endpoint. The agent stores the
+  answer like an enrollment and says that the machine was reconnected.
+- The recovery API (`/agent/v1/recovery/sessions`, `internal/recovery`): the exchange
+  carries `codeProof` (hex SHA-256 of `"restow-recovery-code:" + canonical origin + ":" +
+  code`) and `sessionSecretSha256`; the session secret (64 lower-case hex characters) only
+  travels in the Basic header `sessionId:sessionSecret`. The client sends
+  `Cache-Control: no-store`, retries only 429 and 503 answers with `Retry-After`, refuses
+  credentials whose repository is not `rest:<origin>/agent/recovery/restic/<sessionId>/`
+  and refuses an exchange answer whose `matchCode` differs from its own.

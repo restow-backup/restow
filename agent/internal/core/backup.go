@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
+	"github.com/restow-backup/restow/agent/internal/fssnap"
 	"github.com/restow-backup/restow/agent/internal/hooks"
 	"github.com/restow-backup/restow/agent/internal/lock"
 	"github.com/restow-backup/restow/agent/internal/paths"
@@ -92,6 +93,12 @@ func (a *Agent) runBackup(ctx context.Context, j job) (runOutcome, error) {
 		a.log.Info("not backing up: this machine is in no backup job", "trigger", j.trigger)
 		return runOutcome{}, ErrNoJob
 	}
+	sqlOn := a.sqlActive(cfg)
+	if sqlOn && len(cfg.Paths) == 0 {
+		// Only the native SQL Server backup: no file run is started.
+		a.log.Info("the backup job has no paths; only the native SQL Server backup runs")
+		return runOutcome{Status: a.runSQLBackups(ctx, j, cfg, true), Summary: "SQL Server backup"}, nil
+	}
 	rc, err := a.beginRun(ctx, api.RunBackup, j, cfg)
 	if err != nil {
 		a.startFailed(j, "backup", err)
@@ -99,30 +106,68 @@ func (a *Agent) runBackup(ctx context.Context, j job) (runOutcome, error) {
 	}
 	out := a.doBackup(rc)
 	a.endRun(rc, out)
+	// Then one sql run per instance, also after a failed file run; not
+	// after a stop (the job's context ended).
+	if sqlOn && ctx.Err() == nil {
+		a.runSQLBackups(ctx, j, cfg, false)
+	}
 	return out, nil
 }
 
 func (a *Agent) doBackup(rc *runContext) runOutcome {
+	out := a.doFileBackup(rc)
+	// The fixed warnings of a Windows machine with a database role (W1).
+	if m := a.currentMachine(); m.windows != nil {
+		out.Notices = append(out.Notices, AppFileNotices(m.windows, rc.cfg.SQL, a.sqlActive(rc.cfg))...)
+	}
+	return out
+}
+
+func (a *Agent) doFileBackup(rc *runContext) runOutcome {
 	out := runOutcome{Status: api.StatusFailed}
 	rl, cfg := rc.rl, rc.cfg
 
-	sources, missing, resolved := splitSources(cfg.Paths)
-	for _, m := range missing {
+	whole := a.wholeMachineApplies(cfg)
+	ownPaths, foreign := ownFormSources(cfg.Paths, runtime.GOOS == "windows")
+	if len(foreign) > 0 {
+		rl.Infof("Paths for other operating systems are skipped on this machine: %s.", strings.Join(foreign, ", "))
+	}
+	split := splitSources(ownPaths)
+	sources := split.existing
+	for _, m := range split.missing {
 		rl.Warnf("Path %s does not exist on this machine and is skipped.", m)
 	}
-	for _, r := range resolved {
-		rl.Infof("Path %s is a symbolic link; backing up its target %s.", r.Configured, r.Resolved)
+	for _, r := range split.resolved {
+		rl.Infof("Path %s is a %s; backing up %s.", r.Configured, r.Kind, r.Resolved)
 	}
-	if len(sources) == 0 {
+	if !whole {
+		// A source that exists but cannot be backed up as configured is an error
+		// of the run, never a silent skip: the run ends partial at best. A whole
+		// machine backup does not use the configured paths.
+		for _, e := range split.problems {
+			rl.Errorf("%s", e.Message)
+		}
+		out.Errors = append(out.Errors, split.problems...)
+	}
+	if whole {
+		// The sources come from the disk layout, captured after the pre hook.
+		rl.Infof("Backing up the whole machine (preview): every local file system and the disk layout.")
+	} else if len(sources) == 0 {
+		if len(split.problems) > 0 {
+			return out
+		}
 		if len(cfg.Paths) == 0 {
 			out.fail("no_paths", "No backup paths are configured for this endpoint. Set them in the Restow UI (Endpoints, Settings).")
+		} else if len(ownPaths) == 0 {
+			out.fail("no_paths", "None of the configured backup paths is a path of this operating system: %s. Add folders for this machine to its backup job.", strings.Join(foreign, ", "))
 		} else {
 			out.fail("no_paths", "None of the configured backup paths exists on this machine: %s.", strings.Join(cfg.Paths, ", "))
 		}
 		rl.Errorf("%s", out.Errors[0].Message)
 		return out
+	} else {
+		rl.Infof("Backing up: %s", strings.Join(sources, ", "))
 	}
-	rl.Infof("Backing up: %s", strings.Join(sources, ", "))
 
 	hookEnv := func(kind hooks.Kind, statusText string) []string {
 		env := []string{"RESTOW_ENDPOINT_ID=" + a.d.State.EndpointID, "RESTOW_RUN_ID=" + rc.runID.String(), "RESTOW_HOOK=" + string(kind)}
@@ -174,8 +219,9 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	}
 
 	if proceed {
-		out = a.backupStep(rc, out, sources)
-		// A hook that was not allowed makes a good backup partial: it is not what was configured.
+		out = a.backupStep(rc, out, sources, split.resolved)
+		// A hook that was not allowed or a source that could not be read makes a
+		// good backup partial: it is not what was configured.
 		if refused && out.Status == api.StatusSucceeded {
 			out.Status = api.StatusPartial
 		}
@@ -205,7 +251,17 @@ func (a *Agent) doBackup(rc *runContext) runOutcome {
 	return out
 }
 
-func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) runOutcome {
+func removeString(list []string, s string) []string {
+	out := list[:0:0]
+	for _, x := range list {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string, resolved []sourceNote) (final runOutcome) {
 	rl, cfg := rc.rl, rc.cfg
 	// A previous run that was cut short may have left a lock; restic removes
 	// only provably stale ones.
@@ -228,13 +284,67 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		sizeLimit = cfg.ExcludeLargerThanBytes
 		rl.Infof("Files larger than %s are not backed up (size limit of the backup job).", formatBytes(uint64(sizeLimit)))
 	}
-	if cfg.UseVSS {
-		rl.Infof("Volume Shadow Copy (useVss) is a Windows feature and has no effect on this system.")
+	excludes := append([]string(nil), cfg.Excludes...)
+	fl := loadFirmlinks()
+	if runtime.GOOS == "darwin" {
+		// Every spelling of a job's exclusion on macOS (docs/BAREMETAL.md 5.3).
+		excludes = expandDarwinExcludes(excludes, fl, "")
+	}
+	// Never back up the agent's own working files, its secrets or earlier
+	// restores (docs/BAREMETAL.md 5.4).
+	excludes = append(excludes, agentExcludes(a.d.Layout, runtime.GOOS, fl)...)
+	// While the native SQL Server backup covers them, the database files
+	// (and a staging folder of the job) stay out of the file backup.
+	excludes = append(excludes, a.sqlFileExcludes(rc.ctx, cfg, rl)...)
+
+	opts := restic.BackupOptions{
+		Paths: sources, Excludes: excludes, Host: a.d.State.Hostname, Tags: []string{snapshotTag},
+		LimitUploadKiB: limit, ExcludeLargerThanBytes: sizeLimit,
+	}
+	platformBackupOptions(&opts, a.d.Layout)
+	if opts.ExcludeCloudFiles {
+		rl.Infof("Online-only cloud files (OneDrive and similar) are not backed up and not downloaded (--exclude-cloud-files).")
 	}
 
-	excludes := append([]string(nil), cfg.Excludes...)
-	// Never back up the agent's own working files or earlier restores.
-	excludes = append(excludes, a.d.Layout.CacheDir(), a.d.Layout.TmpDir(), "Restow-Restore-*")
+	// The file system snapshot and its policy (docs/WINDOWS-AGENT.md, 17).
+	plan := planSnapshotFn(cfg, sources)
+	failPolicy := snapshotFailPolicy(cfg)
+	// Linux: the whole machine and LVM/btrfs snapshots (docs/BAREMETAL.md 5, 6).
+	fr, stop := a.fsPrepare(rc, &out, &sources, &opts, failPolicy)
+	if fr != nil {
+		defer func() { fr.finish(rc, &final) }()
+	}
+	if stop {
+		return out
+	}
+	opts.Paths = sources
+	if len(sources) == 0 {
+		out.fail("no_paths", "No file system to back up was found on this machine.")
+		rl.Errorf("%s", out.Errors[len(out.Errors)-1].Message)
+		return out
+	}
+	for _, n := range plan.notes {
+		rl.Infof("%s", n)
+	}
+	if plan.unavailable != "" {
+		if failPolicy {
+			e := snapshotUnavailableError(plan.unavailable, false)
+			rl.Errorf("%s", e.Message)
+			out.Errors = append(out.Errors, e)
+			out.Consistency = consistencyOf(plan, restic.SnapshotOutcome{}, true)
+			return out
+		}
+		e := snapshotUnavailableError(plan.unavailable, true)
+		rl.Warnf("%s", e.Message)
+		out.Errors = append(out.Errors, e)
+	}
+	if plan.requested {
+		opts.UseFSSnapshot = true
+		opts.VSSTimeout = vssTimeout
+		opts.VSSExcludeVolumes = plan.vssExclude
+		rl.Infof("Backing up from a shadow copy (Volume Shadow Copy); if it fails, the backup %s.",
+			map[bool]string{true: "stops (policy)", false: "continues from the live file system and ends partial (policy)"}[failPolicy])
+	}
 
 	reporter := newProgressReporter(a.d.Server, rc.runID, a.o.ProgressInterval, func(err error) {
 		a.log.Debug("progress report not delivered", "error", err)
@@ -242,26 +352,131 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	reporter.Start(rc.ctx)
 	rctx, rcancel, timedOut := rc.resticContext()
 	defer rcancel()
-	res, err := rc.runner.Backup(rctx, restic.BackupOptions{
-		Paths: sources, Excludes: excludes, Host: a.d.State.Hostname, Tags: []string{snapshotTag},
-		LimitUploadKiB: limit, ExcludeLargerThanBytes: sizeLimit,
-		OnProgress: func(p restic.Progress) {
-			reporter.Update(p)
-			a.log.Debug("backup progress", "files", p.FilesDone, "bytes", formatBytes(p.BytesDone), "percent", int(p.Percent*100))
-		},
-	})
+	// Under the policy fail the agent stops restic at the first volume whose
+	// snapshot failed, with its own cause (else it would read as interrupted).
+	sctx, scancel := context.WithCancelCause(rctx)
+	defer scancel(nil)
+	if plan.requested && failPolicy {
+		opts.OnSnapshotFailed = func(v restic.VolumeFailure) { scancel(errSnapshotFailed) }
+	}
+	opts.OnProgress = func(p restic.Progress) {
+		reporter.Update(p)
+		a.log.Debug("backup progress", "files", p.FilesDone, "bytes", formatBytes(p.BytesDone), "percent", int(p.Percent*100))
+	}
+	stopWatch := func() {}
+	if fr != nil {
+		stopWatch = fr.watch(sctx, scancel)
+	}
+	res, err := rc.runner.Backup(sctx, opts)
+	stopWatch()
+	snapUnavailable := plan.unavailable != ""
+	if fr != nil && fr.pressure != nil && rc.ctx.Err() == nil && !timedOut() {
+		// A snapshot was about to overflow or to fill its thin pool (6.2).
+		p := fr.pressure
+		if failPolicy {
+			reporter.Stop()
+			fr.outcome.Failed = append(fr.outcome.Failed, fssnap.Failure{Path: p.Path, Message: p.Msg})
+			out.Errors = append(out.Errors, fsSnapshotFailedErrors(fr.plan, []fssnap.Failure{{Path: p.Path, Message: p.Msg}}, true)...)
+			fr.outcome.Snapshotted = removeString(fr.outcome.Snapshotted, p.Path)
+			out.Consistency = consistencyOfFS(fr.plan, fr.outcome)
+			rl.Errorf("The backup was stopped: %s (policy for a failed file system snapshot: stop the backup). See %s.", p.Msg, snapshotLogHintFor(fr.plan.Method))
+			return out
+		}
+		rl.Warnf("Stopped reading from the snapshots: %s. Backing up again from the live file systems; see %s.", p.Msg, snapshotLogHintFor(fr.plan.Method))
+		fr.giveUp(rc, &opts)
+		sctx, scancel = context.WithCancelCause(rctx)
+		defer scancel(nil)
+		res, err = rc.runner.Backup(sctx, opts)
+	}
+
+	// The snapshot cannot be used at all (restic's own VSS setup failed):
+	// under continue the backup runs again without it (both runs count
+	// against the maximum run time). Only that evidence leads to a backup
+	// without a shadow copy; an unknown early failure is an ordinary failure
+	// (docs/WINDOWS-AGENT.md, 17.3).
+	var re *restic.Error
+	if err != nil && plan.requested && rc.ctx.Err() == nil && !timedOut() && errors.As(err, &re) && re.Snapshot != restic.SnapshotFaultNone {
+		reason := re.Message
+		if reason == "" {
+			reason = "no error message"
+		}
+		switch {
+		case !re.SnapshotUnavailable():
+			rl.Infof("restic ended before reading anything; should this repeat with the shadow copy, its cause may be the Volume Shadow Copy service (%s).", snapshotLogHint)
+		case failPolicy:
+			reporter.Stop()
+			e := vssSetupFailedError(reason, false)
+			rl.Errorf("%s See %s.", e.Message, snapshotLogHint)
+			out.Errors = append(out.Errors, e)
+			out.Consistency = consistencyOf(plan, restic.SnapshotOutcome{}, true)
+			return out
+		default:
+			rl.Warnf("restic could not initialise the Volume Shadow Copy service (%s); backing up again without it. See %s.", reason, snapshotLogHint)
+			opts.UseFSSnapshot, opts.OnSnapshotFailed = false, nil
+			res, err = rc.runner.Backup(sctx, opts)
+			if err == nil {
+				// Only a backup that was made without the shadow copy says so.
+				snapUnavailable = true
+				out.Errors = append(out.Errors, vssSetupFailedError(reason, true))
+			} else {
+				rl.Warnf("The backup without the shadow copy failed as well; its error below is the cause of this run.")
+			}
+		}
+	}
 	reporter.Stop()
 
-	if err != nil {
-		var re *restic.Error
+	var snap restic.SnapshotOutcome
+	if res != nil {
+		snap = res.Snapshot
+	} else if errors.As(err, &re) && re.SnapshotOutcome != nil {
+		snap = *re.SnapshotOutcome
+	}
+	logSnapshotOutcome(rl, snap, plan)
+
+	if fr != nil {
+		fr.report(&out)
+	}
+	if err != nil || context.Cause(sctx) == errSnapshotFailed {
+		// restic may have saved its snapshot before the stop took effect: it is
+		// in the repository whatever this run says, so it is reported with
+		// the run (keptSnapshot); unreported, the server would flag it as a
+		// snapshot no backup made.
+		kept := ""
+		if res != nil && res.SnapshotID != "" {
+			kept = res.SnapshotID
+		}
 		switch {
 		case rc.ctx.Err() != nil:
 			rc.stoppedOutcome(&out)
+			if kept != "" && out.Cancelled {
+				out.Errors[len(out.Errors)-1].Message = fmt.Sprintf("The backup was cancelled in Restow after restic had saved snapshot %s; it stays in the repository. The next scheduled run starts as usual.", shortID(kept))
+			}
 			rl.Warnf("The backup was interrupted; it resumes when the agent starts again.")
+			a.keptSnapshot(rl, &out, res, snap, "", plan, false)
 		case timedOut():
-			out.Errors = append(out.Errors, api.RunError{Code: "timeout",
-				Message: fmt.Sprintf("The backup did not finish within %s and was stopped. Check the network connection and the size of the backup set.", maxRunTime)})
-			rl.Errorf("%s", out.Errors[len(out.Errors)-1].Message)
+			msg := fmt.Sprintf("The backup did not finish within %s and was stopped. Check the network connection and the size of the backup set.", maxRunTime)
+			if kept != "" {
+				msg = fmt.Sprintf("The backup did not finish within %s and was stopped after restic had saved snapshot %s; it stays in the repository. Check the network connection and the size of the backup set.", maxRunTime, shortID(kept))
+			}
+			out.Errors = append(out.Errors, api.RunError{Code: "timeout", Message: msg})
+			rl.Errorf("%s", msg)
+			a.keptSnapshot(rl, &out, res, snap, "", plan, false)
+		case context.Cause(sctx) == errSnapshotFailed:
+			// Stopped under the policy fail. Should restic have saved its
+			// snapshot first, it is reported with the failed run and said
+			// to hold the volumes read live.
+			out.Status = api.StatusFailed
+			failed, machineWide := snapshotFailedErrors(snap, plan, true)
+			if kept != "" {
+				for i := range failed {
+					failed[i].Message += fmt.Sprintf(" restic had already saved snapshot %s before it stopped, with these files read from the live file system: it stays in the repository and is reported with this failed run, but it is no backup the policy accepts.", shortID(kept))
+				}
+			}
+			out.Errors = append(out.Errors, failed...)
+			out.Errors = append(out.Errors, snapshotCleanupErrors(snap)...)
+			out.Consistency = consistencyOf(plan, snap, machineWide)
+			rl.Errorf("The backup was stopped because a shadow copy failed (policy for a failed file system snapshot: stop the backup).")
+			a.keptSnapshot(rl, &out, res, snap, "the policy for a failed file system snapshot does not accept it as a backup", plan, true)
 		case errors.As(err, &re):
 			msg := re.Error()
 			if hint := re.Hint(); hint != "" {
@@ -275,20 +490,40 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		}
 		return out
 	}
-
 	for _, w := range res.Warnings {
 		rl.Warnf("%s", w)
 	}
+	snapErrors, machineWide := snapshotFailedErrors(snap, plan, false)
+	snapErrors = append(snapErrors, snapshotCleanupErrors(snap)...)
+	if fr == nil {
+		out.Consistency = consistencyOf(plan, snap, snapUnavailable || machineWide)
+	}
 	s := res.Summary
 	out.SnapshotID = res.SnapshotID
+	if fr != nil && len(fr.layout) > 0 {
+		// The manifest goes with the snapshot it describes (contract C3).
+		out.Layout = fr.layout
+	}
 	out.Stats = &api.Stats{
 		FilesNew: s.FilesNew, FilesChanged: s.FilesChanged, FilesUnmodified: s.FilesUnmodified, DataAdded: s.DataAdded,
 		DataAddedPacked: s.DataAddedPacked, TotalFilesProcessed: s.TotalFilesProcessed, TotalBytesProcessed: s.TotalBytesProcessed,
 	}
+	out.Errors = append(out.Errors, snapErrors...)
 	for _, e := range res.Errors {
 		out.Errors = append(out.Errors, api.RunError{Path: e.Path, Message: e.Message, Code: e.During})
 	}
 	out.Unlisted = res.ErrorCount - len(res.Errors)
+	// Safety net: a snapshot without a single file although a source reached
+	// through a link or mount point holds files is no backup of it (restic
+	// did not follow it). A plain folder the exclusions empty is no error.
+	var emptySources []api.RunError
+	if s.TotalFilesProcessed == 0 {
+		emptySources = linkedSourcesWithFiles(resolved, sources)
+		for _, e := range emptySources {
+			rl.Errorf("%s", e.Message)
+		}
+		out.Errors = append(out.Errors, emptySources...)
+	}
 	if runtime.GOOS == "darwin" {
 		for _, e := range res.Errors {
 			if strings.Contains(e.Message, "operation not permitted") {
@@ -300,10 +535,25 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	rl.Infof("Snapshot %s saved: %d new, %d changed, %d unchanged files; %s processed, %s added to the repository.",
 		shortID(res.SnapshotID), s.FilesNew, s.FilesChanged, s.FilesUnmodified,
 		formatBytes(s.TotalBytesProcessed), formatBytes(s.DataAdded))
-	if res.Partial {
+	switch {
+	case res.Partial:
 		out.Status = api.StatusPartial
 		rl.Warnf("Some files could not be read (%d errors); the snapshot is incomplete. Details are listed in the errors of this run.", res.ErrorCount)
-	} else {
+	case len(emptySources) > 0:
+		out.Status = api.StatusPartial
+	case snapUnavailable || len(snap.FailedVolumes) > 0:
+		// Backed up, but not (all) from a snapshot: what the policy continue means.
+		// Volumes VSS cannot do by design (excluded from the start, not
+		// supported by the provider) are no failure, also when they are all
+		// the backup has: the consistency names them, the status stays.
+		out.Status = api.StatusPartial
+		rl.Warnf("The backup was made without a shadow copy of every volume; files that changed during it may be inconsistent.")
+	case fr != nil && fr.degraded:
+		out.Status = api.StatusPartial
+		if len(fr.outcome.Failed) > 0 || fr.unavailMs != "" {
+			rl.Warnf("The backup was made without a snapshot of every file system that should have had one; files that changed during it may be inconsistent.")
+		}
+	default:
 		out.Status = api.StatusSucceeded
 	}
 	out.Summary = fmt.Sprintf("snapshot %s, %d new, %d changed files", shortID(res.SnapshotID), s.FilesNew, s.FilesChanged)
@@ -315,4 +565,30 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		out.Activity = a.collectActivity(rc, res.SnapshotID, sources)
 	}
 	return out
+}
+
+// keptSnapshot reports the snapshot restic saved before a backup was stopped
+// (interrupted, timed out, stopped under the snapshot policy fail) with the
+// failed run: its id, its figures and, when the stop was the snapshot
+// policy's, its consistency is already set. Nothing is reported when restic
+// saved none. why says why it does not count, "" when only the run did not
+// end as planned.
+func (a *Agent) keptSnapshot(rl runLogger, out *runOutcome, res *restic.BackupResult, snap restic.SnapshotOutcome, why string, plan snapshotPlan, consistencySet bool) {
+	if res == nil || res.SnapshotID == "" {
+		return
+	}
+	s := res.Summary
+	out.SnapshotID = res.SnapshotID
+	out.Stats = &api.Stats{
+		FilesNew: s.FilesNew, FilesChanged: s.FilesChanged, FilesUnmodified: s.FilesUnmodified, DataAdded: s.DataAdded,
+		DataAddedPacked: s.DataAddedPacked, TotalFilesProcessed: s.TotalFilesProcessed, TotalBytesProcessed: s.TotalBytesProcessed,
+	}
+	if !consistencySet && plan.requested {
+		out.Consistency = consistencyOf(plan, snap, false)
+	}
+	if why != "" {
+		rl.Warnf("restic had already saved snapshot %s before it was stopped; it stays in the repository and is reported with this failed run: %s.", shortID(res.SnapshotID), why)
+		return
+	}
+	rl.Warnf("restic had already saved snapshot %s before it was stopped; it stays in the repository and is reported with this run.", shortID(res.SnapshotID))
 }

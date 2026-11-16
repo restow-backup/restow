@@ -8,8 +8,9 @@
  * fragment (docs/MICROSOFT.md), Outlook attachments at most 4 MiB.
  */
 import type { Readable } from "node:stream";
+import { isTransientTransferError, pauseBeforeRetry } from "../../storage/transfer.js";
 import type { GraphClient, GraphRequest } from "../client.js";
-import { GraphError } from "../errors.js";
+import { GraphError, isGraphError } from "../errors.js";
 import { bodyOrThrow } from "./common.js";
 
 /** Every fragment length must be a multiple of this. */
@@ -58,7 +59,22 @@ export interface UploadOptions {
   fragmentSize?: number;
   bounds?: FragmentBounds;
   onProgress?: (progress: { uploadedBytes: number; totalBytes: number }) => void;
+  /**
+   * How often one fragment is sent again after a transient failure (5xx, a
+   * broken connection, no answer in time, 416) before the upload gives up.
+   * Default {@link DEFAULT_FRAGMENT_ATTEMPTS}.
+   */
+  fragmentAttempts?: number;
+  /** First wait before the session is asked what it holds; doubled per failure, at most 30 s. */
+  retryDelayMs?: number;
+  /** Ends the waits between attempts (the job's signal). */
+  signal?: AbortSignal;
 }
+
+/** Attempts per fragment; the counter starts again with every fragment the session takes. */
+export const DEFAULT_FRAGMENT_ATTEMPTS = 6;
+const DEFAULT_RETRY_DELAY_MS = 2_000;
+const MAX_RETRY_DELAY_MS = 30_000;
 
 export interface UploadOutcome<TResult> {
   status: number;
@@ -74,7 +90,15 @@ export interface UploadOutcome<TResult> {
 export class UploadSessionError extends Error {
   constructor(
     message: string,
-    readonly details: { status?: number; nextExpectedRanges?: string[] },
+    readonly details: {
+      status?: number;
+      nextExpectedRanges?: string[];
+      /**
+       * The last fragment went out but its answer was lost, and the session no
+       * longer exists: the item was probably created, but nothing proves it.
+       */
+      completionUnknown?: boolean;
+    },
   ) {
     super(message);
     this.name = "UploadSessionError";
@@ -158,22 +182,81 @@ export async function uploadToSession<TResult = unknown>(
 
   const reader = toRangeReader(source);
   const state = { offset: startOffset, fragments: 0 };
+  const attempts = Math.max(1, options.fragmentAttempts ?? DEFAULT_FRAGMENT_ATTEMPTS);
+  const baseDelay = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+
+  /**
+   * Send `fragment` (the bytes from `state.offset`) and return the finished
+   * upload or the offset the session expects next. A fragment that fails on
+   * the way (5xx, a broken connection, no answer in time, or a 416 because an
+   * earlier attempt had arrived after all) is not the end of the upload: the
+   * session is asked what it holds, and what it still lacks of this fragment
+   * is sent again from memory. An offset outside the fragment is handed back
+   * to the caller, who can seek (range reader) or must give up (stream).
+   */
   const putAt = async (fragment: Buffer): Promise<UploadOutcome<TResult> | number> => {
-    const end = state.offset + fragment.length - 1;
-    const outcome = await putFragment<TResult>(
-      client,
-      session.uploadUrl,
-      fragment,
-      `bytes ${state.offset}-${end}/${totalBytes}`,
-    );
-    state.fragments += 1;
-    if (!outcome.pending) {
-      options.onProgress?.({ uploadedBytes: totalBytes, totalBytes });
-      return { ...outcome, uploadedBytes: totalBytes, fragments: state.fragments };
+    const fragmentStart = state.offset;
+    const end = fragmentStart + fragment.length - 1;
+    let start = fragmentStart;
+    let failures = 0;
+    for (;;) {
+      let outcome: FragmentOutcome<TResult> | undefined;
+      let failure: unknown;
+      try {
+        outcome = await putFragment<TResult>(
+          client,
+          session.uploadUrl,
+          fragment.subarray(start - fragmentStart),
+          `bytes ${start}-${end}/${totalBytes}`,
+        );
+      } catch (error) {
+        if (!isResumableFragmentError(error)) {
+          throw error;
+        }
+        failure = error;
+      }
+      if (outcome && !outcome.rangeMismatch) {
+        state.fragments += 1;
+        if (!outcome.pending) {
+          options.onProgress?.({ uploadedBytes: totalBytes, totalBytes });
+          return { ...outcome, uploadedBytes: totalBytes, fragments: state.fragments };
+        }
+        const next = nextExpectedOffset(outcome.nextExpectedRanges) ?? end + 1;
+        options.onProgress?.({ uploadedBytes: Math.min(next, totalBytes), totalBytes });
+        return next;
+      }
+      failures += 1;
+      if (failures >= attempts) {
+        throw (
+          failure ??
+          new UploadSessionError("Upload fragment was outside the expected range", {
+            status: 416,
+            nextExpectedRanges: outcome?.nextExpectedRanges,
+          })
+        );
+      }
+      if (outcome === undefined) {
+        // A 416 already came with the session's status; a failure did not.
+        await pauseBeforeRetry(
+          Math.min(MAX_RETRY_DELAY_MS, baseDelay * 2 ** (failures - 1)),
+          options.signal,
+        );
+      }
+      const ranges =
+        outcome?.nextExpectedRanges ??
+        (await sessionRangesAfterFailure(client, session.uploadUrl, end + 1 >= totalBytes));
+      const next = nextExpectedOffset(ranges);
+      if (next === null) {
+        throw new UploadSessionError(
+          "Upload session reports nothing missing but never answered with the item",
+          { nextExpectedRanges: ranges, completionUnknown: end + 1 >= totalBytes },
+        );
+      }
+      if (next < fragmentStart || next > end) {
+        return next;
+      }
+      start = next;
     }
-    const next = nextExpectedOffset(outcome.nextExpectedRanges) ?? end + 1;
-    options.onProgress?.({ uploadedBytes: Math.min(next, totalBytes), totalBytes });
-    return next;
   };
 
   if (reader) {
@@ -226,6 +309,66 @@ export async function uploadToSession<TResult = unknown>(
   });
 }
 
+/**
+ * Upload to a session and cancel it when the upload gives up, so no partial
+ * upload lingers on the target until Graph expires it. The cancel is best
+ * effort: its own failure never hides the error that ended the upload.
+ */
+export async function uploadToSessionOrCancel<TResult = unknown>(
+  client: GraphClient,
+  session: UploadSessionInfo,
+  source: UploadSource,
+  totalBytes: number,
+  options: UploadOptions = {},
+): Promise<UploadOutcome<TResult>> {
+  try {
+    return await uploadToSession<TResult>(client, session, source, totalBytes, options);
+  } catch (error) {
+    await cancelUploadSession(client, session.uploadUrl).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Failures of a fragment PUT after which the session is asked what it holds:
+ * a server error (also 502/504 that may have taken the bytes), a broken
+ * connection or no answer in time. The PUT carries its Content-Range, so a
+ * second one never duplicates data: the session takes only what it lacks.
+ */
+function isResumableFragmentError(error: unknown): boolean {
+  if (error instanceof UploadSessionError) {
+    return false;
+  }
+  if (isGraphError(error)) {
+    return error.status >= 500 || error.status === 429 || error.status === 408;
+  }
+  if (error instanceof Error && error.name === "GraphResponseTimeoutError") {
+    return true;
+  }
+  return isTransientTransferError(error);
+}
+
+/** What the session still lacks; a vanished session after the last fragment may have completed. */
+async function sessionRangesAfterFailure(
+  client: GraphClient,
+  uploadUrl: string,
+  lastFragment: boolean,
+): Promise<string[] | undefined> {
+  try {
+    return (await getUploadSessionStatus(client, uploadUrl)).nextExpectedRanges ?? undefined;
+  } catch (error) {
+    if (isGraphError(error) && error.status === 404) {
+      throw new UploadSessionError(
+        lastFragment
+          ? "The answer to the last fragment was lost and the upload session is gone: the upload may have completed, but nothing confirms it"
+          : "Upload session expired or was cancelled",
+        { status: 404, completionUnknown: lastFragment },
+      );
+    }
+    throw error;
+  }
+}
+
 interface FragmentOutcome<TResult> {
   status: number;
   headers: Record<string, string>;
@@ -234,6 +377,8 @@ interface FragmentOutcome<TResult> {
   /** True while the session still expects more fragments. */
   pending: boolean;
   nextExpectedRanges: string[] | undefined;
+  /** 416: the session expected another range, given in `nextExpectedRanges`. */
+  rangeMismatch?: boolean;
 }
 
 /**
@@ -275,11 +420,18 @@ async function putFragment<TResult>(
     throw new UploadSessionError("Upload session expired or was cancelled", { status: 404 });
   }
   if (response.status === 416) {
+    // An earlier attempt of this fragment arrived after all (a resend after a
+    // timeout), or the session lost data: the caller continues where it says.
     const status = await getUploadSessionStatus(client, uploadUrl);
-    throw new UploadSessionError("Upload fragment was outside the expected range", {
+    return {
       status: 416,
+      headers: response.headers,
+      result: undefined,
+      location: undefined,
+      pending: true,
       nextExpectedRanges: status.nextExpectedRanges ?? undefined,
-    });
+      rangeMismatch: true,
+    };
   }
   const body = bodyOrThrow(response, req);
   const pending = isPendingFragment(response.status, body);

@@ -137,10 +137,17 @@ const CHECK_OK = {
   checkedAt: "2026-10-02T10:00:00.000Z",
 };
 
+const SPACE_RULE = {
+  defaults: { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB },
+  override: null,
+  effective: { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB },
+};
+
 function routes(overrides: Record<string, () => Response> = {}) {
   return routedFetch({
     "GET /settings": () => json(SETTINGS),
     "GET /updates/database": () => json(view()),
+    "GET /updates/space-rule": () => json(SPACE_RULE),
     ...overrides,
   });
 }
@@ -378,6 +385,99 @@ describe("Installation > Database", () => {
     );
     await open();
     expect(text(slot("database-unavailable"))).toContain("The optional updater does not answer");
+  });
+
+  it("shows the database's disk read without the updater and the emergency reserve (#98)", async () => {
+    const reserve = {
+      path: "/data/restow-disk-reserve",
+      bytes: 2 * GIB,
+      floorBytes: GIB,
+      presentBytes: 2 * GIB,
+      freeBytes: 30 * GIB,
+      totalBytes: 100 * GIB,
+      createAtBytes: 12 * GIB,
+      marker: null,
+    };
+    let current: Record<string, unknown> = view({
+      updater: "unavailable",
+      location: null,
+      usage: null,
+      disks: {
+        database: {
+          kind: "database",
+          location: "pgdata",
+          freeBytes: 30 * GIB,
+          totalBytes: 100 * GIB,
+          thresholdBytes: 10 * GIB,
+          low: false,
+          via: "volume",
+        },
+        repository: null,
+      },
+      reserve: { ...reserve, state: "present" },
+    });
+    vi.stubGlobal("fetch", routes({ "GET /updates/database": () => json(current) }).mock);
+    await open();
+    expect(text(slot("disk-via-volume"))).toContain("Read without the updater");
+    expect(slot("disk-reserve")?.getAttribute("data-state")).toBe("present");
+    expect(text(slot("disk-reserve"))).toContain("/data/restow-disk-reserve");
+    expect(text(slot("disk-reserve"))).toContain(
+      "docker compose exec api restow disk-reserve release",
+    );
+    await mounted?.unmount();
+    current = { ...current, reserve: { ...reserve, presentBytes: 0, state: "released" } };
+    await open();
+    expect(slot("disk-reserve")?.getAttribute("data-state")).toBe("released");
+    expect(text(slot("disk-reserve"))).toContain("Freed because the disk was almost full");
+  });
+});
+
+describe("one disk, and what storage targets keep free (#98, #99)", () => {
+  it("shows the database and the repository on the same disk as one line", async () => {
+    const shared = view();
+    (shared.disks as Record<string, Record<string, unknown>>).database.device = "system";
+    (shared.disks as Record<string, Record<string, unknown>>).repository.device = "system";
+    vi.stubGlobal("fetch", routes({ "GET /updates/database": () => json(shared) }).mock);
+    await open();
+    expect(document.querySelectorAll("[data-disk]")).toHaveLength(1);
+    expect(text(slot("database-disks") ?? document.body)).toContain(
+      "One disk for the database and the local default repository",
+    );
+    await mounted?.unmount();
+    // On two disks (or where the device cannot be told): a line each.
+    vi.stubGlobal("fetch", routes().mock);
+    await open();
+    expect(document.querySelectorAll("[data-disk]")).toHaveLength(2);
+  });
+
+  it("shows the installation's space rule and lets the owner change it", async () => {
+    const fetch = routes({
+      "PUT /updates/space-rule": () =>
+        json({
+          ...SPACE_RULE,
+          override: { percent: 10 },
+          effective: { ...SPACE_RULE.effective, percent: 10 },
+        }),
+    });
+    vi.stubGlobal("fetch", fetch.mock);
+    await open();
+    const card = slot("installation-space-rule");
+    expect(text(card)).toContain("Keeps 5 % of the target free, at least 20 GB, at most 500 GB");
+    await click(buttonByText(card as HTMLElement, "Change"));
+    await flush(2);
+    const dialog = slot("space-rule-dialog") as HTMLElement;
+    const percent = [...dialog.querySelectorAll("label")].find((label) =>
+      label.textContent?.includes("Share of the target's size"),
+    );
+    await type(document.getElementById(percent?.getAttribute("for") ?? ""), "10");
+    await click(buttonByText(dialog, "Save"));
+    await flush(4);
+    expect(fetch.requests.find((request) => request.method === "PUT")).toEqual({
+      method: "PUT",
+      path: "/updates/space-rule",
+      body: { space: { percent: 10 } },
+    });
+    expect(text(slot("installation-space-rule"))).toContain("Keeps 10 %");
   });
 });
 

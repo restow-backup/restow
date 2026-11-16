@@ -67,7 +67,7 @@ function httpsOrNull(value: string | null | undefined): string | null {
 }
 
 const DIGEST_LINE =
-  /^[\s>*_-]*`?(restow(?:-web)?(?:-community)?)`?\s*[:=]\s*`?(sha256:[0-9a-f]{64})`?\s*$/gim;
+  /^[\s>*_-]*`?(restow(?:-web)?(?:-community)?|restow-lab)`?\s*[:=]\s*`?(sha256:[0-9a-f]{64})`?\s*$/gim;
 
 /**
  * Image digests a release publishes in its notes, one per line and image:
@@ -76,18 +76,20 @@ const DIGEST_LINE =
  *     restow-web: sha256:<64 hex digits>
  *     restow-community: sha256:<64 hex digits>
  *     restow-web-community: sha256:<64 hex digits>
+ *     restow-lab: sha256:<64 hex digits>
  *
  * (also tolerated as list items or in code spans). Only the two lines of this
  * installation's build count (`variant`, image-variant.ts): a Community
  * installation reads the `-community` lines and never the digests of the full
  * images, and the other way round. The updater compares the pulled image
- * against them.
+ * against them. The `restow-lab` line (the recovery lab, one image for both builds) counts
+ * for every installation; the updater moves the lab only where it runs.
  */
 export function digestsOf(
   notes: string | null | undefined,
   variant: ImageVariant = "full",
-): { app?: string; web?: string } {
-  const digests: { app?: string; web?: string } = {};
+): { app?: string; web?: string; lab?: string } {
+  const digests: { app?: string; web?: string; lab?: string } = {};
   if (!notes) {
     return digests;
   }
@@ -98,7 +100,10 @@ export function digestsOf(
     if (!digest) {
       continue;
     }
-    if (name === names.web) {
+    if (name === "restow-lab") {
+      // The recovery lab: one image for both builds.
+      digests.lab ??= digest;
+    } else if (name === names.web) {
       digests.web ??= digest;
     } else if (name === names.app) {
       digests.app ??= digest;

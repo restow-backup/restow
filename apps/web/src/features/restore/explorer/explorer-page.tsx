@@ -40,6 +40,15 @@ import type {
 } from "@/features/restore/api";
 import { RestoreDialog, type RestoreDialogRequest } from "@/features/restore/dialog/restore-dialog";
 import { AccountList } from "@/features/restore/explorer/account-list";
+import {
+  ArchiveGapList,
+  ArchiveGapReading,
+  ArchiveRestoreDialog,
+  type ArchiveRestoreRequest,
+  ArchiveSourceEntry,
+  holdsArchivedMail,
+  useArchiveSourceAvailable,
+} from "@/features/restore/explorer/archive-source";
 import { Breadcrumbs } from "@/features/restore/explorer/breadcrumbs";
 import { CalendarMonth, SeriesOccurrences } from "@/features/restore/explorer/calendar-view";
 import { type DetailsActions, DetailsPanel } from "@/features/restore/explorer/details-panel";
@@ -53,6 +62,7 @@ import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
 import { ItemList } from "@/features/restore/explorer/item-list";
 import { PersonAreas } from "@/features/restore/explorer/person-areas";
+import { PersonMemberships } from "@/features/restore/explorer/person-memberships";
 import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
 import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
 import { SearchField } from "@/features/restore/explorer/search-field";
@@ -60,10 +70,13 @@ import { SelectionBar } from "@/features/restore/explorer/selection-bar";
 import { isCalendarListing, monthOf } from "@/features/restore/lib/calendar";
 import {
   activeQuery,
+  withArchiveItem,
+  withArchiveSource,
   withCalendarView,
   withFolder,
   withItem,
   withObject,
+  withoutArchive,
   withQuery,
   withSnapshot,
   withSort,
@@ -202,6 +215,7 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
   const { t } = useTranslation("restore");
   const { user } = useSession();
   const canProtect = useCanProtect();
+  const seesAll = useSeesAllAccounts();
   const wide = useMediaQuery("(min-width: 1024px)");
   const [search, setSearch] = useExplorerSearch();
 
@@ -249,7 +263,8 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
   );
   React.useEffect(() => {
     if (objectId && !restorePoint && latest) {
-      setSearch(withSnapshot(search, latest.id), { replace: true });
+      // The newest restore point as the default, without leaving the archive source.
+      setSearch({ ...search, snapshot: latest.id }, { replace: true });
     }
   }, [objectId, restorePoint, latest, search, setSearch]);
 
@@ -263,6 +278,18 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
   const month = search.month ?? monthOf(new Date());
   const tree = useTree(monthView ? null : snapshotId, path, sort);
   const results = useSnapshotSearch(snapshotId, query);
+
+  // The source "From the archive" (#48): administrators, a tenant with an archive, an object
+  // whose mail the archive holds. Anyone else never gets the entry nor the list.
+  const archiveAvailable = useArchiveSourceAvailable();
+  const archiveObjects = archiveAvailable
+    ? (person ? person.objects : object ? [object] : []).filter(holdsArchivedMail)
+    : [];
+  const archiveView =
+    search.source === "archive" &&
+    object !== null &&
+    archiveObjects.some((candidate) => candidate.id === object.id);
+  const [archiveDialog, setArchiveDialog] = React.useState<ArchiveRestoreRequest | null>(null);
 
   const [selection, setSelection] = React.useState<Selection>(EMPTY_SELECTION);
   const [dialog, setDialog] = React.useState<RestoreDialogRequest | null>(null);
@@ -376,16 +403,24 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
     },
   };
 
-  const details =
-    detail && object && restorePoint ? (
-      <DetailsPanel
-        entry={detail}
-        object={object}
-        snapshot={restorePoint}
-        canReveal={query !== null || parentPathOf(detail.path) !== path}
-        {...detailActions}
+  const archiveItemId = archiveView ? (search.archiveItem ?? null) : null;
+  const details = archiveView ? (
+    archiveItemId && object ? (
+      <ArchiveGapReading
+        itemId={archiveItemId}
+        onClose={() => setSearch(withArchiveItem(search, undefined))}
+        onRestore={() => setArchiveDialog({ object, itemIds: [archiveItemId] })}
       />
-    ) : null;
+    ) : null
+  ) : detail && object && restorePoint ? (
+    <DetailsPanel
+      entry={detail}
+      object={object}
+      snapshot={restorePoint}
+      canReveal={query !== null || parentPathOf(detail.path) !== path}
+      {...detailActions}
+    />
+  ) : null;
 
   const accountList = (
     <AccountList
@@ -423,6 +458,24 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
     : (restorePoints.data?.length ?? 0) > 0;
   const restorePointReady = Boolean(object && restorePoint);
 
+  // Below the folders: the archived mail since the newest backup, one entry per account
+  // with mail (a person may have a mailbox and an IMAP account).
+  const archiveEntries =
+    archiveObjects.length > 0 ? (
+      <div className="mt-2 space-y-0.5 border-t border-border pt-2">
+        {archiveObjects.map((candidate) => (
+          <ArchiveSourceEntry
+            key={candidate.id}
+            active={archiveView && object?.id === candidate.id}
+            label={archiveObjects.length > 1 ? objectLabel(candidate) : undefined}
+            onOpen={() =>
+              setSearch(withArchiveSource({ ...search, object: candidate.id, snapshot: undefined }))
+            }
+          />
+        ))}
+      </div>
+    ) : null;
+
   const folderTreePane = person ? (
     <div className="h-full overflow-y-auto p-2">
       <PersonAreas
@@ -434,6 +487,17 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
         onArea={(link) => setSearch(withObject(link.object.id, link.path || undefined))}
         onOpenFolder={openFolder}
       />
+      {archiveEntries}
+      {/* A person's Teams and sites (#89); sites are for restore operators and admins only. */}
+      {seesAll && person.key.startsWith("user:") ? (
+        <PersonMemberships
+          personKey={person.key}
+          // A group mailbox opens on its first area (the group calendar), like its own entry.
+          onOpen={(target) =>
+            setSearch(withObject(target.id, target.kind === "group" ? "calendar" : undefined))
+          }
+        />
+      ) : null}
     </div>
   ) : object && restorePoint ? (
     <div className="h-full overflow-y-auto p-2">
@@ -443,9 +507,13 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
         currentPath={path}
         onOpen={openFolder}
       />
+      {archiveEntries}
     </div>
   ) : object && restorePointsKnown && !restorePointsAvailable ? (
-    <p className="p-3 text-xs text-muted-foreground">{t("explorer.restorePoint.none")}</p>
+    <div className="h-full overflow-y-auto p-2">
+      <p className="p-1 text-xs text-muted-foreground">{t("explorer.restorePoint.none")}</p>
+      {archiveEntries}
+    </div>
   ) : (
     <div className="space-y-2 p-3">
       <Skeleton className="h-6 w-3/4" />
@@ -454,110 +522,124 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
     </div>
   );
 
-  const itemListPane = (
-    <div className="flex h-full min-h-0 flex-col">
-      {object ? (
-        <ItemListHeader
-          query={query}
-          path={path}
-          rootLabel={objectLabel(object)}
-          objectKind={object.kind}
-          sort={sort}
-          calendar={calendar}
-          view={monthView ? "month" : "list"}
-          onViewChange={(view) => setSearch(withCalendarView(search, view, month))}
-          resultCount={results.data?.hits.length ?? 0}
-          searching={results.isFetching}
-          restorePointReady={restorePointReady}
-          leading={accountsTrigger}
-          onOpenFolder={openFolder}
-          onSortChange={(next) => setSearch(withSort(search, next))}
-          searchValue={search.q ?? ""}
-          onSearchCommit={(q) => setSearch(withQuery(search, q), { replace: true })}
-          onWholeRestore={() =>
-            restorePoint &&
-            setDialog({
-              object,
-              snapshot: restorePoint,
-              scope: { kind: "everything" },
-              target: "original",
-            })
-          }
-          onWholeDownload={() =>
-            restorePoint &&
-            setDialog({
-              object,
-              snapshot: restorePoint,
-              scope: { kind: "everything" },
-              target: "download",
-            })
-          }
-          onExport={exportsMail(object.kind) ? exportFrom : undefined}
-        />
-      ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {restorePoints.isError ? (
-          <div className="p-4">
-            <ErrorState
-              title={t("explorer.restorePoint.loadError")}
-              error={restorePoints.error}
-              onRetry={() => void restorePoints.refetch()}
-              retrying={restorePoints.isFetching}
-            />
-          </div>
-        ) : restorePoints.data && restorePoints.data.length === 0 ? (
-          <div className="p-4">
-            <NoRestorePointState canProtect={canProtect} />
-          </div>
-        ) : !object || !restorePoint ? (
-          <div className="space-y-2 p-4">
-            {Array.from({ length: 6 }, (_, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
-              <Skeleton key={index} className="h-9 w-full" />
-            ))}
-          </div>
-        ) : monthView ? (
-          <CalendarMonth
-            snapshotId={restorePoint.id}
-            path={path}
-            month={month}
-            activePath={itemPath}
-            onMonthChange={(next) => setSearch(withCalendarView(search, "month", next))}
-            onOpen={openEntry}
-          />
-        ) : (
-          <ListContent
+  const itemListPane =
+    archiveView && object ? (
+      <ArchiveGapList
+        object={object}
+        openItemId={archiveItemId}
+        leading={accountsTrigger}
+        onOpen={(itemId) => setSearch(withArchiveItem(search, itemId))}
+        onBack={() => setSearch(withoutArchive(search))}
+        onRestore={(itemIds) => setArchiveDialog({ object, itemIds })}
+      />
+    ) : (
+      <div className="flex h-full min-h-0 flex-col">
+        {object ? (
+          <ItemListHeader
             query={query}
-            tree={tree}
-            results={results}
             path={path}
-            entries={entries}
+            rootLabel={objectLabel(object)}
+            objectKind={object.kind}
+            sort={sort}
+            calendar={calendar}
+            view={monthView ? "month" : "list"}
+            onViewChange={(view) => setSearch(withCalendarView(search, view, month))}
+            resultCount={results.data?.hits.length ?? 0}
+            searching={results.isFetching}
+            restorePointReady={restorePointReady}
+            leading={accountsTrigger}
             onOpenFolder={openFolder}
-          >
-            <ItemList
-              entries={entries}
-              objectKind={object.kind}
-              selection={selection}
+            onSortChange={(next) => setSearch(withSort(search, next))}
+            searchValue={search.q ?? ""}
+            onSearchCommit={(q) => setSearch(withQuery(search, q), { replace: true })}
+            onWholeRestore={() =>
+              restorePoint &&
+              setDialog({
+                object,
+                snapshot: restorePoint,
+                scope: { kind: "everything" },
+                target: "original",
+              })
+            }
+            onWholeDownload={() =>
+              restorePoint &&
+              setDialog({
+                object,
+                snapshot: restorePoint,
+                scope: { kind: "everything" },
+                target: "download",
+              })
+            }
+            onExport={exportsMail(object.kind) ? exportFrom : undefined}
+          />
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {restorePoints.isError ? (
+            <div className="p-4">
+              <ErrorState
+                title={t("explorer.restorePoint.loadError")}
+                error={restorePoints.error}
+                onRetry={() => void restorePoints.refetch()}
+                retrying={restorePoints.isFetching}
+              />
+            </div>
+          ) : restorePoints.data && restorePoints.data.length === 0 ? (
+            <div className="p-4">
+              <NoRestorePointState canProtect={canProtect} />
+            </div>
+          ) : !object || !restorePoint ? (
+            <div className="space-y-2 p-4">
+              {Array.from({ length: 6 }, (_, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
+                <Skeleton key={index} className="h-9 w-full" />
+              ))}
+            </div>
+          ) : monthView ? (
+            <CalendarMonth
+              snapshotId={restorePoint.id}
+              path={path}
+              month={month}
               activePath={itemPath}
-              showLocation={query !== null}
-              onToggle={(entry) => setSelection((current) => toggle(current, entry))}
-              onToggleAll={(select) =>
-                setSelection((current) =>
-                  select ? selectAll(current, entries) : deselectAll(current, entries),
-                )
-              }
+              onMonthChange={(next) => setSearch(withCalendarView(search, "month", next))}
               onOpen={openEntry}
-              onNavigate={navigateEntry}
-              calendar={calendar && query === null}
-              renderSeries={(entry) => (
-                <SeriesOccurrences snapshotId={restorePoint.id} entry={entry} onOpen={openEntry} />
-              )}
             />
-          </ListContent>
-        )}
+          ) : (
+            <ListContent
+              query={query}
+              tree={tree}
+              results={results}
+              path={path}
+              entries={entries}
+              onOpenFolder={openFolder}
+            >
+              <ItemList
+                entries={entries}
+                objectKind={object.kind}
+                selection={selection}
+                activePath={itemPath}
+                showLocation={query !== null}
+                onToggle={(entry) => setSelection((current) => toggle(current, entry))}
+                onToggleAll={(select) =>
+                  setSelection((current) =>
+                    select ? selectAll(current, entries) : deselectAll(current, entries),
+                  )
+                }
+                onOpen={openEntry}
+                onNavigate={navigateEntry}
+                calendar={calendar && query === null}
+                renderSeries={(entry) => (
+                  <SeriesOccurrences
+                    snapshotId={restorePoint.id}
+                    entry={entry}
+                    onOpen={openEntry}
+                  />
+                )}
+              />
+            </ListContent>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
 
   const readingPane = (
     <div className="h-full overflow-y-auto p-4">{details ?? <DetailsPlaceholder />}</div>
@@ -611,7 +693,16 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
       )}
 
       {wide ? null : (
-        <Sheet open={details !== null} onOpenChange={(open) => (open ? undefined : closeDetails())}>
+        <Sheet
+          open={details !== null}
+          onOpenChange={(open) =>
+            open
+              ? undefined
+              : archiveView
+                ? setSearch(withArchiveItem(search, undefined))
+                : closeDetails()
+          }
+        >
           <SheetContent
             side="right"
             hideClose
@@ -624,7 +715,7 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
         </Sheet>
       )}
 
-      {selection.size > 0 ? (
+      {selection.size > 0 && !archiveView ? (
         <SelectionBar
           selection={selection}
           onClear={() => setSelection(EMPTY_SELECTION)}
@@ -664,6 +755,8 @@ function ExplorerShell({ first }: { first: PersonEntry }) {
       />
 
       <ExportDialog request={exportDialog} onClose={() => setExportDialog(null)} />
+
+      <ArchiveRestoreDialog request={archiveDialog} onClose={() => setArchiveDialog(null)} />
     </>
   );
 }

@@ -13,29 +13,6 @@ import (
 	"github.com/restow-backup/restow/agent/internal/paths"
 )
 
-// UninstallOptions controls Uninstall.
-type UninstallOptions struct {
-	Layout paths.Layout
-	// Files are the binaries and links to remove, the agent binary last;
-	// nil selects DefaultFiles (the installed and the pre-release locations).
-	Files []string
-	// Dirs are removed when they are empty afterwards; nil selects DefaultDirs.
-	Dirs []string
-	// KeepLogs leaves the log directory in place.
-	KeepLogs bool
-	// FromService is set when the running service removes itself (uninstall
-	// task): files go first and the service is stopped as the very last step.
-	FromService bool
-	Out         io.Writer
-	// SkipService leaves the service manager alone (development layouts).
-	SkipService bool
-	// KeepBinaries leaves the agent and restic binaries in place (development
-	// layouts, where they are not the installed copies).
-	KeepBinaries bool
-	// Manager overrides the platform manager (tests).
-	Manager Manager
-}
-
 // protectedDirs must never be removed, whatever a misconfigured layout says.
 var protectedDirs = map[string]bool{
 	"/": true, "/etc": true, "/var": true, "/var/lib": true, "/var/log": true, "/usr": true, "/usr/local": true,

@@ -48,6 +48,11 @@ const IDENTIFIER_PATTERNS: readonly { pattern: RegExp; reason: string }[] = [
     reason:
       "the root-owned folder the endpoint agent is installed in on macOS, a path in the agent and its installer",
   },
+  {
+    pattern: /\bC:\\(?:Program Files|ProgramData)\\Restow\b/g,
+    reason:
+      "the folders the endpoint agent is installed in on Windows (binaries, state), paths in the agent and windows.ps1",
+  },
 ];
 
 interface Leaf {

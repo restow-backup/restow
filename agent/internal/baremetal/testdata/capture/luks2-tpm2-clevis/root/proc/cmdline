@@ -1,0 +1,1 @@
+BOOT_IMAGE=/vmlinuz-6.1.0-27-amd64 root=/dev/mapper/srv01--vg-root ro quiet

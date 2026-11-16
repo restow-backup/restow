@@ -32,6 +32,10 @@ const ALLOWED: Record<string, { classes: readonly string[]; reason: string }> = 
     classes: ["max-w-xl"],
     reason: "the danger zone's running text next to its destructive button",
   },
+  "apps/web/src/features/storage/repository-copies.tsx": {
+    classes: ["container"],
+    reason: 'no class: "container" is the kind of a repository in the API (a Proxmox VE container)',
+  },
   "apps/web/src/features/storage/components/target-dialog.tsx": {
     classes: ["sm:max-w-xl", "sm:max-w-2xl"],
     reason:

@@ -133,6 +133,40 @@ describe("LVM on an MBR disk: XFS in two segments and ext4 with a journal", () =
   });
 });
 
+describe("the ext4 journal of a restore point taken while the guest ran", () => {
+  // testdata/make-journal-fixtures.sh: journals written by debugfs the way jbd2 writes them;
+  // the expected contents are what e2fsck's own replay leaves.
+  async function journalled(name: string) {
+    const found = await discoverVolumes([{ device: "drive-scsi0", source: fixture(name) }]);
+    expect(found.volumes.map((v) => [v.id, v.fsType])).toEqual([["scsi0", "ext4"]]);
+    return { files: new GuestFiles(found), note: found.volumes[0]?.note };
+  }
+
+  it("ignores the revoke of a torn last transaction, as jbd2 does", async () => {
+    // Transaction 1 (committed) wrote a.txt; transaction 2 revoked it but never committed.
+    const { files, note } = await journalled("ext4-journal-torn");
+    expect(note).toBe("journal_replayed");
+    expect((await readAll(files, "/scsi0/a.txt")).toString()).toBe("new\nnew\n");
+    expect((await readAll(files, "/scsi0/b.txt")).toString()).toBe("bbb\n");
+  });
+
+  it("reads 16-byte tags of journal checksum v3 without the 64bit feature", async () => {
+    // One transaction with three tags: a misread tag size puts blocks in the wrong places.
+    const { files, note } = await journalled("ext4-journal-csum3-32bit");
+    expect(note).toBe("journal_replayed");
+    expect((await readAll(files, "/scsi0/a.txt")).toString()).toBe("NEW!AAAA");
+    expect((await readAll(files, "/scsi0/b.txt")).toString()).toBe("BBB\n");
+    expect((await readAll(files, "/scsi0/c.txt")).toString()).toBe("CCC\n");
+  });
+
+  it("applies an escaped block with the journal magic put back", async () => {
+    // Transaction 2 wrote a.txt again with contents that begin with the journal magic.
+    const { files, note } = await journalled("ext4-journal-escaped");
+    expect(note).toBe("journal_replayed");
+    expect((await readAll(files, "/scsi0/a.txt")).toString("hex")).toBe("c03b39984553430a");
+  });
+});
+
 describe("hostile or damaged input", () => {
   it("reports an empty or unknown disk as nothing readable", async () => {
     const found = await discoverVolumes([
@@ -181,7 +215,15 @@ describe("hostile or damaged input", () => {
       x = (x * 1103515245 + 12345) >>> 0;
       return x % n;
     };
-    for (const name of ["gpt-efi-ext4", "raw-ext2", "mbr-ntfs", "mbr-lvm-xfs-ext4"]) {
+    for (const name of [
+      "gpt-efi-ext4",
+      "raw-ext2",
+      "mbr-ntfs",
+      "mbr-lvm-xfs-ext4",
+      "ext4-journal-torn",
+      "ext4-journal-csum3-32bit",
+      "ext4-journal-escaped",
+    ]) {
       const image = gunzipSync(readFileSync(new URL(`./testdata/${name}.img.gz`, import.meta.url)));
       for (let round = 0; round < 6; round++) {
         const copy = Buffer.from(image);

@@ -1,8 +1,9 @@
 import { Info, RotateCcw, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { ErrorState, RelativeTime } from "@/components/kit";
+import { ErrorState, RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   Sheet,
@@ -15,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FailureExplanation } from "@/features/failures";
 import { cn } from "@/lib/utils";
 
-import type { RunDetail, RunProgress } from "../api.js";
+import type { RunConsistency, RunDetail, RunProgress, RunSqlStats } from "../api.js";
 import { type EndpointFormat, useEndpointFormat, useRun } from "../hooks.js";
 import {
   formatDuration,
@@ -25,11 +26,58 @@ import {
   runDurationMs,
   runErrorView,
   runKindKey,
+  sqlCodeMessage,
+  sqlOutcomeView,
 } from "../presenters.js";
+import { AppNotices } from "./app-notices.js";
 import { Fact, Facts } from "./facts.js";
 import { RunStatusBadge } from "./status.js";
 
 /** The live state of a running run: how far it is and which file it is on. */
+/** What a SQL run did with each database of its instance (W2a). */
+function SqlRunResults({ sql }: { sql: RunSqlStats }) {
+  const { t } = useTranslation("endpoints");
+  const format = useEndpointFormat();
+  const databases = sql.databases ?? [];
+  return (
+    <section className="space-y-2" data-slot="run-sql">
+      <h3 className="text-sm font-medium">
+        {sql.newName
+          ? t("sql.run.restoredAs", { name: sql.newName, instance: sql.instance })
+          : t("sql.run.heading", { instance: sql.instance })}
+      </h3>
+      {sql.checkdb ? (
+        <p className="text-sm text-muted-foreground">{t(`sql.run.checkdb.${sql.checkdb}`)}</p>
+      ) : null}
+      {databases.length > 0 ? (
+        <ul className="divide-y rounded-md border text-sm">
+          {databases.map((database) => {
+            const view = sqlOutcomeView(database.outcome);
+            const code = sqlCodeMessage(database.code);
+            return (
+              <li key={database.name} className="space-y-1 p-3" data-database={database.name}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium break-all">{database.name}</span>
+                  <StatusBadge tone={view.tone} icon>
+                    {t(view.key)}
+                  </StatusBadge>
+                </div>
+                {database.bytes !== undefined ? (
+                  <p className="text-xs text-muted-foreground">{format.bytes(database.bytes)}</p>
+                ) : null}
+                {code ? <p className="text-xs">{t(code.key, code.values)}</p> : null}
+                {database.message ? (
+                  <p className="text-xs break-words text-muted-foreground">{database.message}</p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export function RunProgressView({
   progress,
   format,
@@ -102,6 +150,38 @@ export function RunProgressView({
 }
 
 /**
+ * The consistency of a backup in words: "Shadow copy (file consistent)", "Partly without a shadow
+ * copy: D:\", "Without a shadow copy: E:\", "Without a shadow copy". Never "consistent" alone: a
+ * shadow copy without writer components makes open databases crash consistent, not application
+ * consistent. A volume read live is always named, also beside a shadow copy ("Shadow copy (file
+ * consistent); read live: E:\"): a removable, FAT or exFAT volume never is in one.
+ */
+export function consistencyText(
+  consistency: RunConsistency,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const method = consistency.method ?? "none";
+  const live = (consistency.liveFilesystems ?? []).join(", ");
+  switch (consistency.state) {
+    case "used":
+      return live
+        ? t("runs.consistency.usedWith", { method, live })
+        : t("runs.consistency.used", { method });
+    case "partial":
+      return live
+        ? t("runs.consistency.partialWith", { method, live })
+        : t("runs.consistency.partial", { method });
+    case "unavailable":
+      // With the volumes read live (an exFAT disk VSS cannot do, or every volume failed).
+      return live
+        ? t("runs.consistency.unavailableWith", { method, live })
+        : t("runs.consistency.unavailable", { method });
+    default:
+      return t("runs.consistency.off", { method });
+  }
+}
+
+/**
  * Everything one run reported: facts, live progress, the files it could not
  * read, and the log tail. A restore test that could not complete is
  * explained in neutral words, never as a failure; `willRetry` is false on a
@@ -111,10 +191,13 @@ export function RunDetailView({
   run,
   subjectName,
   willRetry = true,
+  onShowLayout,
 }: {
   run: RunDetail;
   subjectName?: string;
   willRetry?: boolean;
+  /** Opens the bare metal card of the machine, where the captured layout is shown. */
+  onShowLayout?: () => void;
 }) {
   const format = useEndpointFormat();
   const { t, language } = format;
@@ -152,6 +235,12 @@ export function RunDetailView({
             <code className="font-mono text-xs" title={run.snapshotId}>
               {run.snapshotId.slice(0, 8)}
             </code>
+            {/* Failed, cancelled in Restow, interrupted: restic saved it before the stop. */}
+            {run.status !== "succeeded" && run.status !== "partial" ? (
+              <span className="block text-xs text-muted-foreground">
+                {t("runs.facts.snapshotOfFailedRun")}
+              </span>
+            ) : null}
           </Fact>
         ) : null}
         {stats ? (
@@ -180,7 +269,29 @@ export function RunDetailView({
             {stats.dataAdded !== undefined ? (
               <Fact label={t("runs.facts.dataAdded")}>{format.bytes(stats.dataAdded)}</Fact>
             ) : null}
+            {/* How a snapshot was read: a run that saved none has nothing to describe (its
+                errors say why the shadow copy failed). */}
+            {stats.consistency && run.snapshotId ? (
+              <Fact label={t("runs.facts.consistency")}>
+                <span data-slot="run-consistency" data-state={stats.consistency.state}>
+                  {consistencyText(stats.consistency, t)}
+                </span>
+              </Fact>
+            ) : null}
           </>
+        ) : null}
+        {run.layoutId ? (
+          <Fact label={t("runs.facts.layout")}>
+            <span data-slot="run-layout">
+              {onShowLayout ? (
+                <Button type="button" variant="link" className="h-auto p-0" onClick={onShowLayout}>
+                  {t("runs.layoutShow")}
+                </Button>
+              ) : (
+                t("runs.layoutCaptured")
+              )}
+            </span>
+          </Fact>
         ) : null}
       </Facts>
 
@@ -236,6 +347,9 @@ export function RunDetailView({
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <AppNotices notices={stats?.notices} />
+      {stats?.sql ? <SqlRunResults sql={stats.sql} /> : null}
 
       <section className="space-y-2" data-slot="run-errors">
         <h3 className="text-sm font-medium">
@@ -366,7 +480,20 @@ export function RunSheet({
             />
           </div>
         ) : run.data ? (
-          <RunDetailView run={run.data} subjectName={endpointName} willRetry={willRetry} />
+          <RunDetailView
+            run={run.data}
+            subjectName={endpointName}
+            willRetry={willRetry}
+            onShowLayout={() => {
+              onClose();
+              // The card is on the overview, below the sheet that just closes.
+              window.setTimeout(() => {
+                document
+                  .querySelector('[data-slot="baremetal-card"]')
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 150);
+            }}
+          />
         ) : (
           <div className="space-y-3 px-4" aria-hidden="true">
             <Skeleton className="h-24 w-full" />

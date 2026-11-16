@@ -314,6 +314,12 @@ func TestApplyRejectsWrongReportedVersionAndBrokenBinary(t *testing.T) {
 	if _, err := Apply(context.Background(), f.opts("0.1.0")); err == nil || !strings.Contains(err.Error(), "reports version") {
 		t.Fatalf("err = %v", err)
 	}
+	// A validly signed release whose agent is another version replaces nothing,
+	// restic included: every file is checked before the first one is swapped.
+	if got := readFile(t, filepath.Join(f.bin, "restic")); got != "restic old" {
+		t.Fatalf("restic was replaced before the agent passed its check: %q", got)
+	}
+	noStagedFiles(t, f.bin)
 	f2 := setup(t, "0.2.0", []byte("not an executable"))
 	if _, err := Apply(context.Background(), f2.opts("0.1.0")); err == nil || !strings.Contains(err.Error(), "does not run") {
 		t.Fatalf("err = %v", err)

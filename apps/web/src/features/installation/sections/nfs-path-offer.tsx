@@ -160,7 +160,7 @@ function NfsOffer({
   } else if (!view) {
     body = (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+        <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
         {t("mounts.storageOffer.loading")}
       </p>
     );
@@ -438,7 +438,7 @@ function Progress({
       className="flex items-center gap-2 text-sm text-muted-foreground"
       data-slot="nfs-offer-starting"
     >
-      <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
       {t("mounts.storageOffer.starting")}
     </p>
   );

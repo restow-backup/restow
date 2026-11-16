@@ -9,9 +9,9 @@ import { installationSectionTo } from "@/features/installation/paths";
 import { providerMay } from "@/lib/provider-role";
 import { useSession } from "@/lib/session";
 
-import type { PricingEstimate } from "./api.js";
+import type { EstimateTenant, PricingEstimate } from "./api.js";
 import "./i18n.js";
-import { formatMoney, formatQuantity, tenantPriceView } from "./presenters.js";
+import { formatMoney, formatQuantity, tenantPriceView, unitLines } from "./presenters.js";
 import { TenantPriceDialog } from "./tenant-price-dialog.js";
 
 const LINK =
@@ -91,6 +91,20 @@ export function PriceBody({
                   })}
             </span>
           ) : null}
+          {view.units.map((line) => (
+            <span
+              key={line.line}
+              className="text-xs text-muted-foreground tabular-nums"
+              data-slot="unit-line"
+              data-line={line.line}
+            >
+              {t(`card.units.${line.line}`, {
+                count: line.quantity,
+                price: money(line.price),
+                amount: money(line.amount),
+              })}
+            </span>
+          ))}
         </>
       ) : (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -129,5 +143,22 @@ export function PriceBody({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The protected units a tenant is billed for per unit, in short ("2 servers · 5 VMs"): the
+ * capacity table's price cell names them under the amount. Nothing without a unit line.
+ */
+export function PriceUnitsSummary({ entry }: { entry: EstimateTenant }) {
+  const { t } = useTranslation("pricing");
+  const lines = unitLines(entry);
+  if (lines.length === 0) {
+    return null;
+  }
+  return (
+    <span className="block text-xs text-muted-foreground" data-slot="price-units">
+      {lines.map((line) => t(`count.${line.line}`, { count: line.quantity })).join(" · ")}
+    </span>
   );
 }

@@ -214,6 +214,39 @@ export function batchEnvelope(
   };
 }
 
+/**
+ * What Graph answers for a single entity under the request's `$select`: only
+ * the selected properties, plus `id` and the `@odata.*` annotations it always
+ * sends. Without `$select` the entity comes back whole. On a driveItem,
+ * selecting `content.downloadUrl` is how the `@microsoft.graph.downloadUrl`
+ * annotation is asked for. A route answering with this models a fault Graph
+ * really has: a property the request forgot to select is simply missing.
+ */
+export function selectedEntity(call: RecordedCall, entity: object): unknown {
+  const select = new URL(call.url).searchParams.get("$select");
+  if (select === null) {
+    return entity;
+  }
+  const wanted = new Set(
+    select
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entity)) {
+    const keep =
+      key === "id" ||
+      key.startsWith("@odata.") ||
+      wanted.has(key) ||
+      (key === "@microsoft.graph.downloadUrl" && wanted.has("content.downloadUrl"));
+    if (keep) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /** Narrow an optional value in tests without non-null assertions. */
 export function must<T>(value: T | undefined | null, what = "value"): T {
   if (value === undefined || value === null) {

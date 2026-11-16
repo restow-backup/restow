@@ -298,6 +298,69 @@ describe("PveInventorySection", () => {
     expect(slot("pve-inventory-selection")).toBeNull();
   });
 
+  it("says in each guest's row how large its first backup was and what the last follow-up added (#58)", async () => {
+    const MiB = 1024 ** 2;
+    fetchOverview.mockResolvedValue(
+      overview([
+        guest(100, {
+          name: "dns",
+          backups: {
+            first: {
+              at: "2026-10-03T22:00:00.000Z",
+              sequence: 1,
+              contains: 40 * 1024 ** 3,
+              added: 32 * 1024 ** 3,
+              unreadable: 0,
+            },
+            last: {
+              at: "2026-10-10T03:00:00.000Z",
+              sequence: 8,
+              contains: 40 * 1024 ** 3,
+              added: 210 * MiB,
+              unreadable: 0,
+            },
+            followUp: { added: 180 * MiB, points: 7 },
+          },
+        }),
+        guest(101, {
+          name: "fresh",
+          backups: {
+            first: {
+              at: "2026-10-09T22:00:00.000Z",
+              sequence: 1,
+              contains: 2 * 1024 ** 3,
+              added: 2 * 1024 ** 3,
+              unreadable: 0,
+            },
+            last: {
+              at: "2026-10-09T22:00:00.000Z",
+              sequence: 1,
+              contains: 2 * 1024 ** 3,
+              added: 2 * 1024 ** 3,
+              unreadable: 0,
+            },
+            followUp: null,
+          },
+        }),
+      ]),
+    );
+    await mount();
+    await openNode();
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-slot="pve-inventory-guest"]')];
+    const cell = (row: HTMLElement | undefined, name: string) =>
+      row?.querySelector(`[data-slot="${name}"]`)?.textContent;
+    expect(cell(rows[0], "pve-backup-first")).toBe("First backup: 32 GB on Oct 3");
+    expect(cell(rows[0], "pve-backup-last-follow-up")).toBe("Last follow-up: +210 MB");
+    expect(cell(rows[0], "pve-backup-follow-up")).toBe(
+      "Average follow-up: +180 MB (last 7 backups)",
+    );
+    expect(cell(rows[1], "pve-backup-first")).toBe("First backup: 2 GB on Oct 9");
+    expect(cell(rows[1], "pve-backup-last-follow-up")).toBe("No follow-up backup yet");
+    expect(cell(rows[1], "pve-backup-follow-up")).toBeUndefined();
+    // Everything came with the one overview request: nothing is loaded per row.
+    expect(fetchOverview).toHaveBeenCalledTimes(1);
+  });
+
   it("backs up one guest now and changes its job right in the row", async () => {
     fetchOverview.mockResolvedValue(
       overview([guest(100, { name: "dns" }), guest(101, { name: "sonarr", jobId: null })]),

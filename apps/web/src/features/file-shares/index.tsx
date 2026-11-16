@@ -90,6 +90,7 @@ export const routes = [fileSharesRoute, fileShareRoute];
 export const navItems: NavItem[] = [
   {
     id: "file-shares",
+    modules: ["endpoints"],
     path: FILE_SHARES_PATH,
     labelKey: "fileshares:nav.label",
     icon: Network,

@@ -45,6 +45,8 @@ import {
   type PutOptions,
   readRange,
   type StorageBackend,
+  type StorageSpace,
+  unwrapBackend,
 } from "./backend.js";
 
 /** How a target protects its backups. */
@@ -434,6 +436,10 @@ export class ImmutableStorageBackend implements StorageBackend {
     return listWithSizes(this.inner, prefix);
   }
 
+  freeSpace(): Promise<StorageSpace | null> {
+    return this.inner.freeSpace ? this.inner.freeSpace() : Promise.resolve(null);
+  }
+
   retention(key: string): Promise<ObjectRetention | null> {
     if (!this.inner.retention) {
       return Promise.reject(new Error("this storage does not report retention"));
@@ -444,7 +450,8 @@ export class ImmutableStorageBackend implements StorageBackend {
 
 /** The immutable view of a backend, when it has one (unwrapping read-only fallbacks is the caller's). */
 export function immutableBackendOf(backend: StorageBackend): ImmutableStorageBackend | null {
-  return backend instanceof ImmutableStorageBackend ? backend : null;
+  const inner = unwrapBackend(backend);
+  return inner instanceof ImmutableStorageBackend ? inner : null;
 }
 
 /** Apply a target's stored immutability to its backend; without a setting or history it stays as is. */

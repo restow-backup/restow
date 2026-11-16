@@ -5,9 +5,9 @@
  * can be exercised directly in tests without opening a socket.
  *
  * Since 0.4.4 the receiver takes two kinds of mail ({@link receiveArchiveMail} decides):
- * Exchange journal reports (the `X-MS-Journal-Report` header) as before, source `journal`,
- * and plain copies a provider forwards (source `smtp_forward`, see
- * {@link receiveForwardedCopy}).
+ * Exchange journal reports (the `X-MS-Journal-Report` header, at the tenant's journal
+ * address only), source `journal`, and plain copies a provider forwards (source
+ * `smtp_forward`, see {@link receiveForwardedCopy}).
  *
  * Durability contract (docs/IMAP.md, journal receiver section): the caller (./server.ts) must not reply 250 to Exchange until
  * {@link receiveArchiveMail} resolves; any failure here (storage, database)
@@ -35,6 +35,15 @@
  * upload. Every report becomes an item of its own (duplicate policy `keep`,
  * as before 0.4.4); one that arrives after a mailbox capture of the same mail
  * names the item it supersedes.
+ *
+ * A report is one SMTP message, and SMTP delivers at least once: when the 250
+ * is lost or comes after Exchange's timeout, Exchange sends the same report
+ * again. The item keeps the report's hash (`journalReportHash`, transport
+ * fields left out; `archive_items.report_hash`, unique per tenant), and the
+ * same report again is answered from it before it is parsed, and once more
+ * under the chain lock for two deliveries at once: no second item. Two
+ * distinct reports for one mail (other envelope, other recipients) differ in
+ * their hash and stay two items.
  */
 import { archive, type KeyProvider, type Logger } from "@restow/core";
 import { type Database, PgArchiveAppendStore } from "@restow/db";
@@ -71,8 +80,11 @@ export interface ArchiveDelivery {
 /** What became of an accepted message. */
 export interface ArchiveReceipt {
   readonly kind: "journal_report" | "forwarded_copy";
-  /** `stored`: a new item; `duplicate`: the archive held the mail, a capture row was added. */
-  readonly outcome: "stored" | "duplicate";
+  /**
+   * `stored`: a new item; `duplicate`: the archive held the mail, a capture row was added;
+   * `retransmitted`: the same journal report again, nothing was added.
+   */
+  readonly outcome: "stored" | "duplicate" | "retransmitted";
   readonly itemId: string;
   readonly flags: readonly string[];
 }
@@ -92,9 +104,14 @@ async function tenantWriteContext(tenantId: string, deps: JournalReceiverDeps) {
   };
 }
 
+/** What became of a journal report: a new item, or the item the same report became before. */
+export type JournalReportResult =
+  | { readonly outcome: "stored"; readonly record: archive.ArchiveItemRecord }
+  | { readonly outcome: "retransmitted"; readonly itemId: string };
+
 /**
  * Process one journal report for `tenantId`, all the way to a committed
- * archive item. Never throws for a malformed or hostile report (journal.ts and
+ * archive item (or to the item a retransmission of it already became). Never throws for a malformed or hostile report (journal.ts and
  * journal-isolated.ts guarantee that); throws only for infrastructure failure
  * (storage, database, no parser process free or startable), which is exactly
  * what the caller must turn into an SMTP 451. `accounts`: IMAP accounts whose
@@ -105,7 +122,16 @@ export async function receiveJournalReport(
   rawBytes: Buffer,
   deps: JournalReceiverDeps,
   accounts: readonly string[] = [],
-): Promise<archive.ArchiveItemRecord> {
+): Promise<JournalReportResult> {
+  const reportHash = archive.journalReportHash(rawBytes);
+  const earlier = await new PgArchiveAppendStore(deps.db, tenantId).itemByReportHash(reportHash);
+  if (earlier !== null) {
+    deps.logger?.info("journal report delivered again; the archive holds it already", {
+      tenantId,
+      itemId: earlier,
+    });
+    return { outcome: "retransmitted", itemId: earlier };
+  }
   const parsed = await archive.parseJournalReportIsolated(rawBytes, deps.parseLimits ?? {});
   const now = deps.now ?? (() => new Date());
   const receivedAt = now();
@@ -122,9 +148,14 @@ export async function receiveJournalReport(
     // The mailboxes the envelope names (#32); none keeps the item the tenant's only.
     mailboxes: { addresses: envelopeAddresses(parsed.envelope), objectIds: accounts },
     duplicates: "keep",
+    reportHash,
     now,
     logger: deps.logger,
   });
+  if (result.outcome === "retransmitted") {
+    // Another delivery of this report committed while this one was parsed.
+    return { outcome: "retransmitted", itemId: result.itemId };
+  }
   if (result.outcome !== "stored") {
     // Unreachable under the `keep` policy; a report is never dropped.
     throw new Error("a journal report was not stored as an archive item");
@@ -133,7 +164,7 @@ export async function receiveJournalReport(
     itemId: result.record.id,
     mailboxes: result.mailboxes,
   });
-  return result.record;
+  return { outcome: "stored", record: result.record };
 }
 
 /**
@@ -168,6 +199,7 @@ export async function receiveForwardedCopy(
   delivery: ArchiveDelivery,
   rawBytes: Buffer,
   deps: JournalReceiverDeps,
+  extraFlags: readonly archive.ArchiveFlag[] = [],
 ): Promise<ArchiveReceipt> {
   const parsed = await archive.parsePlainCopyIsolated(rawBytes, deps.parseLimits ?? {});
   const now = deps.now ?? (() => new Date());
@@ -179,7 +211,7 @@ export async function receiveForwardedCopy(
     envelopeTo: delivery.rcptTo,
     deliveredTo: parsed.deliveredTo,
   };
-  const flags: archive.ArchiveFlag[] = [...parsed.flags];
+  const flags: archive.ArchiveFlag[] = [...parsed.flags, ...extraFlags];
   if (parsed.parseLimit === null && !parsed.messageId) {
     flags.push("message-id-missing");
   }
@@ -230,24 +262,39 @@ export async function receiveForwardedCopy(
 }
 
 /**
- * Process one accepted message (see the module docstring): a journal report goes the
- * journal way, anything else is a forwarded plain copy.
+ * Process one accepted message (see the module docstring). Only a mail with the
+ * `X-MS-Journal-Report` header sent to the tenant's journal address alone goes the journal
+ * way: a report is stored as its attached message, labelled `journal` and assigned to every
+ * mailbox its envelope text names, and that text is the sender's to write. Anything else is
+ * a forwarded plain copy, archived as received; a copy to an account's archive address
+ * belongs to that account only, whatever its body says. A copy built like a report
+ * (the header elsewhere, or only the report's structure) is flagged `journal-shaped`.
  */
 export async function receiveArchiveMail(
   delivery: ArchiveDelivery,
   rawBytes: Buffer,
   deps: JournalReceiverDeps,
 ): Promise<ArchiveReceipt> {
-  if (archive.isJournalReport(rawBytes)) {
-    const record = await receiveJournalReport(
-      delivery.tenantId,
-      rawBytes,
-      deps,
-      delivery.recipients.flatMap((recipient) =>
-        recipient.kind === "account" ? [recipient.protectedObjectId] : [],
-      ),
-    );
-    return { kind: "journal_report", outcome: "stored", itemId: record.id, flags: record.flags };
+  const toJournalAddress =
+    delivery.recipients.length > 0 &&
+    delivery.recipients.every((recipient) => recipient.kind === "tenant");
+  if (toJournalAddress && archive.hasJournalReportHeader(rawBytes)) {
+    const result = await receiveJournalReport(delivery.tenantId, rawBytes, deps);
+    return result.outcome === "stored"
+      ? {
+          kind: "journal_report",
+          outcome: "stored",
+          itemId: result.record.id,
+          flags: result.record.flags,
+        }
+      : { kind: "journal_report", outcome: "retransmitted", itemId: result.itemId, flags: [] };
   }
-  return receiveForwardedCopy(delivery, rawBytes, deps);
+  const shaped = archive.isJournalReport(rawBytes);
+  if (shaped) {
+    deps.logger?.info("a mail built like a journal report is archived as a plain copy", {
+      tenantId: delivery.tenantId,
+      toJournalAddress,
+    });
+  }
+  return receiveForwardedCopy(delivery, rawBytes, deps, shaped ? ["journal-shaped"] : []);
 }

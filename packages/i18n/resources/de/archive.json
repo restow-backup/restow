@@ -100,7 +100,8 @@
     "empty": "Noch nichts zu prüfen: Das Archiv ist leer.",
     "links": {
       "ok": "Verkettung: {count, plural, one {# Eintrag} other {alle # Einträge}} lückenlos verkettet. Geprüft wurden die in der Datenbank gespeicherten Prüfsummen.",
-      "broken": "Verkettung unterbrochen bei Eintrag {position} von {total}: „{subject}“, empfangen am {date}."
+      "broken": "Verkettung unterbrochen bei Eintrag {position} von {total}: „{subject}“, empfangen am {date}.",
+      "deleted": "Davon {count, plural, one {wurde # Eintrag} other {wurden # Einträge}} nach Ablauf der Aufbewahrungsfrist gelöscht, zuletzt am {date}. Jede Löschung steht im Audit-Log, ihr Kettenglied bleibt erhalten; das ist kein Bruch der Kette."
     },
     "noSubject": "ohne Betreff",
     "openItem": "Nachricht öffnen",
@@ -115,15 +116,20 @@
     "content": {
       "skipped": "Inhalte: nicht gelesen. Die Prüfung oben betrifft nur die Prüfsummen in der Datenbank. Ob die Nachrichten im Speicher unverändert sind, zeigt die Stichprobe.",
       "ok": "Inhalte: {count, plural, one {# Nachricht} other {# Nachrichten}} aus dem Speicher gelesen, jede stimmt mit ihrer Prüfsumme überein.",
-      "failed": "Inhalte: {failed} von {total} gelesenen Nachrichten stimmen nicht mit ihrer Prüfsumme überein oder ließen sich nicht lesen.",
+      "failed": "Inhalte: {failed} von {total} gelesenen Nachrichten fehlen, sind beschädigt oder stimmen nicht mit ihrer Prüfsumme überein.",
       "notRecorded": "{count, plural, one {# Nachricht der Stichprobe wurde archiviert, bevor ihr Repository festgehalten wurde, und ließ} other {# Nachrichten der Stichprobe wurden archiviert, bevor ihr Repository festgehalten wurde, und ließen}} sich so nicht vergleichen.",
-      "none": "Inhalte: Keine Nachricht der Stichprobe ließ sich vergleichen."
+      "none": "Inhalte: Keine Nachricht der Stichprobe ließ sich vergleichen.",
+      "inconclusive": "{count, plural, one {# Nachricht der Stichprobe ließ} other {# Nachrichten der Stichprobe ließen}} sich nicht aus dem Speicher lesen (keine Antwort, Zeitüberschreitung oder ein Fehler des Speichers); über den Inhalt sagt das nichts. Bitte wiederholen Sie die Prüfung.",
+      "notChecked": "Inhalte: nicht geprüft. Der Speicher hat die Nachrichten der Stichprobe nicht geliefert (keine Antwort, Zeitüberschreitung oder ein Fehler des Speichers); über ihren Inhalt sagt das nichts. Bitte wiederholen Sie die Prüfung."
     },
     "problem": {
       "mismatch": "Inhalt weicht von der Prüfsumme ab",
       "unreadable": "Nicht aus dem Speicher lesbar",
-      "not_recorded": "Repository nicht erfasst"
-    }
+      "not_recorded": "Repository nicht erfasst",
+      "missing": "Fehlt im Speicher",
+      "damaged": "Gespeicherte Daten beschädigt"
+    },
+    "inconclusive": "Nicht geprüft, bitte wiederholen"
   },
   "legalHold": {
     "title": "Legal Holds",
@@ -290,7 +296,8 @@
     "recipient-classification-degraded": "An/Cc/Bcc konnte nicht für jeden Empfänger bestimmt werden",
     "recipients-truncated": "Mehr als 100.000 Empfänger; nur die ersten 100.000 sind aufgeführt (der archivierte Report enthält alle)",
     "captured-late": "Nachträglich erfasst: lag vor Beginn der Erfassung im Postfach",
-    "message-id-conflict": "Eine andere archivierte E-Mail hat dieselbe Message-ID, aber anderen Inhalt"
+    "message-id-conflict": "Eine andere archivierte E-Mail hat dieselbe Message-ID, aber anderen Inhalt",
+    "journal-shaped": "Wie ein Journal-Report aufgebaut, aber nicht als solcher angenommen (kein X-MS-Journal-Report an der Journal-Adresse des Mandanten); so archiviert, wie sie ankam"
   },
   "protection": {
     "title": "Schutz des Archivspeichers",
@@ -375,10 +382,15 @@
       "last7Days": "7 Tage",
       "value": "{items} neu, {count, plural, one {# erneut} other {# erneut}}"
     },
+    "gaps": {
+      "way": "{count, plural, one {# Postfach ist} other {# Postfächer sind}} unvollständig: {gaps} Ordner oder Nachrichten konnten nicht übernommen werden und sind nicht im Archiv.",
+      "mailbox": "Unvollständig: {count, plural, one {# Ordner oder Nachricht} other {# Ordner oder Nachrichten}} nicht im Archiv"
+    },
     "backfill": {
       "label": "Übernommener Altbestand",
       "progress": "Altbestand übernommen: {completed} von {total} Postfächern",
-      "late": "{count, plural, one {# E-Mail} other {# E-Mails}} in den letzten 7 Tagen nachträglich erfasst"
+      "late": "{count, plural, one {# E-Mail} other {# E-Mails}} in den letzten 7 Tagen nachträglich erfasst",
+      "stalled": "{count, plural, one {# Postfach übernimmt} other {# Postfächer übernehmen}} den Altbestand seit mehr als 48 Stunden oder nach einem Fehler; deren ältere Mail ist noch nicht im Archiv. {appName} versucht es selbst erneut."
     },
     "mailboxes": {
       "title": "Je Postfach",
@@ -397,6 +409,7 @@
         "poll": "im Intervall abgefragt"
       },
       "backfillDone": "Altbestand übernommen",
+      "backfillStalled": "Übernahme hängt: ältere Mail noch nicht im Archiv",
       "resync": "Neu abgleichen",
       "resyncFor": "{mailbox} vollständig neu abgleichen",
       "resyncDone": "{mailbox} wird beim nächsten Durchlauf vollständig abgeglichen.",

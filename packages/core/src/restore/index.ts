@@ -9,6 +9,12 @@
  * without name clashes.
  */
 
+export type { ArchiveRestoreItem } from "./archive-source.js";
+export {
+  archiveRestoreObject,
+  archiveRestorePath,
+  archiveRestoreSource,
+} from "./archive-source.js";
 export type { RestoreGraphClientFactory, RestoreRequestOptions } from "./common.js";
 export { defaultRestoreFolderName, restoreRequestOptions } from "./common.js";
 export type { RestoreEngines, RestoreEnginesOptions } from "./dispatcher.js";
@@ -52,6 +58,8 @@ export {
   parseDriveTargetRef,
   resolveTargetDriveId,
 } from "./onedrive.js";
+export type { ProgressEntry, RestoreProgressOptions } from "./progress.js";
+export { RestoreProgress } from "./progress.js";
 export { QuickXorHash, quickXorHash } from "./quickxorhash.js";
 export type {
   RestoreItemCode,

@@ -22,7 +22,7 @@ import (
 func main() {
 	listen := flag.String("listen", "127.0.0.1:18080", "address to listen on")
 	dist := flag.String("dist", "dist", "directory produced by build.sh")
-	installDir := flag.String("install", "install", "directory with linux.sh and macos.sh")
+	installDir := flag.String("install", "install", "directory with linux.sh, macos.sh and windows.ps1")
 	version := flag.String("version", "0.1.0", "agent version to announce")
 	publicURL := flag.String("public-url", "", "URL written into the scripts (default http://<listen>)")
 	info := flag.String("info", "", "file that receives URL= and TOKEN= lines when the server is ready")
@@ -56,7 +56,7 @@ func main() {
 		return tok
 	}
 	srv = fakeserver.NewWithOptions(fakeserver.Options{Listen: *listen, NoReleases: true, Extra: func(mux *http.ServeMux) {
-		for _, name := range []string{"linux.sh", "macos.sh"} {
+		for _, name := range []string{"linux.sh", "macos.sh", "windows.ps1"} {
 			name := name
 			mux.HandleFunc("/install/"+name, func(w http.ResponseWriter, r *http.Request) {
 				raw, err := os.ReadFile(filepath.Join(*installDir, name))
@@ -66,7 +66,11 @@ func main() {
 				}
 				body := strings.NewReplacer("__RESTOW_URL__", *publicURL, "__RESTOW_VERSION__", *version,
 					"__RESTOW_RELEASE_KEY__", keyLine).Replace(string(raw))
-				w.Header().Set("Content-Type", "text/x-shellscript")
+				if strings.HasSuffix(name, ".ps1") {
+					w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				} else {
+					w.Header().Set("Content-Type", "text/x-shellscript")
+				}
 				_, _ = w.Write([]byte(body))
 			})
 		}

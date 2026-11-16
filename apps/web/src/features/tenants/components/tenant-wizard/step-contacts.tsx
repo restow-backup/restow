@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Field, messageId } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -29,10 +30,15 @@ const FIELD_MAX: Record<"name" | "role" | "email" | "phone", number> = {
 
 interface StepProps {
   form: UseFormReturn<TenantWizardValues>;
+  /**
+   * Offer "Receives the monthly report" per contact (0.5.0): the tenant page, where the
+   * installation sends the customer monthly report (`reports.customer`).
+   */
+  monthlyReport?: boolean;
 }
 
 /** Step 2: repeatable contact persons, exactly one of them primary. */
-export function ContactsStep({ form }: StepProps) {
+export function ContactsStep({ form, monthlyReport = false }: StepProps) {
   const { t } = useTranslation("tenants");
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "contacts" });
   const { errors } = form.formState;
@@ -173,6 +179,29 @@ export function ContactsStep({ form }: StepProps) {
                     />
                   </Field>
                 </div>
+                {monthlyReport ? (
+                  <div className="flex items-start gap-2" data-slot="contact-monthly-report">
+                    <Checkbox
+                      id={`wizard-contact-${index}-monthly`}
+                      className="mt-0.5"
+                      checked={contacts[index]?.monthlyReport === true}
+                      onCheckedChange={(checked) =>
+                        form.setValue(`contacts.${index}.monthlyReport`, checked === true, {
+                          shouldDirty: true,
+                          shouldValidate: form.formState.isSubmitted,
+                        })
+                      }
+                    />
+                    <div className="space-y-0.5">
+                      <Label htmlFor={`wizard-contact-${index}-monthly`} className="font-normal">
+                        {t("contacts.monthlyReport")}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t("contacts.monthlyReportHint")}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           );

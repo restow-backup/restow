@@ -17,7 +17,8 @@ export type FailureTarget =
   | "verify"
   | "jobs"
   | "file_share"
-  | "file_share_runners";
+  | "file_share_runners"
+  | "held_backups";
 
 export interface FailureStep {
   /** Key under `failures:steps.<id>`. */

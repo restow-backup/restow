@@ -283,3 +283,29 @@ describe("fieldMessageKey", () => {
     expect(fieldMessageKey(undefined)).toBeUndefined();
   });
 });
+
+describe("the customer monthly report of a contact (0.5.0)", () => {
+  const values = (contact: Partial<ReturnType<typeof emptyContact>>) => ({
+    ...emptyTenantWizardForm("de"),
+    name: "Contoso GmbH",
+    slug: "contoso",
+    contacts: [{ ...emptyContact(true), name: "Alice", ...contact }],
+  });
+
+  it("needs an e-mail address", () => {
+    expect(reasons(tenantWizardSchema.safeParse(values({ monthlyReport: true })))).toEqual({
+      "contacts.0.email": "monthlyReportNeedsEmail",
+    });
+    expect(
+      tenantWizardSchema.safeParse(values({ monthlyReport: true, email: "alice@contoso.example" }))
+        .success,
+    ).toBe(true);
+    expect(tenantWizardSchema.safeParse(values({ monthlyReport: false })).success).toBe(true);
+  });
+
+  it("is worded by the tenants namespace", () => {
+    expect(fieldMessageKey({ type: "custom", message: "monthlyReportNeedsEmail" })).toBe(
+      "tenants:validation.monthlyReportNeedsEmail",
+    );
+  });
+});

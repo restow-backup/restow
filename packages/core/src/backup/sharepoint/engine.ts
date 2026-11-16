@@ -76,6 +76,7 @@ import {
   checkpointState,
   type OneDriveCheckpointState,
   type OneDriveCursor,
+  type OneDriveManifestState,
   planRun,
   readCheckpointDeletions,
 } from "../onedrive/state.js";
@@ -171,6 +172,13 @@ interface LibraryInfo {
   readonly driveType: string | null;
   /** Sharing permissions of the library's root; null when Graph did not give them. */
   readonly rootPermissions: unknown[] | null;
+  /**
+   * False when Graph refused the library in this run: its files are the ones an
+   * earlier run read (carried forward), as of `lastReadAt`.
+   */
+  readonly readThisRun: boolean;
+  /** When the library's files were last read (ISO 8601); null when never. */
+  readonly lastReadAt: string | null;
 }
 
 /** What `site.json` records about a list. */
@@ -452,7 +460,7 @@ class SiteBackupRun {
     const prefix = libraryPath(folder);
     writer.add(this.libraryFolderObject(drive, folder));
     const rootPermissions = await this.rootPermissions(drive.id);
-    this.libraries.push({
+    const info: LibraryInfo = {
       folder,
       driveId: drive.id,
       name: drive.name ?? null,
@@ -460,13 +468,28 @@ class SiteBackupRun {
       webUrl: drive.webUrl ?? null,
       driveType: drive.driveType ?? null,
       rootPermissions,
-    });
+      readThisRun: true,
+      lastReadAt: new Date(this.now()).toISOString(),
+    };
+    const slot = this.libraries.push(info) - 1;
+    /** Graph refused the library: say so, at the library folder and in `site.json`. */
+    const notRead = (carried: OneDriveManifestState | null) => {
+      const lastReadAt =
+        carried && carried.completedAt > 0 ? new Date(carried.completedAt).toISOString() : null;
+      this.libraries[slot] = { ...info, readThisRun: false, lastReadAt };
+      if (carried) {
+        writer.add(this.libraryFolderObject(drive, folder, lastReadAt));
+      }
+    };
 
     const finished = this.done.get(drive.id);
     if (finished && finished.folder === folder) {
       // Its item failures were reported (item_failures) by the attempt that
       // finished it; only their number is still owed to this job's result.
       this.earlierFailures += finished.failures ?? 0;
+      if (finished.carriedForward) {
+        notRead(finished.drive);
+      }
       return;
     }
     const previousLibrary =
@@ -530,20 +553,36 @@ class SiteBackupRun {
       }
       this.recordFailure(prefix, error);
       if (previousObjects && previousLibrary) {
+        // The files stay as they were, not marked stale one by one (that would
+        // switch off their reuse check and stick); the library folder and
+        // site.json say they were carried forward and when they were read.
         this.replaceBelow(prefix, previousObjects);
         this.done.set(drive.id, {
           driveId: drive.id,
           folder,
           drive: previousLibrary.drive,
           failures: 1,
+          carriedForward: true,
         });
+        notRead(previousLibrary.drive);
+      } else {
+        notRead(null);
       }
     }
     // A finished library is never walked again by a retry of this job.
     await this.checkpoint(null);
   }
 
-  private libraryFolderObject(drive: SiteDrive, folder: string): ManifestObject {
+  /**
+   * The library's folder object. `carriedForwardFrom` is set when Graph refused
+   * the library this run: its files below are the earlier run's, read then
+   * (ISO 8601, or null when unknown).
+   */
+  private libraryFolderObject(
+    drive: SiteDrive,
+    folder: string,
+    carriedForwardFrom?: string | null,
+  ): ManifestObject {
     return {
       path: libraryPath(folder),
       id: `library:${drive.id}`,
@@ -558,6 +597,9 @@ class SiteBackupRun {
         webUrl: drive.webUrl,
         createdDateTime: drive.createdDateTime,
         lastModifiedDateTime: drive.lastModifiedDateTime,
+        ...(carriedForwardFrom !== undefined
+          ? { carriedForward: "true", lastReadAt: carriedForwardFrom }
+          : {}),
       }),
       chunks: [],
     };
@@ -892,8 +934,10 @@ class SiteBackupRun {
     const state: SiteManifestState = {
       engine: SITE_ENGINE_NAME,
       siteId,
-      // The failure counts belong to this job's cursor, not to the next run's state.
-      libraries: [...this.done.values()].map(({ failures: _failures, ...library }) => library),
+      // The failure counts and marks belong to this job's cursor, not to the next run's state.
+      libraries: [...this.done.values()].map(
+        ({ failures: _failures, carriedForward: _carried, ...library }) => library,
+      ),
       completedAt: this.now(),
     };
     writer.setState(state as unknown as Record<string, unknown>);

@@ -6,6 +6,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
+import { tenantNavOffersKey } from "@/lib/tenant-nav-offers";
 
 import type { ForwardingAccount, ForwardingOverview } from "./api";
 import { ForwardingSection } from "./forwarding-section";
@@ -92,9 +93,12 @@ function flush(): Promise<void> {
 describe("ForwardingSection", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let queryClient: QueryClient;
 
   async function mount() {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // The menu does not offer the archive yet: nothing archives in this tenant.
+    queryClient.setQueryData(tenantNavOffersKey("t-1"), { offers: { archive: false } });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -180,7 +184,7 @@ describe("ForwardingSection", () => {
     expect(team?.textContent).toContain("No copy for over 24 hours");
   });
 
-  it("issues an account's address on request", async () => {
+  it("issues an account's address on request, and asks the menu offers again", async () => {
     await mount();
     await click(
       container.querySelector(
@@ -196,6 +200,8 @@ describe("ForwardingSection", () => {
       method: "POST",
     });
     expect(rows()[1]?.textContent).toContain("archive+bbbb@archive.example.test");
+    // An active forwarding address is a capture set up: the entry "Archive" may appear now.
+    expect(queryClient.getQueryState(tenantNavOffersKey("t-1"))?.isInvalidated).toBe(true);
   });
 
   it("renews an address only after the question", async () => {

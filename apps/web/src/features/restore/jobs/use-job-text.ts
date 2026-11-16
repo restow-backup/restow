@@ -24,7 +24,7 @@ export function useJobText() {
       },
       target: (target: RestoreJob["target"]): string =>
         target.type === "other"
-          ? t("jobs.target.other", { ref: target.ref ?? "" })
+          ? t("jobs.target.other", { ref: target.label ?? target.ref ?? "" })
           : t(`jobs.target.${target.type}`),
       mode: (mode: RestoreJob["mode"]): string => t(`jobs.mode.${mode}`),
       actor: (actor: RestoreJob["actor"]): string =>

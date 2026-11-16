@@ -76,10 +76,15 @@ async function show(
   session: Parameters<typeof sessionAs>[0],
   setup: JournalSetup | null = SETUP,
 ) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response("{}", { status: 404 })),
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+    String(input).endsWith("/archive/journal/host")
+      ? new Response(JSON.stringify({ hostname: "archive.example.test", hostnameIssue: null }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      : new Response("{}", { status: 404 }),
   );
+  vi.stubGlobal("fetch", fetchMock);
   const queryClient = newQueryClient();
   if (setup) {
     queryClient.setQueryData(journalKeys.setup("t-1"), setup);
@@ -94,6 +99,7 @@ async function show(
     queryClient,
   });
   await flush(4);
+  return fetchMock;
 }
 
 const note = () => document.querySelector<HTMLElement>('[data-slot="journal-host"]');
@@ -103,6 +109,19 @@ describe("the journal host note", () => {
     await show(<JournalHostNote />, { extensions: { edition: "business" } });
     expect(note()?.textContent).toContain("archive.example.test");
     expect(note()?.querySelector("a")?.getAttribute("href")).toBe("/installation/journal");
+  });
+
+  it("reads the host alone and never the setup, which would issue the journal address", async () => {
+    const fetchMock = await show(
+      <JournalHostNote />,
+      { extensions: { edition: "business" } },
+      null,
+    );
+    expect(note()?.textContent).toContain("archive.example.test");
+    const asked = fetchMock.mock.calls.map(
+      ([input]) => new URL(String(input), "http://x").pathname,
+    );
+    expect(asked).toEqual(["/api/v1/archive/journal/host"]);
   });
 
   it("tells a tenant administrator whom to ask instead of linking to a page they cannot open", async () => {

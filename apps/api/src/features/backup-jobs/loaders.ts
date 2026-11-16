@@ -5,6 +5,7 @@ import {
   backupJobMembers,
   type CaptureKind,
   captureKindOf,
+  endpointLayouts,
   endpointRuns,
   endpoints,
   endpointTasks,
@@ -14,11 +15,11 @@ import {
   sources,
   storageTargets,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { notCountedFailureJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { loadEndpointReadiness } from "../endpoints/readiness.js";
-import { loadObjectVerifications } from "../verify/verification-state.js";
+import { loadObjectVerifications, verificationStateNow } from "../verify/verification-state.js";
 import { loadMachineWarnings } from "../warnings/state.js";
 import type { JobRestoreCheckDto, MemberRestoreState, RepositoryDto } from "./dto.js";
 import { iso } from "./dto.js";
@@ -120,6 +121,9 @@ export async function loadMailFacts(
   tx: Transaction,
   tenantId: string,
   objectIds: readonly string[],
+  now: Date = new Date(),
+  /** Objects rated without the age of their last backup (orphaned, in no enabled job). */
+  withoutAge: ReadonlySet<string> = new Set(),
 ): Promise<Map<string, MailFact>> {
   const result = new Map<string, MailFact>();
   if (objectIds.length === 0) {
@@ -165,7 +169,9 @@ export async function loadMailFacts(
   const finishedBy = new Map(finished.map((row) => [row.objectId, row]));
   for (const id of ids) {
     const facts = verification.get(id);
-    const state = facts?.verification.state ?? "no_backup";
+    // Rated as the readiness page rates it: the age of the newest backup judged now, except for
+    // objects removed from their source or in no enabled job, rated without it.
+    const state = verificationStateNow(facts, now, withoutAge.has(id));
     result.set(id, {
       latest: latestBy.get(id)
         ? { id: latestBy.get(id)?.id ?? "", status: latestBy.get(id)?.status ?? "queued" }
@@ -185,6 +191,12 @@ export interface EndpointFact {
   hostname: string;
   displayName: string | null;
   os: string;
+  arch: string;
+  agentVersion: string | null;
+  /** What the agent says the machine runs in (`container`, `vm`, `none`); null before 0.4.0. */
+  virtualization: string | null;
+  /** The codes of the machine's newest layout (whole machine backups); empty without one. */
+  layoutCodes: string[];
   profile: "server" | "client";
   status: "active" | "revoked";
   nextRunAt: Date | null;
@@ -254,6 +266,18 @@ export async function loadEndpointFacts(
       ),
     )
     .orderBy(endpointTasks.endpointId, asc(endpointTasks.createdAt));
+  // The newest layout of each machine, only its codes (bios_needs_csm and the like).
+  const layouts = await tx
+    .selectDistinctOn([endpointLayouts.endpointId], {
+      endpointId: endpointLayouts.endpointId,
+      codes: sql<
+        string[] | null
+      >`jsonb_path_query_array(${endpointLayouts.manifest}, '$.unsupported[*].code')`,
+    })
+    .from(endpointLayouts)
+    .where(and(eq(endpointLayouts.tenantId, tenantId), inArray(endpointLayouts.endpointId, ids)))
+    .orderBy(endpointLayouts.endpointId, desc(endpointLayouts.createdAt));
+  const layoutBy = new Map(layouts.map((layout) => [layout.endpointId, layout.codes ?? []]));
   const readiness = await loadEndpointReadiness(tx, tenantId, ids, now);
   const warnings = await loadMachineWarnings(tx, tenantId, { ids });
   const runBy = new Map(runs.map((run) => [run.endpointId, run]));
@@ -266,6 +290,10 @@ export async function loadEndpointFacts(
       hostname: row.hostname,
       displayName: row.displayName,
       os: row.os,
+      arch: row.arch,
+      agentVersion: row.agentVersion,
+      virtualization: row.settings.agent?.machine?.virtualization ?? null,
+      layoutCodes: (layoutBy.get(row.id) ?? []).filter((code) => typeof code === "string"),
       profile: row.profile,
       status: row.status,
       nextRunAt: row.nextRunAt,

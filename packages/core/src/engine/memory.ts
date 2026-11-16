@@ -186,6 +186,9 @@ export class MemorySecretReader implements SecretReader {
 export class MemoryCursorStore implements CursorStore {
   cursor: Cursor | null = null;
   saves = 0;
+  entries: Record<string, string> = {};
+  /** How many entries each `putEntries` wrote, in order. */
+  readonly entryPuts: number[] = [];
 
   async load(): Promise<Cursor | null> {
     return this.cursor ? structuredClone(this.cursor) : null;
@@ -198,6 +201,16 @@ export class MemoryCursorStore implements CursorStore {
 
   async clear(): Promise<void> {
     this.cursor = null;
+    this.entries = {};
+  }
+
+  async loadEntries(): Promise<Record<string, string>> {
+    return { ...this.entries };
+  }
+
+  async putEntries(entries: Readonly<Record<string, string>>): Promise<void> {
+    Object.assign(this.entries, entries);
+    this.entryPuts.push(Object.keys(entries).length);
   }
 }
 

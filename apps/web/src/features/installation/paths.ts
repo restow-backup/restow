@@ -11,6 +11,9 @@ export const INSTALLATION_PATH = "/installation";
 /** The section the bare installation address leads to. */
 export const DEFAULT_SECTION_ID = "server";
 
+/** The section that switches the installation's modules on and off (lib/modules.ts). */
+export const MODULES_SECTION_ID = "modules";
+
 export function installationSectionPath(id: string): string {
   return `${INSTALLATION_PATH}/${id}`;
 }

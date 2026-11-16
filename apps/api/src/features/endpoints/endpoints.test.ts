@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultEndpointConfig, enrolledEndpointConfig, ResticError } from "@restow/core";
@@ -6,12 +7,14 @@ import type { Endpoint, EndpointRun, EndpointTask } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FailureTracker } from "./agent-auth.js";
 import { agentFactsOf, configResponse, trimLogTail } from "./agent-service.js";
-import { installCommands } from "./commands.js";
+import { installCommands, psQuote, releaseKeyFingerprint } from "./commands.js";
 
 /** Stands in for a maintainer's SSHSIG signature (the server never checks it, the agent does). */
 const SIGNATURE = "-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n";
 
+import { ProblemError } from "../../problem.js";
 import {
+  agentBinaryName,
   announcedAgentVersion,
   compareAgentVersions,
   DISTRIBUTION_TARGETS,
@@ -36,6 +39,7 @@ import {
   problemsOf,
   type RatedTests,
   storageOf,
+  toConfigDto,
   toRunDetail,
   toRunSummary,
   toSummary,
@@ -98,6 +102,56 @@ describe("install commands", () => {
     );
   });
 
+  it("gives Windows the PowerShell commands, the token file of SYSTEM and the key pin", () => {
+    const fingerprint = `SHA256:${"A".repeat(43)}`;
+    const commands = installCommands("windows", "https://x.example/", {
+      releaseKeyFingerprint: fingerprint,
+    });
+    const fetch = "irm -UseBasicParsing 'https://x.example/install/windows.ps1'";
+    const tls = "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'";
+    expect(commands.install).toBe(`${tls}; iex (${fetch})`);
+    expect(commands.installUnattended).toBe(
+      `$env:RESTOW_TOKEN_FILE = 'C:\\Windows\\System32\\config\\systemprofile\\restow-enrollment.token'; $env:RESTOW_RELEASE_KEY_FINGERPRINT = '${fingerprint}'; ${tls}; iex (${fetch})`,
+    );
+    expect(commands.uninstallScript).toBe(
+      `${tls}; & ([scriptblock]::Create((${fetch}))) -Uninstall`,
+    );
+    expect(commands.uninstallAgent).toBe(
+      "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' uninstall",
+    );
+    expect(commands.hooksAny).toBe(
+      "& 'C:\\Program Files\\Restow\\bin\\restow-agent.exe' hooks any",
+    );
+    // Without a key (a development build) nothing is pinned; a malformed fingerprint is never written.
+    expect(installCommands("windows", "https://x.example").installUnattended).not.toContain(
+      "FINGERPRINT",
+    );
+    expect(
+      installCommands("windows", "https://x.example", { releaseKeyFingerprint: "SHA256:'x" })
+        .installUnattended,
+    ).not.toContain("FINGERPRINT");
+    expect(psQuote("it's")).toBe("'it''s'");
+  });
+
+  it("computes the release key fingerprint as ssh-keygen -l prints it", () => {
+    // The SHA-256 of the key blob, base64 without padding (computed independently with Python).
+    const key =
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl restow";
+    const fingerprint = releaseKeyFingerprint(key);
+    expect(fingerprint).toBe("SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU");
+    expect(releaseKeyFingerprint("garbage")).toBeNull();
+    // The project's release key: the fingerprint agent/README.md and the release notes name.
+    const projectKey = readFileSync(
+      join(import.meta.dirname, "../../../../../agent/release-signing.pub"),
+      "utf8",
+    )
+      .split("\n")
+      .find((line) => line.startsWith("ssh-ed25519 "));
+    expect(releaseKeyFingerprint(projectKey ?? "")).toBe(
+      "SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o",
+    );
+  });
+
   it("refuses an instance address that is not a plain origin", () => {
     for (const url of [
       "https://x.example/$(id)",
@@ -142,9 +196,11 @@ describe("distribution of the agent and its install scripts", () => {
     await mkdir(join(root, "not-a-version"), { recursive: true });
     await mkdir(join(root, "0.3.0", "darwin-arm64"), { recursive: true });
     await writeFile(join(root, "0.3.0", "darwin-arm64", "restow-agent"), "mac");
+    await mkdir(join(root, "0.3.0", "windows-amd64"), { recursive: true });
+    await writeFile(join(root, "0.3.0", "windows-amd64", "restow-agent.exe"), "MZ");
     await writeFile(
       join(root, "0.3.0", "SHA256SUMS"),
-      `${"c".repeat(64)}  linux-amd64/restow-agent\n${"d".repeat(64)}  darwin-arm64/restow-agent\n`,
+      `${"c".repeat(64)}  linux-amd64/restow-agent\n${"d".repeat(64)}  darwin-arm64/restow-agent\n${"f".repeat(64)}  windows-amd64/restow-agent.exe\n`,
     );
     await writeFile(join(root, "0.3.0", "SHA256SUMS.sig"), SIGNATURE);
   });
@@ -153,13 +209,16 @@ describe("distribution of the agent and its install scripts", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("offers Linux and macOS targets only", () => {
+  it("offers Linux and macOS on amd64 and arm64 and Windows on amd64 only", () => {
     expect(DISTRIBUTION_TARGETS).toEqual([
       "linux-amd64",
       "linux-arm64",
       "darwin-amd64",
       "darwin-arm64",
+      "windows-amd64",
     ]);
+    expect(agentBinaryName("windows-amd64")).toBe("restow-agent.exe");
+    expect(agentBinaryName("linux-arm64")).toBe("restow-agent");
   });
 
   it("orders versions by semver, a pre-release before its release, and ignores other folders", async () => {
@@ -201,7 +260,14 @@ describe("distribution of the agent and its install scripts", () => {
     expect(mac).toMatchObject({ version: "0.3.0", target: "darwin-arm64", file: "restow-agent" });
     const linux = await latestAgentRelease("linux", "amd64", root);
     expect(linux?.version).toBe("0.10.0");
-    expect(await latestAgentRelease("windows", "amd64", root)).toBeNull();
+    // Windows: the .exe of the signed list; no Windows on ARM.
+    expect(await latestAgentRelease("windows", "amd64", root)).toEqual({
+      version: "0.3.0",
+      target: "windows-amd64",
+      sha256: "f".repeat(64),
+      file: "restow-agent.exe",
+    });
+    expect(await latestAgentRelease("windows", "arm64", root)).toBeNull();
     expect(await latestAgentRelease("linux", "riscv64", root)).toBeNull();
   });
 
@@ -220,6 +286,9 @@ describe("distribution of the agent and its install scripts", () => {
     expect(await distributionFile("0.1.0", "linux-amd64", "restow-agent", root)).toMatchObject({
       size: "agent 0.1.0".length,
     });
+    expect(
+      await distributionFile("0.3.0", "windows-amd64", "restow-agent.exe", root),
+    ).toMatchObject({ size: 2 });
     for (const [version, target, file] of [
       ["0.1.0", "windows-amd64", "restow-agent.exe"],
       ["0.1.0", "linux-amd64", "../linux-amd64/restow-agent"],
@@ -304,6 +373,32 @@ describe("distribution of the agent and its install scripts", () => {
       await writeFile(join(folder, "release-signing.pub"), `# comment\n${key}\n`);
       expect(await readReleaseKey({ RESTOW_AGENT_INSTALL_DIR: join(folder, "install") })).toBe(key);
       await rm(folder, { recursive: true, force: true });
+    });
+
+    it("fills the Windows installer: single-quoted PowerShell strings, plain ASCII", async () => {
+      const template = await readFile(
+        join(import.meta.dirname, "../../../../../agent/install/windows.ps1"),
+        "utf8",
+      );
+      expect([...template].every((ch) => ch.charCodeAt(0) < 128)).toBe(true);
+      const body = renderInstallScript(template, "https://restow.example.org:8443", "0.5.0", key);
+      expect(body).toContain("$RestowInstanceUrl = 'https://restow.example.org:8443'");
+      expect(body).toContain("$RestowAgentVersion = '0.5.0'");
+      expect(body).toContain(`$RestowReleaseKey = '${key}'`);
+      for (const placeholder of [
+        "__RESTOW_URL__",
+        "__RESTOW_VERSION__",
+        "__RESTOW_RELEASE_KEY__",
+      ]) {
+        expect(body).not.toContain(placeholder);
+      }
+      // A value that could leave the single quotes never reaches the script.
+      expect(() =>
+        renderInstallScript(template, "https://x.example'; iex evil; '", "0.5.0"),
+      ).toThrow();
+      expect(() =>
+        renderInstallScript(template, "https://x.example", "0.5.0'; iex evil"),
+      ).toThrow();
     });
 
     it("fills both placeholders everywhere", () => {
@@ -433,6 +528,28 @@ describe("the configuration an agent is served", () => {
     expect(
       configResponse(stored, 1, { zone: "America/New_York", now: instant }).bandwidthKbps,
     ).toBe(2000); // 12:30
+  });
+});
+
+describe("the configuration a machine's page shows", () => {
+  it("says whether the agent gets the whole machine: only with the preview on and on Linux", () => {
+    const linux = {
+      ...defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      wholeMachine: true,
+    };
+    expect(toConfigDto(linux, { os: "linux", baremetalPreview: false })).toMatchObject({
+      wholeMachine: true,
+      wholeMachineActive: false,
+      fsSnapshot: null,
+    });
+    expect(toConfigDto(linux, { os: "linux", baremetalPreview: true }).wholeMachineActive).toBe(
+      true,
+    );
+    expect(toConfigDto(linux, { os: "windows", baremetalPreview: true }).wholeMachineActive).toBe(
+      false,
+    );
+    // It matches what GET /agent/v1/config sends.
+    expect(configResponse(linux, 1, undefined, { os: "linux" }).fsSnapshot).toBe("off");
   });
 });
 
@@ -752,22 +869,23 @@ describe("request schemas", () => {
     ).toBe(false);
     expect(browseQuerySchema.parse({ snapshotId }).path).toBe("/");
     expect(browseQuerySchema.safeParse({ snapshotId: "latest" }).success).toBe(false);
-    // A restore folder is a plain absolute path, never one that climbs out or is the root.
-    for (const targetDir of [
-      "/",
-      "relative",
-      "/srv/../etc",
-      "/srv/./x",
-      "/srv//x",
-      "/srv/x/",
-      "C:\\Restore",
-    ]) {
+    // The schema refuses control characters and overlong folders; the rules of the machine's
+    // system (Unix or Windows) are checked by the service (@restow/core restoreTargetIssue).
+    for (const targetDir of ["/srv/\nx", "x".repeat(1025)]) {
       expect(
         createTaskSchema.safeParse({ kind: "restore", snapshotId, paths: ["/etc"], targetDir })
           .success,
         targetDir,
       ).toBe(false);
     }
+    expect(
+      createTaskSchema.safeParse({
+        kind: "restore",
+        snapshotId,
+        paths: ["/C/Users/anna"],
+        targetDir: "D:\\Restore",
+      }).success,
+    ).toBe(true);
     expect(
       createTaskSchema.safeParse({
         kind: "restore",
@@ -862,6 +980,7 @@ describe("what needs attention", () => {
     overdue: false,
     latestSnapshotId: "a",
     latestBackupAt: now,
+    noSamples: false,
   } as const;
 
   it("names the person a machine is assigned to in its summary, or nobody", () => {
@@ -1161,12 +1280,27 @@ describe("restic failures become problems an admin can act on", () => {
       status: 503,
       type: "urn:restow:problem:endpoint-repository-locked",
     });
-    expect(resticProblem(error("no_repository"))).toMatchObject({ status: 409 });
-    expect(resticProblem(error("wrong_password"))).toMatchObject({ status: 500 });
+    expect(resticProblem(error("no_repository"))).toMatchObject({
+      status: 409,
+      type: "urn:restow:problem:endpoint-repository-not-found",
+      extensions: { category: "urn:restow:problem:endpoint-repository-unavailable" },
+    });
+    expect(resticProblem(error("wrong_password"))).toMatchObject({
+      status: 500,
+      type: "urn:restow:problem:endpoint-repository-password-rejected",
+      extensions: { category: "urn:restow:problem:endpoint-repository-unavailable" },
+    });
     expect(resticProblem(error("other"))).toMatchObject({
       status: 502,
       type: "urn:restow:problem:restic-failed",
     });
+  });
+
+  it("passes any other error on as it is, so the global handler logs it", () => {
+    const database = new Error('relation "endpoints" does not exist');
+    expect(resticProblem(database)).toBe(database);
+    expect(resticProblem("odd")).toBeInstanceOf(Error);
+    expect(resticProblem("odd")).not.toBeInstanceOf(ProblemError);
   });
 
   it("says restic is missing when it cannot be started", () => {
@@ -1175,6 +1309,14 @@ describe("restic failures become problems an admin can act on", () => {
     ).toMatchObject({
       status: 503,
       type: "urn:restow:problem:restic-unavailable",
+    });
+    // A binary without the execute bit (a mounted agent folder that lost its modes).
+    expect(
+      resticProblem(Object.assign(new Error("spawn restic EACCES"), { code: "EACCES" })),
+    ).toMatchObject({
+      status: 503,
+      type: "urn:restow:problem:restic-unavailable",
+      detail: "The restic binary on this server cannot be run (permission denied).",
     });
   });
 });

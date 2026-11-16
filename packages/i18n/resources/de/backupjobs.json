@@ -491,7 +491,7 @@
       "queued": "{count, plural, one {Sicherung von # Gast aus {name} eingereiht} other {Sicherungen von # Gästen aus {name} eingereiht}}",
       "alreadyQueued": "{count, plural, one {# Gast wartet schon oder wird gerade gesichert.} other {# Gäste warten schon oder werden gerade gesichert.}}",
       "noNode": "{count, plural, one {# Gast liegt auf einem Knoten, der nicht verbunden ist.} other {# Gäste liegen auf Knoten, die nicht verbunden sind.}}",
-      "selfBackup": "Die VM des {appName}-Servers bleibt außen vor, bis ihre Sicherung unter VMs & Container bestätigt ist."
+      "selfBackup": "Der Gast des {appName}-Servers bleibt außen vor, bis seine Sicherung unter VMs & Container bestätigt ist."
     }
   },
   "toasts": {
@@ -856,6 +856,10 @@
       "way": "{way} für {kind}",
       "waysConfirm": "Ausschalten",
       "kept": "Das bisherige Archiv bleibt unverändert bis zum Ende seiner Aufbewahrungsfrist erhalten."
+    },
+    "sql": {
+      "title": "SQL Server (Vorschau)",
+      "description": "Die native Sicherung der SQL-Server-Datenbanken der Windows-Rechner dieses Jobs. Andere Systeme ignorieren sie."
     }
   },
   "folders": {
@@ -1039,6 +1043,11 @@
         "sameShare": "Wählen Sie ein anderes Ziel als die Quelle.",
         "folderInvalid": "Der Ordner darf . oder .. nicht als Teil enthalten.",
         "mirrorRoot": "Eine Spiegelung löscht, was die Quelle nicht hat, und braucht deshalb einen Ordner. Geben Sie einen ein."
+      },
+      "sql": {
+        "databases": "Nennen Sie mindestens eine Datenbank, oder wählen Sie alle Datenbanken.",
+        "stagingDir": "Verwenden Sie einen lokalen Ordner mit Laufwerksbuchstaben, etwa E:\\SqlStaging.",
+        "time": "Geben Sie eine Uhrzeit wie 03:00 ein."
       }
     },
     "server": {
@@ -1062,7 +1071,8 @@
     "pauseNotSupported": "Ein Job für Rechner lässt sich nicht pausieren: Der Agent entscheidet, wann gesichert wird.",
     "state": "Der Job ist nicht in einem Zustand, der das erlaubt.",
     "allJobExists": "Ein anderer Job deckt bereits alle Objekte ab, die in keinem anderen Job sind. Ein Mandant hat einen solchen Job.",
-    "invalid": "Der Job lässt sich so nicht speichern."
+    "invalid": "Der Job lässt sich so nicht speichern.",
+    "baremetalPreviewOff": "Die Sicherung ganzer Rechner ist eine Vorschau, die auf dieser Installation nicht eingeschaltet ist. Wenden Sie sich an den Betreiber der Installation."
   },
   "shareEditor": {
     "enabled": "Eingeschaltet",
@@ -1382,6 +1392,56 @@
     "pveRestoreCheck": "Der neueste Sicherungsstand jedes Gasts wird wöchentlich zurückgelesen; das Ergebnis je Gast steht unter VMs & Container.",
     "keep": "Behält",
     "keepValue": "{daily} tägliche, {weekly} wöchentliche, {monthly} monatliche Sicherungsstände",
-    "progressOf": "Fortschritt von {name}"
+    "progressOf": "Fortschritt von {name}",
+    "pveRunning": "Sicherungen und Startprüfungen von VMs und Containern, die gerade laufen",
+    "pveBootTest": "Startprüfung",
+    "pveBootTestHint": "Stellt den neuesten Sicherungsstand als temporären Gast wieder her und startet ihn; der Knoten meldet dafür keinen Fortschritt."
+  },
+  "wholeMachine": {
+    "label": "Ganzer Rechner (Bare Metal, Vorschau)",
+    "hint": "Sichert alle lokalen Dateisysteme samt Plattenlayout, damit sich Linux-Rechner später auf neuer Hardware wiederherstellen lassen. Windows- und macOS-Rechner sichern weiter ihre Ordner.",
+    "foldersAll": "Alle lokalen Dateisysteme",
+    "previewOff": "Ganz-Rechner-Sicherungen sind in dieser Installation nicht eingeschaltet (Vorschau): Die Rechner sichern die Ordner unten. Sie können den Schalter hier nur ausschalten.",
+    "restoreExcludes": "Vorherige Ausschlüsse wiederherstellen",
+    "containerImages": "Container-Images (btrfs-Speichertreiber): nach einer Wiederherstellung neu laden statt sichern",
+    "notes": {
+      "container": "sichert seine Ordner; Bare Metal geht in einem Container nicht",
+      "windows": "Windows-Rechner sichern weiter ihre Ordner",
+      "darwin_later": "macOS folgt in einer späteren Version",
+      "agent_too_old": "Agent zu alt für Ganzer Rechner (ab 0.5.0)",
+      "arm64_restore_later": "Sicherung und Layout ja, Wiederherstellung folgt später",
+      "bios_needs_csm": "Ersatzhardware braucht CSM bzw. Legacy-Start"
+    }
+  },
+  "sql": {
+    "enabled": "SQL Server nativ sichern",
+    "enabledHint": "Eine Kopie-Vollsicherung jeder Datenbank neben Ihren eigenen Sicherungen: Ihre Sicherungskette bleibt unberührt. Jede Instanz bekommt einen eigenen Snapshot.",
+    "databases": "Datenbanken",
+    "databasesAll": "Alle Datenbanken aller Instanzen (außer tempdb)",
+    "databasesList": "Nur diese Datenbanken",
+    "databasesListLabel": "Datenbanken",
+    "linesHint": "Eine je Zeile: ein Datenbankname oder INSTANZ\\Name für die Datenbank einer Instanz.",
+    "exclude": "Auslassen",
+    "stagingDir": "Staging-Ordner",
+    "stagingDirHint": "Wohin SQL Server die Sicherungsdateien schreibt, bevor sie in die Sicherungsdaten gehen. Leer: der eigene Ordner des Agenten auf dem Systemlaufwerk. Ein neuer oder leerer lokaler NTFS-Ordner, dessen übergeordneter Ordner vorhanden ist; der Agent übernimmt ihn, und die Dateisicherung lässt ihn aus.",
+    "stagingDirPlaceholder": "E:\\SqlStaging",
+    "verify": "Sicherungen wöchentlich prüfen",
+    "verifyHint": "Holt die neueste Sicherung jeder Datenbank aus den Sicherungsdaten zurück, stellt sie unter einem Prüfnamen wieder her, führt DBCC CHECKDB aus und entfernt die Kopie. Braucht etwa die Datengröße an freiem Platz. Grün erst nach dieser Prüfung.",
+    "weekday": "Tag",
+    "weekdays": {
+      "1": "Montag",
+      "2": "Dienstag",
+      "3": "Mittwoch",
+      "4": "Donnerstag",
+      "5": "Freitag",
+      "6": "Samstag",
+      "7": "Sonntag"
+    },
+    "time": "Uhrzeit",
+    "tooClose": "Starten Sie die Prüfung mindestens eine Stunde vor oder nach der täglichen Sicherung: Der Rechner führt einen Auftrag nach dem anderen aus.",
+    "maxGiB": "Vollständige Prüfung bis (GiB)",
+    "maxGiBHint": "Größere Datenbanken werden nur physisch geprüft (PHYSICAL_ONLY).",
+    "physicalOnly": "Immer nur physisch prüfen",
+    "note": "Vorschau: Eine Vollsicherung jeder Datenbank, die Wiederherstellung unter neuem Namen, das Wiederherstellungsskript für einen anderen Rechner und die wöchentliche Prüfung sind verfügbar. Es wird kein SQL-Server-Kennwort gespeichert: Der Agent meldet sich mit seinem Dienstkonto an."
   }
 }

@@ -94,6 +94,74 @@ docker compose pull
 docker compose up -d
 ```
 
+With the recovery lab (`install.sh --with-recovery-lab`, [docs/BAREMETAL.md](BAREMETAL.md)),
+name the version in its line as well and recreate it; it runs under its own compose
+profile, so the two commands above leave it alone. One lab image serves both builds:
+
+```sh
+# .env
+RESTOW_LAB_IMAGE=ghcr.io/restow-backup/restow-lab:X.Y.Z
+```
+
+```sh
+docker compose --profile recovery-lab pull recovery-lab
+docker compose --profile recovery-lab up -d recovery-lab
+```
+
+Neither these commands nor `install.sh` remove the images of the release before:
+every update adds two images of several hundred MB to Docker's image store, and a
+disk that fills up stops PostgreSQL. Once the new version runs, remove the images of
+older releases, keeping the one that runs now and the one before it (for a rollback
+without a download). In the installation directory, with the version that ran
+before the update in `previous`:
+
+```sh
+previous=W.V.U   # the version before the update; it and everything newer stay
+for var in RESTOW_IMAGE RESTOW_WEB_IMAGE; do
+  ref=$(sed -n "s/^$var=//p" .env | tail -n 1 | tr -d "\"'")
+  repo=${ref%@*}
+  case ${repo##*/} in *:*) repo=${repo%:*} ;; esac
+  [ -n "$repo" ] || continue
+  docker image ls --format '{{.Tag}}' "$repo" | while read -r tag; do
+    core=${tag%%-*}   # 0.4.11 of 0.4.11 and of 0.4.11-rc.1
+    # Version tags only: latest, beta and other moving tags stay.
+    printf '%s\n' "$core" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' || continue
+    # Strictly older than the version before: it, its pre-releases and newer ones stay.
+    [ "$core" != "${previous%%-*}" ] || continue
+    [ "$(printf '%s\n%s\n' "$core" "${previous%%-*}" | sort -V | head -n 1)" = "$core" ] || continue
+    docker image rm "$repo:$tag"
+  done
+done
+```
+
+The repositories come from `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` in `.env` (the
+`ghcr.io/restow-backup/...` names, their `-community` twins or a mirror's), so the
+loop only ever looks at the images this installation runs. It removes only tags
+that are a version older than `previous`: `latest`, `beta`, a newer release pulled
+ahead of time and anything else stays. `docker image rm` with a name removes only
+that name; Docker deletes the image once no other name refers to it and refuses an
+image that a container still uses, running or stopped, so the loop cannot take away
+what a stack runs (a refusal is printed and the loop goes on). Do not add
+`--force`. To see what is there first:
+`docker image ls <repository>` with the repository of `RESTOW_IMAGE` (and of
+`RESTOW_WEB_IMAGE`). An installation built from source (no `RESTOW_IMAGE` in
+`.env`, the images are `restow:local` and `restow-web:local`) has no version tags;
+see the next paragraph.
+
+Built from source, every `docker compose up -d --build` leaves the image it
+replaces without a name, and the build cache grows. Both can go, for the whole host,
+once nothing of theirs is needed any more:
+
+```sh
+docker image prune --force               # images without a name that no container uses
+docker builder prune --force --filter until=24h   # build cache older than a day
+```
+
+`docker image prune -a` and `docker system prune -a` remove every image that no
+container uses, also those of other projects on the host and the previous Restow
+release; do not use them for this. With the updater, old images are removed after
+every successful update ([Old images](#old-images)).
+
 Running jobs get 60 seconds to save a checkpoint when the worker stops
 (`stop_grace_period: 60s` on the `worker` service; the worker itself waits
 50 seconds for them). A Compose file from before 0.3.5 does not have that
@@ -249,8 +317,10 @@ status of the last check and whether an update is available.
 ### Turning the check on
 
 The check is **off** until an administrator turns it on. When it is on, Restow
-reads the release list of the update source once a day and whenever you press
-*Check now*. It only reads that list: no request carries any data about your
+reads the release list of the update source every six hours (shortly after the
+api starts, too, when the last check is older than that) and whenever you press
+*Check now*. That is four requests a day, far below what GitHub allows without a
+token. It only reads that list: no request carries any data about your
 installation, and the result is cached. If the check fails, the tab says why
 and keeps showing the last good result:
 
@@ -264,6 +334,26 @@ and keeps showing the last good result:
 | Not a release list        | The address answered, but not with releases.                                   |
 | No release published      | The repository has no release yet.                                             |
 | Redirect refused          | The source redirected to another host; Restow does not follow it.              |
+
+### Where an available update shows
+
+When a check finds a newer release, provider administrators see it without opening the tab:
+
+- A small blue dot (the accent colour, never green) beside *Version x.y.z* in the sidebar
+  footer, on the menu entry *Server & operation* and on *Updates* in the list of sections of
+  the installation page. The dot breathes gently unless the system asks for reduced motion;
+  its text for assistive technology is "Update to x.y.z available".
+- A slim blue bar above the top bar, in the place of the maintenance bar: "Restow x.y.z is
+  available", with a link to the release notes and one to the Updates tab. The provider
+  team's owner role, which may install an update, sees it; the bar can be closed, and
+  closing it is remembered in this browser for that version only. A newer release shows it
+  again. It never shows to tenant users. While an update is planned, announced or running,
+  the maintenance bar takes its place.
+- The notification bell and the alert rules (event `update.available`) announce each
+  version once, as before.
+
+The browser reads the version again every 15 minutes and when its window gets focus, so a
+tab left open shows a release that the six-hourly check found within a quarter of an hour.
 
 ### Source, channel and token
 
@@ -498,14 +588,15 @@ modules add, and switches to the full build of the version it runs now:
 - **With the updater** (ready, published images): *Switch to the full build* announces
   the switch like an update, with a lead time and a countdown for everyone, and needs
   the provider team's owner role and a recent sign-in. The api reads the release of the
-  running version once from the update source (also when the daily check is off) and
+  running version once from the update source (also when the scheduled check is off) and
   takes the digests of the full images from its notes (`restow:` and `restow-web:`).
   The updater then runs the normal pipeline: it verifies both full images against the
   release workflow's signature of that tag, dumps the database, writes
   `RESTOW_IMAGE=ghcr.io/restow-backup/restow:<version>` and
   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:<version>` into `.env`, recreates
   the services and rolls back to the Community images if the full build does not
-  start (both builds share one migration set, so nothing is migrated). A mirror is
+  start (both builds share one migration set, so nothing is migrated). A recovery lab
+  is verified and moved along as in any update ([The recovery lab](#the-recovery-lab)). A mirror is
   respected: `.../restow-community` becomes `.../restow` in the same registry. When the
   switch succeeded the updater moves itself to the full image too, by the verified
   digest ([The updater updates itself](#the-updater-updates-itself)), so later updates
@@ -537,7 +628,8 @@ Restow picks the mode from the update source and shows it in the tab:
   [What is verified](#what-is-verified)), writes the two image references into
   `.env` (`RESTOW_IMAGE`, `RESTOW_WEB_IMAGE`) and recreates the services. If a
   release publishes no web image digest, the web edge stays as it is and the
-  run says so.
+  run says so. Where `.env` names the recovery lab's image (`RESTOW_LAB_IMAGE`),
+  the lab moves along: see [The recovery lab](#the-recovery-lab).
 - **Source** (any other repository, for example your private Forgejo): downloads
   the tagged archive of the repository, with the stored token in an
   `Authorization` header (never in a URL, a command line or a log), builds the
@@ -599,7 +691,8 @@ In **image** mode, before anything is stopped:
    Community build, see below). A release without one is refused: the tab does
    not offer it, and the updater ends the run as *unchanged* with
    `fetch.digest_missing`. The web edge changes only when the release also
-   publishes `restow-web: sha256:...` (`restow-web-community: sha256:...`).
+   publishes `restow-web: sha256:...` (`restow-web-community: sha256:...`), and
+   the recovery lab, where it runs, only when it publishes `restow-lab: sha256:...`.
 2. Each image is checked in the registry, by that digest, with
    [cosign](https://docs.sigstore.dev/cosign/) (keyless): it must carry a
    signature whose certificate was issued by
@@ -681,13 +774,47 @@ everyone sees a full-screen notice with the steps and the progress.
    applies its database migrations as it starts.
 6. **Health check.** Waits until the api reports ready and the new version
    (it gives up at once when the api container keeps restarting); then starts
-   worker and scheduler, then recreates the web edge last.
-7. **Done.**
+   worker and scheduler, then recreates the web edge, then the recovery lab
+   where it runs ([The recovery lab](#the-recovery-lab)).
+7. **Done.** Old dumps beyond the three kept and the fetched sources are removed.
+   Once the run is recorded as succeeded, the images of releases older than the
+   previous one are removed ([Old images](#old-images)).
 
 While the api restarts, the edge answers browsers with a static maintenance
 page (in the browser's language, light or dark) and answers API calls with a
 `503`; the web interface treats that as "the server is restarting" and reloads
 by itself once the new version answers.
+
+#### The recovery lab
+
+An installation with the recovery lab (`install.sh --with-recovery-lab`,
+[docs/BAREMETAL.md](BAREMETAL.md)) has `RESTOW_LAB_IMAGE` in `.env`. In image mode the
+updater moves that line to the lab image of the target version
+(`ghcr.io/restow-backup/restow-lab:<version>`, one image for both builds and so also
+for [the switch to the full build](#switching-to-the-full-build)) and handles it like
+the other images:
+
+- it checks the lab image's signature in the registry by the `restow-lab:` digest of
+  the release notes, with the same signer, before anything is pulled
+  ([What is verified](#what-is-verified)); a lab image without a valid signature, or
+  a pulled lab image with another digest, ends the run as *unchanged*;
+- it pulls the lab image before anything is stopped;
+- it writes `RESTOW_LAB_IMAGE` together with the other two lines and recreates the
+  `recovery-lab` service after the web edge;
+- a rollback ([When something goes wrong](#when-something-goes-wrong)) puts the
+  previous lab line back byte for byte and recreates the lab with it, under the same
+  condition as the other images: only while no migration ran.
+
+An installation without the lab (no `RESTOW_LAB_IMAGE` line, or an empty one for a lab
+built locally as `restow-lab:local`) is untouched: nothing of the lab is verified,
+pulled, written or started. A release that publishes no `restow-lab:` line leaves the
+lab on its image, and the run says so. Source mode builds no lab image, so the lab
+keeps its image there too. If the lab does not start after an otherwise successful
+update, the update still counts as succeeded (the application runs the new version);
+the run's log says so and names the command that starts it:
+`docker compose --profile recovery-lab up -d recovery-lab`. The images of older lab
+releases are not part of [Old images](#old-images); remove them by hand with
+`docker image rm ghcr.io/restow-backup/restow-lab:<old version>`.
 
 State lives in the updater's volume (`status.json`), so it survives the api
 restarting. The audit log records checks, scheduling, cancellation, start,
@@ -867,7 +994,6 @@ choice back. A plan keeps the zone it was made in: changing the zone afterwards
 does not move a planned update.
 
 ### Disk space
-### Disk space
 
 An update writes a full database dump into the updater's volume, pulls two new
 images and lets the new api run its migrations. On a nearly full disk the dump
@@ -891,6 +1017,64 @@ listed in the Updates tab with their size; the provider owner can download or
 delete one there (recent sign-in, written to the audit log). A dump holds the
 whole database, the encrypted secrets included: keep a downloaded one as
 carefully as the master key.
+
+The images of earlier releases would fill the disk over time as well; the updater
+removes them after every successful update (next section).
+
+When the disk did fill up, the emergency disk reserve gives PostgreSQL room to start again
+without a shell; what can be cleaned up safely, and what never, is in
+[docs/DATABASE.md, Disk full](DATABASE.md#disk-full).
+
+### Old images
+
+Every update pulls (or builds) two new images, and the old ones stay in Docker's
+image store until someone removes them. Over a year of releases that is many GB; when
+the disk is full, PostgreSQL stops. So after a successful update (the new version
+answers and the run is recorded as succeeded) the updater removes the images of
+earlier releases. It keeps the images of the version that runs now and of the version
+before it, so going back by hand ([Rollback](#rollback)) needs no download. An image
+is removed only when all of this holds:
+
+- **It is Restow's.** Every name of it (`name:tag` and `name@sha256:…`) is in one of
+  this installation's repositories: `RESTOW_UPDATER_IMAGE_REPOSITORY` and
+  `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY`, the same repositories of the other build
+  (with or without `-community`), the local names `source` mode builds (`restow`,
+  `restow-web`, `restow-community`, `restow-web-community`) and the repositories of the
+  Restow images Compose resolves for api, worker, scheduler, updater and mounter.
+  The web edge's image is only kept, its repository is not taken for Restow's: an
+  override may run a stock Caddy there, whose versions are not Restow's. An image
+  with a name anywhere else, or with no name at all, is never touched.
+- **It is old.** Its release (the `org.opencontainers.image.version` label, else its
+  `RESTOW_VERSION`) is older than the version before the current one. A version tag
+  counts as the release only in the Restow repositories of the first list
+  (the configured ones, their twins, the local names); in a repository known only
+  from the compose configuration, an image without such a label stays. An image
+  whose release cannot be told stays, and so does one of a newer release.
+- **Nothing uses it.** No container on the Docker host uses it, running or stopped,
+  of this project or any other.
+- **It is not configured.** It is none of the images the compose project names now
+  (the updater's and the mounter's pinned images included) and none the run
+  replaced.
+
+The updater removes each such image by its ID with `docker image rm`, never forced
+(Docker itself refuses an image a container uses). Docker also refuses to remove an
+image with more than one name by ID (several tags, such as `restow:0.4.11` and
+`restow:0.4`, or the names of two repositories); the updater first takes the other
+names off it, one at a time with `docker image rm <name>` and each only after
+`docker image inspect` showed that the name still refers to that image, so the
+image always keeps a name until it goes by its ID. Its command runners refuse every
+other removal: `docker image rm` with anything but image IDs or exactly one name
+with a tag or digest, `--force`, and `rmi`, `image prune`, `builder prune`,
+`system prune` and `--rmi`. Nothing is removed when the
+update failed, was rolled back or needs attention. An image Docker refuses, or a list
+that cannot be read, is logged and never changes the outcome of the update. The run's
+log in the Updates tab says how many images were removed and their size
+(`Removed 3 images of earlier releases (1.9 GB)`; layers they shared with the images
+that stay are not freed, so the disk can gain less), and the updater's own log
+(`docker compose --profile updater logs updater`) names each image. Images without a
+name and the build cache are not touched; see [the commands for manual
+updates](#2-new-image-no-or-automatic-migrations), which also apply to an
+installation that was updated by hand before.
 
 ### When something goes wrong
 
@@ -932,14 +1116,31 @@ the exact file name and the previous image references):
 docker compose --profile updater cp updater:/state/dumps/<file> ./<file>
 # stop the application and restore
 docker compose stop api worker scheduler
-docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < <file>
-# put the previous images back into .env (RESTOW_IMAGE, RESTOW_WEB_IMAGE), then
+# into a fresh database: --clean onto the newer schema would keep its newer tables
+docker compose exec -T postgres psql -U restow -d postgres -c "DROP DATABASE restow WITH (FORCE)" -c "CREATE DATABASE restow"
+docker compose exec -T postgres pg_restore -U restow -d restow --no-owner --no-acl --exit-on-error < <file>
+# put the previous images back into .env (RESTOW_IMAGE, RESTOW_WEB_IMAGE), then switch
+# restore mode on with that image, before the worker and the scheduler start
+# (only when the previous image is 0.5.0 or later, see below):
+docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "rollback after a failed update"
 docker compose up -d
 ```
 
-Backups made after the update are in the chunk store but not in the restored
-database; run a backup after the rollback. Then report the failure with the
-log tail the tab shows.
+Where the recovery lab runs, put its previous tag back into `RESTOW_LAB_IMAGE` as well and
+recreate it: `docker compose --profile recovery-lab up -d recovery-lab`.
+
+`restow restore-mode` exists from 0.5.0 on. When the previous image is older
+(an update from 0.4.x to 0.5.0, for example), its command line has no such
+command and answers "Unknown command": do not run the `restore-mode on` line and
+do not run `docker compose up -d` either. Follow "Rolling back to a version
+before 0.5.0" under [Rollback](#rollback) instead: keep the worker stopped and
+switch the storage check and retention schedules off before that version starts.
+
+Backups made after the update are in storage but not in the restored database.
+Restore mode keeps them: nothing is deleted until a provider owner has checked
+the restored database and ended restore mode under Installation, Restore mode
+(see [Rollback](#rollback) for the whole procedure). Then report the failure
+with the log tail the tab shows.
 
 ### Settings of the updater
 
@@ -951,6 +1152,7 @@ updater only (`ROLE=updater`):
 | `RESTOW_UPDATER_PROJECT_DIR`             | (empty: the mount at `/project`; set from `RESTOW_PROJECT_DIR`) | Absolute host path of the Compose project, mounted at the same path. Empty: the project is mounted at `/project` and its host path is read from the mount. |
 | `RESTOW_UPDATER_IMAGE_REPOSITORY`        | `ghcr.io/restow-backup/restow` (Community build: `ghcr.io/restow-backup/restow-community`) | Application image repository for `image` mode (a mirror needs the signatures too). Passed from `.env`. |
 | `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY`    | `ghcr.io/restow-backup/restow-web` (Community build: `ghcr.io/restow-backup/restow-web-community`) | Web image repository for `image` mode. Passed from `.env`.    |
+| `RESTOW_UPDATER_LAB_IMAGE_REPOSITORY`    | the application repository with `-lab` in place of its build suffix (`ghcr.io/restow-backup/restow-lab` for both builds) | The recovery lab's image repository for `image` mode, used only where `.env` sets `RESTOW_LAB_IMAGE` ([The recovery lab](#the-recovery-lab)). Passed from `.env`. |
 | `RESTOW_IMAGE_VARIANT`                   | set by the image (`full` or `community`) | The build the updater belongs to; picks the two defaults above and the targets of `source` mode. Never set it yourself: an unknown value stops the updater. |
 | `RESTOW_UPDATER_HEALTH_TIMEOUT_SECONDS`  | `600`                            | How long to wait for the new api (migrations can take a while). |
 | `RESTOW_UPDATER_MIN_FREE_MB`             | `1024`                           | Margin on top of what an update needs ([Disk space](#disk-space)). |
@@ -991,6 +1193,7 @@ restow: sha256:<64 hex digits>
 restow-web: sha256:<64 hex digits>
 restow-community: sha256:<64 hex digits>
 restow-web-community: sha256:<64 hex digits>
+restow-lab: sha256:<64 hex digits>
 ```
 
 An installation reads only the two lines of its own build (the first two for the
@@ -1002,8 +1205,19 @@ to another commit: the signature names the tag. Image tags are the release
 version without the `v` (tag `v0.2.0` is pulled as
 `ghcr.io/restow-backup/restow:0.2.0` and `ghcr.io/restow-backup/restow-web:0.2.0`);
 a release without a web digest keeps the web edge as it is, and the run says so.
+The `restow-lab:` line (the recovery lab's image, signed the same way) counts for both
+builds; the updater reads it only where an installation runs the lab.
 
 ## After the update
+
+**Worker nodes** on other hosts (docs/SIZING.md, "Several hosts: worker nodes") are not updated
+by the updater: run `sudo bash install.sh --update-worker` on each of them. While an update
+started here is under way (from its announcement until the fleet phase ends), the worker and the
+standby scheduler of a node of the old release stop working, and a node scheduler gives its
+leadership up, so no old scheduler takes over while the main host's is stopped. After the update a
+node whose image is older than the migrated database does no work (both check every 30 seconds;
+Installation › Cluster shows it as waiting for an update). After `install.sh --update` (nothing
+announced) a node stops within 30 seconds of the migration.
 
 ```sh
 curl -fsS http://127.0.0.1:3000/healthz
@@ -1067,28 +1281,74 @@ migrations, so going back needs no restore, or starts as Community with
 
 - **No migrations in the release:** check out (or pull) the previous version
   and run `docker compose up -d` again; with the release stack, put the previous
-  tags back into `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` first. The updater does
+  tags back into `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` first (and into
+  `RESTOW_LAB_IMAGE` where the recovery lab runs). The updater does
   this by itself when a new version does not start and its database migrations
   had not run (it moves itself only after a successful update, so a rolled
   back update leaves the updater where it was). After rolling back by hand,
   the updater may run a newer version than the application; that is harmless,
   and the next update aligns them again.
-- **With migrations:** migrations are not reversible. Stop the stack, restore
-  the database dump taken before the update, then start the previous version:
+- **With migrations:** migrations are not reversible. The rollback restores the
+  database dump taken before the update, and a restored dump knows less than
+  the storage: backups, keys and settings made after the dump are in storage,
+  not in the database. It therefore starts with **restore mode**
+  ([STORAGE.md](STORAGE.md#restore-mode-and-progress-markers)), which deletes
+  nothing until a provider owner has checked the restored database:
+
+  1. Stop the application: `docker compose stop api worker scheduler`.
+  2. Restore the dump into a fresh database (`--clean` onto the newer schema would keep the
+     tables of its newer migrations, and the next migration fails):
+     `docker compose exec -T postgres psql -U restow -d postgres -c "DROP DATABASE restow WITH (FORCE)" -c "CREATE DATABASE restow"`,
+     then `docker compose exec -T postgres pg_restore -U restow -d restow --no-owner --no-acl --exit-on-error < restow-YYYY-MM-DD.dump`
+     (the api provisions the roles and grants again when it starts).
+  3. Switch restore mode on with the image you roll back to (`git checkout vPREVIOUS`
+     and `docker compose build`, or the previous tags in `RESTOW_IMAGE` and
+     `RESTOW_WEB_IMAGE`), while only postgres runs:
+
+     ```sh
+     docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "rollback to vPREVIOUS"
+     ```
+
+  4. Start the stack: `docker compose up -d`. A banner on every page tells
+     provider administrators that restore mode is on. Backups and checks run
+     as usual; retention, clean-ups, purges, restic forget and prune, the
+     orphan sweep and repository repairs do not, and jobs created before the
+     restore are held instead of resumed (start them again if they are still
+     needed).
+  5. Under Installation, Restore mode: compare the storage with the database
+     (**Compare now**), import key versions found in storage if the page lists
+     any, check the restore points you care about, then end restore mode with a
+     short description of what you checked. Keeping data that only storage
+     knows is the default: backups written after the dump stay restorable with
+     the standalone restore tool and are never cleaned up. The command line can
+     do the same: `restow restore-mode check`, `restow restore-mode import-keys`,
+     `restow restore-mode off --email <owner> --checked "<what you checked>"`.
+
+  **If step 3 is forgotten,** the worker notices by itself: every storage target
+  records how far the database had come when data was last written to it
+  (progress markers). At its start and before every deletion pass the worker
+  compares them with the database; a target ahead of the database switches
+  restore mode on, raises the alert `installation.restore_mode` (bell, the
+  provider's notification recipients, and e-mail and webhooks per the
+  notification rules) and refuses the deletion. Writes in
+  the last minute before the dump may carry no marker yet, which is why the
+  command line step comes first.
+
+  **Rolling back to a version before 0.5.0** (which has no restore mode) with
+  migrations cannot be protected by that version's code. Keep the worker
+  stopped and switch the storage checks and retention off before the old
+  version starts, then check the restored database by hand:
 
   ```sh
   docker compose stop api worker scheduler
-  docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < restow-YYYY-MM-DD.dump
-  git checkout vPREVIOUS
-  docker compose up -d --build
+  docker compose exec -T postgres psql -U restow -d postgres -c "DROP DATABASE restow WITH (FORCE)" -c "CREATE DATABASE restow"
+  docker compose exec -T postgres pg_restore -U restow -d restow --no-owner --no-acl --exit-on-error < restow-YYYY-MM-DD.dump
+  docker compose exec -T postgres psql -U restow -d restow -c "UPDATE schedules SET enabled = false WHERE kind IN ('scrub', 'retention')"
+  docker compose up -d api scheduler web
   ```
 
-  With the release stack, put the previous tags back into `RESTOW_IMAGE` and
-  `RESTOW_WEB_IMAGE` instead of checking out a tag, then run
-  `docker compose up -d`.
-
-  Backups taken after the update are in the chunk store but not in the
-  restored database; run a backup after the rollback.
+  Better still, do not roll back below 0.5.0 once a release with migrations
+  ran: restore the dump into 0.5.0 or later instead.
 
 ## Versions and channels
 

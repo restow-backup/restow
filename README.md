@@ -9,7 +9,7 @@ control, and every week reads a sample of each backup back through the restore
 path and compares it with the recorded hashes. A backup only counts as
 restorable once it has been read back.
 
-**Status: beta (0.4.12).** Run it alongside your
+**Status: beta (0.5.0).** Run it alongside your
 existing backups, not as your only one, until you have verified restores
 against your own data. Microsoft 365 backup and restore have been tested
 against a simulated Graph API, never against a real Microsoft 365 tenant. What
@@ -24,12 +24,15 @@ Known Issues.
 
 ## What it does
 
-- **Backup** of Exchange Online (mail, calendar, contacts) and OneDrive through
-  Microsoft Graph, incremental via delta queries, and of any IMAP mailbox.
+- **Backup** of Exchange Online (mail, calendar, contacts), OneDrive, SharePoint
+  sites (with the files of Teams channels) and the calendars and conversations of
+  Microsoft 365 groups through Microsoft Graph, incremental via delta queries, and
+  of any IMAP mailbox, Gmail and Google Workspace included.
   Graph is the only Microsoft interface Restow uses; Exchange Web Services, which
   Microsoft switched off for Exchange Online on 1 October 2026, are not.
 - **Endpoint backup** of servers and clients with the Restow agent and restic:
-  Linux and macOS agents (Windows is planned), installed root-owned and updated
+  Linux and macOS agents and a Windows agent as a preview (x64, shadow copies),
+  installed so only root or administrators can change them, and updated
   only with releases the maintainer signed, append-only so an agent can add
   backups but never delete or overwrite one, with retention decided by the
   server and a storage budget per machine and per tenant. Hooks run only where
@@ -40,6 +43,15 @@ Known Issues.
   application data (`/opt`, `/usr/local`, `/var/lib`, `/var/backups`) besides
   `/etc`, `/home` and `/srv` by default, and every machine can be assigned to a
   person of the directory. Included in the Community edition.
+- **Bare metal restore of Linux machines (preview):** a whole machine backup
+  records the disk layout, and the signed recovery ISO restores the machine
+  onto new disks (GPT or MBR, RAID, LVM, LUKS, ext4, XFS, btrfs, UEFI with
+  Secure Boot or BIOS), checks the boot chain and drivers before it erases
+  anything and reports a verification. The ISO is built reproducibly from a
+  separate GPL-3.0-or-later recipe in `integrations/recovery`; the release key
+  that signs agent and ISO has the fingerprint
+  `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o` (compare it here, not on
+  an instance). See [docs/BAREMETAL.md](docs/BAREMETAL.md).
 - **Proxmox VE (preview):** VMs and containers on Proxmox VE 8.4 and newer
   through the Backup Provider API. VM disks are read over NBD with dirty
   bitmaps, so after the first run only changed blocks are uploaded; containers
@@ -57,7 +69,9 @@ Known Issues.
   machines shows the request as queued until the agent picks it up at its next
   check-in.
 - **Restore** of a single mail, a folder, a file, a file version or a whole
-  account, next to the original, never over it; or as a ZIP download. People
+  account, next to the original, never over it (a SharePoint site is the one
+  exception: there "Overwrite" is an explicit choice, and the library keeps the
+  overwritten file as an earlier version); or as a ZIP download. People
   with the role "user" restore only their own mailbox and OneDrive. File restore
   lists the machines with their restore points on one timeline by day and a
   jump to any date; mailboxes and OneDrive are restored in the restore explorer.
@@ -69,8 +83,9 @@ Known Issues.
   imported mail files go into an append-only store with a SHA-256 hash chain,
   chain verification and search over subject, extracted text and addresses (not
   attachments). Business adds enforced retention (fixed at 8 years in 0.3.0) and
-  legal hold, designed for GoBD-compliant use (not certified). Continuous
-  IMAP and Graph archive sync are not part of 0.3.0. On local and NFS
+  legal hold, designed for GoBD-compliant use (not certified), and captures mail
+  into the archive continuously from IMAP mailboxes and through Microsoft Graph
+  ([docs/IMAP.md](docs/IMAP.md), [docs/ARCHIVE.md](docs/ARCHIVE.md)). On local and NFS
   targets the archive's immutability is enforced by the application only, and on
   S3 with Object Lock 0.3.0 locks the archive item records but not the packs
   that hold the message content; see Known Issues in the changelog.
@@ -116,9 +131,11 @@ Known Issues.
   multi-selection to put several machines or mailboxes into a new job, full-width
   tables, German and English.
 
-Not included in 0.3.0: PST and OST import, PST and MSG export, a Windows agent,
-continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
-public folders. The first backup of a large tenant can take days because
+Not included: PST and OST import, PST and MSG export, Teams channel and chat
+messages (Microsoft offers them only through metered Protected APIs), a backup of
+Google Workspace through its own APIs (its mailboxes are backed up over IMAP),
+public folders, and a macOS agent tested on a real Mac (it is built, but no test
+runs on macOS). The first backup of a large tenant can take days because
 Microsoft throttles Graph; Restow shows that wait instead of hiding it.
 
 ## Screenshots
@@ -262,8 +279,8 @@ the cosign signatures of the two images and starts the stack. Download it,
 check it, then run it:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.12/install.sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.12/install.sh.sha256
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.5.0/install.sh
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.5.0/install.sh.sha256
 sha256sum -c install.sh.sha256
 sudo bash install.sh
 ```
@@ -292,10 +309,10 @@ the script is the one the release workflow published, verify the signed
 checksum list with [cosign](https://docs.sigstore.dev/cosign/) first:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.12/SHA256SUMS
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.12/SHA256SUMS.sigstore.json
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.5.0/SHA256SUMS
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.5.0/SHA256SUMS.sigstore.json
 cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.4.12 \
+  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.5.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing SHA256SUMS
 ```
@@ -315,6 +332,9 @@ updater stays off unless you ask for it, see [docs/UPDATING.md](docs/UPDATING.md
 `--no-mounter` or `--without-mounter` (the mounter, which backs up file shares and
 mounts NFS network shares, starts by default for 0.3.0 and newer; these leave it off,
 `--with-mounter` is still accepted; see [docs/MOUNTS.md](docs/MOUNTS.md)),
+`--with-recovery-lab` (from 0.5.0: the recovery lab, which proves that a whole machine
+backup starts on other hardware by restoring it in a virtual machine; it needs KVM on the
+host, see [docs/BAREMETAL.md](docs/BAREMETAL.md) section 12.3),
 `--local` (an evaluation without a public domain: the edge serves
 `https://localhost` or an internal name such as `restow.internal` over HTTPS
 with a certificate from Caddy's own authority, browsers warn about it and
@@ -324,6 +344,19 @@ passkeys are not offered; `--http-local` is a deprecated name for it),
 `--dry-run` (checks only, prints what it would do) and `--skip-signature-check`
 (for tests and unsigned mirrors only, never for production). Its log is
 `/var/log/restow-install.log`, without secrets.
+
+Its first question (from 0.5.0) is what to set up: a new installation (`--new`), a
+**restore** of an installation from a dump of its database (`--restore <file>`, with the old
+master key typed at a hidden prompt or taken from the old `.env` with `--env-from <file>`;
+restore mode is on before anything starts, and a master key that does not open the dump undoes
+the run with exit code 11; see [docs/DATABASE.md](docs/DATABASE.md#restore-an-installation-from-a-dump)),
+or a **worker node** for an existing installation on another host (`--join <https address>
+--join-token <token> [--node-name <name>] [--standby-scheduler] [--join-ca <file>]`, with a
+token from Installation › Cluster; `--update-worker` brings a node to the main host's release).
+On the main host, `--allow-worker <address>` (and `--disallow-worker`, `--database-address`,
+`--database-port`) lets a worker host reach PostgreSQL over TLS; by default it is not published.
+Real replication (a second server that takes over) is in development; see
+[docs/SIZING.md](docs/SIZING.md#several-hosts-worker-nodes).
 
 Running the script again is safe: it finds the installation, never changes
 `.env`, a secret or data, checks the images named in `.env` and makes sure the
@@ -338,7 +371,7 @@ installation without its `.env`. It never updates an installation (see
 As a shortcut, the script also runs straight from the download:
 
 ```sh
-curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.4.12/install.sh | sudo bash
+curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.5.0/install.sh | sudo bash
 ```
 
 That runs whatever arrives without your own check of the script first. It still
@@ -403,12 +436,12 @@ step 2.
 
 1. **Get the release stack.** It runs the published, signed images and builds
    nothing. Download `docker-compose.yml` and `env.example` from the
-   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.4.12)
+   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.5.0)
    into an empty directory and run `cp env.example .env`, or clone the tag and
    work in `deploy/release/`:
 
    ```sh
-   git clone --branch v0.4.12 https://github.com/restow-backup/restow.git
+   git clone --branch v0.5.0 https://github.com/restow-backup/restow.git
    cd restow/deploy/release
    cp .env.example .env
    ```
@@ -416,11 +449,11 @@ step 2.
 2. **Fill in `.env`.** Every variable is explained on
    [docs.restowbackup.com](https://docs.restowbackup.com); everything below
    "Optional" can stay empty. At minimum the two images of one build, either the
-   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.4.12`,
-   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.4.12`; Business and
+   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.5.0`,
+   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.5.0`; Business and
    Service Provider stay locked until a license key is installed) or the
-   Community build (`ghcr.io/restow-backup/restow-community:0.4.12`,
-   `ghcr.io/restow-backup/restow-web-community:0.4.12`; the Apache-2.0 core
+   Community build (`ghcr.io/restow-backup/restow-community:0.5.0`,
+   `ghcr.io/restow-backup/restow-web-community:0.5.0`; the Apache-2.0 core
    alone), then `POSTGRES_PASSWORD`, the three database connection strings
    (`DATABASE_MIGRATION_URL`, `DATABASE_URL`, `DATABASE_PROVIDER_URL`),
    `RESTOW_MASTER_KEY`, `BETTER_AUTH_SECRET`, `RESTOW_PUBLIC_URL` and
@@ -468,7 +501,11 @@ step 2.
    docker compose logs api | grep 'SETUP TOKEN'
    ```
 
-   Then it shows the operator notice, chooses the operating mode and the
+   Then it shows the operator notice, asks what you want to protect (Microsoft
+   365, IMAP mailboxes, the mail archive, servers & clients, Proxmox VE: all
+   ticked to begin with; what you leave out is only hidden in the menu, and you
+   switch it on again under Installation, Server & operation, Modules), chooses
+   the operating mode and the
    installation's time zone (the browser's is preselected; planned updates are
    read in it and new tenants start with it), asks for the
    name of your organisation (it becomes your own organisation, the place for

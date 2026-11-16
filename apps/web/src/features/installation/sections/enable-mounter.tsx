@@ -85,7 +85,7 @@ export function EnableMounterButton({
           className="flex items-center gap-2 text-sm text-muted-foreground"
           data-slot="enable-mounter-starting"
         >
-          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
           {attempt?.status === "started" && attempt.finishedAt
             ? t("mounts.enable.started", {
                 when: formatRelative(attempt.finishedAt, language),

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+Restow recovery ISO
+
+This live system restores a Linux machine from its whole machine backup in
+Restow onto new disks. It starts the recovery program on the first console
+(restow-recover.service); the program asks for the address of the instance and
+the recovery code that an administrator issued for the machine there.
+
+  /usr/lib/restow-recovery/restow-agent   the recovery program (restow-agent recover)
+  /usr/lib/restow-recovery/restic         the restic it reads the backups with
+  /usr/lib/restow-recovery/THIRD_PARTY_NOTICES.txt
+                                          the licences of both programs
+  FIRMWARE-LICENSES.txt (this folder)     the licences of the non-free firmware
+
+Nothing in this image belongs to an instance: no address, no key, no
+certificate, no token. SSH host keys are made when remote access is switched
+on in the recovery program.
+
+The build recipe of this image is free software under the GNU General Public
+License, version 3 or later; the source code of every package in it is
+offered as an attachment of the release this image belongs to.

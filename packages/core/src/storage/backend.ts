@@ -82,6 +82,45 @@ export interface StorageBackend {
    * `ObjectLockedError` (storage/immutability.ts) and deletes nothing when one is.
    */
   deleteAllVersions?(key: string, now: Date): Promise<void>;
+  /**
+   * Optional (a directory): whether the root exists and holds anything. A mounted share that
+   * is not mounted at the moment shows as an empty (or missing) folder, and a listing of it
+   * answers "nothing here" instead of failing; a caller that must not take an absent share for
+   * an empty one (the repository repair) asks this first.
+   */
+  rootState?(): Promise<"present" | "empty" | "missing">;
+  /**
+   * Optional (a directory, also a mounted NFS or SMB share): the free and total bytes of the
+   * file system the root is on (statfs), or null when it cannot tell in time. An S3 bucket
+   * reports none: a quota of the service is not visible through the S3 API.
+   */
+  freeSpace?(): Promise<StorageSpace | null>;
+}
+
+/** Free and total bytes of a storage target, as far as it reports them ({@link StorageBackend.freeSpace}). */
+export interface StorageSpace {
+  /** Bytes an unprivileged writer may still use (not the blocks reserved for root). */
+  readonly freeBytes: number;
+  readonly totalBytes: number;
+}
+
+/**
+ * The backend a wrapper (progress markers, storage/progress-marker.ts) delegates to, under this
+ * symbol, so a caller that looks for a particular backend class can see through it.
+ */
+export const WRAPPED_BACKEND: unique symbol = Symbol.for("restow.storage.wrappedBackend");
+
+/** `backend` without the wrappers that carry {@link WRAPPED_BACKEND}. */
+export function unwrapBackend(backend: StorageBackend): StorageBackend {
+  let current = backend;
+  for (let depth = 0; depth < 8; depth++) {
+    const inner = (current as { [WRAPPED_BACKEND]?: StorageBackend })[WRAPPED_BACKEND];
+    if (!inner) {
+      break;
+    }
+    current = inner;
+  }
+  return current;
 }
 
 /**
@@ -211,4 +250,64 @@ export function lockedErrorOf(error: unknown): ObjectLockedError | null {
 /** Whether `error` (or its cause) is an {@link ObjectLockedError}. */
 export function isObjectLocked(error: unknown): boolean {
   return lockedErrorOf(error) !== null;
+}
+
+/** File system codes of a write the storage refused because it is full or over its quota. */
+const NO_SPACE_CODES = new Set([
+  "ENOSPC",
+  "EDQUOT",
+  // S3-compatible services at their quota or out of disk.
+  "QuotaExceeded",
+  "QuotaExceededException",
+  "StorageFull",
+  "XMinioStorageFull",
+  "InsufficientStorage",
+]);
+
+/**
+ * Whether `error` (or its cause) says the storage is full: no space left on the file system,
+ * a disk quota exceeded, or an S3 service at its quota (HTTP 507 or an error code that says so).
+ * Writing the same object again changes nothing until space is freed (docs/STORAGE.md).
+ */
+export function isNoSpaceError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth++) {
+    const shape = current as {
+      code?: unknown;
+      Code?: unknown;
+      name?: unknown;
+      $metadata?: { httpStatusCode?: unknown };
+      cause?: unknown;
+    };
+    for (const candidate of [shape.code, shape.Code, shape.name]) {
+      if (typeof candidate === "string" && NO_SPACE_CODES.has(candidate)) {
+        return true;
+      }
+    }
+    if (shape.$metadata?.httpStatusCode === 507) {
+      return true;
+    }
+    current = shape.cause;
+  }
+  return false;
+}
+
+/** File system codes of a deletion the storage refuses for good (write-once share, read-only). */
+const DELETE_REFUSED_CODES = new Set(["EPERM", "EACCES", "EROFS"]);
+
+/**
+ * Whether `error` (or its cause) says the storage refuses to delete or overwrite: a write-once
+ * (WORM) share or a read-only mount answers EPERM, EACCES or EROFS. Trying again changes
+ * nothing, unlike a network error. An {@link ObjectLockedError} is not counted here: it ends.
+ */
+export function isDeleteRefused(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && DELETE_REFUSED_CODES.has(code)) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }

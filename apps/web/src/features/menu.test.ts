@@ -5,6 +5,7 @@ import { navItems as dashboardNavItems } from "@/features/dashboard";
 import { featureNavItems } from "@/features/registry";
 import { navItems as tenantNavItems } from "@/features/tenants";
 import { i18n } from "@/i18n";
+import { type ModuleId, withShownModules } from "@/lib/modules";
 import {
   groupNavItems,
   NAV_GROUPS,
@@ -77,7 +78,7 @@ describe("the menu per edition", () => {
       // decision 2026-10-10); integrations, members and the rest are sections only.
       tenants: ["organisation-settings", "repositories", "tenants (locked)"],
       // Members (the provider team, id `team`) is in every edition (0.3.0).
-      installation: ["settings", "team", "audit (locked)", "license", "resources (soon 0.5.0)"],
+      installation: ["settings", "team", "audit (locked)", "license", "resources"],
     });
   });
 
@@ -87,7 +88,7 @@ describe("the menu per edition", () => {
       mail: MAIL,
       endpoints: ENDPOINTS,
       tenants: ["organisation-settings", "repositories", "tenants (locked)"],
-      installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
+      installation: ["settings", "team", "audit", "license", "resources"],
     });
   });
 
@@ -98,14 +99,7 @@ describe("the menu per edition", () => {
       endpoints: ENDPOINTS,
       tenants: ["tenant-settings", "repositories", "tenants"],
       // The statistics of all tenants open the pinned Installation section (0.3.0).
-      installation: [
-        "stats-all-tenants",
-        "settings",
-        "team",
-        "audit",
-        "license",
-        "resources (soon 0.5.0)",
-      ],
+      installation: ["stats-all-tenants", "settings", "team", "audit", "license", "resources"],
     });
   });
 
@@ -300,12 +294,22 @@ describe("the menu per edition", () => {
     expect(navGroupOf({ id: "archive", group: archive?.group })).toBe("mail");
   });
 
-  it("puts each upcoming entry at the address its feature will have", () => {
-    const soon = items.filter((item) => item.soon);
-    // The job definitions shipped with 0.2.0: Jobs carry no "Soon" badge any more.
-    expect(soon.map((item) => [item.id, item.path, item.search ?? null, item.soon])).toEqual([
-      ["resources", "/resources", null, "0.5.0"],
-    ]);
+  it("has no upcoming entry any more: capacity planning shipped with 0.5.0", () => {
+    // The job definitions shipped with 0.2.0, capacity planning with 0.5.0: no entry carries a
+    // "Soon" badge now; the mechanism stays for the next one.
+    expect(items.filter((item) => item.soon)).toEqual([]);
+    const resources = items.find((item) => item.id === "resources");
+    expect(resources).toMatchObject({
+      path: "/resources",
+      group: "installation",
+      roles: ["provider_admin"],
+    });
+    // Only provider admins have the entry, in every edition.
+    for (const role of ["tenant_admin", "tenant_restore", "tenant_user"]) {
+      for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+        expect(Object.values(menu(role, ctx)).flat(), role).not.toContain("resources");
+      }
+    }
   });
 
   it("opens the jobs of each kind from the entry of its section, in the order the plan has them", () => {
@@ -481,5 +485,75 @@ describe("the menu per edition", () => {
     expect([...groupsInUse].sort()).toEqual(
       ["daily", "endpoints", "installation", "mail", "tenants"].sort(),
     );
+  });
+});
+
+/**
+ * The menu and the modules of the installation (0.5.0, lib/modules.ts), with the entries of the
+ * real registry: the sidebar and the command palette list what `withShownModules` leaves
+ * (lib/use-nav-items.ts applies it for both). The entries of the tenant's own state (the archive)
+ * are offered here; modules are decided before that.
+ */
+describe("the menu per module of the installation", () => {
+  function shown(enabled: readonly ModuleId[]): Record<string, string[]> {
+    return Object.fromEntries(
+      groupNavItems(
+        withShownModules(items, enabled),
+        "provider_admin",
+        canAccess,
+        SERVICE_PROVIDER,
+      ).map((group) => [group.id, group.items.map((item) => item.id)]),
+    );
+  }
+
+  it("is the whole menu while every module is on", () => {
+    const all = shown(["microsoft365", "imap", "archive", "endpoints", "pve"]);
+    expect(all.mail).toEqual(MAIL);
+    expect(all.endpoints).toEqual(ENDPOINTS);
+    expect(all.daily).toEqual(DAILY);
+  });
+
+  it("drops Servers & clients as a whole once neither the machines nor Proxmox VE are on", () => {
+    const mailOnly = shown(["microsoft365", "imap", "archive"]);
+    expect(mailOnly.endpoints).toBeUndefined();
+    expect(mailOnly.mail).toEqual(MAIL);
+    expect(mailOnly.daily).toEqual(DAILY);
+  });
+
+  it("keeps the shared entries for Proxmox VE alone, without the machines' and the file shares' own", () => {
+    const pveOnly = shown(["pve"]);
+    expect(pveOnly.endpoints).toEqual(["endpoint-jobs", "virtualization", "file-restore"]);
+    expect(pveOnly.mail).toBeUndefined();
+  });
+
+  it("leaves VMs & containers out for an installation without Proxmox VE", () => {
+    expect(shown(["endpoints"]).endpoints).toEqual([
+      "endpoint-jobs",
+      "inventory",
+      "file-shares",
+      "file-restore",
+    ]);
+  });
+
+  it("leaves only the archive's own entry out when the archive is off", () => {
+    expect(shown(["microsoft365", "imap"]).mail).toEqual(["mail-jobs", "restore", "exports"]);
+    // The archive alone still needs its jobs, the restore explorer and the exports.
+    expect(shown(["archive"]).mail).toEqual(MAIL);
+  });
+
+  it("never touches the daily work, the tenants and the installation", () => {
+    const all = shown(["microsoft365", "imap", "archive", "endpoints", "pve"]);
+    const one = shown(["imap"]);
+    for (const group of ["daily", "tenants", "installation"]) {
+      expect(one[group]).toEqual(all[group]);
+    }
+  });
+
+  it("gives every entry of the two product sections a module, and no other entry one", () => {
+    for (const item of items) {
+      const group = navGroupOf(item);
+      const scoped = (item.modules?.length ?? 0) > 0;
+      expect(scoped, item.id).toBe(group === "mail" || group === "endpoints");
+    }
   });
 });

@@ -166,12 +166,29 @@ export async function buildMimeMessage(input: {
   from: string;
   message: NotificationMessage;
 }): Promise<Buffer> {
+  const { message } = input;
   const composer = new MailComposer({
-    from: singleLine(input.from),
-    to: singleLine(input.message.to),
-    subject: singleLine(input.message.subject),
-    text: input.message.text,
-    ...(input.message.html ? { html: input.message.html } : {}),
+    // Always the delegated mailbox; the branding names it (0.5.0).
+    from: message.from
+      ? { name: singleLine(message.from.name), address: singleLine(input.from) }
+      : singleLine(input.from),
+    to: singleLine(message.to),
+    subject: singleLine(message.subject),
+    text: message.text,
+    ...(message.html ? { html: message.html } : {}),
+    ...(message.replyTo ? { replyTo: singleLine(message.replyTo) } : {}),
+    ...(message.attachments?.length
+      ? {
+          attachments: message.attachments.map((attachment) => ({
+            filename: singleLine(attachment.filename),
+            contentType: attachment.contentType,
+            content: attachment.content,
+            ...(attachment.cid
+              ? { cid: singleLine(attachment.cid), contentDisposition: "inline" as const }
+              : {}),
+          })),
+        }
+      : {}),
   });
   return composer.compile().build();
 }

@@ -6,7 +6,7 @@
  * the size and SHA-256 recorded at capture (`item_hash`), so bytes that come
  * back are the bytes that were archived.
  */
-import { type ChunkReader, type ManifestObject, RestoreIntegrityError } from "@restow/core";
+import { type ChunkReader, type ManifestObject, readEvidence } from "@restow/core";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import { openContentReader } from "../snapshots/content.js";
 
@@ -19,14 +19,27 @@ export interface ArchiveContentRow {
   readonly receivedAt: Date;
 }
 
-/** Why an item's content could not be checked or read. */
+/**
+ * Why an item's content could not be checked or read. `missing`, `damaged` and `mismatch`
+ * are evidence that the stored content is broken (@restow/core verify/evidence.ts
+ * `readEvidence`); `unreadable` proves nothing about it.
+ */
 export type ArchiveContentProblem =
   /** The row predates the recorded chunk list or size: there is nothing to read it by. */
   | "not_recorded"
   /** The bytes were read but do not match the recorded size or SHA-256 (or a chunk its id). */
   | "mismatch"
-  /** Storage did not deliver the content (missing pack, unreachable target, key). */
+  /** A chunk is not in the chunk index, or every target answered that its pack does not exist. */
+  | "missing"
+  /** Stored bytes that do not decode: a truncated pack, a chunk that does not decrypt. */
+  | "damaged"
+  /** Storage did not answer usefully (timeout, 5xx, denied access, no key): no evidence. */
   | "unreadable";
+
+/** Whether a problem proves the stored content broken (a failure, not "retry"). */
+export function isContentEvidence(problem: ArchiveContentProblem): boolean {
+  return problem === "mismatch" || problem === "missing" || problem === "damaged";
+}
 
 export class ArchiveContentError extends Error {
   readonly problem: ArchiveContentProblem;
@@ -54,12 +67,15 @@ export function archiveContentObject(row: ArchiveContentRow): ManifestObject | n
   };
 }
 
-/** Classify a failed read: a verified mismatch, or content storage did not deliver. */
+/**
+ * Classify a failed read by what it proves, walking the error's cause chain: missing,
+ * damaged or mismatched content, or (anything else, an outage too) `unreadable`.
+ */
 export function contentProblemOf(error: unknown): ArchiveContentProblem {
   if (error instanceof ArchiveContentError) {
     return error.problem;
   }
-  return error instanceof RestoreIntegrityError ? "mismatch" : "unreadable";
+  return readEvidence(error) ?? "unreadable";
 }
 
 /** Read one item's original bytes with an already opened reader; throws {@link ArchiveContentError}. */

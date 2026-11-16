@@ -1,0 +1,191 @@
+{
+ "format": "restow-recovery-code-vectors-v1",
+ "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWX",
+ "normalize": [
+  {
+   "input": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS",
+   "normalized": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "display": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+  },
+  {
+   "input": "rc 7k3qx m9p2d h4tnv 8wrbc j6fas",
+   "normalized": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "display": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+  },
+  {
+   "input": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "normalized": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "display": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+  },
+  {
+   "input": "RC-OA1B2-C3D4E-F5G6H-J7K8M-N9POQ",
+   "normalized": "0A1B2C3D4EF5G6HJ7K8MN9P0Q",
+   "display": "RC-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q"
+  },
+  {
+   "input": "rc-0aib2-c3d4e-f5g6h-j7k8m-n9p0q",
+   "normalized": "0A1B2C3D4EF5G6HJ7K8MN9P0Q",
+   "display": "RC-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q"
+  },
+  {
+   "input": "RC-0ALB2-C3D4E-F5G6H-J7K8M-N9P0Q",
+   "normalized": "0A1B2C3D4EF5G6HJ7K8MN9P0Q",
+   "display": "RC-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q"
+  },
+  {
+   "input": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAY",
+   "normalized": null,
+   "display": null
+  },
+  {
+   "input": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FA",
+   "normalized": null,
+   "display": null
+  },
+  {
+   "input": "RC-UUUUU-M9P2D-H4TNV-8WRBC-J6FAS",
+   "normalized": null,
+   "display": null
+  }
+ ],
+ "canonicalOrigin": [
+  {
+   "input": "https://Restow.Firma.de",
+   "allowHttp": false,
+   "origin": "https://restow.firma.de"
+  },
+  {
+   "input": "restow.firma.de",
+   "allowHttp": false,
+   "origin": "https://restow.firma.de"
+  },
+  {
+   "input": "https://restow.firma.de:443",
+   "allowHttp": false,
+   "origin": "https://restow.firma.de"
+  },
+  {
+   "input": "https://restow.firma.de:8443/",
+   "allowHttp": false,
+   "origin": "https://restow.firma.de:8443"
+  },
+  {
+   "input": "https://BÜRO.example.de",
+   "allowHttp": false,
+   "origin": "https://xn--bro-hoa.example.de"
+  },
+  {
+   "input": "büro.example.de.",
+   "allowHttp": false,
+   "origin": "https://xn--bro-hoa.example.de"
+  },
+  {
+   "input": "https://straße.de",
+   "allowHttp": false,
+   "origin": "https://xn--strae-oqa.de"
+  },
+  {
+   "input": "https://xn--bro-hoa.example.de",
+   "allowHttp": false,
+   "origin": "https://xn--bro-hoa.example.de"
+  },
+  {
+   "input": "https://[2001:DB8:0:0::1]:443",
+   "allowHttp": false,
+   "origin": "https://[2001:db8::1]"
+  },
+  {
+   "input": "[2001:db8::1]:8443",
+   "allowHttp": false,
+   "origin": "https://[2001:db8::1]:8443"
+  },
+  {
+   "input": "https://192.168.1.10:443",
+   "allowHttp": false,
+   "origin": "https://192.168.1.10"
+  },
+  {
+   "input": "http://lab.local:8080",
+   "allowHttp": true,
+   "origin": "http://lab.local:8080"
+  },
+  {
+   "input": "http://lab.local:80",
+   "allowHttp": true,
+   "origin": "http://lab.local"
+  },
+  {
+   "input": "http://lab.local",
+   "allowHttp": false,
+   "origin": null
+  },
+  {
+   "input": "https://restow.firma.de/restow",
+   "allowHttp": false,
+   "origin": null
+  },
+  {
+   "input": "https://user:pw@restow.firma.de",
+   "allowHttp": false,
+   "origin": null
+  },
+  {
+   "input": "https://restow.firma.de?x=1",
+   "allowHttp": false,
+   "origin": null
+  },
+  {
+   "input": "ftp://restow.firma.de",
+   "allowHttp": false,
+   "origin": null
+  }
+ ],
+ "proof": [
+  {
+   "origin": "https://restow.firma.de",
+   "code": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "codeProof": "61568a617301ffbaa5adccc54fa56a88dbc8dd4159bbe9b1404d22bda549942c",
+   "codeHash": "3a14727412eb91c0d4b7a206e75d7279953aac40850cc27cd4f006320dbb9a35"
+  },
+  {
+   "origin": "https://restow-firma.de",
+   "code": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "codeProof": "0d83242afb7070b9b2cc5d2e31af6beca769d83687a8ae429af26d8a74c61b8f",
+   "codeHash": "153790442fddb3ed8302017720feddc170d0fc2c37110f93ee31ce83638e3f95"
+  },
+  {
+   "origin": "https://xn--bro-hoa.example.de:8443",
+   "code": "0A1B2C3D4EF5G6HJ7K8MN9P0Q",
+   "codeProof": "8d6851b3c567f09b85b2a4f36c7ca804e784b40f22c590fdd90d8fe79a59fea8",
+   "codeHash": "9e0a7df60c89bf6808846e5758d66e6d3c3b343f8faa2deb6466cd2b08dca9f2"
+  },
+  {
+   "origin": "https://[2001:db8::1]",
+   "code": "0A1B2C3D4EF5G6HJ7K8MN9P0Q",
+   "codeProof": "e57f32a241cdb44edc6fa40c137cc92eb79a1cc74d5da94747a9315bfaf86216",
+   "codeHash": "6cfeedad9f31cc9f92548045188f34001a41190a2301223e06dd794c7fbcb0fe"
+  }
+ ],
+ "matchCode": [
+  {
+   "sessionSecret": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+   "sessionSecretSha256": "2a8abfa8cb9906290437854193ca6bca41d4d4e26d1d454bd66a35158095e737",
+   "matchCode": "483914"
+  },
+  {
+   "sessionSecret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "sessionSecretSha256": "df0790f236013511e91fa4532fb7761f62320a51a3868dabf4a13fe5f53e3263",
+   "matchCode": "883815"
+  }
+ ],
+ "spkiCheck": [
+  {
+   "spkiSha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+   "spkiCheck": "T6DN-BAMI-JR6W-LGRP"
+  },
+  {
+   "spkiSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+   "spkiCheck": "AAAA-AAAA-AAAA-AAAA"
+  }
+ ]
+}

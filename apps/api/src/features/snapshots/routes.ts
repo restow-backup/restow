@@ -18,6 +18,7 @@ import {
   listObjectsQuerySchema,
   listSnapshotsQuerySchema,
   peopleQuerySchema,
+  personMembershipsQuerySchema,
   searchQuerySchema,
   snapshotEntryParamSchema,
   treeQuerySchema,
@@ -28,6 +29,7 @@ import {
   calendarView,
   listObjects,
   listPeople,
+  listPersonMemberships,
   listSnapshots,
   listTree,
   listVersions,
@@ -97,6 +99,12 @@ snapshotsRoutes.get("/objects", tenantUser, async (c) => {
 snapshotsRoutes.get("/people", tenantUser, async (c) => {
   const query = parseOrProblem(peopleQuerySchema, c.req.query());
   return c.json(await listPeople(db, c.get("tenantId"), viewerOf(c), query));
+});
+
+/** A person's Teams and sites (#89), a page at a time: the groups and sites they own or belong to. */
+snapshotsRoutes.get("/people/memberships", tenantUser, async (c) => {
+  const query = parseOrProblem(personMembershipsQuerySchema, c.req.query());
+  return c.json(await listPersonMemberships(db, c.get("tenantId"), viewerOf(c), query));
 });
 
 snapshotsRoutes.get("/objects/:id/versions", tenantUser, async (c) => {

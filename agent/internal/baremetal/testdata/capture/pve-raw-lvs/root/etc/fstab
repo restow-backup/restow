@@ -1,0 +1,4 @@
+/dev/pve/root / ext4 errors=remount-ro 0 1
+UUID=3B4C-5D6E /boot/efi vfat defaults 0 1
+/dev/pve/swap none swap sw 0 0
+proc /proc proc defaults 0 0

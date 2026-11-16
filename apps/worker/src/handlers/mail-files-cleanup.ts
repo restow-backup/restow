@@ -20,7 +20,7 @@
  * Both areas are also counted against the tenant's storage budgets
  * (docs/IMPORT.md), so what is left behind is not only untidy but takes room.
  */
-import { mailfiles } from "@restow/core";
+import { deletionDecision, mailfiles, withDeletionPermit } from "@restow/core";
 import { importUploads, jobs, mailExports, mailImports, safeErrorMessage } from "@restow/db";
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { withTenantTx } from "./framework.js";
@@ -58,10 +58,35 @@ export const mailFilesCleanupTask: RetentionTask = {
     let failedExportsPurged = 0;
     let strayScopesRemoved = 0;
     let errors = 0;
+    // Restore mode after restoring a database dump: a staging or export area without a row may
+    // belong to an upload or export made after the dump. Nothing is deleted (docs/STORAGE.md).
+    if (!options.dryRun) {
+      const decision = await deletionDecision({
+        pass: "mail_files_cleanup",
+        tenantId: ctx.tenantId,
+      });
+      if (!decision.allowed) {
+        logger.warn("staging and export clean-up held: deleting is paused", {
+          reason: decision.reason,
+        });
+        return {
+          uploadsExpired,
+          uploadsCleared,
+          exportsPurged,
+          failedExportsPurged,
+          strayScopesRemoved,
+          errors,
+          dryRun: options.dryRun,
+          restoreMode: true,
+        };
+      }
+    }
 
     const removeScope = async (scope: mailfiles.SegmentScope): Promise<boolean> => {
       try {
-        await segments.delete(scope);
+        await withDeletionPermit({ pass: "mail_files_cleanup", tenantId: ctx.tenantId }, () =>
+          segments.delete(scope),
+        );
         return true;
       } catch (error) {
         errors++;

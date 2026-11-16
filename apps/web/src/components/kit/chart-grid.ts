@@ -32,3 +32,23 @@ export const VERTICAL_GRID = {
 
 /** `interval` of a value axis: every tick, without the label collision check. */
 export const VALUE_AXIS_INTERVAL = 0;
+
+const STEP_FACTORS = [1, 2, 2.5, 5, 10];
+
+/**
+ * Ticks of a byte axis at round values of a binary unit (0, 50 MB, 100 MB, 150 MB), covering
+ * `max` with about `target` intervals; `formatBytes` counts in powers of 1024 as well, so the
+ * labels read as round numbers. Pair it with `interval={VALUE_AXIS_INTERVAL}`.
+ */
+export function byteAxisTicks(max: number, target = 4): number[] {
+  if (!(max > 0)) {
+    return [0];
+  }
+  const unit = 1024 ** Math.max(0, Math.floor(Math.log(max) / Math.log(1024)));
+  const raw = max / unit / target;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const factor = STEP_FACTORS.find((candidate) => candidate * magnitude >= raw) ?? 10;
+  const step = Math.max(1, factor * magnitude * unit);
+  const count = Math.ceil(max / step);
+  return Array.from({ length: count + 1 }, (_, index) => index * step);
+}

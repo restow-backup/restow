@@ -18,12 +18,14 @@ Usage: restow-agent <command> [options]
 
 Commands:
   enroll       Enroll this machine (reads RESTOW_TOKEN and RESTOW_URL from the environment)
-  run          Run the agent (this is what the service executes)
-  status       Show the local state of the agent (no root needed)
+  run          Run the agent (this is what the service executes; Windows: run --service)
+  status       Show the local state of the agent (no root or administrator needed)
   backup-now   Run a backup right now and wait for it
   update       Install a newer release the Restow instance offers, now (not while a backup runs)
   service      Control the system service: install | start | stop | restart | status
   hooks        Show or set whether hooks from the Restow server run here: status | off | scripts | any
+  baremetal    Capture the disk layout of this machine (Linux, preview) or plan its restore: baremetal capture|plan
+  recover      Restore a whole machine to bare metal (on the Restow recovery ISO, preview)
   uninstall    Remove the agent, its service and its local secrets from this machine
   version      Print the version
 
@@ -40,6 +42,13 @@ const (
 	exitError   = 1
 	exitUsage   = 2
 	exitPartial = 3 // backup-now: snapshot created, some files were unreadable
+	// enroll: the instance refused the token (HTTP 401 with its problem type
+	// enrollment-token-invalid); only then do the install scripts ask for a
+	// new token. Any other 4xx (wrong address, proxy, firewall) is exitError.
+	exitTokenRefused = 4
+	// enroll: the instance could not be reached (DNS, connection, TLS, proxy,
+	// timeout); the install scripts point to -Proxy / HTTPS_PROXY.
+	exitUnreachable = 5
 )
 
 func main() {
@@ -67,6 +76,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdService(rest, stdout, stderr)
 	case "hooks":
 		return cmdHooks(rest, stdout, stderr)
+	case "baremetal":
+		return cmdBaremetal(rest, stdout, stderr)
+	case "snapshot-exec":
+		// Hidden: the snapshot helper the agent itself starts.
+		return cmdSnapshotExec(rest, stdout, stderr)
+	case "recover":
+		return cmdRecover(rest, stdout, stderr)
+	case "chroot-exec":
+		// Hidden: the isolation helper recover itself starts.
+		return cmdChrootExec(rest, stderr)
 	case "uninstall":
 		return cmdUninstall(rest, stdout, stderr)
 	case "version", "--version", "-v":

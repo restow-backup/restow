@@ -16,8 +16,16 @@ import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./aud
  *            gracefully (SIGINT: restic writes no snapshot and leaves no lock behind); the run
  *            then ends `cancelled`, not `failed`, and the machine's last backup stays as it was.
  *
+ * The runs of the native SQL Server backup (W2a: `sql`, `sql_verify`, `sql_restore`) stop the same
+ * way: the agent ends the script's Job object, SQL Server aborts the statement, and the agent
+ * removes what is left (a check database only by its journal).
+ *
  * Audited; who asked is kept with the run and the task ("Cancelled by ...").
  */
+
+/** The tasks a stop withdraws and the runs it stops. */
+const STOPPABLE_TASKS = ["backup_now", "sql_verify", "sql_restore"] as const;
+const STOPPABLE_RUNS = ["backup", "sql", "sql_verify", "sql_restore"] as const;
 
 export const ENDPOINT_CANCEL_PROBLEM = "urn:restow:problem:endpoint-nothing-to-cancel";
 
@@ -100,7 +108,7 @@ export async function cancelEndpointBackup(
       .where(
         and(
           eq(endpointTasks.endpointId, endpointId),
-          eq(endpointTasks.kind, "backup_now"),
+          inArray(endpointTasks.kind, [...STOPPABLE_TASKS]),
           eq(endpointTasks.status, "pending"),
         ),
       )
@@ -111,7 +119,7 @@ export async function cancelEndpointBackup(
       .where(
         and(
           eq(endpointTasks.endpointId, endpointId),
-          eq(endpointTasks.kind, "backup_now"),
+          inArray(endpointTasks.kind, [...STOPPABLE_TASKS]),
           eq(endpointTasks.status, "delivered"),
           isNull(endpointTasks.cancelRequestedAt),
           sql`NOT EXISTS (SELECT 1 FROM endpoint_runs r WHERE r.task_id = ${endpointTasks.id} AND r.status = 'running')`,
@@ -128,7 +136,7 @@ export async function cancelEndpointBackup(
       .where(
         and(
           eq(endpointRuns.endpointId, endpointId),
-          eq(endpointRuns.kind, "backup"),
+          inArray(endpointRuns.kind, [...STOPPABLE_RUNS]),
           eq(endpointRuns.status, "running"),
         ),
       )

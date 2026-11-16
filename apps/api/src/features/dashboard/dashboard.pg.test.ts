@@ -1379,6 +1379,8 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         expect(running.pve[0]).toMatchObject({
           kind: "backup",
           guest: { vmid: 100, name: "web", kind: "vm" },
+          // No task of the job started it: the guest's job names it, no job's round has it.
+          jobId: null,
           jobName: "web job",
           cancelling: false,
           progress: { bytesDone: 2048, bytesTotal: 8192, bytesPerSecond: 64 },

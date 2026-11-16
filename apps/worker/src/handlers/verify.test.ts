@@ -9,12 +9,16 @@
  * dropped after); without it that section is skipped.
  */
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import {
   createMemoryJobContext,
   DEFAULT_SAMPLE_SIZE,
   generateDek,
   type HeadResult,
+  INCOMPLETE_CHECKS_LIMIT,
   Keyring,
   MemoryChunkIndex,
   type MemoryProgressSink,
@@ -32,6 +36,7 @@ import {
   backupJobs,
   createDb,
   type Database,
+  itemFailures,
   jobs,
   type NewNotification,
   type NewVerifyReport,
@@ -88,7 +93,7 @@ const mailbox: ProtectedObjectRef = {
 // ---------------------------------------------------------------------------
 
 describe("normalizeSampleSize / verifyKindOf", () => {
-  it("keeps a usable sample size and falls back to the default otherwise", () => {
+  it("keeps a usable sample size and falls back to the default otherwise [VERIFY-001]", () => {
     expect(normalizeSampleSize(1)).toBe(1);
     expect(normalizeSampleSize(20)).toBe(20);
     expect(normalizeSampleSize(MAX_SAMPLE_SIZE)).toBe(MAX_SAMPLE_SIZE);
@@ -141,7 +146,8 @@ describe("readinessNotification", () => {
       tenantId: TENANT,
       level: "error",
       event: VERIFY_EVENTS.red,
-      message: "Recovery readiness of Anna Example is red: a restore would not be complete.",
+      message:
+        "Recovery readiness of Mailbox · Anna Example is red: a restore would not be complete.",
       details: {
         protectedObjectId: mailbox.id,
         objectName: "Anna Example",
@@ -170,13 +176,54 @@ describe("readinessNotification", () => {
     const old = red(["snapshot_outdated", "nothing_to_verify"]);
     expect(old?.details).toMatchObject({ redReason: "outdated" });
     expect(old?.message).toBe(
-      "Recovery readiness of Anna Example is red: the newest backup is too old, newer data could not be restored.",
+      "Recovery readiness of Mailbox · Anna Example is red: the newest backup is too old, newer data could not be restored.",
     );
     expect(red(["items_mismatched", "snapshot_outdated"])?.details).toMatchObject({
       redReason: "damaged",
     });
     expect(red(["storage_corrupt"])?.message).toContain("a restore would not be complete");
     expect(redReasonOf(["no_snapshot"])).toBe("damaged");
+  });
+
+  it("raises a rating that stayed the same again only when its cause got worse [VERIFY-007]", () => {
+    const again = (
+      current: RecoveryReadiness,
+      previousReasons: string[] | null,
+      reasons: string[],
+    ) =>
+      readinessNotification({
+        tenantId: TENANT,
+        object: mailbox,
+        previous: current,
+        current,
+        reportId: "r",
+        reasons,
+        previousReasons,
+      });
+    // Red, first only too old, then data missing: the damage is news.
+    const damaged = again("red", ["snapshot_outdated"], ["items_missing", "snapshot_outdated"]);
+    expect(damaged).toMatchObject({
+      event: VERIFY_EVENTS.red,
+      level: "error",
+      details: { redReason: "damaged", previousRedReason: "outdated" },
+    });
+    expect(damaged?.message).toContain("a restore would not be complete");
+    // Damaged and damaged again, or damaged and now only too old: nothing new.
+    expect(again("red", ["items_missing"], ["items_unreadable"])).toBeNull();
+    expect(again("red", ["items_missing"], ["snapshot_outdated"])).toBeNull();
+    // Yellow, first only getting old, then a pack the storage check cannot read.
+    expect(
+      again("yellow", ["snapshot_stale"], ["snapshot_stale", "storage_unreadable"]),
+    ).toMatchObject({
+      event: VERIFY_EVENTS.yellow,
+    });
+    expect(again("yellow", ["storage_unreadable"], ["storage_unreadable"])).toBeNull();
+    // Only the age changed: no news.
+    expect(
+      again("yellow", ["backup_incomplete"], ["backup_incomplete", "snapshot_stale"]),
+    ).toBeNull();
+    // Earlier reasons unknown: as before, nothing for the same rating.
+    expect(again("red", null, ["items_missing"])).toBeNull();
   });
 
   it("names an object without a display name by its external id", () => {
@@ -309,6 +356,36 @@ describe("verifyReportRow / verifyRecordNotification", () => {
     );
   });
 
+  it("raises nothing for an object empty by the source and by the backup (0.5.0) [READY-009]", () => {
+    const empty = outcome({ readiness: "yellow", checked: 0, mismatched: 0, missing: 0 });
+    empty.details.reasons = [
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 4 },
+    ];
+    expect(verifyRecordNotification(record({ outcome: empty, previous: null }), "r1")).toBeNull();
+    expect(
+      verifyRecordNotification(record({ outcome: empty, previous: "green" }), "r1"),
+    ).toBeNull();
+  });
+
+  it("raises no 'recovered' for content after an empty by the source, but a red for a contradiction", () => {
+    const after = (current: RecoveryReadiness, reasons: string[]) =>
+      readinessNotification({
+        tenantId: TENANT,
+        object: { ...mailbox, kind: "onedrive" },
+        previous: "yellow",
+        current,
+        reportId: "r1",
+        reasons,
+        previousReasons: ["snapshot_empty_confirmed_by_source"],
+      });
+    expect(after("green", [])).toBeNull();
+    const red = after("red", ["backup_missing_source_content", "snapshot_outdated"]);
+    expect(red?.details).toMatchObject({ redReason: "damaged", objectKind: "onedrive" });
+    expect(red?.message).toBe(
+      "Recovery readiness of OneDrive · Anna Example is red: a restore would not be complete.",
+    );
+  });
+
   it("tells a run that found content from an empty one", () => {
     expect(outcomeHasContent(outcome())).toBe(true);
     const empty = outcome({ checked: 0 });
@@ -323,6 +400,12 @@ describe("verifyReportRow / verifyRecordNotification", () => {
       contentObjects: 1,
     };
     expect(outcomeHasContent(empty)).toBe(true);
+    // Microsoft 365 reports content the backup lacks: not empty, whatever the backup holds.
+    const contradicted = outcome({ checked: 0 });
+    contradicted.details.reasons = [
+      { code: "backup_missing_source_content", severity: "red", bytes: 100 },
+    ];
+    expect(outcomeHasContent(contradicted)).toBe(true);
   });
 });
 
@@ -471,10 +554,20 @@ function memoryStore(
   const reports: StoredReport[] = [];
   const raised: NewNotification[] = [];
   const incomplete: StoredIncompleteVerify[] = [];
+  /** How many reports existed when each incomplete attempt was noted (its place in time). */
+  const noted: number[] = [];
   const store: VerifyStore = {
     recordIncomplete: async (_jobId, result) => {
       incomplete.push(result);
+      noted.push(reports.length);
     },
+    incompleteChecks: async (objectId, snapshotId) =>
+      incomplete.filter(
+        (result, index) =>
+          !result.willRetry &&
+          result.snapshotId === snapshotId &&
+          noted[index] === reports.filter((report) => report.protectedObjectId === objectId).length,
+      ).length,
     previousReadiness: async (objectId, options) => {
       const last = reports.filter((report) => report.protectedObjectId === objectId).at(-1);
       if (!last) {
@@ -551,7 +644,40 @@ describe("verify handler on the memory engine", () => {
     });
   });
 
-  it("ends red when a stored chunk is corrupted, with the snapshot id on the report", async () => {
+  it("rates a backup whose run left items out yellow, red when they fail run after run [READY-003]", async () => {
+    const engine = memoryEngine();
+    const { snapshotId } = await writeMailboxSnapshot(engine);
+    const { store, reports } = memoryStore();
+    const asked: (string | null)[] = [];
+    let facts = { failed: 300, persistent: 0 };
+    const withFailures: VerifyStore = {
+      ...store,
+      backupFailures: async (snapshot) => {
+        asked.push(snapshot.id);
+        return facts;
+      },
+    };
+    const events: VerifyCompletedEvent[] = [];
+
+    await handlerWith(withFailures, events).run(engine.ctx, payload);
+    expect(asked).toEqual([snapshotId]);
+    // Every sampled item reads back fine: still not green, the backup is incomplete.
+    expect(reports.at(-1)?.recoveryReadiness).toBe("yellow");
+    expect((reports.at(-1)?.details as { reasons?: unknown[] } | undefined)?.reasons).toEqual([
+      { code: "backup_incomplete", severity: "yellow", count: 300 },
+    ]);
+    expect(events[0]).toMatchObject({ readiness: "yellow" });
+
+    facts = { failed: 300, persistent: 12 };
+    await handlerWith(withFailures).run(engine.ctx, payload);
+    expect(reports.at(-1)?.recoveryReadiness).toBe("red");
+    expect((reports.at(-1)?.details as { reasons?: unknown[] } | undefined)?.reasons).toEqual([
+      { code: "backup_incomplete_persistent", severity: "red", count: 12 },
+      { code: "backup_incomplete", severity: "yellow", count: 288 },
+    ]);
+  });
+
+  it("ends red when a stored chunk is corrupted, with the snapshot id on the report [VERIFY-002]", async () => {
     const engine = memoryEngine();
     const { snapshotId, chunksByPath } = await writeMailboxSnapshot(engine);
     const [chunk] = chunksByPath.get("mail/Inbox/2.eml") ?? [];
@@ -593,7 +719,7 @@ describe("verify handler on the memory engine", () => {
     expect(result?.summary).toMatchObject({ readiness: "red", missing: 1, snapshotId });
   });
 
-  it("writes a notification only when the rating changes", async () => {
+  it("writes a notification only when the rating changes [VERIFY-007]", async () => {
     const engine = memoryEngine();
     const { chunksByPath } = await writeMailboxSnapshot(engine);
     const { store, reports, raised } = memoryStore();
@@ -637,7 +763,7 @@ describe("verify handler on the memory engine", () => {
     expect(raised[0]?.details).toMatchObject({ previous: "green", readiness: "red" });
   });
 
-  it("rates an orphaned object without the age of its last backup, and raises nothing for it", async () => {
+  it("rates an orphaned object without the age of its last backup, and raises nothing for it [READY-010]", async () => {
     const engine = memoryEngine();
     await writeMailboxSnapshot(engine);
     // Thirty days on: the only backup is far past the outdated threshold.
@@ -664,7 +790,7 @@ describe("verify handler on the memory engine", () => {
     expect(events[1]).toMatchObject({ readiness: "green", previous: "green" });
   });
 
-  it("rates an object in no backup job without the age of its last backup, and raises nothing for it", async () => {
+  it("rates an object in no backup job without the age of its last backup, and raises nothing for it [READY-011]", async () => {
     const engine = memoryEngine();
     await writeMailboxSnapshot(engine);
     const later = { ...engine.ctx, now: () => new Date(NOW.getTime() + 30 * 86_400_000) };
@@ -689,7 +815,7 @@ describe("verify handler on the memory engine", () => {
     expect(result?.summary).toMatchObject({ readiness: "green", previous: "green" });
   });
 
-  it("rates nothing when the storage does not answer, retries, and completes the last attempt without a rating", async () => {
+  it("rates nothing when the storage does not answer, retries, and completes the last attempt without a rating [READY-005]", async () => {
     const engine = memoryEngine();
     await writeMailboxSnapshot(engine);
     const { store, reports, raised, incomplete } = memoryStore();
@@ -732,7 +858,38 @@ describe("verify handler on the memory engine", () => {
     expect(events).toHaveLength(1);
   });
 
-  it("rates a pack the latest scrub left corrupt red although the sample reads fine", async () => {
+  it("stops counting an old green once the same backup's checks stayed incomplete three times [READY-006]", async () => {
+    const engine = memoryEngine();
+    const { snapshotId } = await writeMailboxSnapshot(engine);
+    const { store, reports, raised } = memoryStore();
+    const handler = handlerWith(store);
+    await handler.run(engine.ctx, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["green"]);
+
+    engine.storage.outage = () =>
+      Object.assign(new Error("connect ETIMEDOUT 10.0.0.5:9000"), { code: "ETIMEDOUT" });
+    const last = { ...engine.ctx, attempt: QUEUE_DEFINITIONS.verify.retryLimit };
+    // An outage now and then leaves the green: the first two checks rate nothing.
+    for (let check = 1; check < INCOMPLETE_CHECKS_LIMIT; check++) {
+      expect((await handler.run(last, payload))?.summary).toMatchObject({ incomplete: true });
+    }
+    expect(reports).toHaveLength(1);
+    const third = await handler.run(last, payload);
+    expect(third?.summary).toMatchObject({ readiness: "yellow", snapshotId });
+    expect(reports).toHaveLength(2);
+    expect(reports[1]).toMatchObject({ recoveryReadiness: "yellow", snapshotId });
+    expect((reports[1]?.details as VerifyOutcome["details"] | undefined)?.reasons).toEqual([
+      { code: "check_incomplete", severity: "yellow", count: INCOMPLETE_CHECKS_LIMIT },
+    ]);
+    expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.yellow]);
+
+    // Once the storage answers again, the next check rates the backup by what it reads.
+    engine.storage.outage = null;
+    await handler.run(engine.ctx, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["green", "yellow", "green"]);
+  });
+
+  it("rates a pack the latest scrub left corrupt red although the sample reads fine [READY-013]", async () => {
     const engine = memoryEngine();
     const { snapshotId } = await writeMailboxSnapshot(engine);
     const packs = await engine.storage.list(`tenants/${TENANT}/packs/`);
@@ -776,6 +933,42 @@ describe("verify handler on the memory engine", () => {
     await expect(
       handler.run({ ...engine.ctx, protectedObject: null }, payload),
     ).rejects.toBeInstanceOf(InvalidPayloadError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No test restore into a target
+// ---------------------------------------------------------------------------
+
+describe("test restores into a Microsoft 365 or IMAP target", () => {
+  const ROOT = resolve(fileURLToPath(new URL("../../../..", import.meta.url)));
+
+  /** Every product source file below `dir` (no tests, no build output). */
+  function sources(dir: string, found: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!["node_modules", "dist", "test-results"].includes(entry.name)) {
+          sources(join(dir, entry.name), found);
+        }
+      } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+        found.push(join(dir, entry.name));
+      }
+    }
+    return found;
+  }
+
+  it("are wired nowhere: nothing registers a test-restore target, so a check only reads back [VERIFY-005]", () => {
+    // The verify handler restores into a target only through a registered resolver
+    // (registerVerifyProbeResolver); README.md and docs/TESTING.md say no check does.
+    const callers = ["apps", "packages", "ee"]
+      .flatMap((top) => sources(join(ROOT, top)))
+      .filter((file) => /registerVerifyProbeResolver\s*\(/.test(readFileSync(file, "utf8")))
+      .map((file) => relative(ROOT, file).split("\\").join("/"));
+    // The one hit is the function's own definition.
+    expect(callers).toEqual(["apps/worker/src/handlers/verify.ts"]);
+    const definition = readFileSync(join(ROOT, "apps/worker/src/handlers/verify.ts"), "utf8");
+    expect(definition.match(/registerVerifyProbeResolver\s*\(/g)).toHaveLength(1);
+    expect(definition).toContain("let probeResolver: VerifyProbeResolver | null = null;");
   });
 });
 
@@ -940,7 +1133,102 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
     expect(job?.payload).toMatchObject({ kind: "verify", protectedObjectId: object.id });
   });
 
-  it("notes an attempt that could not complete on the job, with no report and no notification", async () => {
+  it("alerts again when a red rating turns from 'backup too old' to damaged data [VERIFY-007]", async () => {
+    // An object of its own: the notifications of the tests above stay out of it.
+    const [row] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: object.sourceId,
+        kind: "mailbox",
+        externalId: "bob@example.org",
+        displayName: "Bob Example",
+      })
+      .returning();
+    const bob: ProtectedObjectRef = {
+      ...object,
+      id: row?.id as string,
+      externalId: "bob@example.org",
+    };
+    // In an enabled job of its own, so the age of its backup counts.
+    const [bobJob] = await db
+      .insert(backupJobs)
+      .values({ tenantId, kind: "mail", name: "Bob", scopeMode: "selected", enabled: true })
+      .returning();
+    await db
+      .insert(backupJobMembers)
+      .values({ tenantId, jobId: bobJob?.id as string, protectedObjectId: bob.id });
+    const [bobSnapshot] = await db
+      .insert(snapshots)
+      .values({
+        tenantId,
+        protectedObjectId: bob.id,
+        sequence: 1,
+        manifestPath: "tenants/t/manifests/bob-1.json",
+        completedAt: NOW,
+      })
+      .returning();
+    const engine = memoryEngine({ tenantId, object: bob });
+    const { chunksByPath } = await writeMailboxSnapshot(
+      { ...engine, ctx: { ...engine.ctx, db, jobId } },
+      bobSnapshot?.id as string,
+    );
+    // Checked eight days after the backup: the data reads back fine, the backup is too old.
+    let clock = NOW.getTime() + 8 * 24 * 3_600_000;
+    const ctx: WorkerJobContext = {
+      ...engine.ctx,
+      db,
+      jobId,
+      now: () => {
+        clock += 60_000;
+        return new Date(clock);
+      },
+    };
+    const handler = createVerifyHandler({ probes: () => null });
+    const run = () => handler.run(ctx, { ...payload, jobId, tenantId, protectedObjectId: bob.id });
+    const bobEvents = async () =>
+      (
+        await db
+          .select({ event: notifications.event, details: notifications.details })
+          .from(notifications)
+          .where(eq(notifications.tenantId, tenantId))
+          .orderBy(asc(notifications.createdAt))
+      ).filter(
+        (entry) =>
+          (entry.details as { protectedObjectId?: string } | null)?.protectedObjectId === bob.id &&
+          entry.event !== "verify.completed",
+      );
+
+    await run();
+    expect((await bobEvents()).map((entry) => entry.details)).toEqual([
+      expect.objectContaining({ readiness: "red", redReason: "outdated" }),
+    ]);
+    // Still red, still only too old: nothing new to say.
+    await run();
+    expect(await bobEvents()).toHaveLength(1);
+
+    // Now the next check finds a message that no longer reads back: the data is damaged.
+    const [corrupt] = chunksByPath.get("mail/Inbox/1.eml") ?? [];
+    const location = engine.index.chunks.get(corrupt as string);
+    if (!location) {
+      throw new Error("fixture chunk is not indexed");
+    }
+    engine.storage.flipByte(location.packPath, location.offset + Math.floor(location.length / 2));
+    await run();
+    const events = await bobEvents();
+    expect(events.map((entry) => entry.event)).toEqual([VERIFY_EVENTS.red, VERIFY_EVENTS.red]);
+    expect(events[1]?.details).toMatchObject({
+      readiness: "red",
+      previous: "red",
+      redReason: "damaged",
+      previousRedReason: "outdated",
+    });
+    // Damaged and damaged again: no repeat.
+    await run();
+    expect(await bobEvents()).toHaveLength(2);
+  });
+
+  it("notes an attempt that could not complete on the job, with no report and no notification [READY-005]", async () => {
     const engine = engineFor();
     await writeMailboxSnapshot(engine, snapshotId);
     engine.storage.outage = () =>
@@ -963,6 +1251,43 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
     });
     // The rating the object had stays its newest.
     expect(await pgVerifyStore(db, tenantId).previousReadiness(object.id)).toBe("red");
+  });
+
+  it("counts the checks of a backup that ended incomplete since the object's last report [READY-006]", async () => {
+    const store = pgVerifyStore(db, tenantId);
+    const [newest] = await db
+      .select({ checkedAt: verifyReports.checkedAt })
+      .from(verifyReports)
+      .where(eq(verifyReports.tenantId, tenantId))
+      .orderBy(asc(verifyReports.checkedAt));
+    const after = (minutes: number) =>
+      new Date((newest?.checkedAt ?? NOW).getTime() + minutes * 60_000 + 3_600_000).toISOString();
+    const incompleteJob = (result: Record<string, unknown>) => ({
+      id: randomUUID(),
+      tenantId,
+      queue: "verify" as const,
+      status: "completed" as const,
+      protectedObjectId: object.id,
+      payload: {
+        kind: "verify",
+        result: {
+          incomplete: true,
+          reason: "storage did not answer",
+          failure: { code: "storage.timeout", params: {}, transient: true },
+          ...result,
+        },
+      },
+    });
+    const before = await store.incompleteChecks?.(object.id, snapshotId);
+    await db.insert(jobs).values([
+      incompleteJob({ willRetry: false, snapshotId, completedAt: after(1) }),
+      incompleteJob({ willRetry: false, snapshotId, completedAt: after(2) }),
+      // An attempt that was retried, another backup, and a check before the last report.
+      incompleteJob({ willRetry: true, snapshotId, completedAt: after(3) }),
+      incompleteJob({ willRetry: false, snapshotId: randomUUID(), completedAt: after(4) }),
+      incompleteJob({ willRetry: false, snapshotId, completedAt: NOW.toISOString() }),
+    ]);
+    expect(await store.incompleteChecks?.(object.id, snapshotId)).toBe((before ?? 0) + 2);
   });
 
   it("reads the newest rating of the object as the previous one", async () => {
@@ -1015,6 +1340,59 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
       .where(eq(backupJobs.id, disabled?.id as string));
     expect(await store.withoutJob?.(object.id)).toBe(false);
     await db.delete(backupJobs).where(eq(backupJobs.id, disabled?.id as string));
+  });
+
+  it("reads the failed items of the run that made the snapshot, and which failed in each of the last runs [READY-003]", async () => {
+    const store = pgVerifyStore(db, tenantId);
+    const backupRun = async (at: string, summary: number | null, refs: string[]) => {
+      const id = randomUUID();
+      await db.insert(jobs).values({
+        id,
+        tenantId,
+        queue: "backup",
+        status: "completed",
+        protectedObjectId: object.id,
+        payload: { jobId: id, tenantId, protectedObjectId: object.id },
+        completedAt: new Date(at),
+        itemFailureSummary:
+          summary === null ? null : { total: summary, stored: refs.length, byCause: {} },
+      });
+      for (const ref of refs) {
+        await db.insert(itemFailures).values({
+          tenantId,
+          jobId: id,
+          protectedObjectId: object.id,
+          itemRef: ref,
+          reason: "403",
+        });
+      }
+      return id;
+    };
+    const snapshotOf = (job: string | null) => ({
+      id: randomUUID(),
+      tenantId,
+      protectedObjectId: object.id,
+      jobId: job,
+      sequence: 1,
+      manifestPath: "m",
+      status: "active" as const,
+      itemCount: 1,
+      byteSize: 1,
+      startedAt: null,
+      completedAt: null,
+    });
+    const clean = await backupRun("2026-09-01T00:00:00Z", null, []);
+    expect(await store.backupFailures?.(snapshotOf(clean))).toBeNull();
+    expect(await store.backupFailures?.(snapshotOf(null))).toBeNull();
+
+    await backupRun("2026-09-02T00:00:00Z", 2, ["folder-a", "msg-1"]);
+    const second = await backupRun("2026-09-03T00:00:00Z", 2, ["folder-a", "msg-2"]);
+    // Two runs in a row only: not yet persistent.
+    expect(await store.backupFailures?.(snapshotOf(second))).toEqual({ failed: 2, persistent: 0 });
+    const third = await backupRun("2026-09-04T00:00:00Z", 305, ["folder-a", "msg-3"]);
+    // folder-a failed in each of the last three runs; the summary keeps the full count.
+    expect(await store.backupFailures?.(snapshotOf(third))).toEqual({ failed: 305, persistent: 1 });
+    await db.delete(jobs).where(eq(jobs.queue, "backup"));
   });
 
   it("refuses to record a run of another tenant", async () => {

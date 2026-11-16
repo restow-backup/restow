@@ -12,6 +12,11 @@
  *   GET /snapshots/objects?include=                protected objects; `all` also lists ones with
  *                                                   no restore point yet (0 snapshots), for the
  *                                                   explorer's left pane
+ *   GET /snapshots/people?section=&q=&kind=&after= the explorer's left column, a page at a time
+ *   GET /snapshots/people/memberships?key=&after=  a person's Teams and sites (#89): the group
+ *                                                   mailboxes and sites they own or belong to,
+ *                                                   owned first, with their restore points; empty
+ *                                                   for anyone who does not see sites
  *   GET /snapshots?objectId=                        snapshots (points in time) of an object
  *   GET /snapshots/:id/tree?path=&foldersOnly=&sort= children of a folder in a snapshot; `sort` is
  *                                                   `date` (default, mail newest first) or `name`

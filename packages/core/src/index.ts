@@ -53,11 +53,15 @@ export * from "./pack.js";
 export * from "./pve/index.js";
 // Ransomware detection on backups: signals, signatures, baselines (docs/RANSOMWARE.md)
 export * from "./ransomware/index.js";
+// Release files, the release signature and the recovery ISO (docs/BAREMETAL.md 8.5)
+export * from "./release/index.js";
 export * from "./reports/index.js";
 // Restore engines
 export * from "./restore/index.js";
 // Backup snapshot retention (tiered keep rule, presets, run planning)
 export * from "./retention/index.js";
+// The size and space guard of backup runs (#99, docs/STORAGE.md "Unusually large runs")
+export * from "./run-size/index.js";
 // Schedules
 export * from "./schedule/index.js";
 // Sealing of the encrypted secret store (installation key, row binding)
@@ -65,12 +69,16 @@ export * from "./secret-seal.js";
 // Storage targets
 export * from "./storage/backend.js";
 export * from "./storage/copy.js";
+export * from "./storage/deletion-guard.js";
 export * from "./storage/factory.js";
 export * from "./storage/immutability.js";
 export * from "./storage/installation-default.js";
 export * from "./storage/local.js";
+export * from "./storage/progress-marker.js";
+export * from "./storage/restore-mode-guard.js";
 export * from "./storage/s3.js";
 export * from "./storage/transfer.js";
+export * from "./storage/write-once.js";
 // Usage figures: the rule for counting protected mailboxes
 export * from "./usage/mailboxes.js";
 // Recovery readiness

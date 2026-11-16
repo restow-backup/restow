@@ -1,0 +1,2 @@
+{"type":"error","problem":{"code":"sql_powershell_constrained","step":"language_mode","number":0,"message":"Windows PowerShell runs in ConstrainedLanguage (WDAC, AppLocker or __PSLockdownPolicy); the SQL Server client cannot be loaded."}}
+#exit 2

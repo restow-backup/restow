@@ -67,6 +67,38 @@ export function deltaUrl(token: string | null): (url: URL) => boolean {
     (token === null ? !url.searchParams.has("token") : url.searchParams.get("token") === token);
 }
 
+/**
+ * The drive's root folder (`GET /drives/{id}/root?$select=id,size,folder`), answering with the
+ * given sizes call by call (the last one repeats): the source signal's "before" and "after".
+ * A number is a root of that many bytes; a FixtureResponse is answered as it is.
+ */
+export function driveRootRoute(
+  answers: readonly (number | { bytes: number; children: number } | FixtureResponse)[],
+): FixtureRoute {
+  return {
+    url: (url) => url.pathname === `/v1.0/drives/${DRIVE}/root`,
+    respond: answers.map((answer) => {
+      if (typeof answer === "number" || "children" in answer) {
+        const bytes = typeof answer === "number" ? answer : answer.bytes;
+        const children = typeof answer === "number" ? (bytes > 0 ? 1 : 0) : answer.children;
+        return {
+          status: 200,
+          json: { id: "01ROOT", size: bytes, folder: { childCount: children } },
+        };
+      }
+      return answer;
+    }),
+  };
+}
+
+/** The drive's quota (`GET /drives/{id}?$select=id,quota`). */
+export function driveQuotaRoute(quota: Record<string, unknown>): FixtureRoute {
+  return {
+    url: (url) => url.pathname === `/v1.0/drives/${DRIVE}`,
+    respond: { status: 200, json: { id: DRIVE, quota } },
+  };
+}
+
 /** Route matcher for a download URL by its `item` query parameter. */
 export function downloadUrl(item: string): (url: URL) => boolean {
   return (url) => url.pathname.endsWith("/download.aspx") && url.searchParams.get("item") === item;

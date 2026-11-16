@@ -20,6 +20,7 @@ import { buildJournalRoutes, JOURNAL_PATH } from "./routes.js";
 vi.mock("./setup.js", () => ({
   getJournalReceiver: vi.fn(async () => ({ state: "listening" })),
   getJournalSetup: vi.fn(async () => ({ address: "journal+abc234@archive.example.test" })),
+  journalHost: vi.fn(() => ({ hostname: "archive.example.test", hostnameIssue: null })),
   rotateJournalAddress: vi.fn(async () => ({ address: "journal+xyz789@archive.example.test" })),
 }));
 
@@ -126,6 +127,24 @@ describe("journal routes and the provider team", () => {
       }
     },
   );
+});
+
+describe("the journal host route", () => {
+  const path = `/api/v1${JOURNAL_PATH}/host`;
+
+  it("shows the host alone, without the address and without issuing one, also to a technician", async () => {
+    const setup = await import("./setup.js");
+    vi.mocked(setup.getJournalSetup).mockClear();
+    for (const member of [OWNER_ACCESS, access("administrator", [TENANT]), access("technician")]) {
+      const response = await appFor(member).request(path);
+      expect(response.status, member.role).toBe(200);
+      expect(await response.json()).toEqual({
+        hostname: "archive.example.test",
+        hostnameIssue: null,
+      });
+    }
+    expect(setup.getJournalSetup).not.toHaveBeenCalled();
+  });
 });
 
 describe("the receiver route and the provider team", () => {

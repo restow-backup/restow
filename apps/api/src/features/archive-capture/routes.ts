@@ -13,7 +13,14 @@ import {
   holdBodySchema,
   holdSourceParamSchema,
 } from "./schemas.js";
-import { captureMailboxes, captureStatus, listHolds, requestResync, setHold } from "./service.js";
+import {
+  captureGaps,
+  captureMailboxes,
+  captureStatus,
+  listHolds,
+  requestResync,
+  setHold,
+} from "./service.js";
 
 /**
  * /api/v1/archive/capture — archive capture beyond Exchange journaling (docs/ARCHIVE.md
@@ -54,6 +61,11 @@ export function buildArchiveCaptureRoutes(deps: ArchiveCaptureRoutesDeps): Hono<
   routes.get("/mailboxes", deps.requireAdmin, async (c) => {
     const query = parseOrProblem(captureMailboxesQuerySchema, c.req.query());
     return c.json(await captureMailboxes(deps.db, c.get("tenantId"), query));
+  });
+
+  routes.get("/mailboxes/:objectId/gaps", deps.requireAdmin, async (c) => {
+    const { objectId } = parseOrProblem(captureObjectParamSchema, c.req.param());
+    return c.json(await captureGaps(deps.db, c.get("tenantId"), objectId));
   });
 
   routes.post("/mailboxes/:objectId/resync", deps.requireAdmin, async (c) => {

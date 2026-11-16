@@ -49,7 +49,14 @@ describe("redactPricesForTenant", () => {
       details: {
         currency: "EUR",
         list: [{ storagePrice: 1, keep: true }],
-        after: { mailboxPrice: 2 },
+        after: {
+          mailboxPrice: 2,
+          serverPrice: 30,
+          clientPrice: 5,
+          vmPrice: 12,
+          containerPrice: 4,
+          fileSharePrice: 8,
+        },
       },
     };
     expect(redactPricesForTenant(entry).details).toEqual({

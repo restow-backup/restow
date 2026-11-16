@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { billedBytes, pricingSchema } from "./pricing.js";
+import { billedBytes, pricingSchema, resolvePricing } from "./pricing.js";
 import { estimateAmount, estimateTenant, pricingEstimateQuerySchema } from "./pricing-estimate.js";
 import {
   effectivePrice,
@@ -13,29 +13,29 @@ describe("estimateAmount", () => {
     const figures = { mailboxes: 12, storedBytes: 1.5e12 };
     expect(
       estimateAmount({ figures, mailboxPrice: 2.5, storagePrice: 0.02, storageUnit: "GB" }),
-    ).toEqual({ mailboxes: 30, storage: 30, total: 60 });
+    ).toMatchObject({ mailboxes: 30, storage: 30, total: 60 });
     expect(
       estimateAmount({ figures, mailboxPrice: 2.5, storagePrice: 20, storageUnit: "TB" }),
-    ).toEqual({ mailboxes: 30, storage: 30, total: 60 });
+    ).toMatchObject({ mailboxes: 30, storage: 30, total: 60 });
   });
 
   it("leaves a line out whose price is not set, and everything out when there is no price", () => {
     const figures = { mailboxes: 4, storedBytes: 2e9 };
     expect(
       estimateAmount({ figures, mailboxPrice: null, storagePrice: 1, storageUnit: "GB" }),
-    ).toEqual({ mailboxes: null, storage: 2, total: 2 });
+    ).toMatchObject({ mailboxes: null, storage: 2, total: 2 });
     expect(
       estimateAmount({ figures, mailboxPrice: 3, storagePrice: null, storageUnit: "GB" }),
-    ).toEqual({ mailboxes: 12, storage: null, total: 12 });
+    ).toMatchObject({ mailboxes: 12, storage: null, total: 12 });
     expect(
       estimateAmount({ figures, mailboxPrice: null, storagePrice: null, storageUnit: "GB" }),
-    ).toEqual({ mailboxes: null, storage: null, total: null });
+    ).toMatchObject({ mailboxes: null, storage: null, total: null });
   });
 
   it("has no amount without figures, and takes a price of 0 as a price", () => {
     expect(
       estimateAmount({ figures: null, mailboxPrice: 3, storagePrice: 1, storageUnit: "GB" }),
-    ).toEqual({ mailboxes: null, storage: null, total: null });
+    ).toMatchObject({ mailboxes: null, storage: null, total: null });
     expect(
       estimateAmount({
         figures: { mailboxes: 9, storedBytes: 5e9 },
@@ -43,7 +43,7 @@ describe("estimateAmount", () => {
         storagePrice: null,
         storageUnit: "GB",
       }),
-    ).toEqual({ mailboxes: 0, storage: null, total: 0 });
+    ).toMatchObject({ mailboxes: 0, storage: null, total: 0 });
   });
 });
 
@@ -71,7 +71,7 @@ describe("storage billing in blocks", () => {
         storageUnit: "TB",
         storageBilling: "block_1tb",
       }),
-    ).toEqual({ mailboxes: null, storage: 30, total: 30 });
+    ).toMatchObject({ mailboxes: null, storage: 30, total: 30 });
     expect(
       estimateAmount({
         figures,
@@ -89,7 +89,7 @@ describe("storage billing in blocks", () => {
         storageUnit: "TB",
         storageBilling: "block_1tb",
       }),
-    ).toEqual({ mailboxes: null, storage: 0, total: 0 });
+    ).toMatchObject({ mailboxes: null, storage: 0, total: 0 });
   });
 
   it("carries the billed bytes next to the stored ones, for a tenant's own price as well", () => {
@@ -168,8 +168,8 @@ describe("estimateTenant", () => {
 
 describe("tenant prices", () => {
   it("reads only prices from what is stored", () => {
-    expect(resolveTenantOverrides({})).toEqual({ mailboxPrice: null, storagePrice: null });
-    expect(resolveTenantOverrides({ mailboxPrice: 0, storagePrice: 3 })).toEqual({
+    expect(resolveTenantOverrides({})).toMatchObject({ mailboxPrice: null, storagePrice: null });
+    expect(resolveTenantOverrides({ mailboxPrice: 0, storagePrice: 3 })).toMatchObject({
       mailboxPrice: 0,
       storagePrice: 3,
     });
@@ -178,7 +178,7 @@ describe("tenant prices", () => {
         mailboxPrice: -1,
         storagePrice: "5" as unknown as number,
       }),
-    ).toEqual({ mailboxPrice: null, storagePrice: null });
+    ).toMatchObject({ mailboxPrice: null, storagePrice: null });
     expect(effectivePrice(0, 5)).toBe(0);
     expect(effectivePrice(null, 5)).toBe(5);
   });
@@ -194,13 +194,7 @@ describe("tenant prices", () => {
   });
 
   it("reports no overrides while the gate is closed, whatever is stored", () => {
-    const global = {
-      currency: "EUR",
-      storagePrice: 0.1,
-      storageUnit: "GB" as const,
-      storageBilling: "exact" as const,
-      mailboxPrice: 2,
-    };
+    const global = resolvePricing({ storagePrice: 0.1, storageUnit: "GB", mailboxPrice: 2 });
     const stored = { mailboxPrice: 1 };
     expect(toTenantPricingDto("t1", global, stored, true)).toMatchObject({
       overridesEnabled: true,
@@ -221,5 +215,206 @@ describe("tenant prices", () => {
       pricingEstimateQuerySchema.safeParse({ tenant: "6f1c2a52-6a3e-4f4a-9e0b-2f6f0f9f2f10" })
         .success,
     ).toBe(true);
+  });
+});
+
+describe("prices per unit (0.5.0)", () => {
+  const row = { id: "t1", name: "Alpha", kind: "customer" as const };
+  const units = { servers: 2, clients: 7, vms: 5, containers: 3, fileShares: 4 };
+  const figures = { mailboxes: 10, storedBytes: 100e9, units };
+  const unitPrices = {
+    serverPrice: 30,
+    clientPrice: 4.5,
+    vmPrice: 12,
+    containerPrice: 6.25,
+    fileSharePrice: 8,
+  };
+
+  it("multiplies each type with its price per unit and adds every line up", () => {
+    const amount = estimateAmount({
+      figures,
+      mailboxPrice: 2,
+      storagePrice: 0.1,
+      unitPrices,
+      storageUnit: "GB",
+    });
+    expect(amount).toEqual({
+      mailboxes: 20,
+      storage: 10,
+      servers: 60,
+      clients: 31.5,
+      vms: 60,
+      containers: 18.75,
+      fileShares: 32,
+      total: 20 + 10 + 60 + 31.5 + 60 + 18.75 + 32,
+    });
+  });
+
+  it("prices each type on its own: one price alone makes an estimate", () => {
+    for (const [price, line, expected] of [
+      ["serverPrice", "servers", 60],
+      ["clientPrice", "clients", 31.5],
+      ["vmPrice", "vms", 60],
+      ["containerPrice", "containers", 18.75],
+      ["fileSharePrice", "fileShares", 32],
+    ] as const) {
+      const amount = estimateAmount({
+        figures,
+        mailboxPrice: null,
+        storagePrice: null,
+        unitPrices: { [price]: unitPrices[price] },
+        storageUnit: "GB",
+      });
+      expect(amount[line]).toBe(expected);
+      expect(amount.total).toBe(expected);
+      for (const other of ["servers", "clients", "vms", "containers", "fileShares"] as const) {
+        if (other !== line) {
+          expect(amount[other]).toBeNull();
+        }
+      }
+    }
+  });
+
+  it("leaves a line without a price out, bills nothing for none, and takes 0 as a price", () => {
+    expect(
+      estimateAmount({
+        figures,
+        mailboxPrice: null,
+        storagePrice: null,
+        unitPrices: {},
+        storageUnit: "GB",
+      }),
+    ).toEqual({
+      mailboxes: null,
+      storage: null,
+      servers: null,
+      clients: null,
+      vms: null,
+      containers: null,
+      fileShares: null,
+      total: null,
+    });
+    expect(
+      estimateAmount({
+        figures,
+        mailboxPrice: null,
+        storagePrice: null,
+        unitPrices: { vmPrice: 0, serverPrice: null },
+        storageUnit: "GB",
+      }),
+    ).toMatchObject({ vms: 0, servers: null, total: 0 });
+  });
+
+  it("has no unit amount when the units were not read, nor without figures", () => {
+    expect(
+      estimateAmount({
+        figures: { mailboxes: 1, storedBytes: 0 },
+        mailboxPrice: 1,
+        storagePrice: null,
+        unitPrices,
+        storageUnit: "GB",
+      }),
+    ).toMatchObject({ mailboxes: 1, servers: null, vms: null, total: 1 });
+    expect(
+      estimateAmount({
+        figures: null,
+        mailboxPrice: null,
+        storagePrice: null,
+        unitPrices,
+        storageUnit: "GB",
+      }),
+    ).toMatchObject({ servers: null, fileShares: null, total: null });
+  });
+
+  it("takes the tenant's own price per unit where it has one and flags it", () => {
+    const entry = estimateTenant({
+      row,
+      overrides: {
+        mailboxPrice: null,
+        storagePrice: null,
+        serverPrice: 25,
+        clientPrice: null,
+        vmPrice: 0,
+        containerPrice: null,
+        fileSharePrice: null,
+      },
+      pricing: { mailboxPrice: null, storagePrice: null, storageUnit: "GB", ...unitPrices },
+      figures,
+    });
+    expect(entry).toMatchObject({
+      ...units,
+      serverPrice: 25,
+      clientPrice: 4.5,
+      vmPrice: 0,
+      containerPrice: 6.25,
+      fileSharePrice: 8,
+      overridden: {
+        mailbox: false,
+        storage: false,
+        server: true,
+        client: false,
+        vm: true,
+        container: false,
+        fileShare: false,
+      },
+      amount: { servers: 50, clients: 31.5, vms: 0, containers: 18.75, fileShares: 32 },
+    });
+    expect(entry.amount.total).toBeCloseTo(50 + 31.5 + 0 + 18.75 + 32, 10);
+  });
+
+  it("keeps the unit figures null when they are not available", () => {
+    const entry = estimateTenant({
+      row,
+      overrides: { mailboxPrice: null, storagePrice: null },
+      pricing: { mailboxPrice: null, storagePrice: null, storageUnit: "GB", vmPrice: 3 },
+      figures: null,
+    });
+    expect(entry).toMatchObject({
+      servers: null,
+      vms: null,
+      vmPrice: 3,
+      serverPrice: null,
+      amount: { vms: null, total: null },
+    });
+  });
+
+  it("stores, resolves and validates the unit prices like the other prices", () => {
+    expect(resolvePricing({ serverPrice: 30, vmPrice: -1, fileSharePrice: null })).toMatchObject({
+      serverPrice: 30,
+      clientPrice: null,
+      vmPrice: null,
+      containerPrice: null,
+      fileSharePrice: null,
+    });
+    expect(pricingSchema.safeParse({ clientPrice: 4.5, containerPrice: null }).success).toBe(true);
+    expect(pricingSchema.safeParse({ vmPrice: 0.12345 }).success).toBe(false);
+    expect(pricingSchema.safeParse({ machinePrice: 1 }).success).toBe(false);
+    expect(tenantPricingSchema.safeParse({ fileSharePrice: 2, serverPrice: null }).success).toBe(
+      true,
+    );
+    expect(tenantPricingSchema.safeParse({ containerPrice: -1 }).success).toBe(false);
+    expect(resolveTenantOverrides({ clientPrice: 0, vmPrice: 7 })).toEqual({
+      mailboxPrice: null,
+      storagePrice: null,
+      serverPrice: null,
+      clientPrice: 0,
+      vmPrice: 7,
+      containerPrice: null,
+      fileSharePrice: null,
+    });
+  });
+
+  it("applies the tenant's unit prices only while the gate is open", () => {
+    const global = resolvePricing({ serverPrice: 30, fileSharePrice: 8 });
+    const stored = { serverPrice: 20, containerPrice: 5 };
+    expect(toTenantPricingDto("t1", global, stored, true)).toMatchObject({
+      global: { serverPrice: 30, containerPrice: null, fileSharePrice: 8 },
+      overrides: { serverPrice: 20, containerPrice: 5, fileSharePrice: null },
+      effective: { serverPrice: 20, containerPrice: 5, fileSharePrice: 8 },
+    });
+    expect(toTenantPricingDto("t1", global, stored, false)).toMatchObject({
+      overrides: { serverPrice: null, containerPrice: null },
+      effective: { serverPrice: 30, containerPrice: null, fileSharePrice: 8 },
+    });
   });
 });

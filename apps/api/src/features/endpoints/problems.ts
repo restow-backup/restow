@@ -9,12 +9,22 @@
  * documented in docs/AGENT.md and not there.
  */
 export const ENDPOINT_PROBLEMS = {
+  /** 409: a SQL Server action for a machine whose agent cannot back up SQL Server (W2a). */
+  sqlUnsupported: "urn:restow:problem:endpoint-sql-unsupported",
+  /** 409: the SQL backup asked for is no longer in the repository (retention removed it). */
+  sqlBackupPruned: "urn:restow:problem:endpoint-sql-backup-pruned",
+  /** 409: a restore under a new name names a database that exists on the target instance. */
+  sqlNameTaken: "urn:restow:problem:endpoint-sql-name-taken",
+  /** 409: a SQL check was asked for, but no database has a backup in the repository yet. */
+  sqlNothingToVerify: "urn:restow:problem:endpoint-sql-nothing-to-verify",
   /** 422: the operating system is not supported (Windows is planned, not shipped). */
   unsupportedOs: "urn:restow:problem:unsupported-os",
   /** 401 to an agent with a revoked endpoint's credentials, 409 for an admin change or task on it. */
   revoked: "urn:restow:problem:endpoint-revoked",
   /** 409: a restore test was asked for, but the endpoint has no good backup to test. */
   nothingToTest: "urn:restow:problem:endpoint-nothing-to-test",
+  /** 409: a restore test was asked for, but the newest backup recorded no sample files. */
+  noSamples: "urn:restow:problem:endpoint-no-samples",
   /** 503: the public address of this installation is not set, so no install command can be built. */
   instanceUnknown: "urn:restow:problem:endpoint-instance-unknown",
   /** 503: the worker has not created its job queues yet. */
@@ -31,8 +41,18 @@ export const ENDPOINT_PROBLEMS = {
   invalidCursor: "urn:restow:problem:endpoint-invalid-cursor",
   /** 503: the repository is locked by a running backup or maintenance job. */
   repositoryLocked: "urn:restow:problem:endpoint-repository-locked",
-  /** 409 or 500: the repository, or its password, is not available. */
+  /**
+   * Before 0.5.0 the type of all three causes below. Since then no answer carries it as `type`:
+   * each cause has a type of its own, and carries this one as `category` (an RFC 7807 extension
+   * member), so a client that matched it can match `category` instead.
+   */
   repositoryUnavailable: "urn:restow:problem:endpoint-repository-unavailable",
+  /** 409: no storage target of the tenant (nor the installation default) holds the repository. */
+  repositoryNotFound: "urn:restow:problem:endpoint-repository-not-found",
+  /** 500: the stored password does not open the repository. */
+  repositoryPasswordRejected: "urn:restow:problem:endpoint-repository-password-rejected",
+  /** 409: the machine has no stored repository password (never stored, or deleted). */
+  repositoryPasswordMissing: "urn:restow:problem:endpoint-repository-password-missing",
   /** 502: restic failed in a way with no more specific type. */
   resticFailed: "urn:restow:problem:restic-failed",
   /** 503: the restic binary is missing on the server. */
@@ -90,6 +110,57 @@ export const ENDPOINT_PROBLEMS = {
   removalLegalHold: "urn:restow:problem:endpoint-removal-legal-hold",
   /** 409: ... and while a suspicious restore point of the machine holds them. */
   removalSuspicionHold: "urn:restow:problem:endpoint-removal-suspicion-hold",
+  /** 409: the machine's backups are already scheduled for deletion (cancel that first). */
+  removalScheduled: "urn:restow:problem:endpoint-removal-scheduled",
+  /** 422: deleting a machine's backups needs a reason. */
+  removalReasonRequired: "urn:restow:problem:endpoint-removal-reason-required",
+  /** 409: no deletion to cancel, or the worker has started deleting already. */
+  removalNotCancellable: "urn:restow:problem:endpoint-removal-not-cancellable",
+  /**
+   * 403: deleting a machine's backups (and cancelling that) is for the provider's owners
+   * (the same type as other owner-only actions).
+   */
+  ownerRequired: "urn:restow:problem:owner-required",
   /** 409: keeping the backups until they expire, but the machine's retention keeps everything. */
   removalNeverExpires: "urn:restow:problem:endpoint-removal-never-expires",
+  /**
+   * 422 or 403: a selected path is not handed out (docs/BAREMETAL.md 5.4). 422 with `reason:
+   * "agent_state"` for the agent's state file (for everybody); 403 with `reason: "key_file"` for a
+   * LUKS key file of the machine's layout and the restore role. `path` names it.
+   */
+  restorePathLocked: "urn:restow:problem:endpoint-restore-path-locked",
+  /** 409: whole machine backups are a preview this installation has not switched on (RESTOW_BAREMETAL_PREVIEW). */
+  baremetalPreviewOff: "urn:restow:problem:baremetal-preview-off",
+  // Bare metal recovery (docs/BAREMETAL.md 9, 11): the recovery API of the ISO and the session API.
+  /** 401: no code matches the proof (wrong code, or a code issued for another address). */
+  recoveryCodeInvalid: "urn:restow:problem:recovery-code-invalid",
+  /** 410: the code expired before it was redeemed. */
+  recoveryCodeExpired: "urn:restow:problem:recovery-code-expired",
+  /** 410: the code was revoked. */
+  recoveryCodeRevoked: "urn:restow:problem:recovery-code-revoked",
+  /** 409: the code was redeemed already (by another session secret, or too long ago). */
+  recoveryCodeUsed: "urn:restow:problem:recovery-code-used",
+  /** 426: the ISO is older than the server serves (`minRecoveryVersion`). */
+  recoveryTooOld: "urn:restow:problem:recovery-too-old",
+  /** 401: the session ended, was released, cancelled or expired (also the restic route's answer). */
+  recoverySessionEnded: "urn:restow:problem:recovery-session-ended",
+  /** 409: the session waits for an admin to release it. */
+  recoveryNotApproved: "urn:restow:problem:recovery-not-approved",
+  /** 409: the credentials were collected twice, or the window for the second time has passed. */
+  recoveryCredentialsCollected: "urn:restow:problem:recovery-credentials-collected",
+  /** 409: the session is in a state that does not allow this (`extensions.status`). */
+  recoveryStateConflict: "urn:restow:problem:recovery-state-conflict",
+  /**
+   * 409: no recovery code for this machine (`extensions.reason`: `not_linux`, `removed`,
+   * `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`). Also the
+   * answer to the ISO's credentials request when the backup its code was issued for is no whole
+   * machine backup with a layout any more (`snapshot_unknown`, with `extensions.snapshotId`).
+   */
+  baremetalNotAvailable: "urn:restow:problem:baremetal-not-available",
+  /** 409: three codes of this machine are open already. */
+  recoveryLimitReached: "urn:restow:problem:recovery-limit-reached",
+  /** 409: a recovery session reads the machine's backups; removing them waits for it. */
+  recoveryActive: "urn:restow:problem:endpoint-recovery-active",
+  /** 422: a rebind token was redeemed from another operating system than the machine's. */
+  rebindOsMismatch: "urn:restow:problem:endpoint-rebind-os-mismatch",
 } as const;

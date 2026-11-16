@@ -39,7 +39,11 @@ import type {
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { useSnapshotLabel } from "@/features/restore/explorer/restore-point-label";
 import { useEntryLabel } from "@/features/restore/explorer/use-entry-label";
-import { accountOptionLabel } from "@/features/restore/lib/accounts";
+import {
+  accountOptionLabel,
+  accountOptionValue,
+  targetAccountId,
+} from "@/features/restore/lib/accounts";
 import {
   buildRestoreRequest,
   hasErrors,
@@ -188,7 +192,7 @@ function RestoreForm({
       objectKind: object.kind,
       objectLabel: label,
       scope,
-      state,
+      state: { ...state, accountId: targetAccountId(state.accountId, targets.data ?? []) },
       context,
       restoreFolderName,
       now,
@@ -291,7 +295,7 @@ function RestoreForm({
   const modeChoices = allModeChoices.filter((choice) => allowedModes.includes(choice.value));
 
   return (
-    <form onSubmit={submit} className="grid gap-5" noValidate>
+    <form onSubmit={submit} className="grid grid-cols-[minmax(0,1fr)] gap-5" noValidate>
       <DialogHeader>
         <DialogTitle>{t(download ? "dialog.titleDownload" : "dialog.title")}</DialogTitle>
         <DialogDescription>
@@ -333,7 +337,7 @@ function RestoreForm({
           />
           <datalist id="restore-account-suggestions">
             {(targets.data ?? []).map((account) => (
-              <option key={account.id} value={account.externalId}>
+              <option key={account.id} value={accountOptionValue(account, targets.data ?? [])}>
                 {accountOptionLabel(account)}
               </option>
             ))}

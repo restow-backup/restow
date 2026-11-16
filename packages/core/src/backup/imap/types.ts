@@ -82,6 +82,7 @@ export interface ImapFolderInfo {
   readonly name: string;
   /** Parent path components, outermost first. */
   readonly parent: readonly string[];
+  /** Hierarchy delimiter; "" when the server answers NIL (a flat namespace, RFC 3501 LIST). */
   readonly delimiter: string;
   /** SPECIAL-USE flag when known ("\\Sent", "\\Trash", ...; INBOX reports "\\Inbox"). */
   readonly specialUse?: string;
@@ -93,6 +94,7 @@ export interface ImapFolderStatus {
   readonly path: string;
   /** UIDVALIDITY as a decimal string (32-bit unsigned; kept as string for JSON safety). */
   readonly uidValidity: string;
+  /** UIDNEXT; 0 when the server did not send it (RFC 3501 asks clients to cope with that). */
   readonly uidNext: number;
   /** Message count (EXISTS). */
   readonly exists: number;
@@ -101,6 +103,17 @@ export interface ImapFolderStatus {
 export interface ImapMessageFlags {
   readonly uid: number;
   readonly flags: readonly string[];
+  /**
+   * Gmail labels (X-GM-LABELS: `\\Inbox`, `\\Sent`, `\\Important`, user labels), only from
+   * {@link ImapSession.listFlags} with `labels` on a server with X-GM-EXT-1 (./gmail.ts).
+   */
+  readonly labels?: readonly string[];
+  /**
+   * Gmail's message id (X-GM-MSGID, the same for a message's copy in All Mail and in every
+   * label folder), only from {@link ImapSession.listFlags} with `gmailIds` on a server with
+   * X-GM-EXT-1 (./gmail.ts).
+   */
+  readonly gmailMessageId?: string;
 }
 
 /** How a message is protected against casual reading, detected without a full MIME parse. */
@@ -147,13 +160,22 @@ export interface ImapMessageSource extends ImapMessageMeta {
  * One authenticated connection. Methods are called sequentially per session;
  * the engine never issues two commands on one session at the same time.
  */
+/** What {@link ImapSession.listFlags} asks for besides UID and FLAGS (Gmail only). */
+export interface ImapListFlagsOptions {
+  readonly labels?: boolean;
+  readonly gmailIds?: boolean;
+}
+
 export interface ImapSession {
   /** LIST with SPECIAL-USE where available. */
   listFolders(): Promise<ImapFolderInfo[]>;
   /** EXAMINE (read-only select). */
   openFolder(path: string): Promise<ImapFolderStatus>;
-  /** UID and flags of every message in the open folder (one FETCH 1:* (UID FLAGS)). */
-  listFlags(): Promise<ImapMessageFlags[]>;
+  /**
+   * UID and flags of every message in the open folder (one FETCH 1:* (UID FLAGS)); on a
+   * Gmail server with `labels` also X-GM-LABELS, with `gmailIds` also X-GM-MSGID (./gmail.ts).
+   */
+  listFlags(options?: ImapListFlagsOptions): Promise<ImapMessageFlags[]>;
   /** Size, flags, internal date, Message-ID and envelope metadata of the given UIDs (no bodies). */
   fetchMeta(uids: readonly number[]): Promise<ImapMessageMeta[]>;
   /** Byte-exact sources of the given UIDs, in server order. UIDs the server does not return are simply absent. */
@@ -169,6 +191,8 @@ export interface ImapSession {
   uidsAbove(uid: number): Promise<number[]>;
   /** Whether the server announced IDLE (RFC 2177) in its capabilities. */
   readonly idleSupported: boolean;
+  /** Whether the server announced Gmail's IMAP extension X-GM-EXT-1 (labels, ./gmail.ts). */
+  readonly gmailExtensions: boolean;
   /**
    * IDLE on the open folder: yields once whenever new mail arrived (EXISTS grew) since the
    * last yield. Another command on the session (STATUS, a FETCH) ends IDLE for its
@@ -206,7 +230,12 @@ export interface ImapConnector {
 /** Per-folder incremental state, stored in the manifest under `state.imap.folders[path]`. */
 export interface ImapFolderState {
   readonly uidValidity: string;
-  readonly uidNext: number;
+  /**
+   * UIDNEXT the run saw; absent when the server did not send one. Only reported in the log:
+   * what an incremental run downloads is the set difference of UIDs, not "UIDs >= UIDNEXT".
+   */
+  readonly uidNext?: number;
+  /** "" for a NIL delimiter. */
   readonly delimiter: string;
   readonly specialUse?: string;
   /** Message count at the end of the run. */
@@ -217,6 +246,12 @@ export interface ImapEngineState {
   readonly imap: {
     readonly version: 1;
     readonly folders: Record<string, ImapFolderState>;
+    /**
+     * `gmail`: Gmail's messages were downloaded once, from All Mail, Spam and Trash, with
+     * their labels as metadata; the message objects of the label folders reuse the All Mail
+     * copy's content (./gmail.ts). Absent: every folder was read on its own.
+     */
+    readonly layout?: "gmail";
   };
 }
 

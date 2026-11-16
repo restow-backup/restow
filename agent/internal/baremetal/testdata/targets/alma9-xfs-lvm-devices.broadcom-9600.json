@@ -1,0 +1,66 @@
+{
+  "disks": [
+    {
+      "driverChain": [
+        "sd",
+        "mpi3mr"
+      ],
+      "driverModaliases": [
+        "pci:v00001000d000000A5sv00001000sd00004620bc01sc04i00"
+      ],
+      "eui64": null,
+      "id": "t0",
+      "identity": "serial.NEW0",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sda",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "NEW0",
+      "signatures": [],
+      "sizeBytes": 960197124096,
+      "transport": "sas",
+      "wwn": null,
+      "zoned": "none"
+    }
+  ],
+  "firmware": {
+    "db": [
+      {
+        "sha256": "aba475c8f0db845aedd55a8060b42f6a1d9997c9a40bebbfc00812e46b58a573",
+        "subject": "CN=Microsoft Corporation UEFI CA 2011,O=Restow Test"
+      },
+      {
+        "sha256": "dbb14a8ee716836045327b288efe274d7c24f9d24964ac6041db36973cd4115c",
+        "subject": "CN=Microsoft Windows Production PCA 2011,O=Restow Test"
+      }
+    ],
+    "dbx": null,
+    "mode": "uefi",
+    "mokList": [],
+    "sbatLevel": [
+      "sbat,1,2024010900",
+      "shim,4",
+      "grub,3",
+      "grub.debian,4"
+    ],
+    "secureBoot": true,
+    "setupMode": false
+  },
+  "format": "restow-plan-target-v1",
+  "kind": "hardware",
+  "nics": [
+    {
+      "driver": "ice",
+      "mac": "b4:96:91:00:00:01",
+      "modalias": "pci:v00008086d0000159Bsv00008086sd00000003bc02sc00i00",
+      "name": "ens1f0"
+    }
+  ],
+  "others": [],
+  "ramBytes": 0
+}

@@ -10,17 +10,8 @@ import (
 	"syscall"
 )
 
-// UntrustedError names a file or folder the agent refuses to rely on because
-// a user other than root could change it.
-type UntrustedError struct {
-	Path   string
-	Reason string
-}
-
-func (e *UntrustedError) Error() string {
-	return fmt.Sprintf("%s %s. The agent runs as root and only uses files and folders that no other user can change "+
-		"(owner root, not writable by group or others); fix the ownership and permissions or re-run the install script", e.Path, e.Reason)
-}
+const untrustedHint = "The agent runs as root and only uses files and folders that no other user can change " +
+	"(owner root, not writable by group or others); fix the ownership and permissions or re-run the install script"
 
 // trustedUID is root, or the user the agent runs as (a development run
 // without root trusts its own files; it gains nothing from them).
@@ -158,3 +149,11 @@ func EnsureRootDir(dir string) (string, error) {
 	}
 	return TrustedDir(dir, false)
 }
+
+// MkdirTrusted creates one folder with perm; it is owned by the creating
+// user, root for the agent (Windows sets the owner explicitly).
+func MkdirTrusted(dir string, perm os.FileMode) error { return os.Mkdir(dir, perm) }
+
+// ProtectFile keeps a private file of the agent private. On Unix the mode
+// it was created with (0640 below a 0750 folder) does that already.
+func ProtectFile(string) error { return nil }

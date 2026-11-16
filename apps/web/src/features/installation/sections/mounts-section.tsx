@@ -250,7 +250,7 @@ export function PendingCard({
       data-slot="mounts-pending"
       data-failed={failure ? "true" : "false"}
     >
-      {failure ? <TriangleAlert /> : <LoaderCircle className="animate-spin" />}
+      {failure ? <TriangleAlert /> : <LoaderCircle className="motion-safe:animate-spin" />}
       <AlertTitle>
         {failure ? t("mounts.pending.failedTitle", { name }) : t("mounts.pending.title", { name })}
       </AlertTitle>
@@ -297,7 +297,7 @@ function StepIcon({ status }: { status: MountOperation["steps"][number]["status"
     case "done":
       return <CircleCheck className="size-4 text-foreground" aria-hidden="true" />;
     case "running":
-      return <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />;
+      return <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />;
     case "failed":
       return <CircleX className="size-4 text-destructive-text" aria-hidden="true" />;
     default:

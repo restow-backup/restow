@@ -23,13 +23,21 @@ export function failedCount(item: {
   return item.report?.failed ?? item.progress?.failed ?? 0;
 }
 
+/** How many exported mails lack parts the backup does not hold (a group post's attachments). */
+export function incompleteCount(item: { report?: { incomplete?: number } | null }): number {
+  return item.report?.incomplete ?? 0;
+}
+
+type ReportCounts = { failed: number; incomplete?: number };
+
 /**
- * Badge tone per status; a completed export with failed messages is a warning,
- * not a success, and a clean one is the neutral outline: an export is a copy
- * out, not a restore check that passed (brand guide, section 4).
+ * Badge tone per status; a completed export with failed or incomplete
+ * messages is a warning, not a success, and a clean one is the neutral
+ * outline: an export is a copy out, not a restore check that passed (brand
+ * guide, section 4).
  */
 export function statusTone(
-  item: Pick<MailExport, "status" | "progress"> & { report?: { failed: number } | null },
+  item: Pick<MailExport, "status" | "progress"> & { report?: ReportCounts | null },
 ): StatusTone {
   switch (item.status) {
     case "queued":
@@ -37,7 +45,7 @@ export function statusTone(
     case "active":
       return "default";
     case "completed":
-      return failedCount(item) > 0 ? "warning" : "outline";
+      return failedCount(item) > 0 || incompleteCount(item) > 0 ? "warning" : "outline";
     case "failed":
       return "destructive";
     case "cancelled":
@@ -49,7 +57,7 @@ export function statusTone(
 
 /** i18n key (namespace `exports`) of a status, including "completed with issues". */
 export function statusKey(
-  item: Pick<MailExport, "status" | "progress"> & { report?: { failed: number } | null },
+  item: Pick<MailExport, "status" | "progress"> & { report?: ReportCounts | null },
 ): string {
   if (item.status === "completed" && statusTone(item) === "warning") {
     return "status.completedWithIssues";

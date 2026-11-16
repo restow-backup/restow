@@ -1,0 +1,10 @@
+label: gpt
+label-id: C6D7E8F9-0A1B-4C2D-3E4F-506172839405
+device: /dev/nvme0n2
+unit: sectors
+first-lba: 2048
+last-lba: 976773134
+table-length: 128
+sector-size: 512
+
+/dev/nvme0n2p1 : start=        2048, size=   974848000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=ab000000-0000-4000-8000-000000000001, name="data"

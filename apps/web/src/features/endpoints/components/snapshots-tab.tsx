@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
-import { StatusBadge } from "@/components/kit";
+import { NewDataChart, type NewDataPoint, StatusBadge } from "@/components/kit";
 import { MissingDataFoldersNotice } from "@/features/backup-jobs/components/missing-data-folders";
 import { jobDefinitionTo, linkProps } from "@/features/backup-jobs/paths";
 import type { FileSourceAdapter } from "@/features/restore/files/adapter";
@@ -127,6 +127,46 @@ export function JobFoldersHint({ job }: { job: EndpointDetail["job"] }) {
 }
 
 export { SNAPSHOTS_GRID };
+
+/** How many restore points the "new data per backup" chart of a machine shows, newest last. */
+export const MACHINE_NEW_DATA_POINTS = 30;
+
+/**
+ * The bars of a machine's "new data per backup" chart (#58): what each of its newest restore
+ * points added (`dataAdded`, as the agent reported it for the run, else restic's snapshot
+ * summary), oldest first. Snapshots without the figure are left out.
+ */
+export function machineNewDataPoints(
+  snapshots: readonly EndpointSnapshot[],
+  limit = MACHINE_NEW_DATA_POINTS,
+): NewDataPoint[] {
+  return snapshots
+    .flatMap((snapshot) =>
+      typeof snapshot.dataAdded === "number" && Number.isFinite(snapshot.dataAdded)
+        ? [{ id: snapshot.id, at: snapshot.time, added: snapshot.dataAdded }]
+        : [],
+    )
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .slice(-limit);
+}
+
+/**
+ * What each of a machine's newest backups added, as a bar chart above its restore points (the
+ * same chart as a Proxmox VE guest's page). It reads the snapshot list the browser below loads
+ * (one query, shared), and stays away while fewer than two snapshots carry the figure.
+ */
+export function MachineNewDataChart({ endpointId }: { endpointId: string }) {
+  const snapshots = useSnapshots(endpointId, true);
+  const points = machineNewDataPoints(snapshots.data ?? []);
+  if (points.length < 2) {
+    return null;
+  }
+  return (
+    <div data-slot="endpoint-new-data">
+      <NewDataChart points={points} />
+    </div>
+  );
+}
 
 /**
  * The restore points of a machine and a browser for the files in one of them

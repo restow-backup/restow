@@ -72,7 +72,7 @@ describe("recovery after the updater restarted", () => {
     expect(restarted.engine.view().run?.outcome).toBe("succeeded");
   });
 
-  it("does not start a run that is more than ten minutes overdue: failed, unchanged, interrupted", async () => {
+  it("does not start a run that is more than ten minutes overdue: failed, unchanged, interrupted [UPDATE-010]", async () => {
     await h.engine.schedule(scheduleRequest("0.2.0", { leadSeconds: 60 }));
     await h.engine.shutdown();
     h.clock.advance(60_000 + LATE_START_LIMIT_MS + 1000);
@@ -94,7 +94,7 @@ describe("recovery after the updater restarted", () => {
     });
   });
 
-  it("a run interrupted before the workers were stopped ends unchanged", async () => {
+  it("a run interrupted before the workers were stopped ends unchanged [UPDATE-010]", async () => {
     hangAt(h, "pull");
     await h.engine.schedule(scheduleRequest("0.2.0"));
     await waitForCall(h, "pull");
@@ -113,7 +113,7 @@ describe("recovery after the updater restarted", () => {
     expect(view.history).toHaveLength(1);
   });
 
-  it("a run interrupted while the workers were stopped needs attention and names the dump", async () => {
+  it("a run interrupted while the workers were stopped needs attention and names the dump [UPDATE-010]", async () => {
     hangAt(h, "composeStop");
     await h.engine.schedule(scheduleRequest("0.2.0"));
     await waitForCall(h, "composeStop");

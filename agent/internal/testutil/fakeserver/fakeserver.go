@@ -36,6 +36,9 @@ type Server struct {
 	RepoPassword string
 	Config       api.Config
 	Update       *api.UpdateInfo
+	// Rebound makes the enrollment answer a reconnection of an existing
+	// machine (a reconnect token, server 0.5.0).
+	Rebound bool
 	// Releases are the agent releases served below /install/agent/<version>/:
 	// version -> published path ("SHA256SUMS", "SHA256SUMS.sig",
 	// "<os>-<arch>/<file>") -> content.
@@ -194,10 +197,14 @@ func (s *Server) HeartbeatCount() int {
 }
 
 func problem(w http.ResponseWriter, status int, title, detail string) {
+	typedProblem(w, status, "urn:restow:problem:test", title, detail)
+}
+
+func typedProblem(w http.ResponseWriter, status int, typ, title, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"type": "urn:restow:problem:test", "title": title, "status": status, "detail": detail,
+		"type": typ, "title": title, "status": status, "detail": detail,
 	})
 }
 
@@ -246,7 +253,8 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if req.Token != s.EnrollToken {
-		problem(w, http.StatusUnauthorized, "Invalid enrollment token", "The token is unknown, expired or already used.")
+		// The problem type of the real server (agent-service.ts).
+		typedProblem(w, http.StatusUnauthorized, api.EnrollmentTokenInvalidProblem, "Enrollment token not valid", "The token is unknown, expired or already used.")
 		return
 	}
 	s.Enrollments = append(s.Enrollments, req)
@@ -258,6 +266,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		AgentSecret: s.AgentSecret,
 		Repository:  api.Repository{URL: s.RepoURL, Password: s.RepoPassword},
 		Config:      &cfg,
+		Rebound:     s.Rebound,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)

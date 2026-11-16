@@ -4,13 +4,27 @@ import * as React from "react";
 import { type FieldError, type UseFormReturn, useFieldArray } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Field, messageId } from "@/components/forms/field";
+import { NativeSelect } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FeatureLocked } from "@/features/installation/feature-locked";
+import "@/features/integrations/i18n";
 import { installationSectionTo } from "@/features/installation/paths";
+import {
+  DELIVERY_LEVELS,
+  DELIVERY_MODES,
+  type DeliveryMode,
+  type DeliveryModes,
+  type RecipientFailure,
+} from "@/features/reports/api";
+import { failureReasonKey } from "@/features/reports/presenters";
+// The words of a failing address's mail reason (`failureReasonKey`) live in `settings`.
+import "@/features/settings/i18n";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -31,8 +45,11 @@ import {
   categoryChosen,
   eventsBeyondCategories,
   type NotificationCategory,
+  SUMMARY_REPORT_ENTRIES,
   withCategory,
 } from "../../types";
+
+const IMMEDIATE: DeliveryModes = { error: "immediate", warning: "immediate", info: "immediate" };
 
 interface StepProps {
   form: UseFormReturn<TenantWizardValues>;
@@ -41,11 +58,21 @@ interface StepProps {
    * when no transport is set up (provider admins). Without it the message says whom to ask.
    */
   canOpenInstallation?: boolean;
+  /**
+   * The tenant page (0.5.0): per recipient the digest modes, the daily, weekly and monthly
+   * summary reports (closed where the installation offers no timed reports) and why mail to
+   * the address fails, by lower-cased address. The wizard leaves it out.
+   */
+  extended?: {
+    summaryAvailable: boolean;
+    failures: Readonly<Record<string, RecipientFailure>>;
+  };
 }
 
 /** Step 3: notification recipients and categories, plus proving the mail transport. */
-export function NotificationsStep({ form, canOpenInstallation = true }: StepProps) {
+export function NotificationsStep({ form, canOpenInstallation = true, extended }: StepProps) {
   const { t } = useTranslation("tenants");
+  const { t: ti, i18n } = useTranslation("integrations");
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "notificationRecipients",
@@ -79,6 +106,13 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
         <p className="text-sm text-muted-foreground">{t("wizard.notifications.empty")}</p>
       ) : null}
 
+      {extended && !extended.summaryAvailable && fields.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-slot="summary-locked">
+          <span className="text-muted-foreground">{t("recipients.summaryLocked")}</span>
+          <FeatureLocked feature="reports.timed" />
+        </div>
+      ) : null}
+
       {fields.map((field, index) => {
         const rowErrors = errors.notificationRecipients?.[index];
         const message = (name: "email" | "name") => {
@@ -89,6 +123,12 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
         const email = recipients[index]?.email.trim();
         const events = recipients[index]?.events ?? [];
         const beyond = eventsBeyondCategories(events);
+        const delivery = recipients[index]?.delivery ?? IMMEDIATE;
+        const failure = email ? extended?.failures[email.toLowerCase()] : undefined;
+        // On the tenant page the weekly report is one of the three summary reports below.
+        const categories = extended
+          ? OFFERED_NOTIFICATION_CATEGORIES.filter((category) => category !== "weeklyReport")
+          : OFFERED_NOTIFICATION_CATEGORIES;
         return (
           <Card key={field.id} className="py-0">
             <CardContent className="space-y-3 p-4">
@@ -137,8 +177,20 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
                   <Trash2 />
                 </Button>
               </div>
+              {failure ? (
+                <Badge variant="destructive" data-slot="recipient-failure">
+                  <TriangleAlert aria-hidden="true" />
+                  {t("recipients.failing", {
+                    since: new Date(failure.since).toLocaleString(
+                      i18n.resolvedLanguage ?? i18n.language,
+                      { dateStyle: "medium", timeStyle: "short" },
+                    ),
+                    reason: t(failureReasonKey("email", failure.reason)),
+                  })}
+                </Badge>
+              ) : null}
               <div className="flex flex-wrap gap-x-5 gap-y-2">
-                {OFFERED_NOTIFICATION_CATEGORIES.map((category) => {
+                {categories.map((category) => {
                   const id = `wizard-recipient-${index}-${category}`;
                   return (
                     <div key={category} className="flex items-center gap-2">
@@ -156,6 +208,80 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
                   );
                 })}
               </div>
+              {extended ? (
+                <div className="space-y-3 border-t pt-3">
+                  <fieldset className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <legend className="mb-1 text-xs font-medium text-muted-foreground">
+                      {t("recipients.summaryReports")}
+                    </legend>
+                    {SUMMARY_REPORT_ENTRIES.map((entry) => {
+                      const id = `wizard-recipient-${index}-${entry.replace(".", "-")}`;
+                      const cadence = entry.slice("report.".length);
+                      return (
+                        <div key={entry} className="flex items-center gap-2">
+                          <Checkbox
+                            id={id}
+                            checked={events.includes(entry)}
+                            disabled={!extended.summaryAvailable}
+                            data-slot="recipient-summary"
+                            data-entry={entry}
+                            onCheckedChange={(checked) =>
+                              form.setValue(
+                                `notificationRecipients.${index}.events`,
+                                checked === true
+                                  ? [...events.filter((event) => event !== entry), entry]
+                                  : events.filter((event) => event !== entry),
+                                { shouldDirty: true },
+                              )
+                            }
+                          />
+                          <Label htmlFor={id} className="font-normal">
+                            {ti(`matrix.reports.${cadence}`)}
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+                  <fieldset className="space-y-1.5">
+                    <legend className="mb-1 text-xs font-medium text-muted-foreground">
+                      {t("recipients.delivery")}
+                    </legend>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {DELIVERY_LEVELS.map((level) => (
+                        <span key={level} className="flex items-center gap-2 text-sm">
+                          <label
+                            htmlFor={`wizard-recipient-${index}-delivery-${level}`}
+                            className="w-20 shrink-0 text-muted-foreground"
+                          >
+                            {ti(`matrix.levels.${level}`)}
+                          </label>
+                          <NativeSelect
+                            id={`wizard-recipient-${index}-delivery-${level}`}
+                            className="h-8"
+                            value={delivery[level]}
+                            data-slot="recipient-delivery"
+                            data-level={level}
+                            onChange={(event) =>
+                              form.setValue(
+                                `notificationRecipients.${index}.delivery`,
+                                { ...delivery, [level]: event.target.value as DeliveryMode },
+                                { shouldDirty: true },
+                              )
+                            }
+                          >
+                            {DELIVERY_MODES.map((mode) => (
+                              <option key={mode} value={mode}>
+                                {ti(`matrix.delivery.${mode}`)}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{t("recipients.criticalNote")}</p>
+                  </fieldset>
+                </div>
+              ) : null}
               {beyond > 0 ? (
                 <p className="text-xs text-muted-foreground" data-slot="recipient-more-events">
                   {t("wizard.notifications.moreEvents", { count: beyond })}

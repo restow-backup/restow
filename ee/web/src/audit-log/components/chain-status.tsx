@@ -71,7 +71,9 @@ export function breakMessage(value: ChainBreak, format: AuditFormat): string {
 
 function StatusIcon({ state }: { state: BadgeState }) {
   const Icon = BADGE[state].icon;
-  return <Icon className={cn(state === "verifying" && "animate-spin")} aria-hidden="true" />;
+  return (
+    <Icon className={cn(state === "verifying" && "motion-safe:animate-spin")} aria-hidden="true" />
+  );
 }
 
 /** Header badge; opens the verification details. */

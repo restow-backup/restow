@@ -3,6 +3,7 @@ import { shutdownIsolation } from "../mailfiles/isolate.js";
 import { parsePlainCopyIsolated, unparsedPlainCopy } from "./journal-isolated.js";
 import {
   deliveredToAddresses,
+  hasJournalReportHeader,
   headerBlock,
   isJournalReport,
   parsePlainCopy,
@@ -43,7 +44,9 @@ describe("plain copies", () => {
       `From: journal@contoso.onmicrosoft.com${CRLF}X-MS-Journal-Report:${CRLF}Subject: x${CRLF}${CRLF}body`,
     );
     expect(isJournalReport(report)).toBe(true);
-    // A report relayed without the header is recognized by its envelope part.
+    expect(hasJournalReportHeader(report)).toBe(true);
+    // A report relayed without the header is recognized by its envelope part (journal-shaped
+    // only: without the header it is never taken as a journal report).
     const relayed = Buffer.from(
       [
         'Content-Type: multipart/mixed; boundary="b1"',
@@ -64,6 +67,11 @@ describe("plain copies", () => {
       ].join(CRLF),
     );
     expect(isJournalReport(relayed)).toBe(true);
+    expect(hasJournalReportHeader(relayed)).toBe(false);
+    // The header in the body is not the header.
+    expect(
+      hasJournalReportHeader(Buffer.from(`Subject: x${CRLF}${CRLF}X-MS-Journal-Report:`)),
+    ).toBe(false);
     // A multipart plain copy is not.
     const multipart = Buffer.from(
       [

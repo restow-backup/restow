@@ -60,6 +60,12 @@ import { pathToFileURL } from "node:url";
  *   RESTOW_WEBHOOK_ALLOW_PRIVATE "true" permits webhook targets in private networks
  *   RESTOW_PUBLIC_URL            links in chat webhook messages, when Settings name no public URL
  *   RESTOW_PRODUCT_NAME          the product name chat webhook messages use (branding)
+ *   RESTOW_LAB_TOKEN             turns on the lab API on the main host (port 8095, at least 32
+ *                                characters; docs/BAREMETAL.md 12.3, the recovery lab's token)
+ *   RESTOW_LAB_CONCURRENCY       boot probes the lab runs at the same time (default 1)
+ *   RESTOW_LAB_MAX_RESTORE_GIB   the largest restore of a boot probe (default 64)
+ *   RESTOW_LAB_TLS_UPSTREAM      where the TLS edge answers on the compose network (caddy:443),
+ *                                to measure the instance check value of a probe's code
  *   ARCHIVE_CAPTURE_CONCURRENCY  archive capture passes at once in this process (default 16)
  *   ARCHIVE_CAPTURE_TENANT_CONCURRENCY
  *                                ... of them per tenant (default 4)
@@ -75,6 +81,7 @@ import {
   ENDPOINT_QUEUES,
   EnvKeyProvider,
   FILE_SHARE_QUEUES,
+  installDeletionEnforcement,
   type KeyProvider,
   kekFromBase64,
   LocalStorageBackend,
@@ -92,10 +99,12 @@ import {
   dbPoolSizesFromEnv,
   grantQueueAccess,
   heartbeatStore,
+  nodeIdentity,
   readJobStartPause,
   retryConcurrentSetup,
   ServiceHeartbeatReporter,
   safeErrorMessage,
+  serviceVersion,
   workerPoolWarning,
 } from "@restow/db";
 import { configureProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
@@ -103,6 +112,7 @@ import PgBoss from "pg-boss";
 import { ArchiveCaptureService } from "./archive-capture/service.js";
 import { grantContinuation } from "./continuation.js";
 import { configureDefaultStorage } from "./default-storage.js";
+import { LAB_API_PORT, labApiOptionsFromEnv, startLabApi } from "./endpoints/lab-api.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
 import { extensionFeatureGate, extensionHandlers, extensionRetentionTasks } from "./extensions.js";
@@ -126,14 +136,32 @@ import {
 import { immutabilityTask } from "./handlers/immutability.js";
 import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
+import { startRepositoryRepairs } from "./handlers/repository-repair.js";
 import { retentionTasks } from "./handlers/retention.js";
-import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
+import { emitJobWebhook, webhookOptionsFromEnv, webhooksHandler } from "./handlers/webhooks.js";
 import { JobPauseGate } from "./job-pause.js";
 import { startManifestConversion } from "./manifest-conversion.js";
+import {
+  consumedHandlers,
+  excludedQueues,
+  idleWhileHeld,
+  nodeHold,
+  startNodeWatch,
+} from "./node-guard.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
 import { startJobReconciler } from "./reconcile.js";
-import { raiseJobFinished } from "./reporting.js";
+import { configureReportTimeZone, raiseJobFinished } from "./reporting.js";
+import { startRepositoryCopies } from "./repository-copies/copies.js";
+import {
+  checkAtStart,
+  configureRestoreModeRuntime,
+  createWorkerRestoreModeGuard,
+  RestoreModeJobHold,
+  reportKeyMirrorFinding,
+  resolveKeyMirrorFinding,
+  withTenantProgressMarkers,
+} from "./restore-mode.js";
 import { configureSuspicionHolds } from "./suspicion/holds.js";
 import { startSuspicionScan } from "./suspicion/scan.js";
 
@@ -279,6 +307,45 @@ async function main(): Promise<void> {
   const db = createDb(config.databaseUrl, { max: config.dbPool.app });
   const providerDb = createDb(config.databaseProviderUrl, { max: config.dbPool.installation });
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  // A worker node on another host (node-guard.ts, docs/SIZING.md): queues of the main host are
+  // left to it, and an image older than the database, or one the main host is being updated
+  // away from, does no work at all.
+  const node = nodeIdentity();
+  const excluded = excludedQueues();
+  const ownVersion = serviceVersion();
+  if (node.nodeId) {
+    const hold = await nodeHold(providerDb.$client, ownVersion);
+    if (hold) {
+      logger.error(
+        hold.reason === "version_mismatch"
+          ? "the database belongs to a newer release than this node's image: no work until the node is updated (install.sh --update-worker)"
+          : "the main host is being updated to another release: no work until it is done or the node is updated (install.sh --update-worker)",
+        {
+          reason: hold.reason,
+          applied: hold.applied,
+          shipped: hold.shipped,
+          updateTo: hold.updateTo,
+          node: node.nodeName,
+        },
+      );
+      const idle = new ServiceHeartbeatReporter({
+        store: heartbeatStore(providerDb),
+        role: "worker",
+        details: () => ({
+          state: hold.reason,
+          applied: hold.applied,
+          shipped: hold.shipped,
+        }),
+      });
+      await idle.start();
+      await idleWhileHeld({
+        check: () => nodeHold(providerDb.$client, ownVersion),
+        beat: () => idle.beat(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      });
+      await idle.stop();
+    }
+  }
   // This process has just started, so the restart requests recorded for its role are
   // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
   try {
@@ -294,6 +361,9 @@ async function main(): Promise<void> {
   retentionTasks.register(immutabilityTask);
   // Snapshot retention waits for the ransomware judgement while the detection is on (suspicion/holds.ts).
   configureSuspicionHolds({ providerDb });
+  // The daily digest of a tenant without its own zone follows the installation's zone
+  // (settings.time_zone, read on the installation pool), as on the API's raise path.
+  configureReportTimeZone({ providerDb });
   // Retention tasks contributed by extensions, e.g. the archive deletion run
   // (ee/worker), which gets the installation pool: only the installation
   // role may delete from `archive_items` (packages/db/src/roles.ts).
@@ -312,6 +382,23 @@ async function main(): Promise<void> {
   });
   const keyProvider = createKeyProvider(config);
   const shutdown = new AbortController();
+  // Restore mode after restoring a database dump (restore-mode.ts, docs/STORAGE.md): every
+  // storage delete goes through the deletion guard, which compares the tenant's storage with
+  // the database first and refuses while restore mode is on.
+  const restoreMode = createWorkerRestoreModeGuard({
+    providerDb,
+    storageOf: (tenantId) => storage.get(tenantId),
+    logger: logger.child({ component: "restore-mode" }),
+    processStartedAt: startedAt,
+  });
+  installDeletionEnforcement(restoreMode.guard);
+  configureRestoreModeRuntime({ providerDb });
+  const stopRestoreModeWatch = restoreMode.guard.start();
+  const jobHold = new RestoreModeJobHold(
+    providerDb,
+    () => restoreMode.guard.restoreMode(),
+    logger.child({ component: "restore-mode" }),
+  );
   // New job starts paused for an update (#46, job-pause.ts): queues are taken off, and in
   // drain mode running jobs checkpoint and stop. Finishing and watching what runs stays on.
   const jobPause = new JobPauseGate({
@@ -323,6 +410,8 @@ async function main(): Promise<void> {
       FILE_SHARE_QUEUES.purge,
       ENDPOINT_QUEUES.monitor,
     ]),
+    // Restore mode holds every job created before it began, on every queue.
+    hold: (queue, job) => jobHold.holdIfBeforeRestore(queue, job),
   });
 
   const keyrings = new TenantCache<TenantKeyring>((tenantId) =>
@@ -335,14 +424,43 @@ async function main(): Promise<void> {
     const run = tenantRunner(db, tenantId);
     const keys = await keyrings.get(tenantId);
     const tenantLogger = logger.child({ tenantId });
-    const targets = await resolveTenantStorage({
+    const resolved = await resolveTenantStorage({
       run,
       tenantId,
       secretReader: new PgSecretReader(run, tenantId, keys),
       defaults: () => installationDefault.current(),
+      defaultWriteOnce: () => installationDefault.writeOnce(),
       logger: tenantLogger,
     });
-    await mirrorTenantKeys({ run, tenantId, storage: targets, logger: tenantLogger });
+    // Every write of the tenant's data records the database's progress first (progress markers).
+    const targets = withTenantProgressMarkers(resolved, {
+      tenantId,
+      providerDb,
+      installationId: () => restoreMode.store.installationId(),
+      version: process.env.RESTOW_VERSION ?? null,
+      // A marker value of this installation taken already: the storage is ahead; restore
+      // mode comes on and the value is lifted above the storage's.
+      onCollision: async (id, target, seq, ours) => {
+        await restoreMode.guard.markerCollision(id, target, seq, ours);
+      },
+      // The first allocation for the tenant in this process waits for one comparison of its
+      // targets (the original backends: the comparison only reads).
+      beforeFirstAllocation: (id, compare) =>
+        restoreMode.guard.compareBeforeFirstAllocation(id, compare),
+    });
+    // A stored key that differs from the database's is never overwritten; it is reported.
+    await mirrorTenantKeys({
+      run,
+      tenantId,
+      storage: targets,
+      logger: tenantLogger,
+      unwraps: async (wrapped) => {
+        await keyProvider.unwrapDek(wrapped);
+        return true;
+      },
+      report: (finding) => reportKeyMirrorFinding(providerDb, finding, tenantLogger),
+      resolve: (input) => resolveKeyMirrorFinding(providerDb, input, tenantLogger),
+    });
     return targets;
   });
 
@@ -362,6 +480,8 @@ async function main(): Promise<void> {
       flushEveryItems: config.progressFlushEveryItems,
       flushIntervalMs: config.progressFlushIntervalMs,
     },
+    // Restore mode coming on stops a running job of the restored dump and ends it for good.
+    restoreModeHold: jobHold,
     // An interrupted job that made progress keeps its attempts (#47).
     continueInterrupted: (queue, pgBossJobId) => grantContinuation(providerDb, queue, pgBossJobId),
     // job.completed / job.failed for the tenant's webhooks (RMM tickets), and
@@ -371,12 +491,17 @@ async function main(): Promise<void> {
       await withTenantTx(db, tenantId, (tx) => raiseJobFinished(tx, tenantId, job));
     },
   };
-  // Deliveries are claimed across tenants: the dispatcher runs on the installation pool.
-  const webhookDispatcher = webhooksHandler.start({ ...runtime, db: providerDb });
-
   // Archive capture from the mailbox (docs/ARCHIVE.md "Erfassungswege"): idle unless the
-  // gate archive.mailboxCapture is open (an extension decides, ee/ by the license).
+  // gate archive.mailboxCapture is open (an extension decides, ee/ by the license). The same
+  // gate decides whether chat webhooks carry the branding (branding.provider, branding.tenant).
   const featureGate = extensionFeatureGate({ providerDb });
+
+  // Deliveries are claimed across tenants: the dispatcher runs on the installation pool.
+  const webhookDispatcher = webhooksHandler.start(
+    { ...runtime, db: providerDb },
+    webhookOptionsFromEnv(),
+    featureGate,
+  );
   configureArchiveHandler({ providerDb, gate: featureGate });
   const archiveCapture = new ArchiveCaptureService({
     db,
@@ -423,8 +548,13 @@ async function main(): Promise<void> {
       { onRetry: onSetupRetry },
     );
   }
+  // Before the first job: is any tenant's storage ahead of the database (a restored dump)?
+  await checkAtStart(restoreMode.guard, providerDb, logger.child({ component: "restore-mode" }));
+  const consumed = consumedHandlers(registry.list(), excluded);
   logger.info("worker started", {
-    queues: [...QUEUE_NAMES],
+    queues: [...QUEUE_NAMES].filter((queue) => !excluded.has(queue)),
+    excludedQueues: [...excluded],
+    node: node.nodeName,
     handlers: registry.queues(),
     storageTarget: config.storage.target,
     defaultCopies: defaultStorage.copies.length,
@@ -440,7 +570,7 @@ async function main(): Promise<void> {
     logger.warn(poolWarning, { concurrency: config.concurrency, dbPoolMax: config.dbPool.app });
   }
 
-  for (const handler of registry.list()) {
+  for (const handler of consumed) {
     const slots = handler.concurrency ?? config.concurrency;
     for (let slot = 0; slot < slots; slot++) {
       await gatedBoss.work(
@@ -455,7 +585,7 @@ async function main(): Promise<void> {
       priority: queuePriority(handler.queue),
     });
   }
-  const idle = QUEUE_NAMES.filter((queue) => !registry.get(queue));
+  const idle = QUEUE_NAMES.filter((queue) => !registry.get(queue) && !excluded.has(queue));
   if (idle.length > 0) {
     logger.warn("queues without a handler in this build", { queues: idle });
   }
@@ -468,23 +598,55 @@ async function main(): Promise<void> {
     { pollingIntervalSeconds: config.pollSeconds },
   );
 
+  // The lab API of the boot probe (docs/BAREMETAL.md 12.3): on the main host, with a token only.
+  const labOptions = labApiOptionsFromEnv();
+  const labServer =
+    !node.nodeId && labOptions
+      ? await startLabApi({ db, providerDb, runtime }, labOptions).catch((error: unknown) => {
+          logger.error("lab API could not listen", { errorMessage: safeErrorMessage(error) });
+          return null;
+        })
+      : null;
+  if (labServer) {
+    logger.info("lab API ready", { port: LAB_API_PORT, concurrency: labOptions?.concurrency });
+  } else if (process.env.RESTOW_LAB_TOKEN?.trim() && !labOptions) {
+    logger.warn("RESTOW_LAB_TOKEN is shorter than 32 characters; the lab API stays off");
+  }
+
   // File shares (docs/FILESHARES.md 8): queued runs, the dispatcher that starts runners through
-  // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge.
-  await registerFileShareJobs(
-    gatedBoss,
-    {
-      db,
-      providerDb,
-      runtime,
-      startsPaused: () => jobPause.paused(),
-      runner: runnerClientFromEnv(process.env, { demo: process.env.RESTOW_DEMO === "true" }),
-    },
-    { pollingIntervalSeconds: config.pollSeconds },
-  );
+  // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge. The
+  // mounter runs on the main host only, so a worker node leaves them to the main host's worker.
+  if (!node.nodeId) {
+    await registerFileShareJobs(
+      gatedBoss,
+      {
+        db,
+        providerDb,
+        runtime,
+        startsPaused: () => jobPause.paused(),
+        // Restore mode: runs from the restored dump are held, never started (file-shares/hold.ts).
+        holdRunsBefore: async () => {
+          const state = await restoreMode.guard.restoreMode();
+          return state.active ? state.holdJobsBefore : null;
+        },
+        runner: runnerClientFromEnv(process.env, { demo: process.env.RESTOW_DEMO === "true" }),
+      },
+      { pollingIntervalSeconds: config.pollSeconds },
+    );
+  }
 
   // Proxmox VE guests (docs/PVE.md): job planning, retention, verify and restore checks,
   // one pass every five minutes in one worker at a time.
   startPveMaintenance({ db, providerDb, runtime, startsPaused: () => jobPause.paused() });
+
+  // Repository scans and repairs an administrator queued (docs/STORAGE.md, "Repository
+  // repair"): one pass every 15 seconds in one worker at a time.
+  startRepositoryRepairs({ db, providerDb, runtime });
+
+  // Repository copies (docs/STORAGE.md, "restic repositories on copies"): the restic
+  // repositories of containers, machines and file shares on every copy target, after each
+  // backup and once a day; one pass every five minutes in one worker at a time.
+  startRepositoryCopies({ db, providerDb, runtime, startsPaused: () => jobPause.paused() });
 
   // Ransomware detection (docs/RANSOMWARE.md): every new restore point of every kind is judged
   // against its object's baseline and the signatures, one pass every two minutes. Retention of an
@@ -509,7 +671,10 @@ async function main(): Promise<void> {
     // Installation-level (packages/db roles.ts): the installation pool.
     store: heartbeatStore(providerDb),
     role: "worker",
-    details: () => ({ state: stopping ? "stopping" : "running", queues: registry.queues() }),
+    details: () => ({
+      state: stopping ? "stopping" : "running",
+      queues: consumed.map((handler) => handler.queue),
+    }),
     onError: (error) => {
       logger.warn("heartbeat failed", { errorMessage: safeErrorMessage(error) });
     },
@@ -523,6 +688,8 @@ async function main(): Promise<void> {
     logger: logger.child({ component: "reconcile" }),
     // A job it ends for good is announced like one a worker finished (webhook, bell).
     onJobFinished: runtime.onJobFinished,
+    // Restore mode: orphans from before the restored dump are cancelled, not requeued.
+    hold: jobHold,
   });
 
   const stop = async (signal: NodeJS.Signals): Promise<void> => {
@@ -536,6 +703,8 @@ async function main(): Promise<void> {
     shutdown.abort("shutdown");
     jobPause.stop();
     stopReconciler();
+    stopRestoreModeWatch();
+    labServer?.close();
     try {
       await heartbeat.beat();
       await boss.stop({ graceful: true, wait: true, timeout: config.shutdownTimeoutMs });
@@ -555,6 +724,27 @@ async function main(): Promise<void> {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, (received) => {
       void stop(received);
+    });
+  }
+  // A node stops working once the main host is being updated to another release or was
+  // updated past its image; it starts again into the idle state above (restart: unless-stopped)
+  // until the hold is gone or it is updated as well.
+  if (node.nodeId) {
+    startNodeWatch({
+      check: () => nodeHold(providerDb.$client, ownVersion),
+      onHold: (hold) => {
+        logger.error("the main host is being or was updated to another release; stopping work", {
+          reason: hold.reason,
+          applied: hold.applied,
+          shipped: hold.shipped,
+          updateTo: hold.updateTo,
+        });
+        void stop("SIGTERM");
+      },
+      onError: (error) =>
+        logger.warn("the node's hold could not be checked", {
+          errorMessage: safeErrorMessage(error),
+        }),
     });
   }
 }

@@ -138,6 +138,13 @@ export interface ChunkWriterOptions {
   readonly packIdGenerator?: () => string;
   /** Called with the size of each pack once it is stored on every target and recorded. */
   readonly onPackStored?: (packBytes: number) => void;
+  /**
+   * Asked before each pack is stored (the run size guard, #99) with its size and the plaintext
+   * bytes of the new chunks in it (the unit of `bytesNew`, which the guard's history counts); a
+   * throw holds the run: the pack is not written and the writer is failed like after a refused
+   * pack.
+   */
+  readonly beforePack?: (packBytes: number, newBytes: number) => Promise<void>;
 }
 
 function toHex(id: Buffer): string {
@@ -287,6 +294,8 @@ export class ChunkWriter {
   private readonly lookups = new Map<string, Promise<boolean>>();
   private pack: PackWriter;
   private packEntries: PackEntry[] = [];
+  /** Plaintext bytes of the new chunks in the open pack (what the run size guard counts). */
+  private packPlainBytes = 0;
   private readonly maxPackBytes: number;
   private readonly logger: Logger;
   private readonly packIdGenerator: () => string;
@@ -346,6 +355,7 @@ export class ChunkWriter {
       newBytes += plaintext.length;
       this.stats.chunksNew++;
       this.stats.bytesNew += plaintext.length;
+      this.packPlainBytes += plaintext.length;
       this.stats.bytesSealed += sealed.length;
       this.sampleCompression(plaintext);
     }
@@ -417,10 +427,12 @@ export class ChunkWriter {
     const path = packKey(this.options.tenantId, packId);
     const bytes = this.pack.finalize();
     const entries = this.packEntries;
+    const plainBytes = this.packPlainBytes;
     // Start a fresh pack before any await so a concurrent write() never lands
     // in a pack that is already being uploaded.
     this.pack = new PackWriter(this.options.tenantId);
     this.packEntries = [];
+    this.packPlainBytes = 0;
 
     const record: PackRecord = {
       id: packId,
@@ -434,6 +446,7 @@ export class ChunkWriter {
       length: entry.length,
     }));
     try {
+      await this.options.beforePack?.(bytes.length, plainBytes);
       await writeToAllTargets(this.options.storage, path, bytes);
       await this.options.index.recordPack(record, chunkRecords);
     } catch (error) {

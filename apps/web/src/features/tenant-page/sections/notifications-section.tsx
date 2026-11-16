@@ -14,6 +14,7 @@ import { useWordingScope } from "@/features/installation/scope";
 import { useReportCatalog } from "@/features/reports/hooks";
 import { REPORTS_PATH } from "@/features/reports/paths";
 import { AlertRulesPanel } from "@/features/reports/reports-page";
+import { CustomerReportCard } from "@/features/tenant-page/sections/customer-report-card";
 import { NotificationsStep } from "@/features/tenants/components/tenant-wizard/step-notifications";
 import {
   emptyTenantWizardForm,
@@ -37,9 +38,10 @@ import { useSession } from "@/lib/session";
  * themselves, for what goes beyond (a webhook, a report on a schedule). The
  * list of alerts that were sent stays in the daily work (Alerts).
  */
-export function NotificationsSection({ tenant }: TenantSectionProps) {
+export function NotificationsSection({ tenant, readOnly }: TenantSectionProps) {
   const { t } = useTranslation("tenantpage");
   const detail = useTenantDetail(tenant.id);
+  const { isProviderAdmin } = useSession();
 
   return (
     <div className="space-y-8">
@@ -56,6 +58,7 @@ export function NotificationsSection({ tenant }: TenantSectionProps) {
         // Keyed by the saved list: after a save the form starts from what the server holds.
         <RecipientsCard key={recipientsKey(detail.data)} tenant={detail.data} />
       )}
+      {isProviderAdmin ? <CustomerReportCard tenantId={tenant.id} readOnly={readOnly} /> : null}
       <AlertRulesPanel />
       <Link
         to={REPORTS_PATH as never}
@@ -70,7 +73,10 @@ export function NotificationsSection({ tenant }: TenantSectionProps) {
 
 function recipientsKey(tenant: TenantDetail): string {
   return tenant.notificationRecipients
-    .map((recipient) => `${recipient.id}:${recipient.events.join(",")}`)
+    .map(
+      (recipient) =>
+        `${recipient.id}:${recipient.events.join(",")}:${Object.values(recipient.delivery).join(",")}`,
+    )
     .join("|");
 }
 
@@ -90,14 +96,25 @@ function RecipientsCard({ tenant }: { tenant: TenantDetail }) {
         email: recipient.email,
         name: recipient.name ?? "",
         events: recipient.events,
+        delivery: recipient.delivery,
       })),
     },
   });
   const { isSubmitting, isDirty } = form.formState;
   const chosen = form.watch("notificationRecipients");
+  const summaryAvailable = catalog.data?.scheduledAvailable ?? false;
   const weeklyWithoutReports =
     catalog.data?.scheduledAvailable === false &&
     chosen.some((recipient) => recipient.events.includes(WEEKLY_REPORT_ENTRY));
+  const failures = React.useMemo(
+    () =>
+      Object.fromEntries(
+        tenant.notificationRecipients.flatMap((recipient) =>
+          recipient.failure ? [[recipient.email.trim().toLowerCase(), recipient.failure]] : [],
+        ),
+      ),
+    [tenant.notificationRecipients],
+  );
 
   async function onSave() {
     setError(null);
@@ -110,6 +127,7 @@ function RecipientsCard({ tenant }: { tenant: TenantDetail }) {
           email: recipient.email.trim(),
           name: undefinedIfBlank(recipient.name),
           events: recipient.events,
+          ...(recipient.delivery ? { delivery: recipient.delivery } : {}),
         })),
       );
       toast.success(tt("customerPanel.recipientsSaved"));
@@ -129,7 +147,11 @@ function RecipientsCard({ tenant }: { tenant: TenantDetail }) {
         <CardDescription>{t("notifications.recipients.description", { scope })}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <NotificationsStep form={form} canOpenInstallation={isProviderAdmin} />
+        <NotificationsStep
+          form={form}
+          canOpenInstallation={isProviderAdmin}
+          extended={{ summaryAvailable, failures }}
+        />
         {weeklyWithoutReports ? (
           <Alert variant="info" data-slot="weekly-unavailable">
             <Info />

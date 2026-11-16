@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Nothing of the build time stays in the image (README.md, "Reproducible build"):
+# no package lists, caches or logs, no machine id and no SSH host keys (sshd makes
+# them when remote access is switched on).
+set -eu
+
+rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* /var/lib/dbus/machine-id
+mkdir -p /var/lib/apt/lists/partial /var/cache/apt/archives/partial /var/log
+rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+: >/etc/machine-id
+rm -f /etc/hostname
+find / -xdev \( -name '*.pyc' -o -name '__pycache__' \) -prune -exec rm -rf {} + 2>/dev/null || true

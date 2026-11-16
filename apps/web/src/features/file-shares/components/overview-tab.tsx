@@ -214,7 +214,7 @@ function ActiveRun({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           {run.status === "queued" ? null : (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
           )}
           {t(`runs.kind.${run.kind}`)} · {t(`runs.status.${run.status}`)}
         </CardTitle>

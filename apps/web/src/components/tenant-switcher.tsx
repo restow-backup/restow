@@ -60,7 +60,8 @@ export function useSwitchTenant(): (tenant: Pick<SessionTenant, "id" | "name">) 
   const { activeTenant, setActiveTenant } = session;
   const scope = sessionScope(session);
   const navigate = useNavigate();
-  const items = useNavItems();
+  // Every entry, also one the tenant does not offer: where a switch leads depends on the page.
+  const items = useNavItems({ includeNotOffered: true });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const search = useRouterState({
     select: (state) => state.location.search as LocationSearch,
@@ -102,7 +103,8 @@ export function useSwitchToAllTenants(): () => void {
   const { setScopeAll } = session;
   const scope = sessionScope(session);
   const navigate = useNavigate();
-  const items = useNavItems();
+  // Every entry, also one the tenant does not offer: where a switch leads depends on the page.
+  const items = useNavItems({ includeNotOffered: true });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const search = useRouterState({
     select: (state) => state.location.search as LocationSearch,
@@ -233,7 +235,8 @@ export function TenantSwitcher({ className }: { className?: string }) {
   const { tenants, activeTenant, role, canViewAllTenants } = session;
   const allTenants = sessionScope(session) === "all";
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const navItems = useNavItems();
+  // Only the settings and the list of tenants are looked up here.
+  const navItems = useNavItems({ includeNotOffered: true });
   const collapsed = state === "collapsed" && !isMobile;
   const organisationMode = !hasFeature(session, "tenants.additional");
 

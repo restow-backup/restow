@@ -99,7 +99,7 @@ func TestEnrollAndAuthenticatedCalls(t *testing.T) {
 	// Token is single use.
 	_, err = api.Enroll(ctx, plain.URL, true, api.EnrollRequest{Token: "rset_test_token_0123456789"})
 	var ae *api.APIError
-	if !errors.As(err, &ae) || ae.Status != 401 || ae.Title != "Invalid enrollment token" {
+	if !errors.As(err, &ae) || ae.Status != 401 || ae.Title != "Enrollment token not valid" || !api.IsTokenRefused(err) {
 		t.Fatalf("second enroll: err = %v", err)
 	}
 
@@ -353,6 +353,25 @@ func TestExplainNetworkErrors(t *testing.T) {
 	}
 	if msg := api.Explain(err, s2.URL); !strings.Contains(msg, "not trusted") {
 		t.Fatalf("explanation: %s", msg)
+	}
+}
+
+func TestExplainServerErrorNamesTheReason(t *testing.T) {
+	err := &api.APIError{Method: "POST", Path: "/agent/v1/enroll", Status: 503,
+		Title: "Installation default storage not configured", Detail: "Set up a storage target\nfirst."}
+	msg := api.Explain(err, "https://restow.example")
+	if !strings.Contains(msg, "HTTP 503") ||
+		!strings.Contains(msg, "Reason given: Installation default storage not configured: Set up a storage target first.") {
+		t.Fatalf("explanation: %s", msg)
+	}
+	// A proxy's bare error page carries no problem: no reason, no dangling colon.
+	bare := api.Explain(&api.APIError{Status: 502}, "https://restow.example")
+	if strings.Contains(bare, "Reason given") {
+		t.Fatalf("explanation without a problem: %s", bare)
+	}
+	long := api.Explain(&api.APIError{Status: 500, Detail: strings.Repeat("x", 400)}, "https://restow.example")
+	if !strings.Contains(long, strings.Repeat("x", 300)+"…") || strings.Contains(long, strings.Repeat("x", 301)) {
+		t.Fatalf("a long detail is cut at 300 characters: %d", len(long))
 	}
 }
 

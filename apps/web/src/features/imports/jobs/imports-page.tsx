@@ -1,13 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, FileInput, RefreshCw } from "lucide-react";
+import { ChevronRight, FileInput } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
-import { EmptyState } from "@/components/kit";
+import { EmptyState, RefreshButton } from "@/components/kit";
 import { OlderEntries } from "@/components/kit/older-entries";
 import { PageHeader } from "@/components/page-header";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -94,15 +94,11 @@ export function ImportsPage() {
       <PageHeader title={t("list.title")} description={t("list.subtitle")}>
         {tenantId && canManage ? (
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void query.refetch()}
-              disabled={query.isFetching}
-            >
-              <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
-              {tCommon("actions.refresh")}
-            </Button>
+            <RefreshButton
+              label={tCommon("actions.refresh")}
+              fetching={query.isFetching}
+              onRefresh={() => void query.refetch()}
+            />
             {start}
           </>
         ) : null}

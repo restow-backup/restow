@@ -23,12 +23,31 @@
  *     the database shows no run of the agent in progress.
  *
  * Locks of the server's own restic runs are kept unless they are stale.
+ *
+ * The storage time comes from the storage's clock, and a storage whose clock lags the
+ * server's (a NAS set to local time as UTC) makes a live lock look stale at once. Where no
+ * agent can write a lock (the repositories of Proxmox VE containers, which only restow-pve and
+ * the server write), the lock's own timestamp is trusted as well: such a lock is stale only
+ * when both its storage time and its own time are more than 30 minutes old (`lockTimes`). A
+ * lock that is still there but whose own time could not be read (the storage or restic failed
+ * for a moment) is kept and judged again by the next pass: removing it by its storage time
+ * alone would take a live lock away on exactly the storage whose clock lags. Only one stored
+ * more than a day ago (`UNREADABLE_LOCK_MS`, beyond any clock offset of a time zone) goes
+ * unread, so a broken lock file cannot stop maintenance for good. An endpoint's repository keeps
+ * the storage rule alone, because its agent could plant a lock dated in the future.
  */
 import { listWithSizes, type StorageBackend } from "../storage/backend.js";
 import { RESTIC_NAME } from "./restic-authz.js";
 
 /** restic refreshes a live lock every five minutes and calls one 30 minutes old stale. */
 export const STALE_LOCK_MS = 30 * 60 * 1000;
+
+/**
+ * A lock whose own time cannot be read is removed only once its storage time is this old: no
+ * storage clock lags a whole day (a time zone is at most 14 hours), and restic replaces a live
+ * lock file every five minutes.
+ */
+export const UNREADABLE_LOCK_MS = 24 * 60 * 60 * 1000;
 
 export interface StoredObject {
   readonly name: string;
@@ -81,18 +100,70 @@ export async function measureRepositoryBytes(
   return entries.reduce((sum, entry) => sum + entry.size, 0);
 }
 
-/** The locks to remove before maintenance (see the module comment). */
+/** The locks whose storage time is more than 30 minutes before `now`. */
+export function storageStaleLocks(locks: readonly LockFile[], now: Date): LockFile[] {
+  return locks.filter(
+    (lock) => lock.storedAt !== null && now.getTime() - lock.storedAt.getTime() > STALE_LOCK_MS,
+  );
+}
+
+/**
+ * The locks to remove before maintenance (see the module comment). With `lockTimes` (the
+ * lock's own restic timestamp by name, null when it could not be read, for repositories no
+ * agent writes), a lock is stale only when that time is more than 30 minutes old as well; a
+ * lock whose time could not be read (or is missing from the map) is kept until its storage time
+ * is `UNREADABLE_LOCK_MS` old.
+ */
 export function locksToRemove(
   locks: readonly LockFile[],
-  context: { agentLocks: ReadonlySet<string>; agentActive: boolean; now: Date },
+  context: {
+    agentLocks: ReadonlySet<string>;
+    agentActive: boolean;
+    now: Date;
+    lockTimes?: ReadonlyMap<string, Date | null>;
+  },
 ): string[] {
+  const stale = new Set(storageStaleLocks(locks, context.now).map((lock) => lock.name));
+  const now = context.now.getTime();
   return locks
-    .filter(
-      (lock) =>
-        (context.agentLocks.has(lock.name) && !context.agentActive) ||
-        (lock.storedAt !== null && context.now.getTime() - lock.storedAt.getTime() > STALE_LOCK_MS),
-    )
+    .filter((lock) => {
+      if (context.agentLocks.has(lock.name) && !context.agentActive) {
+        return true;
+      }
+      if (!stale.has(lock.name)) {
+        return false;
+      }
+      if (!context.lockTimes) {
+        return true;
+      }
+      const own = context.lockTimes.get(lock.name) ?? null;
+      if (own === null) {
+        return lock.storedAt !== null && now - lock.storedAt.getTime() > UNREADABLE_LOCK_MS;
+      }
+      return now - own.getTime() > STALE_LOCK_MS;
+    })
     .map((lock) => lock.name);
+}
+
+/**
+ * Locks whose storage time and own time are more than 30 minutes apart: the clock of the
+ * storage (or of the one that wrote the lock) is off, which the operator should know.
+ */
+export function lockClockSkews(
+  locks: readonly LockFile[],
+  lockTimes: ReadonlyMap<string, Date | null>,
+): { name: string; skewMs: number }[] {
+  const out: { name: string; skewMs: number }[] = [];
+  for (const lock of locks) {
+    const own = lockTimes.get(lock.name) ?? null;
+    if (lock.storedAt !== null && own !== null) {
+      const skewMs = lock.storedAt.getTime() - own.getTime();
+      if (Math.abs(skewMs) > STALE_LOCK_MS) {
+        out.push({ name: lock.name, skewMs });
+      }
+    }
+  }
+  return out;
 }
 
 /** Remove lock files by name; one that is gone already is no error. */

@@ -42,6 +42,7 @@ const MAIL_FIELDS = new Set([
   "smtp.username",
   "smtp.password",
   "smtp.from",
+  "smtp.allowedSenders",
   "graph.app",
   "graph.sender",
   "graph.tenantId",

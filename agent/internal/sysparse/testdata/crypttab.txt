@@ -1,0 +1,4 @@
+# <target name> <source device> <key file> <options>
+nvme0n1p3_crypt UUID=2b1f0c3e-6d7a-4e8b-9c0d-1e2f3a4b5c6d none luks,discard
+data UUID=3c2e /etc/luks-keys/data.key luks
+cswap /dev/disk/by-partuuid/aa-bb /dev/urandom swap,cipher=aes-xts-plain64,size=256

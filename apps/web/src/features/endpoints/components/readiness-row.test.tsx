@@ -79,6 +79,15 @@ describe("endpointResultKey", () => {
     );
   });
 
+  it("says why a backup without sample files is never checked (S-C4)", () => {
+    expect(endpointResultKey({ state: "unverified", overdue: false, noSamples: true })).toBe(
+      "readinessSection.result.noSamples",
+    );
+    const text = html({ state: "unverified", readiness: null, checkedAt: null, noSamples: true });
+    expect(text).toContain("No sample files recorded; restore check not possible for this backup.");
+    expect(text).not.toContain('data-tone="success"');
+  });
+
   it("tells a machine that is still new from one that is overdue for its first backup", () => {
     expect(endpointResultKey({ state: "no_backup", overdue: false })).toBe(
       "readinessSection.result.noBackup",

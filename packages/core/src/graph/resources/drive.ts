@@ -20,9 +20,10 @@ import {
   DRIVE_DEFAULT_FRAGMENT_BYTES,
   DRIVE_FRAGMENT_BOUNDS,
   type UploadOptions,
+  UploadSessionError,
   type UploadSessionInfo,
   type UploadSource,
-  uploadToSession,
+  uploadToSessionOrCancel,
 } from "./upload-session.js";
 
 export const DRIVE_SELECT = ["id", "driveType", "name", "owner", "quota", "webUrl"] as const;
@@ -73,13 +74,74 @@ export async function getUserDrive(client: GraphClient, userId: string): Promise
   }
 }
 
+/**
+ * The root folder of a drive with its `size` and `folder.childCount`. For OneDrive for
+ * Business and SharePoint, Graph reports a folder's `size` as the total of everything below
+ * it: the library the root delta walks, without recycle bin, versions or other lists. Needs
+ * `Files.Read.All` like the delta (verify/source.ts, the empty-object signal).
+ */
+export async function getDriveRoot(
+  client: GraphClient,
+  driveId: string,
+): Promise<{ id: string; size: number | null; childCount: number | null }> {
+  const root = await requestOk<DriveItem & { id: string }>(client, {
+    method: "GET",
+    url: `/drives/${encodeURIComponent(driveId)}/root${query({ $select: "id,size,folder" })}`,
+  });
+  return {
+    id: root.id,
+    size: typeof root.size === "number" ? root.size : null,
+    childCount: typeof root.folder?.childCount === "number" ? root.folder.childCount : null,
+  };
+}
+
+/** A drive's storage quota (`used`, `deleted`, `remaining`, `total`, `state`), for display. */
+export async function getDriveQuota(
+  client: GraphClient,
+  driveId: string,
+): Promise<NonNullable<Drive["quota"]> | null> {
+  const drive = await requestOk<Pick<Drive, "id" | "quota">>(client, {
+    method: "GET",
+    url: `/drives/${encodeURIComponent(driveId)}${query({ $select: "id,quota" })}`,
+  });
+  return drive.quota ?? null;
+}
+
 /** The download URL Graph attaches to file items. Pre-authenticated, valid ~1 hour. */
 export const DOWNLOAD_URL_KEY = "@microsoft.graph.downloadUrl" as const;
+
+/**
+ * The annotation a delta entry carries when the item is listed because its
+ * sharing changed (only sent with {@link DRIVE_DELTA_HEADERS}). Graph writes
+ * the value as the string "True".
+ */
+export const SHARED_CHANGED_KEY = "@microsoft.graph.sharedChanged" as const;
 
 export type DriveDeltaItem = DriveItem & {
   id: string;
   [DOWNLOAD_URL_KEY]?: string;
+  [SHARED_CHANGED_KEY]?: string;
 };
+
+/**
+ * Sent with every page of a drive delta. Without `deltashowsharingchanges`,
+ * OneDrive for Business and SharePoint leave an item whose only change is its
+ * sharing (shared with the organisation, a link created or removed) out of the
+ * delta, so an incremental backup would keep recording the old sharing for
+ * good. Deliberately without `hierarchicalsharing`: with it Graph reports the
+ * sharing only at the root of a permission hierarchy and drops the inherited
+ * sharing from every item below, so a file edited (or added) in a shared folder
+ * would be recorded as not shared, and the files below a folder whose sharing
+ * was removed would keep their old sharing in every later restore point.
+ */
+export const DRIVE_DELTA_HEADERS: Readonly<Record<string, string>> = {
+  Prefer: "deltashowsharingchanges",
+};
+
+/** True when Graph lists the entry because its sharing changed. */
+export function isSharingChange(item: DriveDeltaItem): boolean {
+  return String(item[SHARED_CHANGED_KEY] ?? "").toLowerCase() === "true";
+}
 
 export function driveDeltaKey(driveId: string): string {
   return `drive:${driveId}`;
@@ -102,6 +164,7 @@ export function driveDelta(
     store,
     key: options.key ?? driveDeltaKey(driveId),
     initialUrl: driveDeltaUrl(driveId),
+    headers: { ...DRIVE_DELTA_HEADERS },
     onResync: options.onResync,
   });
 }
@@ -171,15 +234,38 @@ export const DRIVE_ITEM_SELECT = [
   "root",
 ] as const;
 
+/**
+ * What {@link getItem} asks for: everything the backup records from a delta
+ * entry, so an item fetched on its own (a retry, an item the delta sent without
+ * its folder or its kind, a sharing change) is stored exactly as complete as
+ * one from the delta: authorship, the sharing facet, and the `remoteItem`
+ * facet that makes a shortcut a shortcut. Graph returns only what `$select`
+ * names; a property left out here is missing from the backup.
+ */
+export const GET_ITEM_SELECT = [
+  ...DRIVE_ITEM_SELECT,
+  "createdBy",
+  "lastModifiedBy",
+  "shared",
+  "remoteItem",
+] as const;
+
+/**
+ * One item with everything {@link GET_ITEM_SELECT} names. Graph leaves an unset
+ * facet out of the answer; for `shared`, which was asked for, that means the
+ * item is not shared, so it comes back as `null` (a delta entry without
+ * `shared` says nothing either way).
+ */
 export async function getItem(
   client: GraphClient,
   driveId: string,
   itemId: string,
 ): Promise<DriveDeltaItem> {
-  return requestOk<DriveDeltaItem>(client, {
+  const item = await requestOk<DriveDeltaItem>(client, {
     method: "GET",
-    url: `${itemBase(driveId, itemId)}${query({ $select: `${DRIVE_ITEM_SELECT.join(",")},content.downloadUrl` })}`,
+    url: `${itemBase(driveId, itemId)}${query({ $select: `${GET_ITEM_SELECT.join(",")},content.downloadUrl` })}`,
   });
+  return { ...item, shared: item.shared ?? null };
 }
 
 /** A file download: the stream plus what the headers say about it. */
@@ -347,6 +433,8 @@ export async function createUploadSession(
   const session = await requestOk<UploadSessionInfo>(client, {
     method: "POST",
     url: `${childByNamePath(driveId, parentId, name)}/createUploadSession`,
+    // A second session is harmless (the unused one expires); nothing is created yet.
+    idempotent: true,
     body: {
       item: {
         "@microsoft.graph.conflictBehavior": options.conflictBehavior ?? "fail",
@@ -406,11 +494,29 @@ export async function uploadFile(
       : created;
   }
   const session = await createUploadSession(client, driveId, parentId, name, options);
-  const outcome = await uploadToSession<DriveItem>(client, session, source, size, {
-    fragmentSize: options.fragmentSize ?? DRIVE_DEFAULT_FRAGMENT_BYTES,
-    bounds: DRIVE_FRAGMENT_BOUNDS,
-    onProgress: options.onProgress,
-  });
+  let outcome: Awaited<ReturnType<typeof uploadToSessionOrCancel<DriveItem>>>;
+  try {
+    outcome = await uploadToSessionOrCancel<DriveItem>(client, session, source, size, {
+      ...options,
+      fragmentSize: options.fragmentSize ?? DRIVE_DEFAULT_FRAGMENT_BYTES,
+      bounds: DRIVE_FRAGMENT_BOUNDS,
+    });
+  } catch (error) {
+    // The answer to the last fragment was lost: the file is there when the
+    // name it was sent to holds it at its size (the caller then compares the
+    // hash). Under "rename" OneDrive may have chosen another name, unknown here.
+    if (
+      error instanceof UploadSessionError &&
+      error.details.completionUnknown === true &&
+      conflictBehavior !== "rename"
+    ) {
+      const created = await getChildByName(client, driveId, parentId, name);
+      if (created && isFileItem(created) && created.size === size) {
+        return created;
+      }
+    }
+    throw error;
+  }
   if (!outcome.result) {
     throw new Error(`Upload session finished with ${outcome.status} but returned no item`);
   }
@@ -465,8 +571,19 @@ export async function createFolder(
 }
 
 /**
+ * Items a path walk descends into: folders and packages. A OneNote notebook is
+ * a `package` item without a `folder` facet, yet it holds its sections (`.one`
+ * files) as children the way a folder does, and the backup records it as a
+ * folder (backup/onedrive/items.ts).
+ */
+export function isContainerItem(item: DriveItem): boolean {
+  return isFolderItem(item) || isPackageItem(item);
+}
+
+/**
  * Walk (and create where missing) a folder path below `parentId` (default: root)
- * and return the id of the last folder. A file in the way is an error, not
+ * and return the id of the last folder. An existing folder or package (a
+ * OneNote notebook) is descended into; a file in the way is an error, not
  * silently replaced.
  */
 export async function ensureDriveFolderPath(
@@ -482,7 +599,7 @@ export async function ensureDriveFolderPath(
     let id = cache.get(cacheKey);
     if (!id) {
       const existing = await getChildByName(client, driveId, parentId, segment);
-      if (existing && !isFolderItem(existing)) {
+      if (existing && !isContainerItem(existing)) {
         throw new Error(`Cannot create folder "${segment}": a file with that name exists`);
       }
       if (existing) {
@@ -498,6 +615,9 @@ export async function ensureDriveFolderPath(
           const raced = await getChildByName(client, driveId, parentId, segment);
           if (!raced) {
             throw error;
+          }
+          if (!isContainerItem(raced)) {
+            throw new Error(`Cannot create folder "${segment}": a file with that name exists`);
           }
           id = raced.id;
         }

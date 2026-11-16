@@ -174,9 +174,12 @@ export function RestorePointBrowser<P extends RestorePointView>({
           {point ? (
             <>
               <CardHeader className="gap-2 border-b py-4">
-                <CardTitle className="text-base">
-                  {t("browser.title", { id: point.shortId })}
-                </CardTitle>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <CardTitle className="text-base">
+                    {t("browser.title", { id: point.shortId })}
+                  </CardTitle>
+                  {adapter.headerAction?.(point)}
+                </div>
                 <CardDescription>{t("browser.auditNote")}</CardDescription>
                 <SelectedPointNote point={point} points={list} judgements={judgements} />
                 {adapter.renderBrowserExtra?.(point, (next) => {

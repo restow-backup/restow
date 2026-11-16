@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type * as React from "react";
+import { act } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { json, routedFetch } from "@/features/updates/testing";
@@ -9,6 +10,7 @@ import { ApiError } from "@/lib/api";
 import type { EndpointDetail, EndpointHooks } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
+import { BackupDeletionNotice } from "./backup-deletion-notice.js";
 import { SettingsTab } from "./settings-tab.js";
 
 // The "Confirm it is you" step-up (components/confirm-identity-dialog.tsx) with a passkey.
@@ -17,6 +19,11 @@ const auth = vi.hoisted(() => ({
   getSession: vi.fn(),
   listUserPasskeys: vi.fn(),
   refresh: vi.fn(),
+}));
+// Who looks: an owner of the provider team unless a test says otherwise (deleting backups, 0.5.0).
+const viewer = vi.hoisted(() => ({
+  isProviderAdmin: true,
+  providerRole: "owner" as "owner" | "administrator" | null,
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
@@ -31,6 +38,8 @@ vi.mock("@/lib/session", () => ({
     status: "authenticated",
     user: { id: "u1" },
     activeTenant: { id: "t-1", name: "Contoso" },
+    isProviderAdmin: viewer.isProviderAdmin,
+    providerRole: viewer.providerRole,
     refresh: auth.refresh,
     signOut: async () => undefined,
   }),
@@ -62,11 +71,13 @@ const updateEndpoint = vi.fn();
 const revokeEndpoint = vi.fn();
 const uninstallEndpoint = vi.fn();
 const removeEndpoint = vi.fn();
+const cancelRemoval = vi.fn();
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
   return {
     ...actual,
     removeEndpoint: (...args: unknown[]) => removeEndpoint(...args),
+    cancelRemoval: (...args: unknown[]) => cancelRemoval(...args),
     updateEndpoint: (...args: unknown[]) => updateEndpoint(...args),
     revokeEndpoint: (...args: unknown[]) => revokeEndpoint(...args),
     uninstallEndpoint: (...args: unknown[]) => uninstallEndpoint(...args),
@@ -148,6 +159,12 @@ describe("SettingsTab", () => {
     revokeEndpoint.mockResolvedValue(undefined);
     uninstallEndpoint.mockReset();
     uninstallEndpoint.mockResolvedValue({ alreadyQueued: false, task: {} });
+    removeEndpoint.mockReset();
+    cancelRemoval.mockReset();
+    cancelRemoval.mockResolvedValue(undefined);
+    navigate.mockReset();
+    viewer.isProviderAdmin = true;
+    viewer.providerRole = "owner";
   });
   afterEach(() => page?.unmount());
 
@@ -178,6 +195,59 @@ describe("SettingsTab", () => {
     expect(warning?.textContent).toContain("as root (administrator)");
     expect(warning?.textContent).toContain("backup fails too");
     expect(warning?.textContent).toContain("fingerprint");
+  });
+
+  it("offers the file system snapshot of a Linux machine and saves it, null for the default", async () => {
+    await open();
+    const select = field<HTMLSelectElement>("settings-fs-snapshot");
+    expect(select.value).toBe("default");
+    expect(page.text()).toContain("Default for this machine: off.");
+    await act(async () => {
+      select.value = "auto";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenCalledWith(ID, { config: { fsSnapshot: "auto" } });
+    page.unmount();
+    // A machine that stores its own setting goes back to the default with null.
+    await open({
+      config: {
+        ...detail().config,
+        fsSnapshot: "off",
+        wholeMachine: true,
+        wholeMachineActive: true,
+      },
+    });
+    const own = field<HTMLSelectElement>("settings-fs-snapshot");
+    expect(own.value).toBe("off");
+    await act(async () => {
+      own.value = "default";
+      own.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(page.text()).toContain("Default for this machine: on");
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenLastCalledWith(ID, { config: { fsSnapshot: null } });
+  });
+
+  it("names the default the agent gets: off while the preview is off, even with a stored whole machine", async () => {
+    await open({
+      config: {
+        ...detail().config,
+        fsSnapshot: null,
+        wholeMachine: true,
+        wholeMachineActive: false,
+      },
+    });
+    expect(field<HTMLSelectElement>("settings-fs-snapshot").value).toBe("default");
+    expect(page.text()).toContain("Default for this machine: off.");
+  });
+
+  it("offers no file system snapshot to a Windows machine", async () => {
+    await open({ os: "windows", config: { ...detail().config, useVss: true } });
+    expect(field("settings-fs-snapshot")).toBeNull();
+    expect(document.querySelector('[data-slot="settings-vss"]')).not.toBeNull();
   });
 
   it("saves only the part that changed", async () => {
@@ -658,8 +728,10 @@ describe("SettingsTab", () => {
         id: ID,
         mode: "delete",
         state: "scheduled",
-        dueAt: "2026-10-20T12:00:00.000Z",
+        dueAt: "2026-10-27T12:00:00.000Z",
         expiresAt: null,
+        reason: "Sold",
+        cancellable: true,
       });
       await open({ status: "revoked", revokedAt: "2026-10-01T00:00:00.000Z" });
       await page.click(page.byText("button", "Remove machine"));
@@ -673,23 +745,118 @@ describe("SettingsTab", () => {
       await page.type(field<HTMLInputElement>("remove-confirm-hostname"), "web-01");
       const button = page.byText(
         '[data-slot="remove-machine-dialog"] button',
-        "Delete machine and backups",
+        "Delete backups in seven days",
       ) as HTMLButtonElement;
+      // Deleting needs a reason as well.
+      expect(button.disabled).toBe(true);
+      await page.type(field<HTMLTextAreaElement>("remove-reason"), " Sold ");
       expect(button.disabled).toBe(false);
       await page.click(button);
       await page.settle();
       expect(removeEndpoint).toHaveBeenCalledWith(ID, {
         mode: "delete",
         confirmHostname: "web-01",
+        reason: "Sold",
       });
       await page.settle();
       await page.click(page.byText("button", "Confirm with passkey"));
       await page.settle();
       await page.settle();
       expect(removeEndpoint).toHaveBeenCalledTimes(2);
-      expect(navigate).toHaveBeenCalled();
+      // The machine stays (revoked) until its backups go: its page is not left.
+      expect(navigate).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("offers deleting backups only to an owner of the provider team", async () => {
+    for (const who of [
+      { isProviderAdmin: false, providerRole: null },
+      { isProviderAdmin: true, providerRole: "administrator" as const },
+    ]) {
+      viewer.isProviderAdmin = who.isProviderAdmin;
+      viewer.providerRole = who.providerRole;
+      await open({ status: "revoked", revokedAt: "2026-10-01T00:00:00.000Z" });
+      await page.click(page.byText("button", "Remove machine"));
+      const radio = document.getElementById("remove-mode-delete") as HTMLButtonElement;
+      expect(radio.disabled, String(who.providerRole)).toBe(true);
+      expect(document.querySelector('[data-slot="owner-only"]')?.textContent).toContain(
+        "Only an owner of the provider team",
+      );
+      expect(document.getElementById("remove-reason")).toBeNull();
+      page.unmount();
+    }
+  });
+
+  it("does not offer removing again while a deletion is scheduled", async () => {
+    await open({
+      status: "revoked",
+      revokedAt: "2026-10-01T00:00:00.000Z",
+      backupDeletion: {
+        dueAt: "2026-10-27T12:00:00.000Z",
+        requestedAt: "2026-10-20T12:00:00.000Z",
+        requestedBy: "owner@provider.example",
+        reason: "Sold",
+        state: "scheduled",
+        heldBy: null,
+      },
+    });
+    expect((page.byText("button", "Remove machine") as HTMLButtonElement).disabled).toBe(true);
+    expect(page.text()).toContain("scheduled for deletion");
+  });
+});
+
+describe("BackupDeletionNotice", () => {
+  let page: Mounted;
+  afterEach(() => page?.unmount());
+
+  const pending = {
+    dueAt: "2026-10-27T12:00:00.000Z",
+    requestedAt: "2026-10-20T12:00:00.000Z",
+    requestedBy: "owner@provider.example",
+    reason: "Machine sold",
+    state: "scheduled" as const,
+    heldBy: null,
+  };
+
+  beforeEach(() => {
+    cancelRemoval.mockReset();
+    cancelRemoval.mockResolvedValue(undefined);
+    viewer.isProviderAdmin = true;
+    viewer.providerRole = "owner";
+  });
+
+  async function show(backupDeletion: EndpointDetail["backupDeletion"]) {
+    page = mount();
+    await page.render(<BackupDeletionNotice detail={{ id: ID, backupDeletion }} />);
+    await page.settle();
+  }
+
+  it("says when the backups go, who asked and why, and lets an owner cancel", async () => {
+    await show(pending);
+    const notice = document.querySelector('[data-slot="backup-deletion"]');
+    expect(notice?.textContent).toContain("Backups will be deleted on");
+    expect(notice?.textContent).toContain("owner@provider.example");
+    expect(notice?.textContent).toContain("Reason: Machine sold");
+    await page.click(page.byText("button", "Cancel deletion"));
+    await page.settle();
+    expect(cancelRemoval).toHaveBeenCalledWith(ID);
+  });
+
+  it("names the hold, and leaves cancelling to the owners", async () => {
+    viewer.isProviderAdmin = false;
+    viewer.providerRole = null;
+    await show({ ...pending, state: "held", heldBy: "legal_hold" });
+    expect(document.querySelector('[data-slot="backup-deletion-held"]')?.textContent).toContain(
+      "legal hold",
+    );
+    expect(document.querySelector('[data-action="cancel-backup-deletion"]')).toBeNull();
+    expect(page.text()).toContain("Only an owner of the provider team can cancel");
+  });
+
+  it("shows nothing without a pending deletion", async () => {
+    await show(null);
+    expect(document.querySelector('[data-slot="backup-deletion"]')).toBeNull();
   });
 });

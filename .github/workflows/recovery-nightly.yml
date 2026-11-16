@@ -1,0 +1,175 @@
+name: Recovery nightly
+
+# The full matrix of the bare metal restore in QEMU/KVM (docs/BAREMETAL.md 21.2): E1b and E3
+# to E10 every night (E1 and E2 run in CI on every pull request that touches the restore), and
+# every case before a release, which calls this workflow with the ISO it built
+# (release.yml, job recovery-e2e-full). Without an ISO handed in, it builds the agent and the
+# recovery ISO (integrations/recovery/build.sh) of the default branch first.
+#
+# Pin policy as in ci.yml: every third-party action pinned to a full commit SHA.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: "per-pr, nightly, all, or ids such as E3,E7"
+        required: false
+        default: nightly
+  workflow_call:
+    inputs:
+      cases:
+        type: string
+        required: false
+        default: all
+      iso-artifact:
+        description: "an artifact of the calling run that holds restow-recovery_<v>_amd64.iso"
+        type: string
+        required: false
+        default: ""
+      agent-artifact:
+        description: "an artifact of the calling run with the agent build (the folder with linux-amd64/)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recovery-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Agent and recovery ISO
+    if: inputs.iso-artifact == '' || inputs.iso-artifact == null
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: The agent for linux-amd64 (with restic)
+        run: sh agent/build.sh --targets linux-amd64 --out "$RUNNER_TEMP/agent-dist"
+
+      - name: The recovery ISO
+        run: |
+          set -euo pipefail
+          version="$(cat "$RUNNER_TEMP/agent-dist/VERSION")"
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$version" --out "$RUNNER_TEMP/recovery"
+
+      - name: Keep the agent build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-agent-dist
+          path: ${{ runner.temp }}/agent-dist
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Keep the ISO
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-recovery-iso
+          path: ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso
+          if-no-files-found: error
+          retention-days: 2
+
+  cases:
+    name: The cases to run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: List them (scripts/recovery-e2e/cases.mjs)
+        id: list
+        env:
+          CASES: ${{ inputs.cases || 'nightly' }}
+        run: |
+          matrix="$(node --input-type=module -e '
+            const { selectCases } = await import("./scripts/recovery-e2e/cases.mjs");
+            console.log(JSON.stringify(selectCases(process.env.CASES).map((item) => item.id)));
+          ')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "cases: $matrix"
+
+  e2e:
+    name: Recovery ${{ matrix.case }}
+    needs: [build, cases]
+    # The build job is skipped when the caller hands in its ISO.
+    if: always() && needs.cases.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        case: ${{ fromJSON(needs.cases.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: QEMU, OVMF and the firmware variable tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf \
+            python3-virt-firmware xorriso openssh-client
+
+      - name: The agent build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.agent-artifact || 'nightly-agent-dist' }}
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: The recovery ISO
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.iso-artifact || 'nightly-recovery-iso' }}
+          path: ${{ runner.temp }}/recovery
+
+      - name: Run ${{ matrix.case }}
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          iso="$(ls "$RUNNER_TEMP"/recovery/restow-recovery_*_amd64.iso)"
+          node scripts/recovery-e2e/run.mjs --iso "$iso" --agent-dist "$RUNNER_TEMP/agent-dist" \
+            --cases "$CASE" --work-dir "$RUNNER_TEMP/recovery-e2e"
+
+      - name: Keep the serial logs and the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-e2e-${{ matrix.case }}
+          path: |
+            ${{ runner.temp }}/recovery-e2e/report.json
+            ${{ runner.temp }}/recovery-e2e/*/*.log
+          if-no-files-found: ignore
+          retention-days: 14

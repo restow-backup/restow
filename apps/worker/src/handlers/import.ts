@@ -31,7 +31,7 @@ import { join } from "node:path";
  *   IMPORT_MAX_MESSAGE_BYTES    largest single message that is read (default 256 MiB)
  *   IMPORT_PARSE_WORKERS        parser processes of this worker (MSG, message metadata), 1 to 8 (default 2)
  */
-import { type Logger, loadManifest, mailfiles } from "@restow/core";
+import { type Logger, loadManifest, mailfiles, withDeletionPermit } from "@restow/core";
 import {
   type ImportUpload,
   importUploads,
@@ -569,7 +569,10 @@ async function deleteStaging(
 ): Promise<void> {
   for (const id of uploadIds) {
     try {
-      await segments.delete({ tenantId, kind: "staging", id });
+      // Refused in restore mode; the clean-up task deletes it once restore mode ended.
+      await withDeletionPermit({ pass: "import_staging", tenantId }, () =>
+        segments.delete({ tenantId, kind: "staging", id }),
+      );
     } catch (error) {
       logger.warn("could not delete a staged upload; the cleanup task will retry", {
         uploadId: id,

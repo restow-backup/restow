@@ -1,0 +1,15 @@
+dumpe2fs 1.47.0 (5-Feb-2023)
+Filesystem volume name:   <none>
+Filesystem UUID:          f1000000-0000-4000-8000-0000000000b1
+Filesystem magic number:  0xEF53
+Filesystem features:      has_journal ext_attr resize_inode dir_index filetype needs_recovery extent 64bit flex_bg sparse_super large_file huge_file dir_nlink extra_isize metadata_csum
+Inode count:              65536
+Block count:              262144
+Reserved block count:     13107
+Free inodes:              35536
+Block size:               4096
+Flex block group size:    16
+Inode size:	          256
+Journal features:         journal_incompat_revoke journal_64bit journal_checksum_v3
+Total journal size:       128M
+Journal size:             128M

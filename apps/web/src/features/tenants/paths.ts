@@ -1,5 +1,6 @@
 import type { LinkProps } from "@tanstack/react-router";
 
+import { INVITATIONS_BASE_PATH } from "@/lib/entry";
 import { TENANTS_PATH, tenantPageTo } from "@/lib/tenant-paths";
 
 /**
@@ -10,7 +11,7 @@ import { TENANTS_PATH, tenantPageTo } from "@/lib/tenant-paths";
 export { TENANTS_PATH };
 /** The old address of the members page; it leads to the Members section of the tenant page. */
 export const MEMBERS_PATH = "/members";
-export const INVITATIONS_PATH = "/invitations";
+export const INVITATIONS_PATH = INVITATIONS_BASE_PATH;
 export const HOME_PATH = "/";
 
 export function tenantsListTo(): LinkProps["to"] {

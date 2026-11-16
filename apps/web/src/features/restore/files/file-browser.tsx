@@ -301,7 +301,7 @@ export function SelectionBar({
           disabled={count === 0 || blockedDownload !== null || downloading}
         >
           {downloading ? (
-            <Loader2 aria-hidden="true" className="animate-spin" />
+            <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />
           ) : (
             <Download aria-hidden="true" />
           )}
@@ -405,7 +405,9 @@ export function BrowserBody({
             onClick={pages.onLoadMore}
             disabled={pages.loadingMore}
           >
-            {pages.loadingMore ? <Loader2 aria-hidden="true" className="animate-spin" /> : null}
+            {pages.loadingMore ? (
+              <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />
+            ) : null}
             {pages.loadingMore
               ? t("browser.loadingMore")
               : pages.moreError

@@ -7,6 +7,8 @@ import type {
   ProbeInput,
   ProbeOutcome,
   PromoteResult,
+  PromotionReadiness,
+  RepositoryRepairs,
   RestorePointImmutability,
   SetImmutabilityInput,
   SetImmutabilityResult,
@@ -28,6 +30,9 @@ export const storageKeys = {
   all: (tenantId: string | null) => ["tenant", tenantId, "storage"] as const,
   targets: (tenantId: string | null) => ["tenant", tenantId, "storage", "targets"] as const,
   usage: (tenantId: string | null) => ["tenant", tenantId, "storage", "usage"] as const,
+  repairs: (tenantId: string | null) => ["tenant", tenantId, "storage", "repairs"] as const,
+  promotion: (tenantId: string | null, targetId: string) =>
+    ["tenant", tenantId, "storage", "promotion", targetId] as const,
   restorePoint: (tenantId: string | null, kind: string, id: string) =>
     ["tenant", tenantId, "storage", "restore-point", kind, id] as const,
 };
@@ -76,6 +81,21 @@ export function testInstallationDefault(): Promise<DefaultTestResult> {
 
 export function checkCompleteness(targetId: string): Promise<CompletenessResult> {
   return apiFetch<CompletenessResult>(targetPath(targetId, "completeness"), { method: "POST" });
+}
+
+/**
+ * Whether this copy can become the primary, every reason it cannot yet, and the catch-up's
+ * progress. `files` also compares the listings of primary and copy (slower).
+ */
+export function fetchPromotion(targetId: string, files: boolean): Promise<PromotionReadiness> {
+  return files
+    ? apiFetch<PromotionReadiness>(targetPath(targetId, "promotion/check"), { method: "POST" })
+    : apiFetch<PromotionReadiness>(targetPath(targetId, "promotion"));
+}
+
+/** "Catch up now": a storage check that mirrors the copies, and the copies of every repository. */
+export function startCatchUp(targetId: string): Promise<PromotionReadiness> {
+  return apiFetch<PromotionReadiness>(targetPath(targetId, "catch-up"), { method: "POST" });
 }
 
 export function promoteTarget(targetId: string): Promise<PromoteResult> {
@@ -129,4 +149,22 @@ export function fetchEndpointRestorePointImmutability(
   return apiFetch<RestorePointImmutability>(
     `/endpoints/${encodeURIComponent(endpointId)}/snapshots/${encodeURIComponent(snapshotId)}/immutability`,
   );
+}
+
+/** The newest repository scan and repair (docs/STORAGE.md, "Repository repair"). */
+export function fetchRepositoryRepairs(): Promise<RepositoryRepairs> {
+  return apiFetch<RepositoryRepairs>("/storage/repositories/repairs");
+}
+
+/** Queue a scan of every restic repository on every storage target (changes nothing). */
+export function requestRepositoryScan(): Promise<unknown> {
+  return apiFetch<unknown>("/storage/repositories/scan", { method: "POST", body: {} });
+}
+
+/** Repair what the newest scan found (a recent sign-in, the typed word). */
+export function requestRepositoryRepair(scanId: string, confirm: string): Promise<unknown> {
+  return apiFetch<unknown>("/storage/repositories/repair", {
+    method: "POST",
+    body: { scanId, confirm },
+  });
 }

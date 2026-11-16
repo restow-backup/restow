@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Not a lock: a line without its hash.
+kmod 34.2-1

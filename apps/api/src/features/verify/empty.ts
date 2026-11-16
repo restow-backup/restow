@@ -1,4 +1,4 @@
-import { isEmptyFinding } from "@restow/core";
+import { isEmptyFinding, isSourceEmptyFinding } from "@restow/core";
 import { type Database, emptyConfirmations, protectedObjects } from "@restow/db";
 import { and, eq, inArray, type SQL } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -22,6 +22,15 @@ import { loadObjectVerifications, type ReportFact } from "./verification-state.j
  * aside at once. The worker also deletes the row with the first report that finds content, in
  * the same transaction (apps/worker handlers/verify.ts), so an object that turns empty again later
  * is confirmed anew. Confirming and revoking are audited.
+ *
+ * Empty by the source (0.5.0): a OneDrive or mailbox whose backup holds nothing while Microsoft
+ * 365 itself reports it empty, before and after the run (core verify/source.ts,
+ * `snapshot_empty_confirmed_by_source`), reads "empty" the same way without anyone confirming
+ * it ({@link emptyStateOf}). It cannot be confirmed (there is nothing to confirm), and it is
+ * not audited: it is a rating, not a decision. Every view that shows an object's state asks
+ * {@link emptyStateOf}, so the verify overview, the statistics, the restore explorer, the
+ * directory and the integration API (/v1/verify, /v1/status, /v1/users and /v1/objects, where
+ * v1 knows no "empty" and counts it as green) agree.
  */
 
 export const EMPTY_AUDIT_ACTIONS = {
@@ -47,8 +56,16 @@ export interface EmptyConfirmationDto {
   snapshotId: string | null;
 }
 
-/** `excluded`: the object is excluded from protection; the overview does not list it either. */
-export type EmptySkipReason = "not_empty" | "no_report" | "not_found" | "excluded";
+/**
+ * `excluded`: the object is excluded from protection; the overview does not list it either.
+ * `empty_by_source`: Microsoft 365 reports it empty as well, it reads "empty" without one (0.5.0).
+ */
+export type EmptySkipReason =
+  | "not_empty"
+  | "no_report"
+  | "not_found"
+  | "excluded"
+  | "empty_by_source";
 
 export interface EmptyConfirmResultDto {
   confirmed: { protectedObjectId: string; displayName: string | null }[];
@@ -74,10 +91,44 @@ export function restsOnEmpty(reasons: readonly { code: string }[], withoutAge: b
   );
 }
 
+/** Whether a report's reasons say "empty by the source and by the backup" and nothing else. */
+export function restsOnSourceEmpty(
+  reasons: readonly { code: string }[],
+  withoutAge: boolean,
+): boolean {
+  return isSourceEmptyFinding(
+    withoutAge ? reasons.filter((reason) => !FRESHNESS_REASONS.has(reason.code)) : reasons,
+  );
+}
+
+/** What the empty rule reads of a report: its stored reasons and where it came from. */
+export type EmptyRatedReport = Pick<ReportFact, "origin"> & { readonly reasons?: unknown };
+
+/**
+ * Why the object reads "empty" now, or null when it does not: `source` when the report that
+ * rates it says "empty by Microsoft 365 and by the backup" and nothing else, `admin` when an
+ * admin's confirmation counts for it ({@link confirmationApplies}). A storage finding never
+ * reads "empty". The statistics and the reports built from them (stats/readiness.ts) ask the
+ * same, with a confirmation only from the moment it was given.
+ */
+export function emptyStateOf(
+  report: EmptyRatedReport | null | undefined,
+  confirmation: Pick<EmptyConfirmationDto, "confirmedAt"> | null | undefined,
+  withoutAge: boolean,
+): "source" | "admin" | null {
+  if (!report || report.origin === "scrub") {
+    return null;
+  }
+  if (restsOnSourceEmpty(parseReasons(report.reasons), withoutAge)) {
+    return "source";
+  }
+  return confirmationApplies(confirmation, report, withoutAge) ? "admin" : null;
+}
+
 /** Whether a stored confirmation counts for the report that rates the object now. */
 export function confirmationApplies(
-  confirmation: EmptyConfirmationDto | null | undefined,
-  report: Pick<ReportFact, "reasons" | "origin"> | null | undefined,
+  confirmation: Pick<EmptyConfirmationDto, "confirmedAt"> | null | undefined,
+  report: EmptyRatedReport | null | undefined,
   withoutAge: boolean,
 ): boolean {
   if (!confirmation || !report || report.origin === "scrub") {
@@ -209,6 +260,14 @@ export async function confirmEmpty(
       }
       const withoutAge =
         candidate.status === "orphaned" || (candidate.status === "active" && noJob.has(id));
+      if (
+        report.origin !== "scrub" &&
+        restsOnSourceEmpty(parseReasons(report.reasons), withoutAge)
+      ) {
+        // Empty by Microsoft 365 as well: it reads "empty" already, nothing to confirm.
+        skip("empty_by_source");
+        continue;
+      }
       if (report.origin === "scrub" || !restsOnEmpty(parseReasons(report.reasons), withoutAge)) {
         skip("not_empty");
         continue;

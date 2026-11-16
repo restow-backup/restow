@@ -504,7 +504,7 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
       await owner?.end();
     });
 
-    it("applies the new migrations", async () => {
+    it("applies the new migrations [UPDATE-017]", async () => {
       expect(await appliedMigrations(owner)).toBe(journal.entries.length);
     });
 
@@ -2233,5 +2233,579 @@ describe.skipIf(!adminUrl)(
         await pool.end();
       }
     }, 60_000);
+  },
+);
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups (0100)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_layouts_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_layouts_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), run: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0098_run_size_notice");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0098, keeps every run and links a run to a layout", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_runs (id, tenant_id, endpoint_id, kind, status, started_at, snapshot_id)
+           VALUES ($1, $2, $3, 'backup', 'succeeded', now(), $4)`,
+          [ids.run, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+      });
+
+      await runMigrations(url);
+
+      await asTenant(pool, ids.tenant, async (client) => {
+        const run = await client.query("SELECT layout_id FROM endpoint_runs WHERE id = $1", [
+          ids.run,
+        ]);
+        expect(run.rows).toEqual([{ layout_id: null }]);
+        const layout = (sha: string, platform = "linux") =>
+          insertReturningId(
+            client,
+            `INSERT INTO endpoint_layouts (tenant_id, endpoint_id, sha256, format, schema_version, platform,
+                                           manifest, summary, verdict, layout_fingerprint)
+             VALUES ($1, $2, $3, 'restow-layout-v1', 1, $4, '{}'::jsonb, '{}'::jsonb, 'supported', 'f')
+             RETURNING id`,
+            [ids.tenant, ids.endpoint, sha, platform],
+          );
+        const layoutId = await layout("b".repeat(64));
+        await client.query("UPDATE endpoint_runs SET layout_id = $1 WHERE id = $2", [
+          layoutId,
+          ids.run,
+        ]);
+        // One row per machine and content, and only the two platforms.
+        await expect(
+          client.query("SAVEPOINT a").then(() => layout("b".repeat(64))),
+        ).rejects.toThrow(/endpoint_layouts_endpoint_sha_uq/);
+        await client.query("ROLLBACK TO SAVEPOINT a");
+        await expect(
+          client.query("SAVEPOINT b").then(() => layout("c".repeat(64), "windows")),
+        ).rejects.toThrow(/endpoint_layouts_platform_ck/);
+        await client.query("ROLLBACK TO SAVEPOINT b");
+        // A layout that goes leaves the run, without its link.
+        await client.query("DELETE FROM endpoint_layouts WHERE id = $1", [layoutId]);
+        const after = await client.query("SELECT layout_id FROM endpoint_runs WHERE id = $1", [
+          ids.run,
+        ]);
+        expect(after.rows).toEqual([{ layout_id: null }]);
+      });
+      // Isolated like every tenant table: unpinned, nothing is seen.
+      const { rows } = await pool.query<{ force: boolean }>(
+        "SELECT relforcerowsecurity AS force FROM pg_class WHERE relname = 'endpoint_layouts' AND relkind = 'r'",
+      );
+      expect(rows).toEqual([{ force: true }]);
+      expect((await pool.query("SELECT 1 FROM endpoint_layouts")).rowCount).toBe(0);
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (0101)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_bmcheck_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_bmcheck_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), report: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0100_baremetal_layouts");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0100, keeps every report and accepts the new kind", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_reports (id, tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, $3, 'restore_test', 'server', $4, 'green', '{"files":3}'::jsonb)`,
+          [ids.report, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+      });
+
+      await runMigrations(url);
+
+      const { rows: values } = await pool.query<{ value: string }>(
+        `SELECT e.enumlabel AS value FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'endpoint_report_kind' ORDER BY e.enumsortorder`,
+      );
+      expect(values.map((row) => row.value)).toEqual([
+        "restore_test",
+        "repository_check",
+        "retention",
+        "sql_verify",
+        "baremetal_check",
+        "boot_probe",
+      ]);
+      await asTenant(pool, ids.tenant, async (client) => {
+        const before = await client.query(
+          "SELECT kind, readiness, summary FROM endpoint_reports WHERE id = $1",
+          [ids.report],
+        );
+        expect(before.rows).toEqual([
+          { kind: "restore_test", readiness: "green", summary: { files: 3 } },
+        ]);
+        await client.query(
+          `INSERT INTO endpoint_reports (tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, 'baremetal_check', 'server', $3, 'yellow', '{"incomplete":"planner_timeout"}'::jsonb)`,
+          [ids.tenant, ids.endpoint, "b".repeat(64)],
+        );
+        const { rows } = await client.query(
+          "SELECT kind FROM endpoint_reports WHERE endpoint_id = $1 ORDER BY kind",
+          [ids.endpoint],
+        );
+        expect(rows.map((row: { kind: string }) => row.kind)).toEqual([
+          "restore_test",
+          "baremetal_check",
+        ]);
+      });
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens (0102)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_recoveries_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_recoveries_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), run: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0101_baremetal_check");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0101 alone, keeps every run and token and enforces the new checks", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_runs (id, tenant_id, endpoint_id, kind, status, started_at, snapshot_id)
+           VALUES ($1, $2, $3, 'backup', 'succeeded', now(), $4)`,
+          [ids.run, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+        // An enrollment token of a week: valid as before (only rebind tokens are bounded).
+        await client.query(
+          `INSERT INTO endpoint_enrollment_tokens (tenant_id, token_hash, profile, expires_at)
+           VALUES ($1, 'old-token', 'server', now() + interval '7 days')`,
+          [ids.tenant],
+        );
+      });
+
+      // Only 0102, 0103 (the log's key block mark) and 0104 (the boot probe) are left to apply.
+      await runMigrations(url);
+      const { rows: applied } = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
+      );
+      expect(Number(applied[0]?.count)).toBe(105);
+      const { rows: column } = await pool.query(
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
+      );
+      expect(column).toEqual([
+        { data_type: "boolean", is_nullable: "NO", column_default: "false" },
+      ]);
+
+      await asTenant(pool, ids.tenant, async (client) => {
+        const run = await client.query(
+          "SELECT activity_baseline FROM endpoint_runs WHERE id = $1",
+          [ids.run],
+        );
+        expect(run.rows).toEqual([{ activity_baseline: false }]);
+        const token = await client.query(
+          "SELECT endpoint_id, purpose, unrevoke FROM endpoint_enrollment_tokens WHERE token_hash = 'old-token'",
+        );
+        expect(token.rows).toEqual([{ endpoint_id: null, purpose: null, unrevoke: false }]);
+        const insertToken = (hash: string, hours: number, purpose: string | null) =>
+          client.query(
+            `INSERT INTO endpoint_enrollment_tokens (tenant_id, token_hash, profile, expires_at, endpoint_id, purpose)
+             VALUES ($1, $2, 'server', now() + ($3 || ' hours')::interval, $4, $5)`,
+            [ids.tenant, hash, String(hours), ids.endpoint, purpose],
+          );
+        await insertToken("rebind-24h", 24, "reinstall");
+        await client.query("SAVEPOINT a");
+        await expect(insertToken("rebind-25h", 25, "baremetal")).rejects.toThrow(
+          /endpoint_enrollment_tokens_rebind_24h/,
+        );
+        await client.query("ROLLBACK TO SAVEPOINT a");
+        await expect(insertToken("rebind-odd", 1, "anything")).rejects.toThrow(
+          /endpoint_enrollment_tokens_purpose_ck/,
+        );
+        await client.query("ROLLBACK TO SAVEPOINT a");
+
+        const recovery = (hash: string | null, hours: number) =>
+          client.query(
+            `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, code_hash, expires_at, issued_at)
+             VALUES ($1, $2, 'code', $3, now() + ($4 || ' hours')::interval, now()) RETURNING id, status`,
+            [ids.tenant, ids.endpoint, hash, String(hours)],
+          );
+        const issued = await recovery("h1", 48);
+        expect(issued.rows[0]?.status).toBe("issued");
+        await client.query("SAVEPOINT b");
+        await expect(recovery("h2", 49)).rejects.toThrow(/endpoint_recoveries_max_48h/);
+        await client.query("ROLLBACK TO SAVEPOINT b");
+        await expect(recovery("h1", 4)).rejects.toThrow(/endpoint_recoveries_code_uq/);
+        await client.query("ROLLBACK TO SAVEPOINT b");
+        // Without a hash (a later kind) any number of rows.
+        await recovery(null, 4);
+        await recovery(null, 4);
+        await client.query(
+          "INSERT INTO endpoint_recovery_log (tenant_id, recovery_id, lines) VALUES ($1, $2, 'line')",
+          [ids.tenant, issued.rows[0]?.id],
+        );
+        // The machine goes, and so do its recoveries, their logs and its rebind tokens.
+        await client.query("DELETE FROM endpoint_runs WHERE endpoint_id = $1", [ids.endpoint]);
+        await client.query("DELETE FROM endpoints WHERE id = $1", [ids.endpoint]);
+        const left = await client.query(
+          `SELECT (SELECT count(*) FROM endpoint_recoveries)::int AS recoveries,
+                  (SELECT count(*) FROM endpoint_recovery_log)::int AS log,
+                  (SELECT count(*) FROM endpoint_enrollment_tokens WHERE endpoint_id IS NOT NULL)::int AS rebind`,
+        );
+        expect(left.rows).toEqual([{ recoveries: 0, log: 0, rebind: 0 }]);
+      });
+      // Isolated like every tenant table: unpinned, nothing is seen.
+      const { rows } = await pool.query<{ name: string; force: boolean }>(
+        `SELECT relname AS name, relforcerowsecurity AS force FROM pg_class
+          WHERE relname IN ('endpoint_recoveries', 'endpoint_recovery_log') AND relkind = 'r' ORDER BY relname`,
+      );
+      expect(rows).toEqual([
+        { name: "endpoint_recoveries", force: true },
+        { name: "endpoint_recovery_log", force: true },
+      ]);
+      expect((await pool.query("SELECT 1 FROM endpoint_recoveries")).rowCount).toBe(0);
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0104)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_probe_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_probe_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), report: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0103_endpoint_recovery_log_key_block");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0103, keeps every report and code, accepts the new kinds and adds the lab state", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_reports (id, tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, $3, 'baremetal_check', 'server', $4, 'green', '{"checks":8}'::jsonb)`,
+          [ids.report, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+        await client.query(
+          `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, code_hash, expires_at, issued_at)
+           VALUES ($1, $2, 'code', 'h1', now() + interval '4 hours', now())`,
+          [ids.tenant, ids.endpoint],
+        );
+      });
+
+      await runMigrations(url);
+
+      const enumOf = async (type: string) =>
+        (
+          await pool.query<{ value: string }>(
+            `SELECT e.enumlabel AS value FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+              WHERE t.typname = $1 ORDER BY e.enumsortorder`,
+            [type],
+          )
+        ).rows.map((row) => row.value);
+      expect((await enumOf("endpoint_report_kind")).slice(-2)).toEqual([
+        "baremetal_check",
+        "boot_probe",
+      ]);
+      expect(await enumOf("endpoint_recovery_kind")).toEqual(["code", "probe"]);
+      const { rows: lab } = await pool.query(
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_name = 'settings' AND column_name = 'recovery_lab'`,
+      );
+      expect(lab).toEqual([{ data_type: "jsonb", is_nullable: "YES", column_default: null }]);
+      await asTenant(pool, ids.tenant, async (client) => {
+        const kept = await client.query(
+          `SELECT (SELECT kind FROM endpoint_reports WHERE id = $1) AS report,
+                  (SELECT kind FROM endpoint_recoveries WHERE code_hash = 'h1') AS code`,
+          [ids.report],
+        );
+        expect(kept.rows).toEqual([{ report: "baremetal_check", code: "code" }]);
+        // A probe that is planned has no code yet; the lab's lease sets it.
+        await client.query(
+          `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, require_approval, expires_at, issued_at)
+           VALUES ($1, $2, 'probe', false, now() + interval '3 hours', now())`,
+          [ids.tenant, ids.endpoint],
+        );
+        await client.query(
+          `INSERT INTO endpoint_reports (tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, 'boot_probe', 'server', $3, 'green', '{}'::jsonb)`,
+          [ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+        const counted = await client.query(
+          `SELECT (SELECT count(*) FROM endpoint_recoveries WHERE kind = 'probe')::int AS probes,
+                  (SELECT count(*) FROM endpoint_reports WHERE kind = 'boot_probe')::int AS reports`,
+        );
+        expect(counted.rows).toEqual([{ probes: 1, reports: 1 }]);
+      });
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!adminUrl)(
+  "upgrading to 0.5.0: the tenants' weekly report moves to the calendar week (0091)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_cadence_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_cadence_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = { provider: randomUUID(), tenant: randomUUID(), other: randomUUID() };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0090_cluster_nodes");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    const rulesOf = (pool: pg.Pool, tenantId: string) =>
+      asTenant(pool, tenantId, async (client) => {
+        const { rows } = await client.query<{ name: string; cadence: string | null }>(
+          "SELECT name, cadence FROM report_rules ORDER BY name",
+        );
+        return rows;
+      });
+
+    it("sets the weekly cadence on the recipients' weekly rule, for an owner bound by RLS", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("INSERT INTO providers (id, name) VALUES ($1, 'p')", [ids.provider]);
+        for (const [tenantId, slug] of [
+          [ids.tenant, "contoso"],
+          [ids.other, "fabrikam"],
+        ] as const) {
+          await asTenant(pool, tenantId, async (client) => {
+            await client.query(
+              "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)",
+              [tenantId, ids.provider, slug],
+            );
+            await client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, cron, recipient_category)
+               VALUES ($1, 'Weekly', 'schedule', '0 7 * * 1', 'weeklyReport')`,
+              [tenantId],
+            );
+            // A schedule rule of its own keeps its rolling period.
+            await client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, cron)
+               VALUES ($1, 'Own', 'schedule', '0 7 * * 1')`,
+              [tenantId],
+            );
+          });
+        }
+
+        await runMigrations(url);
+
+        for (const tenantId of [ids.tenant, ids.other]) {
+          expect(await rulesOf(pool, tenantId)).toEqual([
+            { name: "Own", cadence: null },
+            { name: "Weekly", cadence: "weekly" },
+          ]);
+        }
+        const { rows } = await pool.query<{ force: boolean }>(
+          "SELECT relforcerowsecurity AS force FROM pg_class WHERE relname = 'report_rules' AND relkind = 'r'",
+        );
+        expect(rows).toEqual([{ force: true }]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
   },
 );

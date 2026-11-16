@@ -1,3 +1,4 @@
+import { isAllowedSenderEntry } from "@restow/core";
 import { z } from "zod";
 import { ianaTimeZoneSchema } from "../../schemas.js";
 import { localConfigSchema, s3ConfigSchema, s3CredentialsSchema } from "../storage/schemas.js";
@@ -119,6 +120,21 @@ export const smtpInputSchema = z
     from: z.string().trim().email("email").max(320, "email"),
     /** Omit (or send empty) for a relay without authentication. */
     username: z.string().trim().max(320, "required").nullish().transform(emptyToNull),
+    /**
+     * Further From addresses the branding may use (0.5.0): exact addresses or `@domain`, at most
+     * 20. The configured `from` is always allowed.
+     */
+    allowedSenders: z
+      .array(
+        z
+          .string()
+          .trim()
+          .toLowerCase()
+          .refine((value) => isAllowedSenderEntry(value), "allowedSenders"),
+      )
+      .max(20, "allowedSenders")
+      .optional()
+      .transform((list) => (list ? [...new Set(list)] : undefined)),
     /**
      * Secret: handed to the encrypted secret store, never persisted to `settings`
      * and never returned. Omit to keep the stored password (same host and user).

@@ -6,7 +6,6 @@ import {
   FILE_SHARE_QUEUES,
   type FileShareJobPayload,
   type FileShareSettings,
-  fileShareRepositoryPrefix,
   fileShareSettingsOf,
   fileShareSingletonKey,
   type HostResolver,
@@ -15,6 +14,7 @@ import {
   type RunnerListOutput,
   RunnerRefusedError,
   RunnerUnavailableError,
+  repositoryPrefixOf,
   type ShareSpec,
   shareBudgetBytes,
   shareCauseOfCode,
@@ -1825,5 +1825,8 @@ export async function revealRepositoryPassword(
       details: { name: share.name },
     }),
   );
-  return { password, storagePrefix: fileShareRepositoryPrefix(id) };
+  return {
+    password,
+    storagePrefix: repositoryPrefixOf("file_share", id, share.repositoryPrefix),
+  };
 }

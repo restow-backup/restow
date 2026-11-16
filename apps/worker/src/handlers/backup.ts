@@ -89,6 +89,9 @@ import {
   type Database,
   jobs,
   protectedObjects,
+  type RunSizeAdmission,
+  RunSizeGuard,
+  type RunSizeTx,
   type Source,
   safeErrorMessage,
   schedules,
@@ -106,6 +109,7 @@ import {
 } from "../imap-login-state.js";
 import { raiseInactiveNotices } from "../inactive-notices.js";
 import type { TenantTxRunner } from "../progress.js";
+import { reportInstallationSpaceRule, reportInstallationTimeZone } from "../reporting.js";
 import {
   InvalidPayloadError,
   type JobHandler,
@@ -1452,8 +1456,54 @@ export async function enqueueVerifyAfterBackup(options: {
 // The handler
 // ---------------------------------------------------------------------------
 
+/** One run's size and space guard (@restow/db RunSizeGuard), as the handler uses it. */
+export interface BackupSizeGuard {
+  admit(packBytes: number): Promise<RunSizeAdmission>;
+  record(packBytes: number): void;
+}
+
+/**
+ * The size and space guard of a mailbox, OneDrive, SharePoint or IMAP backup (#99,
+ * docs/STORAGE.md "Unusually large runs"): asked before every pack the run writes into the chunk
+ * store, against the object's earlier runs and the primary target's free space.
+ */
+export function defaultBackupSizeGuard(
+  ctx: WorkerJobContext,
+  objectId: string,
+): BackupSizeGuard | null {
+  const primary = ctx.storage.primary;
+  return new RunSizeGuard({
+    tenantId: ctx.tenantId,
+    kind: "m365",
+    objectId,
+    runId: ctx.jobId,
+    transaction: (fn) => tenantRunner(ctx.db, ctx.tenantId)((tx) => fn(tx as RunSizeTx)),
+    space: primary.freeSpace ? () => primary.freeSpace?.() ?? Promise.resolve(null) : undefined,
+    installationTimeZone: reportInstallationTimeZone,
+    installationSpaceRule: reportInstallationSpaceRule,
+    now: ctx.now,
+    log: (level, message, fields) => ctx.logger[level](message, fields),
+  });
+}
+
+/** A run the size and space guard held: no failure of the run's own, nothing to retry. */
+export class BackupHeldError extends Error {
+  constructor(
+    message: string,
+    readonly holdId: string,
+  ) {
+    super(message);
+    this.name = "BackupHeldError";
+  }
+}
+
 export interface BackupHandlerOptions {
   readonly engines: BackupEngineRegistry;
+  /**
+   * The size and space guard of each run (#99); none without it (tests). The process's handler
+   * uses {@link defaultBackupSizeGuard}.
+   */
+  readonly sizeGuard?: (ctx: WorkerJobContext, objectId: string) => BackupSizeGuard | null;
   /** Override the persistence seam (tests); defaults to Postgres through the job's tenant. */
   readonly store?: (ctx: WorkerJobContext) => BackupStore;
   /** Override the pg-boss sender (tests); defaults to the worker's pool. */
@@ -1524,10 +1574,37 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
       const full = payload.full === true;
       logger.info("backup starting", { full, attempt: ctx.attempt, sourceId: source.id });
 
+      // The size and space guard (#99): asked before every pack; a held run stops at once.
+      const guard = options.sizeGuard?.(ctx, object.id) ?? null;
+      let held: BackupHeldError | null = null;
+      const admitPack = guard
+        ? async (_packBytes: number, newBytes: number) => {
+            if (held) {
+              throw held;
+            }
+            // Counted in the new chunks' plaintext, the unit of the object's history.
+            const admission = await guard.admit(newBytes);
+            if (!admission.ok) {
+              held = new BackupHeldError(admission.message, admission.holdId);
+              throw held;
+            }
+            guard.record(newBytes);
+          }
+        : undefined;
+      const heldFailure = (hold: BackupHeldError) =>
+        new InvalidPayloadError(
+          hold.message,
+          buildCause("storage.run_held", {}, { message: hold.message, holdId: hold.holdId }),
+        );
+
       let result: BackupResult;
       try {
-        result = await engine.run({ ...ctx, progress: recorder }, object, { full });
+        result = await engine.run({ ...ctx, progress: recorder, admitPack }, object, { full });
       } catch (error) {
+        if (held) {
+          // Held, not failed: the run waits for an administrator (docs/STORAGE.md).
+          throw heldFailure(held);
+        }
         // A disabled or unlicensed account is no failed backup (core failures/limits.ts).
         // A lock nobody confirmed stays a counted failure, a cancelled run included.
         const inactive = ctx.signal.aborted
@@ -1558,6 +1635,10 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
             errorMessage: safeErrorMessage(error),
           });
         }
+      }
+
+      if (held) {
+        throw heldFailure(held);
       }
 
       // Engines report item failures as they go; one that only returns them
@@ -1606,4 +1687,7 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
 /** The engines the process uses; the entrypoint may register replacements. */
 export const backupEngines = createDefaultBackupEngines();
 
-export const backupHandler = createBackupHandler({ engines: backupEngines });
+export const backupHandler = createBackupHandler({
+  engines: backupEngines,
+  sizeGuard: defaultBackupSizeGuard,
+});

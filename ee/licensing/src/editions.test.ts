@@ -7,7 +7,7 @@ import {
 } from "./editions.js";
 
 describe("environmentEdition", () => {
-  it("is Community without demo mode, whatever RESTOW_EDITION says", () => {
+  it("is Community without demo mode, whatever RESTOW_EDITION says [LICENSE-009]", () => {
     expect(environmentEdition({})).toBe("community");
     expect(environmentEdition({ RESTOW_EDITION: "service_provider" })).toBe("community");
     expect(environmentEdition({ RESTOW_EDITION: "business", RESTOW_DEMO: "false" })).toBe(

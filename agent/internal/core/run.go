@@ -2,15 +2,20 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/activity"
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
+	"github.com/restow-backup/restow/agent/internal/eventlog"
+	"github.com/restow-backup/restow/agent/internal/fssnap"
 	"github.com/restow-backup/restow/agent/internal/lock"
+	"github.com/restow-backup/restow/agent/internal/release"
 	"github.com/restow-backup/restow/agent/internal/restic"
 	"github.com/restow-backup/restow/agent/internal/runlog"
 	"github.com/restow-backup/restow/agent/internal/status"
@@ -31,6 +36,9 @@ type runContext struct {
 	rl      *runlog.Log
 	runner  *restic.Runner
 	cfg     *api.Config
+	// measure, when set, hashes and measures files in the snapshot tree of
+	// this backup (Linux file system snapshots, docs/BAREMETAL.md 5.6).
+	measure func(ctx context.Context, req fssnap.MeasureRequest) (fssnap.MeasureResponse, error)
 }
 
 // runOutcome is what a run reports when it ends.
@@ -54,6 +62,16 @@ type runOutcome struct {
 	RestoreTest *api.RestoreTest
 	// Activity is what a backup changed (the ransomware signals).
 	Activity *activity.Report
+	// Consistency is whether a file system snapshot was used (backups).
+	Consistency *api.Consistency
+	// Layout is the canonical layout manifest of a whole-machine backup.
+	Layout json.RawMessage
+	// SQL, SQLRestore and SQLVerify are the reports of the SQL Server runs;
+	// Notices the fixed warnings of a run.
+	SQL        *api.SQLRunReport
+	SQLRestore *api.SQLRestoreReport
+	SQLVerify  *api.SQLVerifyReport
+	Notices    []api.Notice
 }
 
 func (o *runOutcome) fail(code, format string, args ...any) {
@@ -123,7 +141,8 @@ func (a *Agent) endRun(rc *runContext, out runOutcome) {
 	fin := api.FinishRequest{
 		Status: out.Status, FinishedAt: finished, SnapshotID: out.SnapshotID, Stats: out.Stats,
 		Sample: out.Sample, Errors: capErrors(out.Errors, out.Unlisted), LogTail: rc.rl.Tail(), RestoreTest: out.RestoreTest,
-		Activity: out.Activity,
+		Activity: out.Activity, Consistency: out.Consistency, Layout: out.Layout,
+		SQL: out.SQL, SQLRestore: out.SQLRestore, SQLVerify: out.SQLVerify, Notices: capNotices(out.Notices),
 	}
 	timeout := 4 * time.Minute
 	base := rc.ctx
@@ -235,6 +254,12 @@ func runNoun(kind string) string {
 		return "restore"
 	case api.RunVerifySample:
 		return "restore test"
+	case api.RunSQL:
+		return "SQL Server backup"
+	case api.RunSQLRestore:
+		return "SQL Server restore"
+	case api.RunSQLVerify:
+		return "SQL Server check"
 	}
 	return "backup"
 }
@@ -292,8 +317,12 @@ func (a *Agent) installOffered(ctx context.Context) (*update.Result, error) {
 		return nil, nil
 	}
 	if err != nil {
+		if errors.Is(err, release.ErrBadSignature) || strings.Contains(err.Error(), "SHA-256 mismatch") {
+			eventlog.Error(eventlog.IDUpdateRejected, "The Restow agent refused an update: "+err.Error())
+		}
 		return nil, err
 	}
+	eventlog.Info(eventlog.IDUpdateInstalled, "The Restow agent installed version "+res.Version+"; the service starts it now.")
 	return &res, nil
 }
 

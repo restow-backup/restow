@@ -2,6 +2,7 @@ import { Link, type LinkProps, useNavigate } from "@tanstack/react-router";
 import { Lock, type LucideIcon } from "lucide-react";
 import * as React from "react";
 
+import { UpdateDot } from "@/components/layout/update-dot";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -36,6 +37,12 @@ export interface SectionNavItem {
   to: string;
   /** Set while an extension's lock holds the section closed: it stays in the list, greyed out. */
   locked?: SectionNavLock;
+  /**
+   * Set while an update is available for what the section shows ("Update to 0.4.9 available",
+   * already translated): the entry gets the update dot, and the words are its text for
+   * assistive technology and its tooltip.
+   */
+  updateLabel?: string;
 }
 
 interface SectionNavProps {
@@ -179,6 +186,7 @@ function ColumnNav({ items, activeId, label, asideRef }: SectionNavProps) {
                   to={item.to as LinkProps["to"]}
                   activeOptions={EXACT_MATCH}
                   aria-current={active ? "page" : undefined}
+                  title={item.updateLabel}
                   className={cn(
                     base,
                     "text-muted-foreground hover:bg-sidebar-hover hover:text-foreground",
@@ -187,7 +195,13 @@ function ColumnNav({ items, activeId, label, asideRef }: SectionNavProps) {
                   )}
                 >
                   <Icon aria-hidden="true" />
-                  <span className="flex-1">{item.label}</span>
+                  <span className="flex-1">
+                    {item.label}
+                    {item.updateLabel ? (
+                      <span className="sr-only">{`, ${item.updateLabel}`}</span>
+                    ) : null}
+                  </span>
+                  {item.updateLabel ? <UpdateDot /> : null}
                 </Link>
               </li>
             );
@@ -237,6 +251,10 @@ function SelectNav({ items, activeId, selectLabel, selectId }: SectionNavProps) 
               <SelectItem key={item.id} value={item.id}>
                 <Icon aria-hidden="true" />
                 {item.label}
+                {item.updateLabel ? <UpdateDot className="ml-auto" /> : null}
+                {item.updateLabel ? (
+                  <span className="sr-only">{`, ${item.updateLabel}`}</span>
+                ) : null}
                 {item.locked ? <Lock aria-hidden="true" className="ml-auto size-3.5" /> : null}
                 {item.locked ? <span className="sr-only">{`, ${item.locked.hint}`}</span> : null}
               </SelectItem>

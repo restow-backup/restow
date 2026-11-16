@@ -18,7 +18,7 @@ import {
 
 import { PALETTES, type Palette, type Theme } from "@/components/theme-provider";
 import { directoryPath } from "@/features/directory/search";
-import { TENANT_SECTION_META } from "@/features/tenant-page/meta";
+import { visibleSectionMeta } from "@/features/tenant-page/meta";
 import { TENANTS_PATH } from "@/features/tenants/paths";
 import { ACCOUNT_PATH } from "@/lib/entry";
 import {
@@ -144,7 +144,8 @@ function navigationGroups(input: PaletteInput): PaletteGroup[] {
  * The sections of the tenant page of the active tenant (they have no menu
  * entries of their own; the entry "Tenant settings" is a navigation command like
  * any other): Connections, Protection, Jobs & schedules and the rest, as far
- * as the role may open them. Protection keeps the id of its former menu entry,
+ * as the role may open them and their module of the installation is on
+ * (lib/modules.ts). Protection keeps the id of its former menu entry,
  * so the object search stays tied to it ({@link OBJECTS_NAV_COMMAND_ID}). The
  * overview is the entry itself and is left out; the audit log is an
  * extension's section and is reached through the page.
@@ -161,7 +162,9 @@ function setupGroup(input: PaletteInput): PaletteGroup | null {
   const heading = managesTenants
     ? t("nav.items.tenantSettings")
     : t("nav.items.organisationSettings");
-  const sections = TENANT_SECTION_META.filter((meta) => meta.id !== "overview");
+  const sections = visibleSectionMeta(input.isProviderAdmin, input.lockContext.modules).filter(
+    (meta) => meta.id !== "overview",
+  );
   return {
     id: "setup",
     heading,

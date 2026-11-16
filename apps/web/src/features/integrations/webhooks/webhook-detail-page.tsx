@@ -55,7 +55,12 @@ import { useIntegrationsFormat } from "../use-format";
 import { DeliveriesCard } from "./deliveries-card";
 import { WebhookRulesNotice } from "./rules-using-webhook";
 import { WebhookFormDialog } from "./webhook-form-dialog";
-import { InsecureBadge, WebhookHealthBadge, WebhookStatsLine } from "./webhook-status";
+import {
+  InsecureBadge,
+  WebhookHealthBadge,
+  WebhookHealthBanner,
+  WebhookStatsLine,
+} from "./webhook-status";
 
 /** One webhook: its configuration, the actions on it and its delivery log. */
 export function WebhookDetailPage({ webhookId }: { webhookId: string }) {
@@ -232,6 +237,7 @@ function WebhookView({ webhook }: { webhook: Webhook }) {
         </Alert>
       ) : null}
 
+      <WebhookHealthBanner webhook={webhook} />
       <ConfigurationCard webhook={webhook} />
       <DeliveriesCard webhookId={webhook.id} webhookActive={webhook.active} />
 

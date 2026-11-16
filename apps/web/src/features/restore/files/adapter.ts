@@ -70,6 +70,11 @@ export interface FileSourceAdapter<P extends RestorePointView> {
   emptyDescription: string;
   /** What a restore point shows below its time on the timeline. */
   renderDetails: (point: P) => React.ReactNode;
+  /**
+   * An action in the title row of the chosen restore point (a Proxmox VE guest: restore it as a
+   * whole), so it is visible without scrolling past the file list.
+   */
+  headerAction?: (point: P) => React.ReactNode;
   /** Shown in the browser's header of the chosen restore point (a permissions note, search). */
   renderBrowserExtra?: (point: P, openPath: (path: string) => void) => React.ReactNode;
   /**

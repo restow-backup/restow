@@ -1,4 +1,4 @@
-import type { JobSchedule } from "@restow/core";
+import type { JobSchedule, WholeMachineNote } from "@restow/core";
 import type {
   BackupJobMemberOverrides,
   BackupJobSettings,
@@ -233,6 +233,12 @@ export interface BackupJobMemberDto {
   } | null;
   restoreCheck: { state: MemberRestoreState; checkedAt: string | null };
   nextRunAt: string | null;
+  /**
+   * Machine members of a whole machine job (preview, docs/BAREMETAL.md 5.1): why the machine
+   * backs up its folders instead, or what it should know (@restow/core `wholeMachineNote`); null
+   * when there is nothing to add or the job does not back up whole machines. Absent for others.
+   */
+  wholeMachineNote?: WholeMachineNote | null;
 }
 
 export interface BackupJobMembersDto {
@@ -301,6 +307,16 @@ export interface JobDefaultsDto {
   retentionPolicies: { id: string; name: string; isDefault: boolean; cutoffDays: number | null }[];
   /** Machine jobs: what a machine keeps its repository with unless the job says otherwise. */
   endpointRetention: { keepDaily: number; keepWeekly: number; keepMonthly: number };
+  /**
+   * Machine jobs: whether the switch "Whole machine" is offered (RESTOW_BAREMETAL_PREVIEW), the
+   * exclusions it starts from and the optional ones for container images (docs/BAREMETAL.md 5.3).
+   * Absent for other kinds.
+   */
+  wholeMachine?: {
+    available: boolean;
+    excludes: string[];
+    containerImageExcludes: string[];
+  };
 }
 
 export interface JobRunDto {

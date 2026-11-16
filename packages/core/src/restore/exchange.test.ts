@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProtectedObjectRef } from "../engine/types.js";
 import { must } from "../graph/testing/fake-graph.js";
@@ -8,6 +9,7 @@ import {
   createSnapshotFixture,
   type FixtureObject,
   mimeMessage,
+  pseudoRandomBytes,
   restoreRequestFor,
   type SnapshotFixture,
 } from "./testing/fixtures.js";
@@ -16,8 +18,16 @@ const USER = "anna@example.org";
 const NOW = new Date(Date.UTC(2026, 8, 22, 14, 30));
 const RESTORE_FOLDER = "Restow 2026-09-22 1430";
 
+const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+
+/** The looks after an unanswered POST, without the waits between them. */
+const NO_WAITS = [0, 0, 0, 0, 0];
+
 function engineFor(mailbox: FakeMailbox): ExchangeRestoreEngine {
-  return new ExchangeRestoreEngine({ graph: () => mailbox.graph.client() });
+  return new ExchangeRestoreEngine({
+    graph: () => mailbox.graph.client(),
+    unknownOutcomeLooksMs: NO_WAITS,
+  });
 }
 
 /** Position of the first call from `from` on matching `method` and a path pattern, or -1. */
@@ -245,7 +255,7 @@ describe("ExchangeRestoreEngine", () => {
     await fixture?.cleanup();
   });
 
-  it("restores a whole mailbox below a dated folder in rename mode, empty folders included", async () => {
+  it("restores a whole mailbox below a dated folder in rename mode, empty folders included [RESTORE-004]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: USER,
@@ -360,7 +370,7 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.calendars.size).toBe(1);
   });
 
-  it("refuses to delete: a job queued with the discontinued mode 'replace' runs as 'rename' instead", async () => {
+  it("refuses to delete: a job queued with the discontinued mode 'replace' runs as 'rename' instead [RESTORE-001]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: USER,
@@ -454,7 +464,7 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.graph.callsTo("DELETE", "/messages/")).toEqual([]);
   });
 
-  it("never deletes an existing event or contact, in rename mode or for a legacy 'replace' job", async () => {
+  it("never deletes an existing event or contact, in rename mode or for a legacy 'replace' job [RESTORE-001]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: USER,
@@ -522,10 +532,14 @@ describe("ExchangeRestoreEngine", () => {
     const retry = await engineFor(mailbox).run(fixture.ctx, request);
 
     expect(retry.failures).toEqual([]);
+    // The message is in the job's own record; the contact is found by name and address.
     expect(retry.items.filter((item) => item.status === "skipped").map((item) => item.id)).toEqual([
-      "AAMk1",
       "C1",
     ]);
+    expect(retry.items.find((item) => item.id === "AAMk1")).toMatchObject({
+      status: "restored",
+      reason: "restored by an earlier attempt of this job",
+    });
     expect(mailbox.messages.size).toBe(1);
     expect(mailbox.contacts.size).toBe(1);
     expect(mailbox.events.size).toBe(1);
@@ -630,6 +644,278 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.events.size).toBe(2);
   });
 
+  it("re-creates an event's backed-up attachments, also one that needs an upload session", async () => {
+    const agenda = Buffer.from("Agenda: 1. Budget 2. Roadmap");
+    const slides = pseudoRandomBytes(3 * 1024 * 1024 + 99, 21);
+    const planning: FixtureObject = {
+      path: "calendar/Kalender/Planning.0010.json",
+      type: "event",
+      id: "EV10",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+      content: JSON.stringify({
+        event: {
+          subject: "Planning",
+          hasAttachments: true,
+          start: { dateTime: "2026-03-02T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-02T11:00:00.0000000", timeZone: "UTC" },
+        },
+        exceptions: [],
+      }),
+    };
+    // Shaped like the calendar backup writes them: the bytes, the event they belong to.
+    const attachment = (id: string, name: string, content: Buffer, contentType: string) => ({
+      path: `calendar/Kalender/Planning.0010.attachments/${name}`,
+      type: "event-attachment",
+      id,
+      content,
+      metadata: {
+        eventItemId: "EV10",
+        name,
+        contentType,
+        attachmentType: "#microsoft.graph.fileAttachment",
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [
+        planning,
+        attachment("EA1", "agenda.txt", agenda, "text/plain"),
+        attachment("EA2", "slides.pptx", slides, "application/vnd.ms-powerpoint"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.failAttachmentFragmentsAt.push(12 * 320 * 1024);
+
+    const report = await new ExchangeRestoreEngine({
+      graph: () => mailbox.graph.client(),
+      fragmentRetryDelayMs: 0,
+      unknownOutcomeLooksMs: NO_WAITS,
+    }).run(fixture.ctx, restoreRequestFor(fixture, { mode: "skip" }));
+
+    expect(report.failures).toEqual([]);
+    const event = must([...mailbox.events.values()].find((e) => e.body.subject === "Planning"));
+    const stored = event.attachments.map((entry) => ({
+      name: entry.name,
+      sha256: sha256(Buffer.from(String(entry.contentBytes), "base64")),
+    }));
+    expect(stored).toEqual([
+      { name: "agenda.txt", sha256: sha256(agenda) },
+      { name: "slides.pptx", sha256: sha256(slides) },
+    ]);
+    expect(mailbox.graph.callsTo("POST", "/attachments/createUploadSession")).toHaveLength(1);
+    const item = (id: string) => must(report.items.find((entry) => entry.id === id));
+    expect(item("EV10")).toMatchObject({ status: "restored", verified: true });
+    expect(item("EA1")).toMatchObject({ status: "restored", verified: true });
+    expect(item("EA2")).toMatchObject({ status: "restored", verified: true });
+
+    // Selected on its own, an attachment says it comes with its event.
+    const alone = await engineFor(new FakeMailbox()).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", selection: { objectIds: ["EA1"] } }),
+    );
+    expect(alone.items[0]).toMatchObject({ status: "skipped", code: "parent_not_restored" });
+  });
+
+  it("puts the attachments of a moved occurrence onto it and an attached item back as JSON", async () => {
+    const minutes = Buffer.from("Minutes of the moved board meeting");
+    const forwarded = Buffer.from(
+      JSON.stringify({
+        "@odata.type": "#microsoft.graph.itemAttachment",
+        name: "Invitation",
+        item: { "@odata.type": "#microsoft.graph.message", subject: "Invitation" },
+      }),
+    );
+    const board: FixtureObject = {
+      path: "calendar/Kalender/Board.0020.json",
+      type: "event",
+      id: "EV20",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+      content: JSON.stringify({
+        event: {
+          id: "EV20",
+          subject: "Board",
+          hasAttachments: true,
+          type: "seriesMaster",
+          start: { dateTime: "2026-03-02T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-02T11:00:00.0000000", timeZone: "UTC" },
+          recurrence: { pattern: { type: "weekly", interval: 1, daysOfWeek: ["monday"] } },
+        },
+        exceptions: [
+          {
+            id: "EXC1",
+            subject: "Board (moved)",
+            originalStart: "2026-03-09T10:00:00Z",
+            start: { dateTime: "2026-03-09T14:00:00.0000000", timeZone: "UTC" },
+            end: { dateTime: "2026-03-09T15:00:00.0000000", timeZone: "UTC" },
+            type: "exception",
+            hasAttachments: true,
+          },
+          {
+            id: "EXC2",
+            subject: "Board (cancelled room)",
+            originalStart: "2026-03-16T10:00:00Z",
+            start: { dateTime: "2026-03-16T12:00:00.0000000", timeZone: "UTC" },
+            end: { dateTime: "2026-03-16T13:00:00.0000000", timeZone: "UTC" },
+            type: "exception",
+            hasAttachments: true,
+          },
+        ],
+      }),
+    };
+    // Shaped like the calendar backup writes them (backup/exchange/calendar.ts).
+    const forwardedItem: FixtureObject = {
+      path: "calendar/Kalender/Board.0020.attachments/Invitation.IA1",
+      type: "event-attachment",
+      id: "EV20/IA1",
+      content: forwarded,
+      metadata: {
+        eventItemId: "EV20",
+        eventPath: "calendar/Kalender/Board.0020.json",
+        name: "Invitation",
+        contentType: "application/json",
+        attachmentType: "#microsoft.graph.itemAttachment",
+      },
+    };
+    const occurrenceFile = (exception: string, id: string, name: string): FixtureObject => ({
+      path: `calendar/Kalender/Board.0020.attachments/occurrence 2026-03.${exception}/${name}.${id}`,
+      type: "event-attachment",
+      id: `${exception}/${id}`,
+      content: minutes,
+      metadata: {
+        eventItemId: exception,
+        seriesMasterId: "EV20",
+        eventPath: `calendar/Kalender/Board.0020.json#${exception}`,
+        name,
+        contentType: "text/plain",
+        attachmentType: "#microsoft.graph.fileAttachment",
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [
+        board,
+        forwardedItem,
+        occurrenceFile("EXC1", "FA1", "minutes.txt"),
+        occurrenceFile("EXC2", "FA2", "room.txt"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    // The second exception's occurrence is not in the recreated series.
+    mailbox.occurrences.set("Board", [
+      { id: "occ-9", originalStart: "2026-03-09T10:00:00.0000000Z", type: "occurrence" },
+    ]);
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", selection: { objectIds: ["EV20"] } }),
+    );
+
+    const event = must([...mailbox.events.values()].find((e) => e.body.subject === "Board"));
+    expect(event.attachments.map((entry) => [entry.name, entry.contentType])).toEqual([
+      ["Invitation.json", "application/json"],
+    ]);
+    expect(
+      Buffer.from(String(event.attachments[0]?.contentBytes), "base64").equals(forwarded),
+    ).toBe(true);
+    const occurrence = must(mailbox.occurrenceAttachments.get("occ-9"));
+    expect(occurrence.attachments.map((entry) => entry.name)).toEqual(["minutes.txt"]);
+    const item = (id: string) => must(report.items.find((entry) => entry.id === id));
+    expect(item("EV20/IA1")).toMatchObject({ status: "restored", verified: true });
+    expect(item("EV20/IA1").reason).toMatch(/content as JSON \(\.json\)/);
+    expect(item("EXC1/FA1")).toMatchObject({ status: "restored", verified: true });
+    expect(item("EXC2/FA2")).toMatchObject({ status: "skipped", code: "parent_not_restored" });
+    expect(item("EXC2/FA2").reason).toMatch(/changed occurrence .* could not be re-applied/);
+    expect(item("EV20")).toMatchObject({ status: "restored", verified: false });
+    expect(item("EV20").reason).toMatch(/1 of 2 changed occurrences/);
+  });
+
+  it("says that the attachments of an event the calendar already has belong to an existing item", async () => {
+    const review: FixtureObject = {
+      path: "calendar/Kalender/Review.0012.json",
+      type: "event",
+      id: "EV12",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+      content: JSON.stringify({
+        event: {
+          subject: "Review",
+          iCalUId: "uid-review-12",
+          hasAttachments: true,
+          start: { dateTime: "2026-03-04T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-04T11:00:00.0000000", timeZone: "UTC" },
+        },
+        exceptions: [],
+      }),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [
+        review,
+        {
+          path: "calendar/Kalender/Review.0012.attachments/notes.txt",
+          type: "event-attachment",
+          id: "EA12",
+          content: "notes",
+          metadata: { eventItemId: "EV12", name: "notes.txt", contentType: "text/plain" },
+        },
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.addEvent("cal-default", { subject: "Review" }, "uid-review-12");
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(must(report.items.find((item) => item.id === "EV12"))).toMatchObject({
+      status: "skipped",
+      code: "exists",
+    });
+    expect(must(report.items.find((item) => item.id === "EA12"))).toMatchObject({
+      status: "skipped",
+      code: "parent_exists",
+    });
+  });
+
+  it("does not confirm an event whose attachments the backup does not hold", async () => {
+    const withFiles: FixtureObject = {
+      path: "calendar/Kalender/Review.0011.json",
+      type: "event",
+      id: "EV11",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true" },
+      content: JSON.stringify({
+        event: {
+          subject: "Review",
+          hasAttachments: true,
+          start: { dateTime: "2026-03-03T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-03T11:00:00.0000000", timeZone: "UTC" },
+        },
+        exceptions: [],
+      }),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [withFiles, dentist],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    const review = must(report.items.find((entry) => entry.id === "EV11"));
+    expect(review).toMatchObject({ status: "restored", code: "unverified", verified: false });
+    expect(review.reason).toMatch(/had attachments, but they were not part of the backup/);
+    // An event without attachments stays confirmed.
+    expect(must(report.items.find((entry) => entry.id === "EV2")).verified).toBe(true);
+  });
+
   it("restores JSON-format messages with their attachments and isolates failures per item", async () => {
     const bigOne: FixtureObject = {
       path: "mail/Posteingang/Big one.0009.json",
@@ -730,10 +1016,1344 @@ describe("ExchangeRestoreEngine", () => {
       }),
     ]);
     const messageItem = must(report.items.find((item) => item.id === "AAMk9"));
-    expect(messageItem.verified).toBe(true);
-    expect(messageItem.reason).toMatch(/shows it as a draft/);
+    // Its JSON does not say whether it was a draft, so Graph made one dated today: not confirmed.
+    expect(messageItem.verified).toBe(false);
+    expect(messageItem.reason).toMatch(
+      /does not record whether this was a draft.*draft dated today/,
+    );
     expect(messageItem.reason).toMatch(/Budget\.xlsx/);
     expect(fixture.ctx.progress.snapshot()).toMatchObject({ total: 6, done: 4, failed: 2 });
+  });
+
+  it("restores a JSON-fallback message as received mail: x- headers only, not a draft, with its dates", async () => {
+    // The object exactly as the backup writes it when Graph refuses the MIME
+    // export: getMessage with MESSAGE_SELECT, body and internetMessageHeaders.
+    const backedUp = {
+      "@odata.etag": 'W/"CQAAABYAAAA"',
+      id: "AAMkAGI2THVSAAA=",
+      internetMessageId: "<big-12@contoso.example>",
+      conversationId: "AAQkAGI2conv",
+      conversationIndex: "AQHbQ1",
+      subject: "Quarterly figures",
+      from: { emailAddress: { name: "Bob", address: "bob@contoso.example" } },
+      sender: { emailAddress: { name: "Bob", address: "bob@contoso.example" } },
+      toRecipients: [{ emailAddress: { name: "Anna", address: USER } }],
+      ccRecipients: [],
+      bccRecipients: [],
+      replyTo: [],
+      receivedDateTime: "2026-03-02T08:15:42Z",
+      sentDateTime: "2026-03-02T08:15:30Z",
+      createdDateTime: "2026-03-02T08:15:43Z",
+      lastModifiedDateTime: "2026-03-02T09:00:00Z",
+      isRead: true,
+      isDraft: false,
+      flag: { flagStatus: "notFlagged" },
+      categories: [],
+      importance: "normal",
+      hasAttachments: false,
+      parentFolderId: "AAMkInbox",
+      body: { contentType: "html", content: "<p>Figures attached</p>" },
+      internetMessageHeaders: [
+        { name: "Received", value: "from EUR01-HE1.outbound.protection.outlook.com by ..." },
+        { name: "DKIM-Signature", value: "v=1; a=rsa-sha256; d=contoso.example; s=selector1" },
+        { name: "Message-ID", value: "<big-12@contoso.example>" },
+        { name: "From", value: "Bob <bob@contoso.example>" },
+        { name: "X-MS-Exchange-Organization-AuthAs", value: "Anonymous" },
+        { name: "X-Mailer", value: "Contoso Mailer 4.2" },
+        { name: "x-ticket-id", value: "T-4711" },
+      ],
+    };
+    const quarterly: FixtureObject = {
+      path: "mail/Posteingang/Quarterly figures.0012.json",
+      type: "mail",
+      id: "AAMk12",
+      metadata: {
+        subject: "Quarterly figures",
+        receivedDateTime: "2026-03-02T08:15:42Z",
+        isRead: "true",
+        isDraft: "false",
+        flagStatus: "notFlagged",
+        categories: "[]",
+        hasAttachments: "false",
+        messageId: "<big-12@contoso.example>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "json",
+        contentType: "application/json",
+        attachmentCount: "0",
+      },
+      content: JSON.stringify(backedUp),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [quarterly],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(1);
+    const restored = must([...mailbox.messages.values()][0]);
+    expect(restored.json?.internetMessageHeaders).toEqual([
+      { name: "X-Mailer", value: "Contoso Mailer 4.2" },
+      { name: "x-ticket-id", value: "T-4711" },
+    ]);
+    expect(restored.json?.singleValueExtendedProperties).toEqual([
+      { id: "Integer 0x0E07", value: "1" },
+      { id: "SystemTime 0x0E06", value: "2026-03-02T08:15:42.000Z" },
+      { id: "SystemTime 0x0039", value: "2026-03-02T08:15:30.000Z" },
+    ]);
+    expect(restored.isDraft).toBe(false);
+    expect(Date.parse(restored.receivedDateTime)).toBe(Date.parse("2026-03-02T08:15:42Z"));
+    const item = must(report.items[0]);
+    expect(item.verified).toBe(true);
+    expect(item.reason).toMatch(/5 transport headers of the original/);
+    expect(item.reason).not.toMatch(/draft/);
+  });
+
+  it("marks a JSON-fallback message unverified when Exchange keeps it a draft or drops its dates", async () => {
+    const plain: FixtureObject = {
+      path: "mail/Posteingang/Plain.0013.json",
+      type: "mail",
+      id: "AAMk13",
+      metadata: {
+        format: "json",
+        isDraft: "false",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+      },
+      content: JSON.stringify({
+        subject: "Plain",
+        isDraft: false,
+        receivedDateTime: "2026-03-02T08:15:42Z",
+        body: { contentType: "text", content: "x" },
+      }),
+    };
+    fixture = await createSnapshotFixture({ kind: "mailbox", externalId: USER, objects: [plain] });
+    const mailbox = new FakeMailbox();
+    // A Graph that ignores the extended properties on create.
+    mailbox.ignoresExtendedProperties = true;
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    const item = must(report.items[0]);
+    expect(item.status).toBe("restored");
+    expect(item.verified).toBe(false);
+    expect(item.reason).toMatch(/created the restored message as a draft/);
+    expect(item.reason).toMatch(/did not take the received date/);
+  });
+
+  it("marks a MIME import unverified when Exchange creates a received message as a draft", async () => {
+    // A message without Date and From header: Graph imports it as a draft.
+    const headless = [
+      "Message-ID: <headless@example.org>",
+      "Subject: Scanner",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain",
+      "",
+      "scan attached",
+      "",
+    ].join("\r\n");
+    const object = (id: string, isDraft: string | undefined): FixtureObject => ({
+      path: `mail/Posteingang/Scanner.${id}.eml`,
+      type: "mail",
+      id,
+      content: headless,
+      metadata: {
+        messageId: "<headless@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        ...(isDraft !== undefined ? { isDraft } : {}),
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [object("AAMk20", "false"), object("AAMk21", "true"), object("AAMk22", undefined)],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.restored).toBe(3);
+    const item = (id: string) => must(report.items.find((entry) => entry.id === id));
+    expect(item("AAMk20")).toMatchObject({ status: "restored", verified: false });
+    expect(item("AAMk20").reason).toMatch(/created the restored message as a draft/);
+    // A draft that comes back as a draft is what it was.
+    expect(item("AAMk21").verified).toBe(true);
+    expect(item("AAMk21").reason ?? "").not.toMatch(/draft/);
+    // Unknown draft state: said, not judged.
+    expect(item("AAMk22").verified).toBe(true);
+    expect(item("AAMk22").reason).toMatch(/shows the restored message as a draft/);
+  });
+
+  it("restores a MIME message larger than one Graph request with its attachments, not as a draft", async () => {
+    const pdf = pseudoRandomBytes(6 * 1024 * 1024 + 4321, 7);
+    const logo = pseudoRandomBytes(2048, 3);
+    const forwarded = mimeMessage({ messageId: "<fwd-1@example.org>", subject: "Forwarded" });
+    const base64Lines = (bytes: Buffer) => bytes.toString("base64").replace(/.{76}/g, "$&\r\n");
+    const big = [
+      "Message-ID: <report-6mb@example.org>",
+      "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+      "From: Bob Example <bob@example.org>",
+      "To: Anna Example <anna@example.org>",
+      "Cc: Carla <carla@example.org>",
+      "Subject: Monatsbericht",
+      "X-Mailer: Contoso Mailer 4.2",
+      "Received: from mx.example.org by mail.example.org",
+      "MIME-Version: 1.0",
+      'Content-Type: multipart/mixed; boundary="outer"',
+      "",
+      "--outer",
+      'Content-Type: multipart/related; boundary="rel"',
+      "",
+      "--rel",
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      '<p>Bericht anbei <img src="cid:logo@example.org"></p>',
+      "--rel",
+      "Content-Type: image/png",
+      "Content-Transfer-Encoding: base64",
+      "Content-ID: <logo@example.org>",
+      "Content-Disposition: inline",
+      "",
+      base64Lines(logo),
+      "--rel--",
+      "--outer",
+      'Content-Type: application/pdf; name="Bericht.pdf"',
+      "Content-Transfer-Encoding: base64",
+      'Content-Disposition: attachment; filename="Bericht.pdf"',
+      "",
+      base64Lines(pdf),
+      "--outer",
+      "Content-Type: message/rfc822",
+      'Content-Disposition: attachment; filename="Forwarded"',
+      "",
+      forwarded,
+      "--outer--",
+      "",
+    ].join("\r\n");
+    const object: FixtureObject = {
+      path: "mail/Posteingang/Monatsbericht.0030.eml",
+      type: "mail",
+      id: "AAMk30",
+      content: big,
+      metadata: {
+        messageId: "<report-6mb@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        isRead: "true",
+        isDraft: "false",
+        receivedDateTime: "2026-03-02T07:15:42Z",
+      },
+    };
+    const small: FixtureObject = {
+      // 2 MB of MIME: its base64 fits one request.
+      path: "mail/Posteingang/Klein.0031.eml",
+      type: "mail",
+      id: "AAMk31",
+      content: [
+        "Message-ID: <small-2mb@example.org>",
+        "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+        "From: Bob Example <bob@example.org>",
+        "Subject: Klein",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "two megabytes",
+        "--b",
+        "Content-Type: application/octet-stream",
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="data.bin"',
+        "",
+        base64Lines(pseudoRandomBytes(1536 * 1024, 9)),
+        "--b--",
+        "",
+      ].join("\r\n"),
+      metadata: {
+        messageId: "<small-2mb@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        isDraft: "false",
+      },
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [object, small],
+    });
+    const mailbox = new FakeMailbox();
+    // The PDF's second fragment is refused once with 502, as Exchange's gateway does.
+    mailbox.failAttachmentFragmentsAt.push(12 * 320 * 1024);
+
+    const report = await new ExchangeRestoreEngine({
+      graph: () => mailbox.graph.client(),
+      fragmentRetryDelayMs: 0,
+      unknownOutcomeLooksMs: NO_WAITS,
+    }).run(fixture.ctx, restoreRequestFor(fixture, { mode: "skip" }));
+
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(2);
+    // No request body ever exceeded Graph's limit.
+    for (const call of mailbox.graph.calls) {
+      const length =
+        typeof call.body === "string" ? call.body.length : (call.body?.byteLength ?? 0);
+      expect(length, call.url).toBeLessThanOrEqual(4 * 1024 * 1024);
+    }
+    const restored = (id: string) =>
+      must(
+        [...mailbox.messages.values()].find((m) => m.internetMessageId === id),
+        id,
+      );
+
+    const report6 = restored("<report-6mb@example.org>");
+    expect(report6.mime).toBeUndefined();
+    expect(report6.isDraft).toBe(false);
+    expect(Date.parse(report6.receivedDateTime)).toBe(Date.parse("2026-03-02T07:15:42Z"));
+    expect(report6.json).toMatchObject({
+      subject: "Monatsbericht",
+      body: { contentType: "html", content: expect.stringContaining("cid:logo@example.org") },
+      from: { emailAddress: { address: "bob@example.org", name: "Bob Example" } },
+      toRecipients: [{ emailAddress: { address: "anna@example.org", name: "Anna Example" } }],
+      ccRecipients: [{ emailAddress: { address: "carla@example.org", name: "Carla" } }],
+      internetMessageHeaders: [{ name: "X-Mailer", value: "Contoso Mailer 4.2" }],
+    });
+    const attachments = report6.attachments.map((a) => ({
+      name: a.name,
+      contentType: a.contentType,
+      isInline: a.isInline,
+      contentId: a.contentId,
+      sha256: sha256(Buffer.from(String(a.contentBytes), "base64")),
+    }));
+    expect(attachments).toEqual([
+      {
+        name: "attachment-1",
+        contentType: "image/png",
+        isInline: true,
+        contentId: "logo@example.org",
+        sha256: sha256(logo),
+      },
+      {
+        name: "Bericht.pdf",
+        contentType: "application/pdf",
+        isInline: false,
+        contentId: undefined,
+        sha256: sha256(pdf),
+      },
+      {
+        name: "Forwarded.eml",
+        contentType: "message/rfc822",
+        isInline: false,
+        contentId: undefined,
+        sha256: sha256(Buffer.from(forwarded)),
+      },
+    ]);
+    // The PDF went through one upload session in fragments of at most 4 MiB; the refused
+    // fragment was sent again after the session was asked, not the whole attachment.
+    expect(mailbox.graph.callsTo("POST", "/attachments/createUploadSession")).toHaveLength(1);
+    expect(
+      mailbox.graph.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => call.headers["content-range"]),
+    ).toEqual([
+      `bytes 0-${12 * 320 * 1024 - 1}/${pdf.length}`,
+      `bytes ${12 * 320 * 1024}-${pdf.length - 1}/${pdf.length}`,
+      `bytes ${12 * 320 * 1024}-${pdf.length - 1}/${pdf.length}`,
+    ]);
+    expect(mailbox.cancelledUploads).toEqual([]);
+    const item = must(report.items.find((entry) => entry.id === "AAMk30"));
+    expect(item.verified).toBe(true);
+    expect(item.reason).toMatch(/at most 4 MB in one request/);
+
+    // A message below the limit is still imported as MIME, byte for byte.
+    expect(restored("<small-2mb@example.org>").mime).toBe(must(small.content).toString());
+  });
+
+  it("reports the attachments of a large MIME message that Exchange refuses", async () => {
+    const huge = pseudoRandomBytes(5 * 1024 * 1024, 11);
+    const object: FixtureObject = {
+      path: "mail/Posteingang/Huge.0032.eml",
+      type: "mail",
+      id: "AAMk32",
+      content: [
+        "Message-ID: <huge@example.org>",
+        "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+        "From: Bob Example <bob@example.org>",
+        "Subject: Huge",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "see attachment",
+        "--b",
+        "Content-Type: application/octet-stream",
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="huge.bin"',
+        "",
+        huge.toString("base64"),
+        "--b--",
+        "",
+      ].join("\r\n"),
+      metadata: {
+        messageId: "<huge@example.org>",
+        format: "mime",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+      },
+    };
+    fixture = await createSnapshotFixture({ kind: "mailbox", externalId: USER, objects: [object] });
+    const mailbox = new FakeMailbox();
+    mailbox.maxAttachmentBytes = 4 * 1024 * 1024;
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    const item = must(report.items[0]);
+    expect(item).toMatchObject({ status: "restored", verified: false });
+    expect(item.reason).toMatch(/1 of 1 attachments could not be added \(huge\.bin: /);
+  });
+
+  describe("a message too large for one MIME import", () => {
+    const base64Lines = (bytes: Buffer) => bytes.toString("base64").replace(/.{76}/g, "$&\r\n");
+    const large = (id: string, content: string, metadata: Record<string, string> = {}) => ({
+      path: `mail/Posteingang/Large.${id}.eml`,
+      type: "mail",
+      id,
+      content,
+      metadata: {
+        messageId: `<${id}@example.org>`,
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        isDraft: "false",
+        ...metadata,
+      },
+    });
+    const header = (id: string, contentType: string) =>
+      [
+        `Message-ID: <${id}@example.org>`,
+        "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+        "From: Bob Example <bob@example.org>",
+        "To: Anna Example <anna@example.org>",
+        "Subject: Vertrag",
+        "MIME-Version: 1.0",
+        `Content-Type: ${contentType}`,
+      ].join("\r\n");
+    const run = async (objects: FixtureObject[], mailbox = new FakeMailbox()) => {
+      fixture = await createSnapshotFixture({ kind: "mailbox", externalId: USER, objects });
+      const report = await engineFor(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "skip" }),
+      );
+      return { report, mailbox };
+    };
+
+    it("refuses an encrypted S/MIME or PGP message instead of rebuilding an unreadable one", async () => {
+      const cipher = pseudoRandomBytes(4 * 1024 * 1024, 31);
+      // As Outlook sends an S/MIME-encrypted mail: one enveloped-data part, the whole message.
+      const smime = [
+        header("smime-4mb", 'application/pkcs7-mime; smime-type=enveloped-data; name="smime.p7m"'),
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="smime.p7m"',
+        "",
+        base64Lines(cipher),
+        "",
+      ].join("\r\n");
+      // PGP/MIME (RFC 3156): a version part and the armored ciphertext.
+      const pgp = [
+        header(
+          "pgp-4mb",
+          'multipart/encrypted; protocol="application/pgp-encrypted"; boundary="pgp"',
+        ),
+        "",
+        "--pgp",
+        "Content-Type: application/pgp-encrypted",
+        "",
+        "Version: 1",
+        "--pgp",
+        'Content-Type: application/octet-stream; name="encrypted.asc"',
+        "",
+        "-----BEGIN PGP MESSAGE-----",
+        base64Lines(cipher),
+        "-----END PGP MESSAGE-----",
+        "--pgp--",
+        "",
+      ].join("\r\n");
+      const { report, mailbox } = await run([large("smime-4mb", smime), large("pgp-4mb", pgp)]);
+
+      expect(mailbox.messages.size).toBe(0);
+      for (const id of ["smime-4mb", "pgp-4mb"]) {
+        const item = must(report.items.find((entry) => entry.id === id));
+        expect(item).toMatchObject({ status: "failed", code: "not_restorable" });
+        expect(item.reason).toMatch(/encrypted \(S\/MIME or PGP\).*download \(EML\)/);
+      }
+    });
+
+    it("never confirms a signed message rebuilt from its parts", async () => {
+      const pdf = pseudoRandomBytes(4 * 1024 * 1024, 32);
+      const signed = [
+        header(
+          "signed-4mb",
+          'multipart/signed; protocol="application/pkcs7-signature"; micalg=sha-256; boundary="sig"',
+        ),
+        "",
+        "--sig",
+        'Content-Type: multipart/mixed; boundary="inner"',
+        "",
+        "--inner",
+        "Content-Type: text/plain",
+        "",
+        "Vertrag anbei",
+        "--inner",
+        'Content-Type: application/pdf; name="Vertrag.pdf"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="Vertrag.pdf"',
+        "",
+        base64Lines(pdf),
+        "--inner--",
+        "--sig",
+        'Content-Type: application/pkcs7-signature; name="smime.p7s"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="smime.p7s"',
+        "",
+        base64Lines(pseudoRandomBytes(2048, 33)),
+        "--sig--",
+        "",
+      ].join("\r\n");
+      const { report, mailbox } = await run([large("signed-4mb", signed)]);
+
+      const restored = must([...mailbox.messages.values()][0]);
+      expect(restored.attachments.map((a) => a.name)).toEqual(["Vertrag.pdf", "smime.p7s"]);
+      const item = must(report.items.find((entry) => entry.id === "signed-4mb"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/signed \(S\/MIME or PGP\).*signature no longer matches/);
+    });
+
+    it("restores a large group post as a received message, not as a draft dated today", async () => {
+      const pdf = pseudoRandomBytes(4 * 1024 * 1024, 34);
+      const post = [
+        "Message-ID: <post-AAQk1@groups.restow.invalid>",
+        "Date: Tue, 03 Mar 2026 09:00:00 +0000",
+        "From: Carla <carla@example.org>",
+        "To: Projekt Nord <nord@example.org>",
+        "Subject: Plan",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="p"',
+        "",
+        "--p",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Plan anbei</p>",
+        "--p",
+        'Content-Type: application/pdf; name="Plan.pdf"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="Plan.pdf"',
+        "",
+        base64Lines(pdf),
+        "--p--",
+        "",
+      ].join("\r\n");
+      // Metadata as the group conversation backup writes it: no draft state, no IMAP flags.
+      const object: FixtureObject = {
+        path: "mail/Conversations/Plan.AAQk1.eml",
+        type: "mail",
+        id: "AAQk1",
+        content: post,
+        metadata: {
+          subject: "Plan",
+          receivedDateTime: "2026-03-03T09:00:05Z",
+          isRead: "true",
+          flagStatus: "notFlagged",
+          categories: "[]",
+          hasAttachments: "true",
+          messageId: "<post-AAQk1@groups.restow.invalid>",
+          folderId: "thread:T1",
+          folderPath: "Conversations",
+          format: "mime",
+          conversationThreadId: "T1",
+          postId: "AAQk1",
+        },
+      };
+      const { report, mailbox } = await run([object]);
+
+      const restored = must([...mailbox.messages.values()][0]);
+      expect(restored.isDraft).toBe(false);
+      expect(Date.parse(restored.receivedDateTime)).toBe(Date.parse("2026-03-03T09:00:05Z"));
+      expect(must(report.items.find((entry) => entry.id === "AAQk1")).verified).toBe(true);
+    });
+
+    it("moves the images of a large HTML body into inline attachments, refuses a text too large", async () => {
+      const picture = pseudoRandomBytes(5 * 1024 * 1024, 35);
+      const newsletter = [
+        header("news-5mb", "text/html; charset=utf-8"),
+        "",
+        `<p>Neuigkeiten</p><img alt="Titel" src="data:image/png;base64,${picture.toString("base64")}">`,
+        "",
+      ].join("\r\n");
+      const longText = [
+        header("text-5mb", "text/plain; charset=utf-8"),
+        "",
+        "Protokoll ".repeat(500_000),
+        "",
+      ].join("\r\n");
+      const { report, mailbox } = await run([
+        large("news-5mb", newsletter),
+        large("text-5mb", longText),
+      ]);
+
+      for (const call of mailbox.graph.calls) {
+        const length =
+          typeof call.body === "string" ? call.body.length : (call.body?.byteLength ?? 0);
+        expect(length, call.url).toBeLessThanOrEqual(4 * 1024 * 1024);
+      }
+      const news = must(
+        [...mailbox.messages.values()].find(
+          (m) => m.internetMessageId === "<news-5mb@example.org>",
+        ),
+      );
+      const body = (must(news.json).body as { content: string }).content;
+      expect(body).toContain('src="cid:restow-body-image-1@restow.invalid"');
+      expect(body).not.toContain("data:image");
+      expect(news.attachments).toEqual([
+        expect.objectContaining({
+          name: "image-1.png",
+          contentType: "image/png",
+          isInline: true,
+          contentId: "restow-body-image-1@restow.invalid",
+          contentBytes: picture.toString("base64"),
+        }),
+      ]);
+      const newsItem = must(report.items.find((entry) => entry.id === "news-5mb"));
+      expect(newsItem.verified).toBe(true);
+      expect(newsItem.reason).toMatch(/embedded 1 images/);
+      const textItem = must(report.items.find((entry) => entry.id === "text-5mb"));
+      expect(textItem).toMatchObject({ status: "failed", code: "not_restorable" });
+      expect(textItem.reason).toMatch(/text of the message alone is 4\.8 MB.*download \(EML\)/);
+    });
+
+    it("never confirms a message whose attachment Exchange answered but does not list", async () => {
+      const pdf = pseudoRandomBytes(4 * 1024 * 1024, 36);
+      const mime = [
+        header("dropped-4mb", 'multipart/mixed; boundary="d"'),
+        "",
+        "--d",
+        "Content-Type: text/plain",
+        "",
+        "Anhang",
+        "--d",
+        'Content-Type: application/octet-stream; name="tool.exe"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="tool.exe"',
+        "",
+        base64Lines(pdf),
+        "--d--",
+        "",
+      ].join("\r\n");
+      const mailbox = new FakeMailbox();
+      mailbox.dropsAttachmentsNamed.add("tool.exe");
+      const { report } = await run([large("dropped-4mb", mime)], mailbox);
+
+      const item = must(report.items.find((entry) => entry.id === "dropped-4mb"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/1 of 1 attachments are not on the restored message: tool\.exe/);
+    });
+  });
+
+  describe("when Exchange carries out a POST but its answer is lost", () => {
+    /** A client that never sends a POST twice on its own, as the Graph client does for an unknown outcome. */
+    const onceEngine = (mailbox: FakeMailbox) =>
+      new ExchangeRestoreEngine({
+        graph: () => mailbox.graph.client({ maxRetries: 0 }),
+        unknownOutcomeLooksMs: NO_WAITS,
+      });
+
+    it("keeps the message the unanswered create made instead of creating a second one", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff, offer],
+      });
+      for (const after of ["504", "reset"] as const) {
+        const mailbox = new FakeMailbox();
+        // The Inbox already holds an older copy of the Kickoff mail: never taken for the new one.
+        const older = mailbox.addMessage({
+          parentFolderId: "wk-inbox",
+          internetMessageId: "<one@example.org>",
+        });
+        mailbox.failAfterCommit("POST", /\/mailFolders\/[^/]+\/messages$/, after, 2);
+
+        const report = await onceEngine(mailbox).run(
+          fixture.ctx,
+          restoreRequestFor(fixture, { mode: "rename" }),
+        );
+
+        expect(report.failures, after).toEqual([]);
+        expect(report.restored, after).toBe(2);
+        const restored = [...mailbox.messages.values()].filter((m) => m.id !== older.id);
+        expect(restored.map((m) => m.internetMessageId).sort(), after).toEqual([
+          "<one@example.org>",
+          "<two@example.org>",
+        ]);
+        for (const item of report.items) {
+          expect(item.targetRef, after).not.toBe(older.id);
+          // Found, not confirmed: restored, without the green of a confirmed item.
+          expect(item, after).toMatchObject({
+            status: "restored",
+            code: "restored",
+            verified: false,
+          });
+          expect(item.reason, after).toMatch(/did not answer the create.*not created twice/);
+        }
+        // Flags were applied to the message that was found.
+        const kick = must(restored.find((m) => m.internetMessageId === "<one@example.org>"));
+        expect(kick.patches).toEqual([
+          {
+            isRead: false,
+            flag: { flagStatus: "flagged" },
+            categories: ["Red"],
+            importance: "high",
+          },
+        ]);
+      }
+    });
+
+    it("keeps looking for a message the mailbox was still importing when the gateway gave up", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff],
+      });
+      const mailbox = new FakeMailbox();
+      // The import commits, but shows in no list for three more requests (a throttled mailbox).
+      mailbox.failAfterCommit("POST", /\/mailFolders\/[^/]+\/messages$/, "504", 1, {
+        visibleAfter: 3,
+      });
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect([...mailbox.messages.values()]).toHaveLength(1);
+      expect(mailbox.graph.callsTo("POST", "/messages")).toHaveLength(1);
+      const item = must(report.items.find((entry) => entry.id === "AAMk1"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/found by its Message-ID and kept, not created twice/);
+    });
+
+    it("never confirms a message sent once more when the first create still made its copy", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff],
+      });
+      const mailbox = new FakeMailbox();
+      // Hidden during all five looks, there by the time the folder is looked at after the resend.
+      mailbox.failAfterCommit("POST", /\/mailFolders\/[^/]+\/messages$/, "504", 1, {
+        visibleAfter: 6,
+      });
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(mailbox.graph.callsTo("POST", "/messages")).toHaveLength(2);
+      expect([...mailbox.messages.values()]).toHaveLength(2);
+      const item = must(report.items.find((entry) => entry.id === "AAMk1"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/the folder holds 2 copies of this message/);
+    });
+
+    it("keeps looking for an attachment and a folder the mailbox was still making", async () => {
+      const withAttachment: FixtureObject = {
+        path: "mail/Posteingang/Projekte/Plan.0042.json",
+        type: "mail",
+        id: "AAMk42",
+        metadata: {
+          format: "json",
+          messageId: "<plan-42@example.org>",
+          folderPath: "Posteingang/Projekte",
+          wellKnownFolder: "inbox",
+          isDraft: "false",
+        },
+        content: JSON.stringify({
+          subject: "Plan",
+          internetMessageId: "<plan-42@example.org>",
+          isDraft: false,
+        }),
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [
+          withAttachment,
+          {
+            path: "mail/Posteingang/Projekte/Plan.0042.attachments/plan.txt.aa",
+            type: "attachment",
+            id: "AAMk42/a1",
+            metadata: {
+              messagePath: withAttachment.path,
+              name: "plan.txt",
+              contentType: "text/plain",
+            },
+            content: "the plan",
+          },
+        ],
+      });
+      const mailbox = new FakeMailbox();
+      mailbox.failAfterCommit("POST", /\/attachments$/, "504", 1, { visibleAfter: 3 });
+      // The restore folder is made, but listed only after the create was sent once more,
+      // which Exchange then refuses with 409.
+      mailbox.failAfterCommit("POST", /\/mailFolders$/, "504", 1, { visibleAfter: 2 });
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename", requestedAt: NOW }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect(
+        [...mailbox.folders.values()].filter((f) => f.displayName === RESTORE_FOLDER),
+      ).toHaveLength(1);
+      const message = must([...mailbox.messages.values()][0]);
+      expect(mailbox.folderPath(message.parentFolderId)).toEqual([
+        RESTORE_FOLDER,
+        "Posteingang",
+        "Projekte",
+      ]);
+      expect(message.attachments).toHaveLength(1);
+      expect(mailbox.graph.callsTo("POST", "/attachments")).toHaveLength(1);
+    });
+
+    it("keeps looking for an event attachment, and never confirms one that arrived twice", async () => {
+      const event: FixtureObject = {
+        path: "calendar/Kalender/Review.0011.json",
+        type: "event",
+        id: "EV11",
+        metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+        content: JSON.stringify({
+          event: {
+            subject: "Review",
+            hasAttachments: true,
+            start: { dateTime: "2026-03-03T10:00:00.0000000", timeZone: "UTC" },
+            end: { dateTime: "2026-03-03T11:00:00.0000000", timeZone: "UTC" },
+          },
+          exceptions: [],
+        }),
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [
+          event,
+          {
+            path: "calendar/Kalender/Review.0011.attachments/notes.txt",
+            type: "event-attachment",
+            id: "EA11",
+            content: "notes",
+            metadata: {
+              eventItemId: "EV11",
+              name: "notes.txt",
+              contentType: "text/plain",
+              attachmentType: "#microsoft.graph.fileAttachment",
+            },
+          },
+        ],
+      });
+      for (const [visibleAfter, twice] of [
+        [3, false],
+        [6, true],
+      ] as const) {
+        const mailbox = new FakeMailbox();
+        mailbox.failAfterCommit("POST", /\/events\/[^/]+\/attachments$/, "504", 1, {
+          visibleAfter,
+        });
+        const report = await onceEngine(mailbox).run(
+          fixture.ctx,
+          restoreRequestFor(fixture, { mode: "skip" }),
+        );
+        const restored = must([...mailbox.events.values()][0]);
+        expect(restored.attachments).toHaveLength(twice ? 2 : 1);
+        const attachment = must(report.items.find((item) => item.id === "EA11"));
+        const owner = must(report.items.find((item) => item.id === "EV11"));
+        expect(attachment.verified).toBe(!twice);
+        expect(owner.verified).toBe(!twice);
+        if (twice) {
+          expect(owner.reason).toMatch(/1 attachments are on the restored event twice/);
+          expect(attachment.reason).toMatch(/holds this attachment twice/);
+        }
+      }
+    });
+
+    it("never sends a message without Message-ID twice", async () => {
+      const anonymous: FixtureObject = {
+        ...offer,
+        path: "mail/Gesendete Elemente/Anonymous.0040.eml",
+        id: "AAMk40",
+        content:
+          "Subject: no id\r\nFrom: a@example.org\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\nbody\r\n",
+        metadata: {
+          folderPath: "Gesendete Elemente",
+          wellKnownFolder: "sentitems",
+          format: "mime",
+        },
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [anonymous],
+      });
+      const mailbox = new FakeMailbox();
+      mailbox.failAfterCommit("POST", /\/messages$/);
+
+      const report = await onceEngine(mailbox).run(fixture.ctx, restoreRequestFor(fixture));
+
+      expect(mailbox.messages.size).toBe(1);
+      expect(report.items[0]?.status).toBe("failed");
+      expect(report.items[0]?.reason).toMatch(/not sent again so that no second copy is made/);
+    });
+
+    it("takes the folder an unanswered POST created, also when the resend gets 409", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff],
+      });
+      // The Graph client of today resends after the 504 and Exchange answers 409.
+      const resent = new FakeMailbox();
+      resent.failAfterCommit("POST", /\/childFolders$|\/mailFolders$/);
+      const first = await engineFor(resent).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename", requestedAt: NOW }),
+      );
+      // Without a resend: the folder is looked up again.
+      const once = new FakeMailbox();
+      once.failAfterCommit("POST", /\/childFolders$|\/mailFolders$/, "504", 3);
+      const second = await onceEngine(once).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename", requestedAt: NOW }),
+      );
+
+      for (const [report, mailbox] of [
+        [first, resent],
+        [second, once],
+      ] as const) {
+        expect(report.failures).toEqual([]);
+        expect(report.restored).toBe(1);
+        const message = must([...mailbox.messages.values()][0]);
+        expect(mailbox.folderPath(message.parentFolderId)).toEqual([
+          RESTORE_FOLDER,
+          "Posteingang",
+          "Projekte",
+        ]);
+        expect(
+          [...mailbox.folders.values()].filter((f) => f.displayName === RESTORE_FOLDER),
+        ).toHaveLength(1);
+      }
+    });
+
+    it("sends an unanswered event once more with the same transactionId", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [dentist],
+      });
+      const mailbox = new FakeMailbox();
+      mailbox.failAfterCommit("POST", /\/events$/);
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "skip" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect(mailbox.events.size).toBe(1);
+      const posts = mailbox.graph.callsTo("POST", "/events");
+      expect(posts).toHaveLength(2);
+      const ids = posts.map((post) => (post.json as { transactionId: string }).transactionId);
+      expect(ids[0]).toBe(ids[1]);
+    });
+
+    it("keeps the contact and the attachment an unanswered POST made", async () => {
+      const withAttachment: FixtureObject = {
+        path: "mail/Posteingang/Plan.0041.json",
+        type: "mail",
+        id: "AAMk41",
+        metadata: {
+          format: "json",
+          messageId: "<plan@example.org>",
+          folderPath: "Posteingang",
+          wellKnownFolder: "inbox",
+          isDraft: "false",
+        },
+        content: JSON.stringify({
+          subject: "Plan",
+          internetMessageId: "<plan@example.org>",
+          isDraft: false,
+        }),
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [
+          withAttachment,
+          {
+            path: "mail/Posteingang/Plan.0041.attachments/plan.txt.aa",
+            type: "attachment",
+            id: "AAMk41/a1",
+            metadata: {
+              messagePath: withAttachment.path,
+              name: "plan.txt",
+              contentType: "text/plain",
+            },
+            content: "the plan",
+          },
+          clientsFolder,
+          ben,
+        ],
+      });
+      const mailbox = new FakeMailbox();
+      // An older Ben in the folder is never mistaken for the one this run made.
+      const clients = mailbox.addContactFolder("Clients", null);
+      const olderBen = mailbox.addContact(clients.id, {
+        displayName: "Ben Example",
+        emailAddresses: [{ address: "ben@example.org" }],
+      });
+      mailbox.failAfterCommit("POST", /\/attachments$/);
+      mailbox.failAfterCommit("POST", /\/contacts$/);
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      const message = must([...mailbox.messages.values()][0]);
+      expect(message.attachments).toHaveLength(1);
+      expect(mailbox.contacts.size).toBe(2);
+      const contact = must(report.items.find((item) => item.id === "C1"));
+      expect(contact.status).toBe("restored");
+      expect(contact.targetRef).not.toBe(olderBen.id);
+      expect(contact).toMatchObject({ code: "restored", verified: false });
+      expect(contact.reason).toMatch(/found by its name and address/);
+    });
+  });
+
+  it("finishes a message an interrupted attempt created without all its attachments", async () => {
+    const report: FixtureObject = {
+      path: "mail/Posteingang/Report.0050.json",
+      type: "mail",
+      id: "AAMk50",
+      metadata: {
+        format: "json",
+        messageId: "<report-50@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        isDraft: "false",
+        isRead: "true",
+      },
+      content: JSON.stringify({
+        subject: "Report",
+        internetMessageId: "<report-50@example.org>",
+        isDraft: false,
+        receivedDateTime: "2026-03-02T08:15:42Z",
+      }),
+    };
+    const attachment = (name: string, content: string): FixtureObject => ({
+      path: `mail/Posteingang/Report.0050.attachments/${name}.aa`,
+      type: "attachment",
+      id: `AAMk50/${name}`,
+      metadata: { messagePath: report.path, name, contentType: "text/plain" },
+      content,
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      now: () => NOW,
+      objects: [report, attachment("a.txt", "first"), attachment("b.txt", "second")],
+    });
+    for (const keepRecord of [true, false]) {
+      const mailbox = new FakeMailbox();
+      mailbox.interruptAt("POST", /\/attachments$/, 2);
+      const request = restoreRequestFor(fixture, { mode: "rename" });
+      await expect(engineFor(mailbox).run(fixture.ctx, request)).rejects.toThrow(/stopped/);
+      expect(must([...mailbox.messages.values()][0]).attachments).toHaveLength(1);
+      if (!keepRecord) {
+        await fixture.ctx.cursor.clear();
+      }
+
+      const retry = await engineFor(mailbox).run(fixture.ctx, request);
+
+      expect(retry.failures, String(keepRecord)).toEqual([]);
+      expect(mailbox.messages.size, String(keepRecord)).toBe(1);
+      const message = must([...mailbox.messages.values()][0]);
+      expect(
+        message.attachments.map((a) => a.name),
+        String(keepRecord),
+      ).toEqual(["a.txt", "b.txt"]);
+      const item = must(retry.items.find((entry) => entry.id === "AAMk50"));
+      expect(item, String(keepRecord)).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason, String(keepRecord)).toMatch(
+        keepRecord
+          ? /earlier attempt of this job created the message/
+          : /found in the restore folder/,
+      );
+      expect(retry.items.find((entry) => entry.id === "AAMk50/a.txt")?.reason).toMatch(
+        /added by an earlier attempt/,
+      );
+      // The finished message is done: a third attempt restores nothing again.
+      const third = await engineFor(mailbox).run(fixture.ctx, request);
+      expect(third.items.find((entry) => entry.id === "AAMk50")?.reason).toBe(
+        "restored by an earlier attempt of this job",
+      );
+      expect(message.attachments).toHaveLength(2);
+      await fixture.ctx.cursor.clear();
+    }
+  });
+
+  it("does not create a message without Message-ID again on a retry it already restored", async () => {
+    const anonymous: FixtureObject = {
+      path: "mail/Archiv/Scan.0051.eml",
+      type: "mail",
+      id: "AAMk51",
+      content:
+        "Subject: Scan\r\nFrom: scanner@example.org\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\npage\r\n",
+      metadata: {
+        folderPath: "Archiv",
+        format: "mime",
+        isDraft: "false",
+      },
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      now: () => NOW,
+      objects: [anonymous, kickoff],
+    });
+    const mailbox = new FakeMailbox();
+    // The attempt stops when it creates the second message, after the first was restored.
+    mailbox.interruptAt("POST", /\/messages$/, 2);
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+    await expect(engineFor(mailbox).run(fixture.ctx, request)).rejects.toThrow(/stopped/);
+    expect(mailbox.messages.size).toBe(1);
+
+    const retry = await engineFor(mailbox).run(fixture.ctx, request);
+
+    expect(retry.failures).toEqual([]);
+    expect(mailbox.messages.size).toBe(2);
+    expect(retry.items.find((item) => item.id === "AAMk51")?.reason).toBe(
+      "restored by an earlier attempt of this job",
+    );
+  });
+
+  it("restores an IMAP backup into Microsoft 365 by meaning: SPECIAL-USE, unescaped names, flags", async () => {
+    const sentFolder: FixtureObject = {
+      path: "mail/Gesendet",
+      type: "folder",
+      id: "imap:Gesendet:7",
+      content: "",
+      metadata: { mailbox: "Gesendet", delimiter: ".", uidValidity: "7", specialUse: "\\Sent" },
+    };
+    const imapMessage = (
+      mailbox: string,
+      path: string,
+      uid: number,
+      flags: string,
+    ): FixtureObject => ({
+      path,
+      type: "message",
+      id: `imap:${mailbox}:7:${uid}`,
+      content: mimeMessage({ messageId: `<imap-${uid}@example.org>`, subject: `IMAP ${uid}` }),
+      metadata: {
+        mailbox,
+        delimiter: ".",
+        uid: String(uid),
+        uidValidity: "7",
+        flags,
+        messageId: `<imap-${uid}@example.org>`,
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      objects: [
+        sentFolder,
+        imapMessage("Gesendet", "mail/Gesendet/1.eml", 1, "\\Seen"),
+        imapMessage("Kunden.A/B 100%", "mail/Kunden/A%2FB 100%25/2.eml", 2, "\\Flagged"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", target: { type: "other", ref: USER } }),
+    );
+
+    expect(report.failures).toEqual([]);
+    const sent = must([...mailbox.messages.values()].find((m) => m.subject === "IMAP 1"));
+    expect(sent.parentFolderId).toBe("wk-sentitems");
+    expect(sent.patches).toEqual([{ isRead: true, flag: { flagStatus: "notFlagged" } }]);
+    const client = must([...mailbox.messages.values()].find((m) => m.subject === "IMAP 2"));
+    expect(mailbox.folderPath(client.parentFolderId)).toEqual(["Kunden", "A/B 100%"]);
+    expect(client.patches).toEqual([{ isRead: false, flag: { flagStatus: "flagged" } }]);
+  });
+
+  it("restores a per-label Gmail backup once per message, its labels as categories", async () => {
+    const gmail = (
+      mailbox: string,
+      uid: number,
+      id: string,
+      specialUse?: string,
+      flags = "\\Seen",
+    ): FixtureObject => ({
+      path: `mail/${mailbox}/${uid}.eml`,
+      type: "message",
+      id: `imap:${mailbox}:9:${uid}`,
+      content: mimeMessage({ messageId: `<${id}@example.org>`, subject: `Gmail ${id}` }),
+      metadata: {
+        mailbox,
+        delimiter: "/",
+        uid: String(uid),
+        uidValidity: "9",
+        flags,
+        messageId: `<${id}@example.org>`,
+        ...(specialUse ? { specialUse } : {}),
+      },
+    });
+    const folder = (mailbox: string, specialUse?: string): FixtureObject => ({
+      path: `mail/${mailbox}`,
+      type: "folder",
+      id: `imap:${mailbox}:9`,
+      content: "",
+      metadata: {
+        mailbox,
+        delimiter: "/",
+        uidValidity: "9",
+        ...(specialUse ? { specialUse } : {}),
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: [
+        folder("[Gmail]/All Mail", "\\All"),
+        folder("[Gmail]/Important", "\\Important"),
+        gmail("INBOX", 1, "a", "\\Inbox"),
+        gmail("[Gmail]/All Mail", 11, "a", "\\All"),
+        gmail("Kunden", 21, "a"),
+        gmail("[Gmail]/Important", 31, "a", "\\Important"),
+        gmail("[Gmail]/All Mail", 12, "b", "\\All"),
+        gmail("[Gmail]/Sent Mail", 41, "c", "\\Sent"),
+        gmail("[Gmail]/All Mail", 13, "c", "\\All"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.addFolder("Archive", null, "wk-archive");
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", target: { type: "other", ref: USER } }),
+    );
+
+    expect(report.failures).toEqual([]);
+    // Three messages, three creates: not one per label plus one for All Mail.
+    expect(mailbox.messages.size).toBe(3);
+    expect(report.restored).toBe(3);
+    const a = must([...mailbox.messages.values()].find((m) => m.subject === "Gmail a"));
+    expect(a.parentFolderId).toBe("wk-inbox");
+    expect(a.patches).toEqual([
+      { isRead: true, flag: { flagStatus: "notFlagged" }, categories: ["Kunden", "Important"] },
+    ]);
+    const b = must([...mailbox.messages.values()].find((m) => m.subject === "Gmail b"));
+    expect(b.parentFolderId).toBe("wk-archive");
+    const c = must([...mailbox.messages.values()].find((m) => m.subject === "Gmail c"));
+    expect(c.parentFolderId).toBe("wk-sentitems");
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    expect(item("mail/INBOX/1.eml").reason).toMatch(
+      /Gmail labels kept as categories: Kunden, Important/,
+    );
+    expect(item("mail/Kunden/21.eml")).toMatchObject({ status: "skipped", code: "merged" });
+    expect(item("mail/Kunden/21.eml").reason).toMatch(
+      /label "Kunden" is kept as the category "Kunden"/,
+    );
+    expect(item("mail/[Gmail]/Important")).toMatchObject({
+      status: "skipped",
+      code: "not_applicable",
+    });
+    expect(item("mail/[Gmail]/Important").reason).toMatch(/is a label, not a folder/);
+  });
+
+  it("never reports Gmail labels as kept categories when Exchange refused the categories", async () => {
+    const gmail = (mailbox: string, uid: number, specialUse?: string): FixtureObject => ({
+      path: `mail/${mailbox}/${uid}.eml`,
+      type: "message",
+      id: `imap:${mailbox}:9:${uid}`,
+      content: mimeMessage({ messageId: "<label@example.org>", subject: "Gmail label" }),
+      metadata: {
+        mailbox,
+        delimiter: "/",
+        uid: String(uid),
+        uidValidity: "9",
+        flags: "\\Seen",
+        messageId: "<label@example.org>",
+        ...(specialUse ? { specialUse } : {}),
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: [
+        {
+          path: "mail/[Gmail]/All Mail",
+          type: "folder",
+          id: "imap:[Gmail]/All Mail:9",
+          content: "",
+          metadata: { mailbox: "[Gmail]/All Mail", delimiter: "/", specialUse: "\\All" },
+        },
+        gmail("INBOX", 1, "\\Inbox"),
+        gmail("Kunden", 21),
+        gmail("[Gmail]/Starred", 51, "\\Flagged"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.refusesMessagePatches = true;
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", target: { type: "other", ref: USER } }),
+    );
+
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    const message = item("mail/INBOX/1.eml");
+    expect(message).toMatchObject({ status: "restored", verified: false });
+    expect(message.reason).toMatch(/read state, flag and categories were not applied/);
+    expect(message.reason).not.toMatch(/kept as categories/);
+    for (const path of ["mail/Kunden/21.eml", "mail/[Gmail]/Starred/51.eml"]) {
+      expect(item(path).reason).toMatch(/is not kept: Exchange did not take the categories/);
+      expect(item(path).reason).not.toMatch(/is kept as/);
+    }
   });
 
   it("explains a message Graph refuses as too large", async () => {
@@ -824,6 +2444,11 @@ describe("ExchangeRestoreEngine", () => {
     const retried = new FakeMailbox();
     const request = restoreRequestFor(fixture, { mode: "rename" });
     await engineFor(retried).run(fixture.ctx, request);
+    const recorded = await engineFor(retried).run(fixture.ctx, request);
+    expect(recorded.restored).toBe(2);
+    expect(retried.messages.size).toBe(2);
+    // Without the job's record (an attempt that ended before it was saved), by Message-ID.
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(retried).run(fixture.ctx, request);
     expect(retry.skipped).toBe(2);
     expect(retried.messages.size).toBe(2);
@@ -835,12 +2460,14 @@ describe("ExchangeRestoreEngine", () => {
     const replayed = new FakeMailbox();
     const legacyRequest = restoreRequestFor(fixture, { mode: "replace" });
     await engineFor(replayed).run(fixture.ctx, legacyRequest);
+    await fixture.ctx.cursor.clear();
     const legacyRetry = await engineFor(replayed).run(fixture.ctx, legacyRequest);
     expect(legacyRetry.skipped).toBe(2);
     expect(
       legacyRetry.items.every((skipped) => skipped.reason?.includes('ran as "rename" instead')),
     ).toBe(true);
 
+    await fixture.ctx.cursor.clear();
     const partial = new FakeMailbox();
     const restoreFolder = partial.addFolder(RESTORE_FOLDER, null);
     const inbox = partial.addFolder("Posteingang", restoreFolder.id);

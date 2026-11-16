@@ -26,12 +26,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
+import { TargetSpaceRuleLine } from "@/features/held-backups/space-rule";
+import { useSession } from "@/lib/session";
 import {
   healthSummary,
   isMigrationRunning,
   storageErrorKey,
   targetDisplayName,
 } from "../presenters";
+import { TargetCopyLine } from "../repository-copies";
 import type { StorageTargetDto } from "../types";
 import { useIsTestingTarget, useTestTarget } from "../use-storage";
 import { ImmutabilitySection } from "./immutability-section";
@@ -39,6 +42,7 @@ import { MigrationLine } from "./migration-line";
 import { ObjectLockLine } from "./object-lock-line";
 import { ProbeResult } from "./probe-result";
 import { RoleBadge, TargetKindIcon, TargetStatusBadge, ToneLine } from "./status";
+import { WriteOnceLine } from "./write-once-line";
 
 export type TargetAction = "edit" | "delete" | "promote" | "completeness";
 
@@ -63,6 +67,7 @@ export function TargetCard({
   const migrationActive = target.migration ? isMigrationRunning(target.migration) : false;
   const isRetiredDefault = target.kind === "installation_default";
   const name = targetDisplayName(target, t);
+  const session = useSession();
 
   const runTest = () => {
     test.mutate(target.id, {
@@ -123,7 +128,17 @@ export function TargetCard({
           )
         ) : null}
         <ObjectLockLine kind={target.kind} capability={target.objectLock} />
+        <WriteOnceLine finding={target.writeOnce} />
+        {isCopy ? <TargetCopyLine targetId={target.id} /> : null}
         <ImmutabilitySection target={target} />
+        {/* What the target keeps free for everything else on it (#99): the tenant's own primary. */}
+        {target.role === "primary" && !isRetiredDefault ? (
+          <TargetSpaceRuleLine
+            targetId={target.id}
+            tenantId={session.activeTenant?.id ?? null}
+            canEdit={target.canManage}
+          />
+        ) : null}
         {!target.canManage ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck aria-hidden="true" className="size-3.5" />

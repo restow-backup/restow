@@ -1,0 +1,24 @@
+{
+  "errors": [
+    {
+      "message": "The restore was not started: restoring Sales needs 0.0 GiB for the backup file and 1.0 GiB for its data files and 0.2 GiB for its log on / and leaves at least 1.0 GiB free there for what is already on it; / has 0.1 GiB free.",
+      "code": "sql_restore_no_space"
+    }
+  ],
+  "ops": [
+    "inventory"
+  ],
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "Sales_restored_20261105",
+    "fetched": false,
+    "sha256Match": false,
+    "restored": false,
+    "moves": [],
+    "durationMs": 1000,
+    "code": "sql_restore_no_space",
+    "message": "The restore was not started: restoring Sales needs 0.0 GiB for the backup file and 1.0 GiB for its data files and 0.2 GiB for its log on / and leaves at least 1.0 GiB free there for what is already on it; / has 0.1 GiB free."
+  },
+  "status": "failed"
+}

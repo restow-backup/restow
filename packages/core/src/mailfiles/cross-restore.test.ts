@@ -13,6 +13,7 @@ import {
   MemorySnapshotIndex,
 } from "../engine/memory.js";
 import type { ProtectedObjectRef, RestoreRequest } from "../engine/types.js";
+import { must } from "../graph/testing/fake-graph.js";
 import { ExchangeRestoreEngine } from "../restore/exchange.js";
 import { FakeMailbox } from "../restore/testing/fake-mailbox.js";
 import { MemoryStorage } from "../verify/testing.js";
@@ -139,5 +140,102 @@ describe("imported mailbox restored into Microsoft 365", () => {
     expect(
       restored.map((message) => mailbox.folderPath(message.parentFolderId).join("/")).sort(),
     ).toEqual(["Restow 2026-09-30 1000/Inbox", "Restow 2026-09-30 1000/Inbox/Clients"]);
+  });
+  it("carries the IMAP flags over and maps INBOX and escaped names in every mode", async () => {
+    const storage = new MemoryStorage();
+    const chunkIndex = new MemoryChunkIndex();
+    const snapshots = new MemorySnapshotIndex(TENANT);
+    const ctx = () =>
+      createMemoryJobContext({
+        tenantId: TENANT,
+        keys: new Keyring(TENANT, [dek]),
+        storage,
+        chunkIndex,
+        snapshots,
+        cursor: new MemoryCursorStore(),
+        now: () => new Date("2026-09-30T10:00:00Z"),
+      });
+    const event = (
+      index: number,
+      folder: string[],
+      raw: Buffer,
+      flags: string[],
+    ): MailWalkEvent => ({
+      type: "message",
+      ref: `x.mbox#${index}`,
+      index,
+      folder,
+      sourceName: String(index),
+      format: "mbox",
+      raw,
+      synthesized: false,
+      flags,
+      internalDate: null,
+      sourceBytes: raw.length,
+    });
+    const walk = async function* (_file: MailInputFile): AsyncGenerator<MailWalkEvent> {
+      yield event(0, ["INBOX"], eml("Read", "f1"), ["\\Seen", "\\Answered", "Projekt"]);
+      yield event(1, ["INBOX"], eml("Flagged", "f2"), ["\\Flagged"]);
+      yield event(2, ["100%"], eml("Discount", "f3"), []);
+    };
+    const file: MailInputFile = {
+      path: "x.mbox",
+      size: 100,
+      open: () => Readable.from([Buffer.alloc(100)]),
+      read: async () => Buffer.alloc(10),
+    };
+    const result = await new MailImportEngine({
+      walk,
+      parseMeta: async (raw) => meta(raw),
+      detect: () => ({ format: "mbox" }),
+    }).run(ctx(), imported, {
+      groups: [{ label: "x.mbox", size: 100, kind: "file" }],
+      units: [{ key: "k", group: 0, kind: "file", path: "x.mbox", size: 100 }],
+      open: () => file,
+    });
+
+    for (const mode of ["skip", "rename"] as const) {
+      const mailbox = new FakeMailbox();
+      const report = await new ExchangeRestoreEngine({ graph: () => mailbox.graph.client() }).run(
+        ctx(),
+        {
+          restoreJobId: `restore-flags-${mode}`,
+          snapshotId: result.snapshotId,
+          protectedObject: imported,
+          selection: { all: true },
+          target: { type: "other", ref: "anna@example.org" },
+          mode,
+          actor: { userId: null, impersonated: false, reason: null },
+          requestedAt: new Date("2026-09-30T10:00:00Z"),
+        },
+      );
+      expect(report.failures, mode).toEqual([]);
+      const bySubject = (subject: string) =>
+        must(
+          [...mailbox.messages.values()].find((message) => message.subject === subject),
+          subject,
+        );
+      expect(bySubject("Read").patches, mode).toEqual([
+        { isRead: true, flag: { flagStatus: "notFlagged" }, categories: ["Projekt"] },
+      ]);
+      expect(bySubject("Flagged").patches, mode).toEqual([
+        { isRead: false, flag: { flagStatus: "flagged" } },
+      ]);
+      expect(bySubject("Discount").patches, mode).toEqual([
+        { isRead: false, flag: { flagStatus: "notFlagged" } },
+      ]);
+      const folder = (subject: string) =>
+        mailbox.folderPath(bySubject(subject).parentFolderId).join("/");
+      if (mode === "skip") {
+        // INBOX is the target's inbox, whatever it is called there.
+        expect(bySubject("Read").parentFolderId).toBe("wk-inbox");
+        expect(folder("Discount")).toBe("100%");
+      } else {
+        expect(folder("Read")).toBe("Restow 2026-09-30 1000/INBOX");
+        expect(folder("Discount")).toBe("Restow 2026-09-30 1000/100%");
+      }
+      const read = report.items.find((item) => item.reason?.includes("\\Answered"));
+      expect(read?.reason, mode).toMatch(/no counterpart for were not set: \\Answered/);
+    }
   });
 });

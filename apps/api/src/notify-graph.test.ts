@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   backupAppConsentUrl,
   GraphNotifier,
+  graphMessage,
   graphSendFailureReason,
   graphTokenFailureReason,
 } from "./notify-graph.js";
@@ -136,9 +137,69 @@ describe("graphSendFailureReason", () => {
       "graph_sender_not_found",
     );
     expect(graphSendFailureReason(401, null)).toBe("graph_token_failed");
+    // A refused recipient is final (0.5.0): not retried, and it raises a delivery failure alert.
     expect(graphSendFailureReason(400, { error: { code: "ErrorInvalidRecipients" } })).toBe(
+      "recipient_rejected",
+    );
+    expect(graphSendFailureReason(400, { error: { code: "ErrorQuotaExceeded" } })).toBe(
       "transport_error",
     );
+  });
+});
+
+describe("graphMessage (0.5.0)", () => {
+  const message = {
+    to: "a@contoso.com",
+    subject: "s",
+    text: "t",
+    html: '<img src="cid:brand-logo.abc@mail.invalid">',
+    replyTo: "help@msp.example",
+    attachments: [
+      {
+        filename: "logo.png",
+        contentType: "image/png",
+        content: Buffer.from("png"),
+        cid: "brand-logo.abc@mail.invalid",
+      },
+      { filename: "report.pdf", contentType: "application/pdf", content: Buffer.from("pdf") },
+    ],
+  };
+
+  it("brands the name of the sender mailbox only, never another address", () => {
+    const own = graphMessage("alerts@contoso.com", {
+      ...message,
+      from: { name: "MSP\nBackup", address: null },
+    });
+    expect(own.from).toEqual({
+      emailAddress: { address: "alerts@contoso.com", name: "MSP Backup" },
+    });
+    const other = graphMessage("alerts@contoso.com", {
+      ...message,
+      from: { name: "MSP", address: "spoof@example.com" },
+    });
+    expect(other.from).toBeUndefined();
+  });
+
+  it("sets Reply-To and attaches the logo inline, a PDF as a file", () => {
+    const graph = graphMessage("alerts@contoso.com", message);
+    expect(graph.replyTo).toEqual([{ emailAddress: { address: "help@msp.example" } }]);
+    expect(graph.attachments).toEqual([
+      {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: "logo.png",
+        contentType: "image/png",
+        contentBytes: Buffer.from("png").toString("base64"),
+        contentId: "brand-logo.abc@mail.invalid",
+        isInline: true,
+      },
+      {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: "report.pdf",
+        contentType: "application/pdf",
+        contentBytes: Buffer.from("pdf").toString("base64"),
+        isInline: false,
+      },
+    ]);
   });
 });
 

@@ -10,10 +10,49 @@
   beachten.
 - Inkrementell über UIDVALIDITY und UIDNEXT je Ordner; ändert sich UIDVALIDITY, wird
   der Ordner voll neu gelesen (Dedupe über Message-ID plus Hash verhindert Doppelung
-  im Speicher).
+  im Speicher). Geladen wird die Differenz der UIDs (was der vorige Stand nicht hat), nicht
+  "ab UIDNEXT": Ein Server ohne `OK [UIDNEXT]` (RFC 3501 verlangt, dass Clients damit umgehen)
+  und ein NIL-Trennzeichen (flacher Namensraum, gespeichert als `""`) lassen den Ordner
+  inkrementell. Ein Ordner ohne `OK [UIDVALIDITY]` schlägt als Ordner fehl und behält seinen
+  vorigen Stand; die anderen Ordner werden gesichert.
 - Inhalt: RFC 5322 byte-genau (`BODY.PEEK[]`), Flags separat, interne Datumsangabe.
 - Gelöschte Mails: beim nächsten Lauf per UID-Vergleich erkannt; Snapshot behält sie.
+- Eine Nachricht, die der Server nicht lesen kann (Dovecot mit beschädigter oder fehlender
+  Mail-Datei, Gmail): Dovecot und Gmail lehnen dann jeden `UID FETCH`, dessen Menge sie enthält,
+  als Ganzes ab (`NO Some messages could not be FETCHed`). Die Engine teilt eine abgelehnte
+  Metadaten-Abfrage so lange in Hälften, bis die unlesbaren UIDs feststehen (höchstens 100
+  zusätzliche Befehle je Abfrage, `metaIsolationCommands`). Ist das Budget aufgebraucht (eine
+  lange Folge defekter Nachrichten), geht der noch nicht geprüfte Teil ohne Metadaten weiter;
+  der Body-Abruf mit seinem Einzelabruf findet die unlesbaren. Nur wenn keiner der Befehle der
+  Teilung eine Antwort bekommt, verweigert der Server den Ordner, und der Ordner schlägt fehl.
+  Jede unlesbare Nachricht ist ein Elementfehler mit der Antwort des Servers, der Rest des
+  Ordners wird gesichert, und der nächste Lauf versucht sie erneut. Eine Befehls- oder
+  Download-Grenze (`[OVERQUOTA]`, `[LIMIT]`, Gmails „Account exceeded command or bandwidth
+  limits“, Ursache `imap.server_limit`) wird nie geteilt: Der Ordner schlägt einmal fehl, der
+  nächste Lauf setzt fort.
+- Ein Ordner, der in einem Voll-Lauf auch beim zweiten Versuch scheitert, macht den
+  Sicherungsstand nicht schlechter als den vorigen: Bei verlangtem Voll-Lauf und gleicher
+  UIDVALIDITY kommen die vorigen Nachrichten, die noch nicht neu gelesen wurden und noch im Ordner
+  liegen, mit ihren aktuellen Flags mit. Nach einem UIDVALIDITY-Wechsel bleibt, was unter den
+  neuen UIDs schon gelesen ist, und jede vorige Nachricht, die noch nicht neu gelesen wurde,
+  bleibt als ältere Kopie (Abgleich über Message-ID, SHA-256 und Größe, eins zu eins; Pfad
+  `<uid>.v<uidvalidity>.eml`, damit sie nicht mit einer neuen UID zusammenfällt). Der
+  Ordnerzustand trägt die neue UIDVALIDITY, der nächste Lauf lädt nur die noch fehlenden UIDs;
+  so kommt der Ordner auch unter einer täglichen Download-Grenze nach einigen Läufen durch.
+  Sobald jede UID unter der neuen UIDVALIDITY gesichert ist, fallen die älteren Kopien weg.
+- Wiederaufnahme nach einem abgebrochenen Versuch: Ein Ordner, den der frühere Versuch schon
+  fertig oder halb gesichert hatte und den der Server inzwischen nicht mehr listet (umbenannt
+  oder gelöscht), verschwindet samt Objekten und Zustand aus dem Sicherungsstand; ein
+  umbenannter Ordner steht dort nur unter seinem neuen Namen. Ältere Sicherungsstände behalten
+  ihn.
 - Parallelität: max. 2 Verbindungen je Konto (viele Server limitieren).
+- Checkpoints (Pakete, Teilmanifest, Cursor) schreiben jedes Mal die ganze Objektliste an jedes
+  Speicherziel. Deshalb: nach einem Ordner nur, wenn er etwas geändert hat (geladene Nachricht,
+  gelöschte, geänderte Flags, nachgetragene Umschläge) oder noch ungesicherte Downloads offen
+  sind; ein unveränderter Ordner wird nach einem Absturz einfach neu geplant, ohne Download.
+  Während des Ladens alle `checkpointEveryMessages` Nachrichten (mindestens 1/20 der Objekte
+  des Sicherungsstands) oder `checkpointEveryBytes`, aber höchstens einmal je
+  `checkpointMinIntervalMs` (Vorgabe 60 s).
 - Restore: APPEND in Zielordner mit Original-Datum und Flags; Zielordner anlegen, falls
   fehlend; Duplikate über Message-ID prüfen. Geprüft wird gegen den Stand des Ordners,
   bevor dieser Lauf dort etwas geschrieben hat (ein Ordner kann zwei verschiedene Mails
@@ -29,6 +68,58 @@
   Ergebnis. Ein wiederholter "rename"-Job erkennt eigene frühere Kopien nur am gleichen
   Inhalt (SHA-256), jede Kopie steht für genau eine Mail
   (packages/core/src/restore/duplicates.ts).
+- Gmail und Google Workspace (packages/core/src/backup/imap/gmail.ts): Gmail kennt Labels statt
+  Ordner und zeigt jedes Label als IMAP-Ordner (INBOX, Gesendet, Markiert, Wichtig, Entwürfe,
+  jedes eigene Label), jede Nachricht zusätzlich in `[Gmail]/All Mail` (Alle Nachrichten,
+  SPECIAL-USE `\All`), jede Kopie mit eigener UID. Erkannt wird Gmail an der Erweiterung
+  `X-GM-EXT-1` und an All Mail mit `\All` unter `[Gmail]`/`[Google Mail]`. Das Backup lädt die
+  Nachrichten dann nur aus All Mail, Spam und Papierkorb (die beiden halten, was All Mail nicht
+  hat), also jede genau einmal; das schont die tägliche IMAP-Download-Grenze von Gmail. Die
+  Labels jeder Nachricht in All Mail (`X-GM-LABELS`, mit den Flags im selben `FETCH 1:*`
+  gelesen) stehen als `metadata.gmailLabels` (sortiertes JSON-Array, etwa
+  `["\\Inbox","Projekte"]`) am Nachrichtenobjekt und werden wie die Flags bei jedem Lauf ohne
+  neuen Download aktualisiert; dazu kommt Gmails Nachrichten-ID `X-GM-MSGID` als
+  `metadata.gmailMessageId`. Die Label-Ordner werden danach gesichert, wenn All Mail, Spam und
+  Papierkorb fertig sind, und behalten ihre Nachrichten, jede mit eigener UID und eigenen
+  Flags, aber ohne Download: Das `FETCH 1:*` eines Label-Ordners fragt `X-GM-MSGID` mit ab, und
+  jedes Nachrichtenobjekt übernimmt Inhalt (Chunks, SHA-256) und Umschlag der Kopie in All
+  Mail. Nur eine Nachricht, die All Mail nicht gespeichert hat (dort fehlgeschlagen, oder nicht
+  in All Mail), wird im Label-Ordner selbst gelesen. INBOX, Gesendet und jedes Label lassen
+  sich so wie bei jedem anderen Server einzeln durchsuchen, exportieren und wiederherstellen.
+  Der Zustand trägt `imap.layout: "gmail"`. Ein Sicherungsstand von vor 0.5.0 enthielt jede
+  Nachricht einmal je Label mit eigenem Download: Der erste Lauf danach übernimmt diese Objekte
+  unverändert (keine Downloads), die Nachrichten in All Mail bekommen Labels und `X-GM-MSGID`.
+  Ist All Mail in Gmail für IMAP ausgeblendet (Einstellungen → Labels → „In IMAP anzeigen“), sichert Restow Ordner für Ordner
+  wie bei jedem anderen Server, jede Nachricht also einmal je Label, und meldet das in jedem
+  Lauf als Warnung `imap.gmail_all_mail_hidden`: Es fehlt nichts, aber eine Wiederherstellung zu
+  einem anderen Anbieter legt jede Kopie an. Abhilfe: „In IMAP anzeigen“ für Alle Nachrichten
+  einschalten.
+- Restore einer Gmail-Sicherung (packages/core/src/restore/gmail.ts): Gmail zeigt eine Mail in
+  jedem Ordner, der eines ihrer Labels ist, und zusätzlich in `[Gmail]/All Mail` (`\All`).
+  Ordnerweise wiederhergestellt, landete sie einmal je Label und noch einmal für All Mail im
+  Ziel. Jetzt wird jede Mail genau einmal geschrieben, in einen Heimatordner nach ihren Labels:
+  `\Inbox` vor `\Sent`, `\Draft`, `\Trash` und `\Spam`, sonst das erste eigene Label, sonst
+  All Mail (in einem Ziel ohne `\All` dessen `\Archive`, in Microsoft 365 der Archivordner).
+  Die übrigen Labels folgen: in ein Gmail-Konto per COPY in den Ordner des Labels (Gmail fügt
+  damit das Label hinzu, die Mail bleibt eine), auf einem anderen IMAP-Server als Schlüsselwort
+  (Keyword, ohne Leerzeichen und Sonderzeichen; `\Important` wird `Important`), in Microsoft
+  365 als Kategorie; `\Starred` wird `\Flagged`. Nimmt der Zielordner laut PERMANENTFLAGS
+  keine neuen Schlüsselwörter (`\*` fehlt), werden sie nicht gesendet, und das Ergebnis nennt
+  die Labels, die verloren gehen. Erkannt wird eine Gmail-Sicherung an All Mail mit `\All` unter
+  `[Gmail]` oder am Metadatum `gmailLabels`; ein Gmail-Ziel an derselben Ordnerliste.
+  Zusammengehörig sind die Objekte einer Mail mit gleicher Message-ID, gleichem SHA-256 und
+  gleicher Größe, in beiden Formen der Sicherung: Ab 0.5.0 (oben) tragen die Mails von All Mail
+  (und Spam und Papierkorb, die Gmail getrennt hält) `metadata.gmailLabels` als JSON-Array der
+  Werte von `X-GM-LABELS` (`\Inbox`, `\Sent`, `\Draft`, `\Important`, `\Starred`,
+  `Arbeit/Projekte`), und die Objekte der Label-Ordner teilen Inhalt und Umschlag mit ihnen;
+  eine Sicherung von vor 0.5.0 hält ein Objekt je Label-Ordner mit eigenem Download (Gmail
+  liefert in jedem Label dieselben Bytes). Geschrieben wird das Objekt des Heimatordners, die
+  anderen Objekte einer Mail meldet der Restore als übersprungen ("das Ziel hält sie bereits")
+  mit dem, was aus ihrem Label wurde. Ordnerobjekte für Important und Starred legt der Restore
+  in einem Ziel, das nicht Gmail ist, nicht an (sie sind dort Schlüsselwort bzw. Flag). Wer nur
+  einen Label-Ordner auswählt, bekommt genau diesen Ordner zurück. Eine Sicherung bei
+  ausgeblendetem All Mail (Warnung `imap.gmail_all_mail_hidden`) hat weder All Mail noch
+  `gmailLabels` und wird Ordner für Ordner wiederhergestellt, jede Kopie einzeln.
 - Grenzen: Kalender/Kontakte gibt es per IMAP nicht (CalDAV/CardDAV später).
 - Importierte Postfächer (Mail-Dateien statt Server, docs/IMPORT.md) nutzen dasselbe
   Manifestformat wie ein IMAP-Backup; sie werden nie gesichert, aber wie ein IMAP-Konto
@@ -224,8 +315,10 @@ weitergeleitete Kopie (`.forward`, siehe "Weiterleitung"). Beide dürfen zusamme
 beide erfassen, liegt einmal im Archiv.
 
 **Was erfasst wird.** Jeder auswählbare Ordner, auch Gesendet, Papierkorb und Spam; Entwürfe
-nicht (Ordner mit `\Drafts` oder dem Namen Drafts/Entwürfe, und jede Mail mit dem Flag
-`\Draft`). Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
+nicht: der Ordner mit `\Drafts` und jede Mail mit dem Flag `\Draft` in jedem Ordner. Markiert
+der Server keinen Ordner mit `\Drafts`, bleibt ein Ordner mit einem Entwurfsnamen (Drafts,
+Entwürfe, Brouillons, Borradores, Bozze, Concepten) nur auf oberster Ebene oder direkt unter
+INBOX außen vor; ein gleichnamiger Ordner tiefer im Baum ("Kunden/Bozze") wird erfasst. Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
 dort nur `[Gmail]/All Mail` (Alle Nachrichten), Spam und Papierkorb, die jede Mail genau einmal
 halten. Erkannt wird ein Google-Konto an der OAuth2-Quelle von Google, am Host
 `imap.gmail.com`/`imap.googlemail.com` oder an der Ordnerliste (`\All` unter `[Gmail]`).
@@ -235,10 +328,17 @@ dahin übernimmt einmalig der Backfill-Job ("Archiv-Übernahme", fortsetzbar, ma
 nachträglich erfasst), danach erfasst jeder Durchlauf nur Neues: STATUS je Ordner, und nur ein
 Ordner, dessen UIDNEXT weitergerückt ist, wird geöffnet; von neuen UIDs erst die Metadaten,
 dann nur die Quellen der Mails, die das Archiv für dieses Konto noch nicht hält (nach
-`<Ordner>;<UIDVALIDITY>;<UID>` oder Message-ID). Eine verschobene Mail oder eine schon
-weitergeleitete Kopie wird so nicht erneut geladen. Ändert sich UIDVALIDITY, wird der Ordner
-von vorn gelesen, ohne Doppel im Archiv. Ein Neuabgleich aus der Oberfläche liest alle
-Ordner von vorn.
+`<Ordner>;<UIDVALIDITY>;<UID>`, oder nach Message-ID zusammen mit der Größe RFC822.SIZE oder
+dem Date-Header aus dem ENVELOPE). Eine verschobene Mail wird so nicht erneut geladen, auch bei
+Exchange, das ohne `Set-ImapSettings -EnableExactRFC822Size $true` nur eine geschätzte Größe
+meldet. Eine Mail mit bekannter Message-ID, aber anderer Größe und anderem Datum wird geladen: Ist es dieselbe Mail (etwa eine schon weitergeleitete Kopie mit
+anderen Kopfzeilen), wird sie eine Erfassungszeile am vorhandenen Objekt; hat sie einen
+anderen Inhalt, bleibt sie als eigenes Objekt erhalten (`message-id-conflict`, seit 0.5.0;
+vorher wurde sie ohne Download übersprungen). Ändert sich UIDVALIDITY, wird der Ordner von
+vorn gelesen, ohne Doppel im Archiv und ohne die schon archivierten Mails erneut zu laden. Ein Neuabgleich aus der Oberfläche liest alle
+Ordner von vorn. Ordner, die der Server immer wieder verweigert, und Nachrichten, die er nie
+ausliefert, hält Restow als Lücke der Erfassung fest und zeigt das Konto als unvollständig
+(docs/ARCHIVE.md, "Lücken der Erfassung").
 
 **IDLE und Polling.** Jeder Worker-Prozess beobachtet bis zu `ARCHIVE_IMAP_IDLE_MAX` Konten
 (Standard 300, `0` schaltet IDLE ab) mit je einer Verbindung per IMAP IDLE auf INBOX (bei
@@ -267,9 +367,14 @@ für Microsoft 365 ist eine Microsoft-365-Quelle mit Graph oder Journaling der b
 Ein Anbieter kann jede Mail eines Kontos schon beim Transport als Kopie an das Archiv schicken.
 Das erfasst Mail, bevor ein Nutzer sie löschen kann (stärker als die Synchronisation aus dem
 Postfach) und braucht keine IMAP-Verbindung. Der Empfänger ist derselbe wie für Exchange
-Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider); er erkennt
-Journal-Reports am Header `X-MS-Journal-Report` oder an ihrem Aufbau und nimmt alles andere als
-einfache Kopie (Quelle `smtp_forward`).
+Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider). Als
+Journal-Report nimmt er nur eine Mail mit dem Header `X-MS-Journal-Report`, die allein an die
+Mandanten-Adresse ging; alles andere ist eine einfache Kopie (Quelle `smtp_forward`) und wird
+so archiviert, wie es ankam. Eine Mail an eine Konto-Adresse ist das immer, auch mit dem Header:
+Den Header und den Umschlagtext eines Reports kann jeder Absender schreiben, und ein Report
+würde den Postfächern zugeordnet, die sein Umschlag nennt. Eine Kopie, die wie ein Report
+aufgebaut ist (der Header an anderer Stelle oder nur der Aufbau eines Reports), trägt die
+Markierung `journal-shaped`.
 
 **Adressen.**
 
@@ -337,6 +442,11 @@ gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten
   Absenderprüfung (Zielbild, nicht in 0.1.0): Exchange Online liefert aus
   `*.protection.outlook.com`; den SPF des Absenders zu prüfen ist noch nicht umgesetzt (Journal-Reports
   kommen von der Tenant-Domain bzw. `MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@<tenant>.onmicrosoft.com`).
+  Wer die Journal-Adresse zusätzlich absichern will, lässt Port 25 in der Firewall nur aus den
+  Adressbereichen von Exchange Online Protection zu (Microsoft veröffentlicht sie unter
+  "Office 365 URLs and IP address ranges", Bereich Exchange Online, Port 25) und verlangt am
+  Connector TLS mit dem Zertifikat des Journal-Hosts; Weiterleitungen anderer Anbieter an
+  Konto-Adressen brauchen dann eigene Freigaben.
 - Verarbeitung: Report parsen (Envelope-Text: Sender, Message-Id, Recipients mit
   To/Cc/Bcc-Kennzeichnung), Original aus Anhang extrahieren, beides speichern. Ab 0.3.0
   ordnet der Empfänger jeden Report den Postfächern zu, deren Adresse der Umschlag nennt
@@ -348,4 +458,10 @@ gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten
 - Bei Fehlern (kein Anhang, nicht parsbar): rohe Report-Mail trotzdem archivieren
   und als "unvollständig" markieren; nie verwerfen. Antwort an Exchange immer 250
   nach erfolgreicher Persistierung, sonst 4xx (Exchange versucht erneut).
+- Erneut zugestellter Report (seit 0.5.0): geht das 250 verloren oder kommt es nach dem
+  Zeitlimit von Exchange an, sendet Exchange denselben Report noch einmal. Der Empfänger
+  kennt ihn am Hash des Reports, wie er ankam, ohne Transportfelder (Received, Return-Path,
+  DKIM- und ARC-Signaturen; `archive_items.report_hash`), antwortet 250 und legt kein
+  zweites Element an, auch nicht bei zwei gleichzeitigen Zustellungen. Ein anderer Report
+  derselben Mail (andere Empfänger, eine andere Journalregel) bleibt ein eigenes Element.
 - Kein Relay, kein Versand über diesen Port.

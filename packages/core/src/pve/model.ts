@@ -274,3 +274,39 @@ export function pveNextRunAt(schedule: PveSchedule, now: Date, lastRunAt: Date |
     { now },
   );
 }
+
+/**
+ * A run still open after this long is over (docs/PVE-PROTOCOL.md): the worker closes it as
+ * stale, and its restic credential is refused even while it reads running.
+ */
+export const PVE_STALE_RUN_MS = 48 * 60 * 60 * 1000;
+
+/** What the server knows about a run when its restic credential comes in. */
+export interface PveRunCredentialFacts {
+  readonly status: string;
+  readonly cancelRequestedAt: Date | null;
+  readonly startedAt: Date;
+  /** The credential's own end: 24 hours after it was issued; null: none issued. */
+  readonly expiresAt: Date | null;
+}
+
+/**
+ * Whether a run's restic credential still counts. It lives as long as its run: while the run
+ * is open (running, no stop asked for) and younger than {@link PVE_STALE_RUN_MS}, also past the
+ * credential's own 24 hours, so a first backup of several TB over a slow link is not cut off
+ * after a day. Once the run ended or was stopped, the 24 hours bound it (the node may still
+ * release its lock on the way out, as `closing`).
+ */
+export function pveRunCredentialLive(run: PveRunCredentialFacts, now: number): boolean {
+  if (!run.expiresAt) {
+    return false;
+  }
+  if (
+    run.status === "running" &&
+    run.cancelRequestedAt === null &&
+    now - run.startedAt.getTime() < PVE_STALE_RUN_MS
+  ) {
+    return true;
+  }
+  return run.expiresAt.getTime() >= now;
+}

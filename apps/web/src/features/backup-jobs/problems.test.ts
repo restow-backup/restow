@@ -97,6 +97,12 @@ describe("other refusals", () => {
     expect(jobErrorKey(conflict)).toBe("backupjobs:errors.inOtherJob");
   });
 
+  it("says that whole machine backups are not switched on here", () => {
+    expect(jobErrorKey(problem(409, { type: "urn:restow:problem:baremetal-preview-off" }))).toBe(
+      "backupjobs:errors.baremetalPreviewOff",
+    );
+  });
+
   it("knows that a machine job cannot be paused", () => {
     const pause = problem(422, {
       issues: [{ path: ["enabled"], code: "pause_not_supported", message: "no" }],

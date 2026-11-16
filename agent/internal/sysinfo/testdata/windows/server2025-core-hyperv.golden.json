@@ -1,0 +1,34 @@
+{
+  "description": "Windows Server 2025 Datacenter Server Core as a Hyper-V host on hardware, BitLocker on C:",
+  "osVersion": "Windows Server 2025 Datacenter 24H2 (build 26100.2894)",
+  "virtualization": "none",
+  "technology": "",
+  "desktop": false,
+  "windows": {
+    "bitlocker": {
+      "state": "ok",
+      "volumes": [
+        {
+          "conversion": "fully_encrypted",
+          "mount": "C:",
+          "protection": "on"
+        }
+      ]
+    },
+    "build": 26100,
+    "displayVersion": "24H2",
+    "domainMember": false,
+    "editionId": "ServerDatacenter",
+    "installationType": "server_core",
+    "productName": "Windows Server 2025 Datacenter",
+    "productType": "server",
+    "roles": {
+      "dfsr": false,
+      "domainController": false,
+      "exchange": false,
+      "hyperV": true,
+      "sqlServer": false
+    },
+    "ubr": 2894
+  }
+}

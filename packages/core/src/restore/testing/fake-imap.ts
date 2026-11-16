@@ -25,7 +25,28 @@ export interface FakeImapOptions {
   readonly mailboxes?: Readonly<Record<string, string | undefined>>;
   /** Pretend the server lacks UIDPLUS: APPEND reports no UID. */
   readonly noUidPlus?: boolean;
+  /**
+   * Behave like Gmail: the `[Gmail]` mailboxes exist, every message is in
+   * `[Gmail]/All Mail`, and a COPY adds a label (the message appears in the
+   * destination too) instead of making a second message.
+   */
+  readonly gmail?: boolean;
+  /** PERMANENTFLAGS of every mailbox; undefined: the server does not say. */
+  readonly permanentFlags?: readonly string[];
 }
+
+/** The mailboxes of a new Gmail account, as its LIST names them. */
+export const GMAIL_MAILBOXES: Readonly<Record<string, string | undefined>> = {
+  "[Gmail]/All Mail": "\\All",
+  "[Gmail]/Sent Mail": "\\Sent",
+  "[Gmail]/Drafts": "\\Drafts",
+  "[Gmail]/Trash": "\\Trash",
+  "[Gmail]/Spam": "\\Junk",
+  "[Gmail]/Important": "\\Important",
+  "[Gmail]/Starred": "\\Flagged",
+};
+
+const GMAIL_ALL_MAIL = "[Gmail]/All Mail";
 
 export class FakeImapAccount implements ImapRestoreSession {
   readonly delimiter: string;
@@ -33,20 +54,71 @@ export class FakeImapAccount implements ImapRestoreSession {
   private readonly boxes = new Map<string, FakeMailbox>();
   private nextUid = 1;
   closed = false;
-  /** When set, the server stores (and returns) different bytes than it was given. */
+  /**
+   * When set, the server stores (and returns) different bytes than it was
+   * given, as a server that re-renders what it stores (Exchange over IMAP)
+   * does; {@link rerenderHeaders} is such a function.
+   */
   mangle: ((content: Buffer) => Buffer) | null = null;
   /** When set, APPEND to this mailbox is refused. */
   refuseAppendTo: string | null = null;
   /** When set, the connection drops after this many APPENDs: later commands all fail. */
   dropAfterAppends: number | null = null;
+  /** When set, the connection drops at the first COPY (the worker is gone before the labels). */
+  dropAtCopy = false;
   connectionLost = false;
 
   constructor(private readonly options: FakeImapOptions = {}) {
     this.delimiter = options.delimiter ?? "/";
     this.boxes.set("INBOX", { path: "INBOX", specialUse: "\\Inbox", messages: [] });
-    for (const [path, specialUse] of Object.entries(options.mailboxes ?? {})) {
+    const initial = options.gmail
+      ? { ...GMAIL_MAILBOXES, ...options.mailboxes }
+      : options.mailboxes;
+    for (const [path, specialUse] of Object.entries(initial ?? {})) {
       this.boxes.set(path, { path, specialUse, messages: [] });
     }
+  }
+
+  get isGmail(): boolean {
+    return this.options.gmail === true;
+  }
+
+  /** Every distinct message of the account (on Gmail: once, whatever its labels). */
+  distinctMessages(): StoredMessage[] {
+    const seen = new Map<number, StoredMessage>();
+    for (const box of this.boxes.values()) {
+      for (const message of box.messages) {
+        seen.set(message.uid, message);
+      }
+    }
+    return [...seen.values()];
+  }
+
+  async permanentFlags(mailbox: string): Promise<readonly string[] | undefined> {
+    this.commands.push(`SELECT ${mailbox}`);
+    this.box(mailbox);
+    return this.options.permanentFlags;
+  }
+
+  async copy(mailbox: string, uid: number, destination: string): Promise<void> {
+    this.commands.push(`COPY ${mailbox} ${uid} ${destination}`);
+    if (this.dropAtCopy) {
+      this.connectionLost = true;
+    }
+    this.assertConnected();
+    const message = this.box(mailbox).messages.find((candidate) => candidate.uid === uid);
+    if (!message) {
+      throw new Error(`NO no message ${uid} in ${mailbox}`);
+    }
+    const target = this.box(destination);
+    if (this.options.gmail) {
+      // Gmail: the same message gets the destination's label.
+      if (!target.messages.includes(message) && destination !== GMAIL_ALL_MAIL) {
+        target.messages.push(message);
+      }
+      return;
+    }
+    target.messages.push({ ...message, uid: this.nextUid++ });
   }
 
   /** Mailbox paths, sorted. */
@@ -59,13 +131,13 @@ export class FakeImapAccount implements ImapRestoreSession {
   }
 
   /** Put a message into a mailbox directly (the target's existing state). */
-  seed(path: string, content: string): StoredMessage {
+  seed(path: string, content: string, internalDate?: Date): StoredMessage {
     const box = this.box(path);
     const message = {
       uid: this.nextUid++,
       content: Buffer.from(content),
       flags: [],
-      internalDate: undefined,
+      internalDate,
     };
     box.messages.push(message);
     return message;
@@ -106,6 +178,27 @@ export class FakeImapAccount implements ImapRestoreSession {
       .map((message) => message.uid);
   }
 
+  async findSimilar(
+    mailbox: string,
+    message: { readonly internalDate: Date | undefined; readonly size: number },
+  ): Promise<number[]> {
+    // SEARCH SINCE <day before> BEFORE <two days after> LARGER size-1 SMALLER size+1
+    // (the server judges the day in its own time zone, ./imap-flow.ts).
+    this.commands.push(`SEARCH ${mailbox} similar ${message.size}`);
+    this.assertConnected();
+    const at = message.internalDate?.getTime();
+    const day = 24 * 60 * 60 * 1000;
+    return this.box(mailbox)
+      .messages.filter((stored) => {
+        const time = stored.internalDate?.getTime();
+        return (
+          stored.content.length === message.size &&
+          (at === undefined || (time !== undefined && Math.abs(time - at) <= 2 * day))
+        );
+      })
+      .map((stored) => stored.uid);
+  }
+
   async deleteMessages(mailbox: string, uids: readonly number[]): Promise<void> {
     this.commands.push(`DELETE ${mailbox} ${uids.join(",")}`);
     const doomed = new Set(uids);
@@ -130,7 +223,19 @@ export class FakeImapAccount implements ImapRestoreSession {
     }
     const uid = this.nextUid++;
     const stored = this.mangle ? this.mangle(content) : content;
-    this.box(mailbox).messages.push({ uid, content: stored, flags: [...flags], internalDate });
+    const kept =
+      this.options.permanentFlags?.includes("\\*") === false
+        ? flags.filter(
+            (flag) => flag.startsWith("\\") || this.options.permanentFlags?.includes(flag),
+          )
+        : flags;
+    const message = { uid, content: stored, flags: [...kept], internalDate };
+    this.box(mailbox).messages.push(message);
+    const use = this.box(mailbox).specialUse?.toLowerCase();
+    if (this.options.gmail && mailbox !== GMAIL_ALL_MAIL && use !== "\\trash" && use !== "\\junk") {
+      // Gmail: a message appended to a label is in All Mail as well, once.
+      this.box(GMAIL_ALL_MAIL).messages.push(message);
+    }
     return { uid: this.options.noUidPlus ? undefined : uid };
   }
 
@@ -148,6 +253,19 @@ export class FakeImapAccount implements ImapRestoreSession {
       throw new Error("Connection not available");
     }
   }
+}
+
+/** Re-render a message as Exchange over IMAP does: new header order and a server header, same Message-ID. */
+export function rerenderHeaders(content: Buffer): Buffer {
+  const text = content.toString("utf8");
+  const split = text.indexOf("\r\n\r\n");
+  const head = split === -1 ? text : text.slice(0, split);
+  const body = split === -1 ? "" : text.slice(split);
+  const lines = head.split("\r\n").reverse();
+  return Buffer.from(
+    [`X-MS-Exchange-Organization-Network-Message-Id: ${lines.length}`, ...lines].join("\r\n") +
+      body,
+  );
 }
 
 function headerMessageId(content: Buffer): string | undefined {

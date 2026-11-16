@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "@/lib/api";
@@ -21,24 +24,31 @@ import {
   configPending,
   coveredByFolder,
   detailRefetchInterval,
+  ENDPOINT_PROBLEM_KEYS,
   effectivePaths,
   endpointErrorKey,
   endpointHostLine,
   endpointName,
   formatDuration,
+  formatMatchCode,
   IDLE_REFRESH_MS,
   incompleteCheckKey,
   isAbsolutePath,
   isBelow,
   isKnownAttention,
+  isPreviewOs,
   isRetryableProblem,
   isWithoutBackup,
   LIVE_REFRESH_MS,
   lastBackupOf,
   listRefetchInterval,
   onlyInterrupted,
+  PREVIEW_ENDPOINT_OS,
   pathSegments,
   progressRatio,
+  RECOVERY_STATUS_TONE,
+  recoveryCodeGroups,
+  recoveryOpen,
   reportView,
   retryNotBefore,
   runBadgeView,
@@ -452,6 +462,13 @@ describe("run errors", () => {
     );
     expect(runErrorView({ code: "hash_mismatch" }).headline?.key).toBe("runErrors.hash_mismatch");
     expect(runErrorView({ code: "agent_stopped" }).headline?.key).toBe("runErrors.agent_stopped");
+    // A locked drive or a mount point without a letter (agent 0.5.0): worded, not the raw code.
+    expect(runErrorView({ code: "source_unreadable" }).headline?.key).toBe(
+      "runErrors.source_unreadable",
+    );
+    expect(runErrorView({ code: "source_is_mount_point" }).headline?.key).toBe(
+      "runErrors.source_is_mount_point",
+    );
   });
 
   it("treats an interruption as neutral", () => {
@@ -535,11 +552,47 @@ describe("reports", () => {
       "reports.retention.kept",
       "reports.retention.size",
     ]);
+    const deleteOnly = reportView(
+      report({
+        kind: "retention",
+        readiness: null,
+        summary: { removedSnapshots: 3, keptSnapshots: 40, pruneMode: "delete_only" },
+      }),
+      format,
+    );
+    expect(deleteOnly.details.map((d) => d.key)).toEqual([
+      "reports.retention.deleteOnly",
+      "reports.retention.kept",
+    ]);
     const check = reportView(
       report({ kind: "repository_check", summary: { subsetPercent: 12.4 } }),
       format,
     );
     expect(check.headline).toEqual({ key: "reports.check.subset", values: { percent: 12 } });
+  });
+});
+
+describe("a retention run on a full target", () => {
+  it("says the target is full and what to do, not a generic prune failure", () => {
+    const format = { bytes: (n: number) => `${n} B`, integer: (n: number) => String(n) };
+    const view = reportView(
+      {
+        id: "r1",
+        kind: "retention",
+        origin: "server",
+        snapshotId: null,
+        readiness: null,
+        checkedAt: "2026-11-07T10:00:00Z",
+        summary: { targetFull: true, errorMessage: "restic prune failed (exit code 1)" },
+      },
+      format,
+    );
+    expect(view.tone).toBe("destructive");
+    expect(view.headline).toEqual({ key: "reports.retention.targetFull" });
+    expect(view.details.map((d) => d.key)).toEqual([
+      "reports.retention.targetFullHint",
+      "reports.errorMessage",
+    ]);
   });
 });
 
@@ -671,13 +724,24 @@ describe("problems", () => {
   it("words every problem of the endpoint API by its type, never by its title", () => {
     const keys: Record<string, string> = {
       "urn:restow:problem:endpoint-revoked": "endpoints:errors.revoked",
+      // Each cause of an unreadable repository has a text with its own next step; the type of
+      // releases before 0.5.0 keeps its general one.
+      "urn:restow:problem:endpoint-repository-not-found": "endpoints:errors.repositoryNotFound",
+      "urn:restow:problem:endpoint-repository-password-rejected":
+        "endpoints:errors.repositoryPasswordRejected",
+      "urn:restow:problem:endpoint-repository-password-missing":
+        "endpoints:errors.repositoryPasswordMissing",
+      "urn:restow:problem:endpoint-repository-unavailable":
+        "endpoints:errors.repositoryUnavailable",
       "urn:restow:problem:endpoint-nothing-to-test": "endpoints:errors.nothingToTest",
+      "urn:restow:problem:endpoint-no-samples": "endpoints:errors.noSamples",
       "urn:restow:problem:endpoint-instance-unknown": "endpoints:errors.instanceUnknown",
       "urn:restow:problem:endpoint-queue-not-ready": "endpoints:errors.queueNotReady",
       "urn:restow:problem:endpoint-path-not-found": "endpoints:errors.pathNotFound",
       "urn:restow:problem:endpoint-token-settled": "endpoints:errors.tokenSettled",
       "urn:restow:problem:endpoint-download-gone": "endpoints:errors.downloadGone",
       "urn:restow:problem:unsupported-os": "endpoints:errors.unsupportedOs",
+      "urn:restow:problem:endpoint-restore-path-locked": "endpoints:errors.restorePathLocked",
       // Setting a hook and showing the repository password need a recent sign-in.
       "urn:restow:problem:recent-sign-in-required": "endpoints:errors.recentSignIn",
     };
@@ -758,5 +822,82 @@ describe("the person a machine is assigned to", () => {
     expect(assigneeFilterOptions([{ assignedTo: alice }], "Nobody")).toEqual([
       { value: "u1", label: "Alice Example" },
     ]);
+  });
+});
+
+describe("preview systems", () => {
+  it("mirrors PREVIEW_ENDPOINT_OS in packages/core/src/endpoints/config.ts", () => {
+    const source = readFileSync(
+      fileURLToPath(
+        new URL("../../../../../packages/core/src/endpoints/config.ts", import.meta.url),
+      ),
+      "utf8",
+    );
+    const match = source.match(/PREVIEW_ENDPOINT_OS:[^=]*=\s*\[([^\]]*)\]/);
+    expect(match).not.toBeNull();
+    const core = [...(match?.[1] ?? "").matchAll(/"([a-z]+)"/g)].map((entry) => entry[1]);
+    expect(PREVIEW_ENDPOINT_OS).toEqual(core);
+  });
+
+  it("treats Windows as a preview, Linux and macOS not", () => {
+    expect(isPreviewOs("windows")).toBe(true);
+    expect(isPreviewOs("linux")).toBe(false);
+    expect(isPreviewOs("darwin")).toBe(false);
+  });
+});
+
+describe("bare metal recovery (docs/BAREMETAL.md 9, 11)", () => {
+  it("is green only when it succeeded and red when it failed", () => {
+    expect(RECOVERY_STATUS_TONE.succeeded).toBe("success");
+    expect(RECOVERY_STATUS_TONE.failed).toBe("destructive");
+    for (const status of [
+      "issued",
+      "pending_approval",
+      "active",
+      "finishing",
+      "cancelled",
+    ] as const) {
+      expect(["neutral", "info", "warning"]).toContain(RECOVERY_STATUS_TONE[status]);
+    }
+    expect(recoveryOpen("pending_approval")).toBe(true);
+    expect(recoveryOpen("succeeded")).toBe(false);
+  });
+
+  it("shows the match code and the code in groups", () => {
+    expect(formatMatchCode("483914")).toBe("483 914");
+    expect(formatMatchCode(null)).toBe("");
+    expect(recoveryCodeGroups("RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS")).toEqual([
+      "7K3QX",
+      "M9P2D",
+      "H4TNV",
+      "8WRBC",
+      "J6FAS",
+    ]);
+  });
+
+  it("words every problem of the recovery API", () => {
+    for (const type of [
+      "recovery-code-invalid",
+      "recovery-code-expired",
+      "recovery-code-revoked",
+      "recovery-code-used",
+      "recovery-too-old",
+      "recovery-session-ended",
+      "recovery-not-approved",
+      "recovery-credentials-collected",
+      "recovery-state-conflict",
+      "baremetal-not-available",
+      "recovery-limit-reached",
+      "endpoint-recovery-active",
+      "endpoint-rebind-os-mismatch",
+    ]) {
+      const key = ENDPOINT_PROBLEM_KEYS[`urn:restow:problem:${type}`];
+      expect(key, type).toMatch(/^endpoints:errors\./);
+      expect(
+        endpointErrorKey(
+          new ApiError(409, { type: `urn:restow:problem:${type}`, title: "x", status: 409 }, "x"),
+        ),
+      ).toBe(key);
+    }
   });
 });

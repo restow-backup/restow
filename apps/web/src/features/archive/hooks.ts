@@ -8,6 +8,7 @@ import {
   type ArchiveSearchParams,
   archiveKeys,
   type CaptureMailboxQuery,
+  fetchArchiveGap,
   fetchArchiveHolds,
   fetchArchiveItem,
   fetchArchivePreview,
@@ -48,6 +49,22 @@ export function useArchiveItem(id: string | null) {
     queryKey: archiveKeys.item(tenantId, id ?? ""),
     queryFn: () => fetchArchiveItem(id as string),
     enabled: enabled && canManage && id !== null,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * The archived mail of a mailbox after its newest backup (the restore explorer's source
+ * "From the archive"). Audited like a search: read when the source is opened, not on focus.
+ */
+export function useArchiveGap(objectId: string | null, offset = 0) {
+  const { tenantId, enabled, canManage } = useTenantScope();
+  return useQuery({
+    queryKey: archiveKeys.gap(tenantId, objectId ?? "", offset),
+    queryFn: () => fetchArchiveGap(objectId as string, offset),
+    enabled: enabled && canManage && objectId !== null,
+    placeholderData: (previous) => previous,
+    staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 }

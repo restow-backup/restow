@@ -24,6 +24,7 @@ import { eeWebExtension } from "../index";
 import { licenseKeys } from "./api";
 import { AboutLicense } from "./components/about-license";
 import { EditionBadge } from "./components/edition-badge";
+import { FeatureLocked } from "./components/feature-locked";
 import { TeamScopeLocked } from "./components/team-scope-locked";
 import { TenantsCreationLocked } from "./components/tenants-creation-locked";
 import "./i18n";
@@ -287,6 +288,33 @@ describe("TeamScopeLocked (slot team.tenantScopeLocked)", () => {
     );
     registerWebExtension(eeWebExtension);
     expect(slotComponent("team.tenantScopeLocked")).toBe(TeamScopeLocked);
+  });
+});
+
+describe("FeatureLocked (slot feature.locked, 0.5.0)", () => {
+  it("names the edition of each gated feature and leads a provider administrator to the license", async () => {
+    const business = await renderRouted(<FeatureLocked feature="branding.provider" />);
+    expect(business).toContain("Available in Business");
+    expect(business).toContain('data-edition="business"');
+    expect(business).toContain('href="/installation/license?requires=branding.provider"');
+    for (const feature of ["branding.tenant", "reports.customer"] as const) {
+      const html = await renderRouted(<FeatureLocked feature={feature} />);
+      expect(html, feature).toContain("Available in Service Provider");
+      expect(html, feature).toContain(`requires=${feature}`);
+    }
+    expect(business).not.toMatch(RIGHTS);
+  });
+
+  it("tells everyone else who can unlock it, without a link", async () => {
+    sessionState.isProviderAdmin = false;
+    const html = await renderRouted(<FeatureLocked feature="reports.customer" />);
+    expect(html).toContain("The administrators of the installation (your provider) can unlock it.");
+    expect(html).not.toContain("/installation/license");
+  });
+
+  it("fills the core's slot once the ee extension is registered", () => {
+    registerWebExtension(eeWebExtension);
+    expect(slotComponent("feature.locked")).toBe(FeatureLocked);
   });
 });
 

@@ -70,8 +70,12 @@ export interface ExportReportDto {
   folders: number;
   bytes: number;
   failed: number;
+  /** Mails in the file that lack parts the backup does not hold (a group post's attachments). */
+  incomplete: number;
   skipped: { calendar: number; contacts: number; other: number };
   items: { ref: string; reason: string }[];
+  /** The incomplete mails with the reason, capped like `items`. */
+  incompleteItems: { ref: string; reason: string }[];
 }
 
 export interface ExportFailureDto {
@@ -237,18 +241,8 @@ export function reportFromJson(value: unknown): ExportReportDto | null {
     return null;
   }
   const skipped = record(report.skipped);
-  const items = Array.isArray(report.items) ? report.items : [];
-  return {
-    messages: count(report.messages),
-    folders: count(report.folders),
-    bytes: count(report.bytes),
-    failed: count(report.failed),
-    skipped: {
-      calendar: count(skipped?.calendar),
-      contacts: count(skipped?.contacts),
-      other: count(skipped?.other),
-    },
-    items: items
+  const refs = (value: unknown) =>
+    (Array.isArray(value) ? value : [])
       .map((item) => {
         const entry = record(item);
         const ref = text(entry?.ref);
@@ -256,7 +250,20 @@ export function reportFromJson(value: unknown): ExportReportDto | null {
         return ref && reason ? { ref, reason } : null;
       })
       .filter((item): item is { ref: string; reason: string } => item !== null)
-      .slice(0, MAX_REPORT_ITEMS),
+      .slice(0, MAX_REPORT_ITEMS);
+  return {
+    messages: count(report.messages),
+    folders: count(report.folders),
+    bytes: count(report.bytes),
+    failed: count(report.failed),
+    incomplete: count(report.incomplete),
+    incompleteItems: refs(report.incompleteItems),
+    skipped: {
+      calendar: count(skipped?.calendar),
+      contacts: count(skipped?.contacts),
+      other: count(skipped?.other),
+    },
+    items: refs(report.items),
   };
 }
 

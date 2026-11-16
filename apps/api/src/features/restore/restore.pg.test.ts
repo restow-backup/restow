@@ -15,8 +15,16 @@
  * database `restow_api_restore_test` is recreated there and dropped after).
  * Without it the suite is skipped; docs/TESTING.md lists it under integration.
  */
-import { auditLog, createDb, type Database, jobs, protectedObjects, restoreJobs } from "@restow/db";
-import { and, eq, sql } from "drizzle-orm";
+import {
+  auditLog,
+  createDb,
+  type Database,
+  jobs,
+  protectedObjects,
+  restoreJobs,
+  sources,
+} from "@restow/db";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -210,7 +218,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(implicit.selection).toEqual({ all: false, folders: 1, items: 0 });
   });
 
-  it("requires a reason when an admin restores another person's data, and audits on whose behalf", async () => {
+  it("requires a reason when an admin restores another person's data, and audits on whose behalf [RESTORE-010]", async () => {
     const input = {
       snapshotId: f.mailbox.second,
       selection: [{ path: "mail/Inbox" }],
@@ -232,7 +240,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(entry?.details).toMatchObject({ reason: "Ticket 4711: Inbox emptied by accident" });
   });
 
-  it("keeps end users to their own data and their own account", async () => {
+  it("keeps end users to their own data and their own account [RESTORE-009]", async () => {
     await expect(
       service.createRestore(
         db,
@@ -302,6 +310,105 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       input("INFO@contoso.test"),
     );
     expect(created.status).toBe("queued");
+  });
+
+  it("resolves an IMAP target by its id and refuses a login that two servers share", async () => {
+    const input = (accountId: string) =>
+      request({
+        snapshotId: f.imap,
+        selection: [{ path: "mail/INBOX" }],
+        target: { type: "other", accountId },
+        reason: "Moving the shared inbox",
+      });
+    // A migration: the new server knows the same login as the old one.
+    const [newServer] = await db
+      .insert(sources)
+      .values({
+        tenantId: f.tenantId,
+        kind: "imap",
+        name: "New mail server",
+        host: "new-mail.example.test",
+        port: 993,
+        security: "tls",
+        status: "active",
+      })
+      .returning();
+    const [onNew] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId: f.tenantId,
+        sourceId: newServer?.id as string,
+        kind: "imap",
+        externalId: "info@contoso.test",
+        displayName: "Info (new server)",
+      })
+      .returning();
+    const [retired] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId: f.tenantId,
+        sourceId: newServer?.id as string,
+        kind: "imap",
+        externalId: "retired@contoso.test",
+        status: "orphaned",
+      })
+      .returning();
+    try {
+      await expect(
+        service.createRestore(db, f.tenantId, actor(f.admin), input("info@contoso.test")),
+      ).rejects.toMatchObject({
+        status: 422,
+        type: "urn:restow:problem:restore-target-ambiguous",
+        extensions: { sources: expect.arrayContaining(["New mail server"]) },
+      });
+      const created = await service.createRestore(
+        db,
+        f.tenantId,
+        actor(f.admin),
+        input(onNew?.id as string),
+      );
+      const [job] = await db.select().from(restoreJobs).where(eq(restoreJobs.id, created.id));
+      expect(job?.targetRef).toBe(onNew?.id);
+      // People read the account by login and source, in the job and in the audit trail.
+      const dto = await service.getRestore(db, f.tenantId, f.admin, created.id);
+      expect(dto.target).toEqual({
+        type: "other",
+        ref: onNew?.id,
+        label: "info@contoso.test · New mail server",
+      });
+      const listed = await service.listRestores(db, f.tenantId, f.admin, { limit: 50 });
+      expect(listed.find((entry) => entry.id === created.id)?.target.label).toBe(
+        "info@contoso.test · New mail server",
+      );
+      const [entry] = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, "restore.requested"), eq(auditLog.target, created.id)));
+      expect(entry?.details).toMatchObject({
+        targetRef: onNew?.id,
+        targetAccount: { login: "info@contoso.test", source: "New mail server" },
+      });
+      // An account that is no longer active is never a target.
+      for (const ref of [retired?.id as string, "retired@contoso.test"]) {
+        await expect(
+          service.createRestore(db, f.tenantId, actor(f.admin), input(ref)),
+        ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:restore-target-unknown" });
+      }
+      // The list names each account's source, so two with one login stay apart.
+      const targets = await service.listTargets(db, f.tenantId, f.admin, f.imapAccount);
+      expect(targets).toEqual([
+        expect.objectContaining({
+          id: onNew?.id,
+          externalId: "info@contoso.test",
+          sourceName: "New mail server",
+        }),
+      ]);
+    } finally {
+      await db
+        .delete(protectedObjects)
+        .where(inArray(protectedObjects.id, [onNew?.id as string, retired?.id as string]));
+      await db.delete(sources).where(eq(sources.id, newServer?.id as string));
+    }
   });
 
   it("suggests same-kind accounts of the same source as targets", async () => {
@@ -433,7 +540,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(detail.items?.items[0]?.verified).toBe(true);
   });
 
-  it("shows end users their own restores and the ones of their objects only", async () => {
+  it("shows end users their own restores and the ones of their objects only [RESTORE-009]", async () => {
     const annas = await service.listRestores(db, f.tenantId, f.anna, { limit: 200 });
     expect(annas.length).toBeGreaterThan(0);
     expect(annas.every((restore) => restore.object?.id === f.annaMailbox)).toBe(true);
@@ -523,7 +630,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       reason: "Ticket 9001: restore-replace-not-allowed HTTP regression",
     });
 
-    it("refuses mode 'replace' for an Exchange mailbox target with 422 and the problem type", async () => {
+    it("refuses mode 'replace' for an Exchange mailbox target with 422 and the problem type [RESTORE-001]", async () => {
       signInAsProviderAdmin();
       const res = await post(REPLACE_ORIGINAL(f.mailbox.second, "mail/Inbox"));
       expect(res.status).toBe(422);
@@ -534,7 +641,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       });
     });
 
-    it("refuses mode 'replace' for an IMAP target with the same 422 and problem type", async () => {
+    it("refuses mode 'replace' for an IMAP target with the same 422 and problem type [RESTORE-003]", async () => {
       signInAsProviderAdmin();
       const res = await post(REPLACE_ORIGINAL(f.imap, "mail/INBOX"));
       expect(res.status).toBe(422);
@@ -544,7 +651,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       });
     });
 
-    it("refuses mode 'replace' for a OneDrive target too, and stores or queues nothing", async () => {
+    it("refuses mode 'replace' for a OneDrive target too, and stores or queues nothing [RESTORE-002]", async () => {
       signInAsProviderAdmin();
       const before = await db.select().from(restoreJobs);
       const res = await post(REPLACE_ORIGINAL(f.drive, "Documents"));

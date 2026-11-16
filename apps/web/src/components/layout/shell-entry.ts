@@ -107,7 +107,7 @@ export function resolveShellEntry(
 
 /** The shell entry of the current location. */
 export function useShellEntry(): ShellEntry | null {
-  const navItems = useNavItems();
+  const navItems = useNavItems({ includeNotOffered: true });
   const { features, extensions, role } = useSession();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const search = useRouterState({

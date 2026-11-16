@@ -98,10 +98,14 @@ function copy(messageId: string, headers: string[] = [], body = "See you there."
   );
 }
 
-function journalReport(messageId: string): Buffer {
+function journalReport(
+  messageId: string,
+  options: { readonly header?: boolean; readonly recipient?: string } = {},
+): Buffer {
+  const recipient = options.recipient ?? "anna@contoso.example";
   const original = [
     "From: sender@contoso.example",
-    "To: anna@contoso.example",
+    `To: ${recipient}`,
     "Subject: Reported",
     `Message-ID: <${messageId}>`,
     "",
@@ -111,6 +115,7 @@ function journalReport(messageId: string): Buffer {
   const boundary = "forwarding-test-boundary";
   return Buffer.from(
     [
+      ...(options.header === false ? [] : ["X-MS-Journal-Report:"]),
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
       "",
       `--${boundary}`,
@@ -118,7 +123,7 @@ function journalReport(messageId: string): Buffer {
       "",
       "Sender: sender@contoso.example",
       `Message-Id: <${messageId}>`,
-      "Recipient: anna@contoso.example",
+      `Recipient: ${recipient}`,
       `--${boundary}`,
       "Content-Type: message/rfc822",
       "",
@@ -509,6 +514,86 @@ describe.skipIf(!testDatabaseAdminUrl)("forwarded copies against Postgres", () =
       );
       expect(setup.firstReportAt).not.toBeNull();
       expect(setup.counts.last24Hours).toBe(1);
+    });
+
+    it("archives a journal-shaped mail to an account address as received, for that account only", async () => {
+      const { receiveArchiveMail } = await import("../journal/receiver.js");
+      // An outsider mails anna, whose provider copies her mail to her account address. The
+      // mail carries the journal header and an envelope naming ben: it must not become a
+      // journal item of ben's mailbox, nor replace what anna received by its attachment.
+      const forged = journalReport("forged-1@contoso.example", {
+        recipient: "ben@contoso.example",
+      });
+      const receipt = await receiveArchiveMail(
+        {
+          tenantId: contoso,
+          recipients: [{ kind: "account", tenantId: contoso, protectedObjectId: anna }],
+          mailFrom: "mallory@example.org",
+          rcptTo: [annaAddress],
+        },
+        forged,
+        deps,
+      );
+      expect(receipt).toMatchObject({ kind: "forwarded_copy", outcome: "stored" });
+      expect(receipt.flags).toContain("journal-shaped");
+      const [item] = await owner
+        .select()
+        .from(archiveItems)
+        .where(eq(archiveItems.id, receipt.itemId));
+      expect(item?.capturedVia).toBe("smtp_forward");
+      expect(item?.protectedObjectId).toBe(anna);
+      // The mail as received, not its attachment.
+      expect(item?.sizeBytes).toBe(forged.length);
+      const assigned = await owner
+        .select({ objectId: archiveItemMailboxes.protectedObjectId })
+        .from(archiveItemMailboxes)
+        .where(eq(archiveItemMailboxes.archiveItemId, receipt.itemId));
+      expect(assigned.map((row) => row.objectId)).not.toContain(ben);
+    });
+
+    it("takes only a mail with the journal header at the journal address as a journal report", async () => {
+      const { receiveArchiveMail } = await import("../journal/receiver.js");
+      const delivery = {
+        tenantId: contoso,
+        recipients: [{ kind: "tenant" as const, tenantId: contoso }],
+        mailFrom: "someone@example.org",
+        rcptTo: [`journal+t@${HOST}`],
+      };
+      // Built like a report, but without the header: a plain copy, flagged.
+      const shaped = journalReport("shaped-1@contoso.example", { header: false });
+      const copied = await receiveArchiveMail(delivery, shaped, deps);
+      expect(copied.kind).toBe("forwarded_copy");
+      expect(copied.flags).toContain("journal-shaped");
+      const [plain] = await owner
+        .select()
+        .from(archiveItems)
+        .where(eq(archiveItems.id, copied.itemId));
+      expect(plain?.capturedVia).toBe("smtp_forward");
+      expect(plain?.sizeBytes).toBe(shaped.length);
+
+      // A report with the header, also sent to an account address: a plain copy as well.
+      const mixed = await receiveArchiveMail(
+        {
+          ...delivery,
+          recipients: [
+            { kind: "tenant", tenantId: contoso },
+            { kind: "account", tenantId: contoso, protectedObjectId: anna },
+          ],
+          rcptTo: [`journal+t@${HOST}`, annaAddress],
+        },
+        journalReport("mixed-1@contoso.example"),
+        deps,
+      );
+      expect(mixed.kind).toBe("forwarded_copy");
+
+      // The header at the journal address alone: a journal report.
+      const report = await receiveArchiveMail(
+        delivery,
+        journalReport("real-1@contoso.example"),
+        deps,
+      );
+      expect(report.kind).toBe("journal_report");
+      expect(report.flags).not.toContain("journal-shaped");
     });
 
     it("dedupes the IMAP sync and a forwarded copy of one mail by their rank", async () => {

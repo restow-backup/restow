@@ -12,7 +12,7 @@ import {
   MemoryCursorStore,
   MemorySnapshotIndex,
 } from "../../engine/memory.js";
-import { loadManifest } from "../../engine/snapshot.js";
+import { loadManifest, SnapshotWriter } from "../../engine/snapshot.js";
 import type { JobContext, ProtectedObjectRef, RestoreRequest } from "../../engine/types.js";
 import { classifyFailure } from "../../failures/classify.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
@@ -49,6 +49,13 @@ const protectedObject: ProtectedObjectRef = {
   userId: null,
 };
 
+function must<T>(value: T | undefined | null): T {
+  if (value === undefined || value === null) {
+    throw new Error("expected a value");
+  }
+  return value;
+}
+
 function eml(subject: string, body = "hello"): string {
   return `From: bob@example.test\r\nTo: alice@example.test\r\nSubject: ${subject}\r\n\r\n${body}\r\n`;
 }
@@ -75,7 +82,12 @@ describe("ImapBackupEngine", () => {
   });
 
   function context(
-    overrides: { signal?: AbortSignal; secrets?: Record<string, string>; logs?: LogRecord[] } = {},
+    overrides: {
+      signal?: AbortSignal;
+      secrets?: Record<string, string>;
+      logs?: LogRecord[];
+      now?: () => Date;
+    } = {},
   ) {
     const logs = overrides.logs;
     return createMemoryJobContext({
@@ -88,7 +100,7 @@ describe("ImapBackupEngine", () => {
       jobId: `job-${++jobCounter}`,
       secrets: overrides.secrets ?? { "secret-alice": "test-password-not-real" },
       signal: overrides.signal,
-      now: () => new Date("2026-09-22T10:00:00Z"),
+      now: overrides.now ?? (() => new Date("2026-09-22T10:00:00Z")),
       ...(logs ? { logger: createLogger({ sink: (record) => logs.push(record) }) } : {}),
     });
   }
@@ -107,7 +119,12 @@ describe("ImapBackupEngine", () => {
     return new ImapBackupEngine({
       resolveAccount: async () => account,
       connector: server,
-      limits: { checkpointEveryMessages: 3, fetchBatchMessages: 4, metaBatchMessages: 5 },
+      limits: {
+        checkpointEveryMessages: 3,
+        checkpointMinIntervalMs: 0,
+        fetchBatchMessages: 4,
+        metaBatchMessages: 5,
+      },
       ...options,
     });
   }
@@ -369,6 +386,278 @@ describe("ImapBackupEngine", () => {
     expect(server.stats.sourcesDelivered).toHaveLength(5);
   });
 
+  describe("a full read that fails mid-folder (download cap after four messages, twice)", () => {
+    function capAfterFour(): void {
+      server.faults.refuseSource.add("INBOX:5");
+      server.faults.refuseSourceCode = "OVERQUOTA";
+    }
+
+    function inboxOf(manifest: SnapshotManifest) {
+      return messages(manifest)
+        .filter((o) => o.metadata?.[META.mailbox] === "INBOX")
+        .map((o) => [Number(o.metadata?.[META.uid]), o.metadata?.[META.uidValidity]])
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
+    }
+
+    it("keeps every previous message of a folder in a requested full run", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 6; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      const first = await engine().run(context(), protectedObject, {});
+      inbox.setFlags(6, ["Seen"]);
+      capAfterFour();
+
+      const result = await engine().run(context(), protectedObject, { full: true });
+      expect(result.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+        ["INBOX", "imap.server_limit"],
+      ]);
+      const manifest = await manifestOf(result.snapshotId);
+      expect(inboxOf(manifest)).toEqual(inboxOf(await manifestOf(first.snapshotId)));
+      // Carried with the flags the folder has now.
+      const six = messages(manifest).find((o) => o.path === "mail/INBOX/6.eml");
+      expect(decodeFlags(six?.metadata?.[META.flags] ?? "")).toEqual(["Seen"]);
+      expect(manifest.objects.some((o) => o.type === "folder" && o.path === "mail/INBOX")).toBe(
+        true,
+      );
+    });
+
+    it("keeps what it read under a new UIDVALIDITY and the older copies of the rest, and goes on next run", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 6; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      await engine().run(context(), protectedObject, {});
+      inbox.resetUidValidity(2000);
+      capAfterFour();
+
+      const failed = await engine().run(context(), protectedObject, {});
+      expect(failed.failures.map((f) => f.itemRef)).toEqual(["INBOX"]);
+      const manifest = await manifestOf(failed.snapshotId);
+      // Messages 1-4 under the new UIDs, 5 and 6 as their older copies: all six, once each.
+      expect(inboxOf(manifest)).toEqual([
+        [1, "2000"],
+        [2, "2000"],
+        [3, "2000"],
+        [4, "2000"],
+        [5, "1000"],
+        [6, "1000"],
+      ]);
+      expect(
+        messages(manifest)
+          .filter((o) => o.metadata?.[META.uidValidity] === "1000")
+          .map((o) => o.path)
+          .sort(),
+      ).toEqual(["mail/INBOX/5.v1000.eml", "mail/INBOX/6.v1000.eml"]);
+      const state = manifest.state as {
+        imap: { folders: Record<string, { uidValidity: string }> };
+      };
+      expect(state.imap.folders.INBOX.uidValidity).toBe("2000");
+
+      server.faults.refuseSource.clear();
+      server.stats.sourcesDelivered.length = 0;
+      const logs: LogRecord[] = [];
+      const next = await engine().run(context({ logs }), protectedObject, {});
+      expect(next.failures).toEqual([]);
+      expect(logLine(logs, "imap folder planned", "INBOX")).toMatchObject({
+        mode: "incremental",
+        toFetch: 2,
+      });
+      expect(server.stats.sourcesDelivered).toEqual(["INBOX:5", "INBOX:6"]);
+      const healed = inboxOf(await manifestOf(next.snapshotId));
+      expect(healed).toHaveLength(6);
+      expect(healed.every(([, validity]) => validity === "2000")).toBe(true);
+    });
+
+    it("converges under a download cap that recurs every run after a UIDVALIDITY change", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 12; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      await engine().run(context(), protectedObject, {});
+      inbox.resetUidValidity(2000);
+
+      const newCopies: number[] = [];
+      for (let run = 1; run <= 3; run++) {
+        server.faults.downloadCap = 4;
+        const result = await engine().run(context(), protectedObject, {});
+        const inboxNow = inboxOf(await manifestOf(result.snapshotId));
+        // Never a message lost or doubled while the folder is read again.
+        expect(inboxNow).toHaveLength(12);
+        newCopies.push(inboxNow.filter(([, validity]) => validity === "2000").length);
+        if (run < 3) {
+          expect(result.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+            ["INBOX", "imap.server_limit"],
+          ]);
+        } else {
+          expect(result.failures).toEqual([]);
+        }
+      }
+      expect(newCopies).toEqual([4, 8, 12]);
+    });
+  });
+
+  describe("servers that leave out the delimiter, UIDNEXT or UIDVALIDITY", () => {
+    it("reads a folder with a NIL delimiter and no UIDNEXT incrementally on the next run", async () => {
+      const inbox = server.addFolder("INBOX", { delimiter: null, noUidNext: true });
+      inbox.add(eml("one"));
+      inbox.add(eml("two"));
+      const first = await engine().run(context(), protectedObject, {});
+      const state = (await manifestOf(first.snapshotId)).state as {
+        imap: { folders: Record<string, Record<string, unknown>> };
+      };
+      expect(state.imap.folders.INBOX).toMatchObject({ uidValidity: "1000", delimiter: "" });
+      expect(state.imap.folders.INBOX?.uidNext).toBeUndefined();
+      inbox.add(eml("three"));
+
+      const logs: LogRecord[] = [];
+      server.stats.sourcesDelivered.length = 0;
+      const second = await engine().run(context({ logs }), protectedObject, {});
+      expect(logLine(logs, "imap folder planned", "INBOX")).toMatchObject({
+        mode: "incremental",
+        toFetch: 1,
+      });
+      expect(server.stats.sourcesDelivered).toEqual(["INBOX:3"]);
+      expect(messages(await manifestOf(second.snapshotId))).toHaveLength(3);
+    });
+
+    it("fails only the folder that comes without UIDVALIDITY and commits the others", async () => {
+      server.addFolder("INBOX").add(eml("inbox"));
+      server.addFolder("Odd", { noUidValidity: true }).add(eml("odd"));
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual(["Odd"]);
+      expect(messages(await manifestOf(result.snapshotId)).map((o) => o.path)).toEqual([
+        "mail/INBOX/1.eml",
+      ]);
+    });
+  });
+
+  describe("checkpoints (each one rewrites the whole object list)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("writes none for folders an incremental run left unchanged", async () => {
+      for (let f = 1; f <= 20; f++) {
+        const folder = server.addFolder(`Folder ${String(f).padStart(2, "0")}`);
+        folder.add(eml(`a${f}`));
+        folder.add(eml(`b${f}`));
+      }
+      await engine().run(context(), protectedObject, {});
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.objectsWritten).toBe(0);
+      expect(checkpoints.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(40);
+    });
+
+    it("bounds interval checkpoints of a long first backup by time", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 2000; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      // 100 ms per message: the whole folder takes 200 s.
+      let clock = Date.parse("2026-09-22T10:00:00Z");
+      server.onDelivered = () => {
+        clock += 100;
+      };
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+      const result = await engine({
+        limits: {
+          checkpointEveryMessages: 50,
+          checkpointMinIntervalMs: 60_000,
+          fetchBatchMessages: 100,
+          metaBatchMessages: 1000,
+        },
+      }).run(context({ now: () => new Date(clock) }), protectedObject, {});
+      server.onDelivered = null;
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(2000);
+      // At most one per minute plus the one after the folder (before: one per 50 messages).
+      expect(checkpoints.mock.calls.length).toBeLessThanOrEqual(4);
+      expect(checkpoints.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("checkpoints a first backup of many small folders by time, not once per folder", async () => {
+      for (let f = 1; f <= 200; f++) {
+        const folder = server.addFolder(`Archiv ${String(f).padStart(3, "0")}`);
+        folder.add(eml(`a${f}`));
+        folder.add(eml(`b${f}`));
+      }
+      // 50 ms per message: 200 folders of 2 messages take 20 s, less than one interval.
+      let clock = Date.parse("2026-09-22T10:00:00Z");
+      server.onDelivered = () => {
+        clock += 50;
+      };
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+      const result = await engine({
+        limits: { checkpointEveryMessages: 250, checkpointMinIntervalMs: 60_000 },
+      }).run(context({ now: () => new Date(clock) }), protectedObject, {});
+      server.onDelivered = null;
+      expect(result.failures).toEqual([]);
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(400);
+      expect(checkpoints.mock.calls.length).toBe(0);
+    });
+
+    it("still checkpoints after a folder once a minute has passed", async () => {
+      for (let f = 1; f <= 30; f++) {
+        const folder = server.addFolder(`Archiv ${String(f).padStart(3, "0")}`);
+        folder.add(eml(`a${f}`));
+        folder.add(eml(`b${f}`));
+      }
+      // 10 s per message: 20 s per folder, so every third folder may checkpoint.
+      let clock = Date.parse("2026-09-22T10:00:00Z");
+      server.onDelivered = () => {
+        clock += 10_000;
+      };
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+      await engine({
+        maxConnections: 1,
+        limits: { checkpointEveryMessages: 250, checkpointMinIntervalMs: 60_000 },
+      }).run(context({ now: () => new Date(clock) }), protectedObject, {});
+      server.onDelivered = null;
+      expect(checkpoints.mock.calls.length).toBe(10);
+    });
+
+    it("resumes correctly after a crash that followed skipped checkpoints", async () => {
+      for (const name of ["A", "B", "C"]) {
+        const folder = server.addFolder(name);
+        folder.add(eml(`${name} 1`));
+        folder.add(eml(`${name} 2`));
+      }
+      await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const c = server.folder("C");
+      for (let i = 3; i <= 7; i++) {
+        c.add(eml(`C ${i}`));
+      }
+      const controller = new AbortController();
+      server.onDelivered = (folder, uid) => {
+        if (folder === "C" && uid === 5) {
+          controller.abort();
+        }
+      };
+      await expect(
+        engine({ maxConnections: 1 }).run(
+          context({ signal: controller.signal }),
+          protectedObject,
+          {},
+        ),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      server.onDelivered = null;
+      const saved = cursor.cursor?.imap as { completed: string[] };
+      expect(saved.completed).toEqual(["A", "B"]);
+
+      server.stats.sourcesDelivered.length = 0;
+      const result = await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const manifest = await manifestOf(result.snapshotId);
+      const paths = messages(manifest).map((o) => o.path);
+      expect(paths).toHaveLength(2 + 2 + 7);
+      expect(new Set(paths).size).toBe(paths.length);
+      // A and B were not downloaded again; C continues after what the crash had stored.
+      expect(server.stats.sourcesDelivered.every((key) => key.startsWith("C:"))).toBe(true);
+    });
+  });
+
   it("uses at most two connections per account, and both of them", async () => {
     for (let i = 0; i < 6; i++) {
       const folder = server.addFolder(`Folder${i}`);
@@ -430,6 +719,121 @@ describe("ImapBackupEngine", () => {
         cause: expect.objectContaining({ code: "imap.server_limit", transient: true }),
       }),
     ]);
+  });
+
+  describe("a message the server cannot read (Dovecot/Gmail NO for the whole FETCH)", () => {
+    it("backs up the rest of the folder and records that one message on a first backup", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 50; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.unreadable.add("INBOX:23");
+      const logs: LogRecord[] = [];
+      const result = await engine({
+        limits: { checkpointEveryMessages: 3, fetchBatchMessages: 4, metaBatchMessages: 20 },
+      }).run(context({ logs }), protectedObject, {});
+
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "mail/INBOX/23.eml",
+          reason: expect.stringContaining("Some messages could not be FETCHed"),
+          cause: expect.objectContaining({ code: "imap.command_failed" }),
+        }),
+      ]);
+      const manifest = await manifestOf(result.snapshotId);
+      const stored = messages(manifest).map((o) => Number(o.metadata?.[META.uid]));
+      expect(stored).toHaveLength(49);
+      expect(stored).not.toContain(23);
+      // Envelope metadata of the other messages was fetched despite the refused slice.
+      expect(messages(manifest).every((o) => o.metadata?.[META.messageId] !== undefined)).toBe(
+        true,
+      );
+      expect(
+        logLine(logs, "imap messages whose metadata the server refuses, isolated"),
+      ).toMatchObject({ uids: [23], count: 1 });
+    });
+
+    it("still backs up new mail of the folder on the next run", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 8; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.unreadable.add("INBOX:3");
+      await engine().run(context(), protectedObject, {});
+      inbox.add(eml("new 1"));
+      inbox.add(eml("new 2"));
+
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual(["mail/INBOX/3.eml"]);
+      expect(result.objectsWritten).toBe(2);
+      const stored = messages(await manifestOf(result.snapshotId)).map((o) =>
+        Number(o.metadata?.[META.uid]),
+      );
+      expect(stored.sort((a, b) => a - b)).toEqual([1, 2, 4, 5, 6, 7, 8, 9, 10]);
+
+      // Readable again (the admin repaired the mail file): the next run takes it.
+      server.faults.unreadable.clear();
+      const healed = await engine().run(context(), protectedObject, {});
+      expect(healed.failures).toEqual([]);
+      expect(healed.objectsWritten).toBe(1);
+    });
+
+    it("backs up a folder with 60 unreadable messages in a row although the bisection budget runs out", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 300; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      for (let uid = 101; uid <= 160; uid++) {
+        server.faults.unreadable.add(`INBOX:${uid}`);
+      }
+      const result = await engine({
+        limits: {
+          checkpointEveryMessages: 50,
+          fetchBatchMessages: 20,
+          metaBatchMessages: 300,
+          metaIsolationCommands: 100,
+        },
+      }).run(context(), protectedObject, {});
+
+      expect(result.failures.map((failure) => failure.itemRef).sort()).toEqual(
+        Array.from({ length: 60 }, (_, i) => `mail/INBOX/${101 + i}.eml`).sort(),
+      );
+      const stored = messages(await manifestOf(result.snapshotId));
+      expect(stored).toHaveLength(240);
+    });
+
+    it("does not bisect a metadata FETCH refused for the account's command or bandwidth cap", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 30; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.limitMeta.add("INBOX");
+      const result = await engine({ limits: { metaBatchMessages: 30 } }).run(
+        context(),
+        protectedObject,
+        {},
+      );
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "INBOX",
+          cause: expect.objectContaining({ code: "imap.server_limit", transient: true }),
+        }),
+      ]);
+      // One FETCH per attempt of the folder (it is tried twice), no bisection.
+      expect(server.stats.metaFetches).toBe(2);
+    });
+
+    it("fails the folder as before when the server refuses every metadata FETCH", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 30; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.refuseMeta.add("INBOX");
+      const result = await engine({
+        limits: { metaBatchMessages: 30, metaIsolationCommands: 8 },
+      }).run(context(), protectedObject, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual(["INBOX"]);
+    });
   });
 
   it("does not count a message deleted during the run as a failure", async () => {
@@ -573,6 +977,78 @@ describe("ImapBackupEngine", () => {
       expect(await readBack(ctx, object)).toEqual(original?.source);
     }
     expect(cursor.cursor).toBeNull();
+  });
+
+  describe("a resumed attempt after a folder was renamed or deleted in between", () => {
+    /** Attempt 1 completes INBOX and Projects, then is cancelled inside Zeta after a checkpoint. */
+    async function interruptedInZeta(): Promise<void> {
+      server.addFolder("INBOX").add(eml("inbox"));
+      const projects = server.addFolder("Projects");
+      for (let i = 1; i <= 3; i++) {
+        projects.add(eml(`project ${i}`));
+      }
+      const zeta = server.addFolder("Zeta");
+      for (let i = 1; i <= 6; i++) {
+        zeta.add(eml(`zeta ${i}`));
+      }
+      const controller = new AbortController();
+      server.onDelivered = (folder, uid) => {
+        if (folder === "Zeta" && uid === 4) {
+          controller.abort();
+        }
+      };
+      await expect(
+        engine({ maxConnections: 1 }).run(
+          context({ signal: controller.signal }),
+          protectedObject,
+          {},
+        ),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      server.onDelivered = null;
+      const saved = cursor.cursor?.imap as { completed: string[]; active: Record<string, unknown> };
+      expect(saved.completed).toEqual(["INBOX", "Projects"]);
+      expect(Object.keys(saved.active)).toEqual(["Zeta"]);
+    }
+
+    function rename(from: string, to: string): void {
+      const old = server.folder(from);
+      const renamed = server.addFolder(to);
+      for (const uid of old.uids()) {
+        const message = old.messages.get(uid);
+        if (message) {
+          renamed.add(message.source, { messageId: message.messageId });
+        }
+      }
+      server.folders.delete(from);
+    }
+
+    it("keeps only the new name of a folder the earlier attempt had completed", async () => {
+      await interruptedInZeta();
+      rename("Projects", "Projects-2024");
+
+      const result = await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const manifest = await manifestOf(result.snapshotId);
+      const mailboxes = manifest.objects.map((o) => o.metadata?.[META.mailbox]);
+      expect(mailboxes).not.toContain("Projects");
+      expect(
+        messages(manifest).filter((o) => o.metadata?.[META.mailbox] === "Projects-2024"),
+      ).toHaveLength(3);
+      expect(messages(manifest)).toHaveLength(1 + 3 + 6);
+      const state = manifest.state as { imap: { folders: Record<string, unknown> } };
+      expect(Object.keys(state.imap.folders).sort()).toEqual(["INBOX", "Projects-2024", "Zeta"]);
+    });
+
+    it("drops the half-done folder the earlier attempt was in when it is gone", async () => {
+      await interruptedInZeta();
+      server.folders.delete("Zeta");
+
+      const result = await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.objects.some((o) => o.metadata?.[META.mailbox] === "Zeta")).toBe(false);
+      expect(messages(manifest)).toHaveLength(4);
+      const state = manifest.state as { imap: { folders: Record<string, unknown> } };
+      expect(state.imap.folders.Zeta).toBeUndefined();
+    });
   });
 
   it("refuses an account without transport security", async () => {
@@ -750,6 +1226,204 @@ describe("ImapBackupEngine", () => {
         authzid: "alice@example.test",
       });
     }
+  });
+
+  describe("Gmail (labels are folders; every message is in All Mail once)", () => {
+    const ALL = "[Gmail]/All Mail";
+
+    /** 10 messages in All Mail: 4 also in INBOX, 3 labelled Projekte; one in Spam, one in Trash. */
+    function seedGmail(options: { allMailHidden?: boolean } = {}) {
+      server.setupGmail({ labels: ["Projekte"], ...options });
+      const labelsOf = (i: number): string[] => [
+        ...(i < 4 ? ["\\Inbox"] : []),
+        ...(i >= 4 && i < 7 ? ["Projekte"] : []),
+        ...(i === 9 ? ["\\Sent"] : []),
+      ];
+      const mails = Array.from({ length: 10 }, (_, i) =>
+        server.addGmailMessage(eml(`gmail ${i}`), labelsOf(i)),
+      );
+      server.folder("[Gmail]/Spam").add(eml("spam"));
+      server.folder("[Gmail]/Trash").add(eml("trash"));
+      return mails;
+    }
+
+    it("downloads each message once from All Mail, Spam and Trash and records the labels", async () => {
+      seedGmail();
+      // What this test guards against: INBOX (4), Projekte (3) and Sent Mail (1) read again.
+      expect(server.folder("INBOX").messages.size).toBe(4);
+      expect(server.folder("Projekte").messages.size).toBe(3);
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([]);
+
+      expect(server.stats.sourcesDelivered).toHaveLength(12);
+      expect(new Set(server.stats.sourcesDelivered.map((key) => key.split(":")[0]))).toEqual(
+        new Set([ALL, "[Gmail]/Spam", "[Gmail]/Trash"]),
+      );
+      const manifest = await manifestOf(result.snapshotId);
+      const stored = messages(manifest);
+      const allMail = stored.filter((o) => o.metadata?.[META.mailbox] === ALL);
+      expect(allMail).toHaveLength(10);
+
+      const labels = allMail.map((o) => o.metadata?.[META.gmailLabels]).sort();
+      expect(labels).toEqual([
+        '["Projekte"]',
+        '["Projekte"]',
+        '["Projekte"]',
+        '["\\\\Inbox"]',
+        '["\\\\Inbox"]',
+        '["\\\\Inbox"]',
+        '["\\\\Inbox"]',
+        '["\\\\Sent"]',
+        "[]",
+        "[]",
+      ]);
+      const state = manifest.state as {
+        imap: { layout?: string; folders: Record<string, unknown> };
+      };
+      expect(state.imap.layout).toBe("gmail");
+      expect(state.imap.folders.INBOX).toMatchObject({ messages: 4 });
+    });
+
+    it("keeps every label folder's messages, with the All Mail copy's content and no download", async () => {
+      const mails = seedGmail();
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([]);
+      const manifest = await manifestOf(result.snapshotId);
+      const stored = messages(manifest);
+      // 10 in All Mail, 1 Spam, 1 Trash, and the label folders: INBOX 4, Projekte 3, Sent 1.
+      expect(stored).toHaveLength(20);
+      const inFolder = (mailbox: string) =>
+        stored.filter((o) => o.metadata?.[META.mailbox] === mailbox);
+      expect(inFolder("INBOX")).toHaveLength(4);
+      expect(inFolder("Projekte")).toHaveLength(3);
+      expect(inFolder("[Gmail]/Sent Mail")).toHaveLength(1);
+
+      const first = mails[0] as NonNullable<(typeof mails)[number]>;
+      const inAll = must(
+        stored.find((o) => o.path === `mail/[Gmail]/All Mail/${first.copies.get(ALL)}.eml`),
+      );
+      const inInbox = must(
+        stored.find((o) => o.path === `mail/INBOX/${first.copies.get("INBOX")}.eml`),
+      );
+      expect(inInbox.sha256).toBe(inAll.sha256);
+      expect(inInbox.chunks).toEqual(inAll.chunks);
+      expect(inInbox.metadata).toMatchObject({
+        [META.mailbox]: "INBOX",
+        [META.uid]: String(first.copies.get("INBOX")),
+        [META.gmailMessageId]: first.id,
+        [META.messageId]: inAll.metadata?.[META.messageId],
+      });
+      expect(inInbox.metadata?.[META.gmailLabels]).toBeUndefined();
+      expect(inAll.metadata?.[META.gmailMessageId]).toBe(first.id);
+      const sent = stored.find((o) => o.metadata?.[META.mailbox] === "[Gmail]/Sent Mail");
+      expect(sent?.metadata?.[META.specialUse]).toBe("\\Sent");
+      expect(Buffer.compare(await readBack(context(), inInbox), first.source)).toBe(0);
+    });
+
+    it("restores the INBOX of a Gmail backup on its own, with its messages", async () => {
+      seedGmail();
+      const backup = await engine().run(context(), protectedObject, {});
+      const target = new MemoryRestoreTarget("/");
+      const restore = new ImapRestoreEngine({ imap: async () => target });
+      const report = await restore.run(context(), {
+        restoreJobId: "restore-inbox",
+        snapshotId: backup.snapshotId,
+        protectedObject,
+        selection: { folderPaths: ["mail/INBOX"] },
+        target: { type: "original", ref: null },
+        mode: "skip",
+        actor: { userId: null, impersonated: false, reason: null },
+      });
+      expect(report.failures).toEqual([]);
+      expect(target.mailbox("INBOX")).toHaveLength(4);
+    });
+
+    it("reads a label folder's message itself when All Mail could not deliver it", async () => {
+      const mails = seedGmail();
+      const first = mails[0] as NonNullable<(typeof mails)[number]>;
+      server.faults.omitSource.add(`${ALL}:${first.copies.get(ALL)}`);
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures.map((failure) => failure.itemRef)).toEqual([
+        `mail/[Gmail]/All Mail/${first.copies.get(ALL)}.eml`,
+      ]);
+      expect(server.stats.sourcesDelivered).toContain(`INBOX:${first.copies.get("INBOX")}`);
+      expect(server.stats.sourcesDelivered).toHaveLength(12);
+      const manifest = await manifestOf(result.snapshotId);
+      expect(messages(manifest).filter((o) => o.metadata?.[META.mailbox] === "INBOX")).toHaveLength(
+        4,
+      );
+    });
+
+    it("updates the labels of a carried-forward message without downloading it again", async () => {
+      const mails = seedGmail();
+      await engine().run(context(), protectedObject, {});
+      server.stats.sourcesDelivered.length = 0;
+
+      server.setGmailLabels(mails[0] as never, ["Projekte"]);
+      const second = await engine().run(context(), protectedObject, {});
+      expect(second.failures).toEqual([]);
+      expect(server.stats.sourcesDelivered).toEqual([]);
+      const manifest = await manifestOf(second.snapshotId);
+      const uid = mails[0]?.copies.get(ALL);
+      const object = manifest.objects.find((o) => o.path === `mail/[Gmail]/All Mail/${uid}.eml`);
+      expect(object?.metadata?.[META.gmailLabels]).toBe('["Projekte"]');
+      const inFolder = (mailbox: string) =>
+        messages(manifest).filter((o) => o.metadata?.[META.mailbox] === mailbox);
+      expect(inFolder("INBOX")).toHaveLength(3);
+      expect(inFolder("Projekte")).toHaveLength(4);
+      expect(messages(manifest)).toHaveLength(20);
+    });
+
+    it("keeps the per-label messages of a restore point taken before and adds the labels", async () => {
+      seedGmail();
+      // An earlier backup without the Gmail layout: every folder with its own messages.
+      server.gmailExtensions = false;
+      const before = await engine().run(context(), protectedObject, {});
+      expect(messages(await manifestOf(before.snapshotId))).toHaveLength(20);
+      server.gmailExtensions = true;
+      server.stats.sourcesDelivered.length = 0;
+
+      const after = await engine().run(context(), protectedObject, {});
+      expect(after.failures).toEqual([]);
+      expect(server.stats.sourcesDelivered).toEqual([]);
+      const manifest = await manifestOf(after.snapshotId);
+      expect(messages(manifest)).toHaveLength(20);
+      expect(messages(manifest).filter((o) => o.metadata?.[META.mailbox] === "INBOX")).toHaveLength(
+        4,
+      );
+      expect(
+        messages(manifest).filter(
+          (o) =>
+            o.metadata?.[META.mailbox] === ALL &&
+            o.metadata?.[META.gmailLabels] &&
+            o.metadata?.[META.gmailMessageId],
+        ),
+      ).toHaveLength(10);
+    });
+
+    it("warns that every label is a copy when All Mail is hidden from IMAP", async () => {
+      seedGmail({ allMailHidden: true });
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "[Gmail]/All Mail",
+          cause: expect.objectContaining({ code: "imap.gmail_all_mail_hidden" }),
+        }),
+      ]);
+      // Folder by folder: nothing is left out.
+      const manifest = await manifestOf(result.snapshotId);
+      expect(messages(manifest)).toHaveLength(10);
+      expect((manifest.state as { imap: { layout?: string } }).imap.layout).toBeUndefined();
+    });
+
+    it("leaves a server without X-GM-EXT-1 as it was, even with an \\All folder", async () => {
+      seedGmail();
+      server.gmailExtensions = false;
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([]);
+      expect(server.stats.listFlagsWithLabels).toBe(0);
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(20);
+    });
   });
 
   it("drops the messages of a folder that vanished from the server", async () => {

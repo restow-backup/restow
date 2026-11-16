@@ -1,0 +1,58 @@
+  {
+      "report": [
+          {
+              "lv": [
+                  {
+                      "data_percent": "",
+                      "lv_active": "active",
+                      "lv_attr": "-wi-ao----",
+                      "lv_full_name": "data/share",
+                      "lv_kernel_major": "253",
+                      "lv_kernel_minor": "0",
+                      "lv_layout": "linear",
+                      "lv_metadata_size": "",
+                      "lv_name": "share",
+                      "lv_size": "6442450944000",
+                      "lv_tags": "",
+                      "lv_uuid": "lvshare-1",
+                      "metadata_percent": "",
+                      "origin": "",
+                      "pool_lv": "",
+                      "snap_percent": ""
+                  }
+              ],
+              "pv": [
+                  {
+                      "dev_size": "8589938786304",
+                      "pv_fmt": "lvm2",
+                      "pv_name": "/dev/md127",
+                      "pv_size": "8589934592000",
+                      "pv_uuid": "pvraid-0000",
+                      "vg_name": "data"
+                  }
+              ],
+              "pvseg": [],
+              "seg": [
+                  {
+                      "chunk_size": "0",
+                      "lv_uuid": "lvshare-1",
+                      "segtype": "linear",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  }
+              ],
+              "vg": [
+                  {
+                      "vg_attr": "wz--n-",
+                      "vg_extent_size": "4194304",
+                      "vg_fmt": "lvm2",
+                      "vg_free": "2147483648000",
+                      "vg_name": "data",
+                      "vg_size": "8589934592000",
+                      "vg_systemid": "",
+                      "vg_uuid": "vgdata-0000"
+                  }
+              ]
+          }
+      ]
+  }

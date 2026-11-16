@@ -223,7 +223,7 @@ describe("temporarily unreadable packs in the storage check", () => {
     expect((await catalog.listPacks()).every((pack) => !pack.unreadable)).toBe(true);
   });
 
-  it("counts like damage only after three consecutive failed checks over at least a day", async () => {
+  it("counts like damage only after three consecutive failed checks over at least a day [SCRUB-004]", async () => {
     const { fixture, catalog, keys } = await fixtureWithPacks();
     const key = keys[0] as string;
     const runs = [];
@@ -253,7 +253,7 @@ describe("temporarily unreadable packs in the storage check", () => {
     expect(pack?.damagedAt).not.toBeNull();
   });
 
-  it("isPersistentlyUnreadable needs both the count and the span", () => {
+  it("isPersistentlyUnreadable needs both the count and the span [SCRUB-004]", () => {
     const since = new Date("2026-10-01T00:00:00Z");
     const at = (hours: number) => new Date(since.getTime() + hours * HOUR);
     expect(isPersistentlyUnreadable(null)).toBe(false);

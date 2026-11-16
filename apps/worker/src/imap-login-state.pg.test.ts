@@ -186,7 +186,7 @@ describe.skipIf(!adminUrl)("IMAP login state (Postgres)", () => {
     expect((await row(id))?.loginFailedRuns).toBe(1);
   });
 
-  it("asks after 3 counted failures over 24 h, with the notice, exactly once per streak", async () => {
+  it("asks after 3 counted failures over 24 h, with the notice, exactly once per streak [ALERT-008]", async () => {
     const id = await account();
     await fail(id, at(0));
     await fail(id, at(7));
@@ -259,7 +259,7 @@ describe.skipIf(!adminUrl)("IMAP login state (Postgres)", () => {
     expect((await fail(mailbox?.id as string, at(0))).outcome).toBe("ignored");
   });
 
-  it("ends the streak and the question when a login works", async () => {
+  it("ends the streak and the question when a login works [ALERT-008]", async () => {
     const id = await account();
     await fail(id, at(0));
     expect(await succeed(id)).toBe(true);

@@ -1,3 +1,4 @@
+import type { DeliveryModes, RecipientFailure } from "@/features/reports/api";
 import type { TenantKind, TenantRole } from "@/lib/api";
 
 /**
@@ -57,6 +58,8 @@ export interface TenantContact {
   email: string | null;
   phone: string | null;
   isPrimary: boolean;
+  /** Receives the customer monthly report (0.5.0, Service Provider); needs an e-mail address. */
+  monthlyReport: boolean;
 }
 
 /**
@@ -88,6 +91,9 @@ export const OFFERED_NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = 
 
 /** A recipient's entry for the weekly report (the report is no event). */
 export const WEEKLY_REPORT_ENTRY = "report.weekly";
+
+/** The summary reports a recipient can tick (0.5.0; the weekly one is the category's). */
+export const SUMMARY_REPORT_ENTRIES = ["report.daily", "report.weekly", "report.monthly"] as const;
 
 /**
  * The events a category stands for (mirrors CATEGORY_EVENTS in apps/api
@@ -125,9 +131,11 @@ export function eventsOfCategories(categories: readonly NotificationCategory[]):
 
 /** How many of the column's events no offered category covers (chosen in the matrix). */
 export function eventsBeyondCategories(events: readonly string[]): number {
-  const covered = new Set(
-    OFFERED_NOTIFICATION_CATEGORIES.flatMap((category) => CATEGORY_EVENTS[category]),
-  );
+  // The summary reports are ticked on their own (0.5.0), not events of the matrix.
+  const covered = new Set<string>([
+    ...OFFERED_NOTIFICATION_CATEGORIES.flatMap((category) => CATEGORY_EVENTS[category]),
+    ...SUMMARY_REPORT_ENTRIES,
+  ]);
   return events.filter((event) => !covered.has(event)).length;
 }
 
@@ -135,10 +143,17 @@ export interface NotificationRecipient {
   id: string;
   email: string;
   name: string | null;
-  /** The recipient's column of the notification matrix: catalog events and `report.weekly`. */
+  /**
+   * The recipient's column of the notification matrix: catalog events and the summary reports
+   * (`report.daily`, `report.weekly`, `report.monthly`).
+   */
   events: string[];
   /** The categories whose events `events` holds completely. */
   categories: NotificationCategory[];
+  /** At once, or in an hourly or daily digest, per severity (0.5.0). */
+  delivery: DeliveryModes;
+  /** The address's failure episode (0.5.0), or null while its mail gets through. */
+  failure: RecipientFailure | null;
 }
 
 export interface Member {
@@ -227,6 +242,8 @@ export interface TenantContactInput {
   email?: string;
   phone?: string;
   isPrimary: boolean;
+  /** Receives the customer monthly report (0.5.0); refused without an e-mail address. */
+  monthlyReport?: boolean;
 }
 
 export interface NotificationRecipientInput {
@@ -234,6 +251,8 @@ export interface NotificationRecipientInput {
   name?: string;
   /** The recipient's column of the notification matrix (the categories are shortcuts for it). */
   events: string[];
+  /** Digest mode per severity (0.5.0); left out keeps the recipient's. */
+  delivery?: Partial<DeliveryModes>;
 }
 
 export interface CreateTenantInput {

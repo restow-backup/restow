@@ -25,6 +25,20 @@
  *   - The credential of a source's own Microsoft 365 app that runs out raises
  *     `source.app_secret_expiring`, 30 days and 7 days before and once it has
  *     expired (../source-app-expiry.ts).
+ *   - The checks of the native SQL Server backup (W2a, ./sql-verify-plan.ts): a `sql_verify`
+ *     task per instance at the job's check slot, and `endpoint.sql_red`,
+ *     `endpoint.sql_recovered` and `endpoint.sql_overdue`, each once.
+ *   - Once a day and tenant the bytes of its chunk store and of each restic
+ *     repository are written down for the capacity page (../storage-samples.ts).
+ *   - Bare metal recovery codes and sessions run out (docs/BAREMETAL.md 9.8, 9.9): a code nobody
+ *     redeemed expires, a session nobody released within 30 minutes fails, and so does one the ISO
+ *     has not finished 30 minutes after its expiry; each transition is audited
+ *     (`endpoint.recovery.expired`) and a failed session raises `endpoint.recovery.failed`.
+ *     Recovery logs older than 90 days go. A boot probe (kind `probe`) runs out the same way but
+ *     raises nothing: it proved nothing, the next one is planned by its own rules.
+ *   - The boot probe (docs/BAREMETAL.md 12.3, ./boot-probe.ts): probes planned for the lab while it
+ *     asks for work with KVM, and `baremetal.red`, `baremetal.recovered` (with `job.failed` for a
+ *     red report) and `baremetal.overdue`, each once.
  *
  * Every alert is raised once: the run, the report or the endpoint carries a
  * mark (`alerted_at`, `stale_alerted_at`) that is set in the same transaction
@@ -40,6 +54,9 @@ import {
   QUOTA_CLEAR_RATIO,
   quotaLevelOf,
   quotaRatio,
+  RECOVERY_APPROVAL_TIMEOUT_MS,
+  RECOVERY_LOG_KEEP_DAYS,
+  RECOVERY_SILENCE_AFTER_EXPIRY_MS,
   type RestoreTestTaskParams,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
@@ -48,6 +65,9 @@ import {
 import {
   type Endpoint,
   endpointDownloads,
+  endpointLayouts,
+  endpointRecoveries,
+  endpointRecoveryLog,
   endpointReports,
   endpointRuns,
   endpoints,
@@ -58,13 +78,17 @@ import {
 } from "@restow/db";
 import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { alertArchiveCapture } from "../archive-capture/alerts.js";
+import { appendAuditEntry } from "../audit.js";
 import { withTenantTx } from "../handlers/framework.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { alertOverdueBackups } from "../overdue.js";
 import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
 import { alertSourceAppSecrets } from "../source-app-expiry.js";
+import { recordStorageSamples } from "../storage-samples.js";
+import { alertBaremetalReports, planBootProbes } from "./boot-probe.js";
 import type { EndpointJobDeps } from "./common.js";
+import { alertSqlOverdue, alertSqlReports, planSqlVerifyChecks } from "./sql-verify-plan.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -77,6 +101,8 @@ export interface MonitorSummary {
   abandonedRuns: number;
   expiredTasks: number;
   purgedDownloads: number;
+  /** Layouts of whole machine backups no run points at any more and not a machine's newest. */
+  purgedLayouts: number;
   runAlerts: number;
   reportAlerts: number;
   staleAlerts: number;
@@ -87,6 +113,24 @@ export interface MonitorSummary {
   archiveAlerts: number;
   /** `source.app_secret_expiring`: a source's own Microsoft 365 app credential runs out. */
   sourceAppSecretAlerts: number;
+  /** Tenants whose daily size samples were written in this pass (capacity page). */
+  storageSamples: number;
+  /** Recovery codes nobody redeemed in time (docs/BAREMETAL.md 9.9). */
+  expiredRecoveryCodes: number;
+  /** Recovery sessions failed: not released in 30 minutes, or silent past their expiry. */
+  failedRecoveries: number;
+  /** Recovery log rows older than 90 days. */
+  purgedRecoveryLogs: number;
+  /** `sql_verify` tasks planned at the check slots of their jobs (W2a). */
+  sqlChecksPlanned: number;
+  /** `endpoint.sql_red`, `endpoint.sql_recovered` and `endpoint.sql_overdue` raised (W2a). */
+  sqlAlerts: number;
+  /** Boot probes planned for the lab (docs/BAREMETAL.md 12.3). */
+  bootProbesPlanned: number;
+  /** Machines the boot probe cannot boot, recorded for their fingerprints. */
+  bootProbesNotPossible: number;
+  /** `baremetal.red`, `baremetal.recovered` and `baremetal.overdue` raised. */
+  baremetalAlerts: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -233,6 +277,27 @@ async function purgeDownloads(deps: EndpointJobDeps, now: Date): Promise<number>
   return purged.length;
 }
 
+/**
+ * The layout manifests of whole machine backups (docs/BAREMETAL.md 14.2) are kept while a run
+ * points at one or it is its machine's newest; the rest goes. A layout of the last day stays,
+ * whatever points at it, so nothing is removed while the finish that stores it runs.
+ */
+async function purgeLayouts(deps: EndpointJobDeps, now: Date): Promise<number> {
+  const purged = await deps.providerDb
+    .delete(endpointLayouts)
+    .where(
+      and(
+        lt(endpointLayouts.createdAt, new Date(now.getTime() - DAY_MS)),
+        sql`NOT EXISTS (SELECT 1 FROM ${endpointRuns} r WHERE r.layout_id = ${endpointLayouts.id})`,
+        sql`EXISTS (SELECT 1 FROM ${endpointLayouts} newer
+                     WHERE newer.endpoint_id = ${endpointLayouts.endpointId}
+                       AND (newer.created_at, newer.id) > (${endpointLayouts.createdAt}, ${endpointLayouts.id}))`,
+      ),
+    )
+    .returning({ id: endpointLayouts.id });
+  return purged.length;
+}
+
 async function alertFailedRuns(deps: EndpointJobDeps, now: Date): Promise<number> {
   const since = new Date(now.getTime() - ALERT_WINDOW_MS);
   const rows = await deps.providerDb
@@ -260,14 +325,20 @@ async function alertFailedRuns(deps: EndpointJobDeps, now: Date): Promise<number
   for (const [tenantId, list] of byTenant) {
     const raised: NewNotification[] = [];
     for (const { run, hostname, displayName } of list) {
-      // A failed restore test is reported by its report (verify.red), not by the run, and a
-      // run the agent only lost to a restart is resumed by it: neither is an alert.
-      if (run.kind === "verify_sample" || isInterruptedOnly(run.errors)) {
+      // A failed restore test is reported by its report (verify.red), not by the run, and so is
+      // a check of a SQL Server backup (endpoint.sql_red); a run the agent only lost to a restart
+      // is resumed by it: none is an alert.
+      if (
+        run.kind === "verify_sample" ||
+        run.kind === "sql_verify" ||
+        isInterruptedOnly(run.errors)
+      ) {
         continue;
       }
       const name = endpointName({ hostname, displayName });
       const reason = run.errors[0]?.message ?? "";
-      const backup = run.kind === "backup";
+      // The native SQL Server backup of an instance (W2a) is a backup, its restore a restore.
+      const backup = run.kind === "backup" || run.kind === "sql";
       raised.push({
         tenantId,
         level: "error",
@@ -299,6 +370,7 @@ async function alertFailedRuns(deps: EndpointJobDeps, now: Date): Promise<number
     for (const { run, hostname, displayName, profile } of list) {
       if (
         run.kind !== "verify_sample" &&
+        run.kind !== "sql_verify" &&
         run.errors[0]?.message?.startsWith("The agent stopped reporting")
       ) {
         await emitWebhookEvent(deps.db, {
@@ -624,12 +696,156 @@ async function alertStorageQuota(deps: EndpointJobDeps, now: Date): Promise<numb
   return alerts;
 }
 
+type RecoveryExpiry = {
+  from: "issued" | "pending_approval" | "active" | "finishing";
+  to: "expired" | "failed";
+  reason: "expired" | "not_approved" | "silent";
+};
+
+/**
+ * Codes and sessions that ran out of time (docs/BAREMETAL.md 9.8, 9.9). Each one is moved by a
+ * conditional update that names its state, so a session an admin released or the ISO finished a
+ * moment before is left alone, and only the writer that moved it audits (one entry per row).
+ */
+export async function expireRecoveries(
+  deps: EndpointJobDeps,
+  now: Date,
+): Promise<{ expired: number; failed: number; purgedLogs: number }> {
+  const approvalDeadline = new Date(now.getTime() - RECOVERY_APPROVAL_TIMEOUT_MS);
+  const silenceDeadline = new Date(now.getTime() - RECOVERY_SILENCE_AFTER_EXPIRY_MS);
+  const candidates = await deps.providerDb
+    .select({
+      id: endpointRecoveries.id,
+      tenantId: endpointRecoveries.tenantId,
+      endpointId: endpointRecoveries.endpointId,
+      status: endpointRecoveries.status,
+      kind: endpointRecoveries.kind,
+      usedAt: endpointRecoveries.usedAt,
+      hostname: endpoints.hostname,
+      displayName: endpoints.displayName,
+    })
+    .from(endpointRecoveries)
+    .innerJoin(endpoints, eq(endpoints.id, endpointRecoveries.endpointId))
+    .where(
+      sql`(${endpointRecoveries.status} = 'issued' AND ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz)
+       OR (${endpointRecoveries.status} = 'pending_approval' AND (${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz OR ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz))
+       OR (${endpointRecoveries.status} IN ('active', 'finishing') AND ${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz)`,
+    )
+    .limit(500);
+  const byTenant = new Map<string, typeof candidates>();
+  for (const row of candidates) {
+    byTenant.set(row.tenantId, [...(byTenant.get(row.tenantId) ?? []), row]);
+  }
+  let expired = 0;
+  let failed = 0;
+  for (const [tenantId, list] of byTenant) {
+    await withTenantTx(deps.db, tenantId, async (tx) => {
+      const raised: NewNotification[] = [];
+      for (const candidate of list) {
+        const plan: RecoveryExpiry =
+          candidate.status === "issued"
+            ? { from: "issued", to: "expired", reason: "expired" }
+            : candidate.status === "pending_approval"
+              ? {
+                  from: "pending_approval",
+                  to: "failed",
+                  // The code ran out before the 30 minutes for the release did.
+                  reason:
+                    candidate.usedAt !== null && candidate.usedAt <= approvalDeadline
+                      ? "not_approved"
+                      : "expired",
+                }
+              : {
+                  from: candidate.status as "active" | "finishing",
+                  to: "failed",
+                  reason: "silent",
+                };
+        const condition =
+          plan.from === "issued"
+            ? sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
+            : plan.from === "pending_approval"
+              ? plan.reason === "not_approved"
+                ? sql`${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz`
+                : sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
+              : sql`${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz`;
+        const [moved] = await tx
+          .update(endpointRecoveries)
+          .set({
+            status: plan.to,
+            updatedAt: now,
+            ...(plan.to === "failed" ? { finishedAt: now } : {}),
+          })
+          .where(
+            and(
+              eq(endpointRecoveries.id, candidate.id),
+              eq(endpointRecoveries.status, plan.from),
+              condition,
+            ),
+          )
+          .returning({ id: endpointRecoveries.id });
+        if (!moved) {
+          continue;
+        }
+        await appendAuditEntry(tx, {
+          tenantId,
+          actor: "system",
+          action: "endpoint.recovery.expired",
+          target: candidate.endpointId,
+          targetType: "endpoint",
+          details: {
+            recoveryId: candidate.id,
+            from: plan.from,
+            to: plan.to,
+            reason: plan.reason,
+          },
+        });
+        if (plan.to === "expired") {
+          expired += 1;
+          continue;
+        }
+        failed += 1;
+        if (candidate.kind === "probe") {
+          // A boot probe the lab did not finish proved nothing: no alarm (12.3).
+          continue;
+        }
+        const name = endpointName(candidate);
+        raised.push({
+          tenantId,
+          level: "error",
+          event: "endpoint.recovery.failed",
+          message:
+            plan.reason === "not_approved"
+              ? `The recovery of ${name} failed: nobody released the session within 30 minutes.`
+              : plan.reason === "expired"
+                ? `The recovery of ${name} failed: its code expired before the session was released.`
+                : `The recovery of ${name} failed: the recovery ISO stopped reporting.`,
+          details: {
+            endpointId: candidate.endpointId,
+            objectName: name,
+            recoveryId: candidate.id,
+            reason: plan.reason,
+          },
+        });
+      }
+      await raiseEvents(tx, raised, now);
+    });
+  }
+  const purged = await deps.providerDb
+    .delete(endpointRecoveryLog)
+    .where(
+      lt(endpointRecoveryLog.createdAt, new Date(now.getTime() - RECOVERY_LOG_KEEP_DAYS * DAY_MS)),
+    )
+    .returning({ id: endpointRecoveryLog.id });
+  return { expired, failed, purgedLogs: purged.length };
+}
+
 export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSummary> {
   const now = deps.runtime.now();
   const summary: MonitorSummary = {
     abandonedRuns: await closeAbandonedRuns(deps, now),
     expiredTasks: await expireTasks(deps, now),
     purgedDownloads: await purgeDownloads(deps, now),
+    purgedLayouts: await purgeLayouts(deps, now),
     runAlerts: 0,
     reportAlerts: 0,
     staleAlerts: 0,
@@ -637,7 +853,20 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     overdueAlerts: 0,
     archiveAlerts: 0,
     sourceAppSecretAlerts: 0,
+    storageSamples: 0,
+    expiredRecoveryCodes: 0,
+    failedRecoveries: 0,
+    purgedRecoveryLogs: 0,
+    sqlChecksPlanned: 0,
+    sqlAlerts: 0,
+    bootProbesPlanned: 0,
+    bootProbesNotPossible: 0,
+    baremetalAlerts: 0,
   };
+  const recoveries = await expireRecoveries(deps, now);
+  summary.expiredRecoveryCodes = recoveries.expired;
+  summary.failedRecoveries = recoveries.failed;
+  summary.purgedRecoveryLogs = recoveries.purgedLogs;
   summary.runAlerts = await alertFailedRuns(deps, now);
   summary.reportAlerts = await alertReports(deps, now);
   summary.staleAlerts = await alertStaleEndpoints(deps, now);
@@ -645,5 +874,12 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
   summary.overdueAlerts = await alertOverdueBackups(deps, now);
   summary.archiveAlerts = await alertArchiveCapture(deps, now);
   summary.sourceAppSecretAlerts = await alertSourceAppSecrets(deps, now);
+  summary.storageSamples = (await recordStorageSamples(deps, now)).tenants;
+  summary.sqlChecksPlanned = await planSqlVerifyChecks(deps, now);
+  summary.sqlAlerts = (await alertSqlReports(deps, now)) + (await alertSqlOverdue(deps, now));
+  const probes = await planBootProbes(deps, now);
+  summary.bootProbesPlanned = probes.planned;
+  summary.bootProbesNotPossible = probes.notPossible;
+  summary.baremetalAlerts = (await alertBaremetalReports(deps, now)) + probes.overdue;
   return summary;
 }

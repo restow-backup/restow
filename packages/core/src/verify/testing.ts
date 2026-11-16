@@ -19,8 +19,13 @@ import type {
   ProtectedObjectRef,
   StorageTargets,
 } from "../engine/types.js";
-import type { ManifestObject } from "../manifest.js";
+import type { ManifestObject, SourceSignal } from "../manifest.js";
 import type { HeadResult, StorageBackend } from "../storage/backend.js";
+import {
+  assertDeletionPermitted,
+  assertKeyWritePermitted,
+  noteStorageWrite,
+} from "../storage/deletion-guard.js";
 
 export const TEST_TENANT = "0f0e0d0c-0b0a-4908-8706-050403020100";
 export const TEST_DEK: Dek = { version: 1, material: Buffer.alloc(32, 0x3c) };
@@ -54,7 +59,9 @@ export class MemoryStorage implements StorageBackend {
 
   async put(key: string, data: Buffer | Readable): Promise<void> {
     const bytes = Buffer.isBuffer(data) ? Buffer.from(data) : await collect(data);
+    await assertKeyWritePermitted(key, bytes, async () => this.files.get(key)?.bytes ?? null);
     this.files.set(key, { bytes, modified: this.clock() });
+    noteStorageWrite(key);
   }
 
   async get(key: string): Promise<Buffer> {
@@ -95,6 +102,7 @@ export class MemoryStorage implements StorageBackend {
   }
 
   async delete(key: string): Promise<void> {
+    assertDeletionPermitted(key);
     this.files.delete(key);
   }
 
@@ -141,6 +149,8 @@ export type FixtureItem = {
   /** Content size in bytes; 0 for folders. */
   readonly size: number;
   readonly seed?: number;
+  /** Manifest metadata (an attachment's `messagePath`, a message's `format`). */
+  readonly metadata?: Readonly<Record<string, string>>;
 };
 
 export type StoreFixture = {
@@ -204,6 +214,7 @@ export async function writeSnapshot(
   fixture: StoreFixture,
   items: readonly FixtureItem[],
   maxPackBytes = 16 * 1024,
+  sourceSignal?: SourceSignal,
 ): Promise<{ snapshotId: string; objects: ManifestObject[] }> {
   const writer = await SnapshotWriter.begin(fixture.ctx, {
     protectedObject: fixture.protectedObject,
@@ -220,11 +231,15 @@ export async function writeSnapshot(
       mtime: Date.UTC(2026, 8, 1, 8, 0),
       id: `item-${position}`,
       ...(item.type !== undefined ? { type: item.type } : {}),
+      ...(item.metadata ? { metadata: { ...item.metadata } } : {}),
       ...(written ? { sha256: written.sha256 } : {}),
       chunks: written?.chunks ?? [],
     };
     writer.add(object);
     objects.push(object);
+  }
+  if (sourceSignal) {
+    writer.setSourceSignal(sourceSignal);
   }
   const committed = await writer.commit();
   return { snapshotId: committed.snapshotId, objects };

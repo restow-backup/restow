@@ -1,0 +1,28 @@
+{
+  "description": "Windows Server 2025 Datacenter Server Core as a Hyper-V host on hardware, BitLocker on C:",
+  "registry": {
+    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion": {
+      "ProductName": "Windows Server 2025 Datacenter",
+      "EditionID": "ServerDatacenter",
+      "CurrentBuildNumber": "26100",
+      "UBR": 2894,
+      "DisplayVersion": "24H2",
+      "InstallationType": "Server Core"
+    },
+    "SYSTEM\\CurrentControlSet\\Control\\ProductOptions": {
+      "ProductType": "ServerNT"
+    },
+    "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters": {
+      "Domain": ""
+    },
+    "HARDWARE\\DESCRIPTION\\System\\BIOS": {
+      "SystemManufacturer": "HPE",
+      "SystemProductName": "ProLiant DL380 Gen11",
+      "BaseBoardManufacturer": "HPE"
+    }
+  },
+  "services": {
+    "vmms": "LocalSystem"
+  },
+  "wmi": "{\"computer\":{\"partOfDomain\":false,\"domain\":\"WORKGROUP\"},\"bitlocker\":{\"available\":true,\"error\":\"\",\"volumes\":[{\"driveLetter\":\"C:\",\"protectionStatus\":1,\"conversionStatus\":1}]}}"
+}

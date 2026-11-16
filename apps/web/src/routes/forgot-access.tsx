@@ -118,7 +118,7 @@ export function ForgotAccess({
         <p>{t("login.forgot.lostTenant")}</p>
         <p>{t("login.forgot.lostCli")}</p>
         <div className="flex items-center gap-2 rounded-md bg-muted px-2 py-1.5">
-          <code className="min-w-0 flex-1 overflow-x-auto font-mono text-[11px] whitespace-nowrap">
+          <code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs whitespace-nowrap">
             {command}
           </code>
           <CopyButton value={command} />

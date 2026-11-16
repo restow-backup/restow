@@ -1089,7 +1089,13 @@ describe("installing an update", () => {
     // What will happen.
     expect(content).toContain("unavailable for a short time");
     expect(content).toContain("The last three backups are kept");
-    expect(content).toContain("previous version is restored automatically");
+    // The rollback, with its condition: only while no database migration has run.
+    expect(content).toContain(
+      "If the new version does not start before its database migrations have run, the previous version is restored automatically.",
+    );
+    expect(content).toContain(
+      "the api, the worker and the scheduler are stopped and the database backup is kept",
+    );
     expect(content).toContain("Everyone who is signed in sees a countdown");
     expect(content).toContain("The release image is downloaded from the registry");
     // Nothing runs: no choice, but new runs pause until the update is over (#46).

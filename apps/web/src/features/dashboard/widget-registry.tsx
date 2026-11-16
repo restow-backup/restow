@@ -2,6 +2,7 @@ import type * as React from "react";
 import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import type { PricingEstimate } from "@/features/pricing/api";
 import { usePricingEstimate } from "@/features/pricing/use-estimate";
+import { isModuleShown, type ModuleId } from "@/lib/modules";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import type { TenantWidgets, WidgetData, WidgetId } from "./api.js";
@@ -38,7 +39,8 @@ import {
  * is the server's decision (GET /dashboard returns only those that apply);
  * this table decides where each one sits and how it renders. A section lays
  * out whatever of its entries are present, so a plain member's page has no
- * holes where the admin widgets would be.
+ * holes where the admin widgets would be. An entry that belongs to modules of
+ * the installation (`modules`) is left out while none of them is on.
  */
 
 /**
@@ -79,6 +81,11 @@ interface Entry {
   key: string;
   /** The response widget the entry renders (several entries may share one). */
   source: WidgetId;
+  /**
+   * The modules of the installation the entry belongs to (lib/modules.ts): left out of the page
+   * while none of them is on. Without the field the entry is every installation's.
+   */
+  modules?: readonly ModuleId[];
   /** The entry is left out of the page for this view state (its source is present). */
   hidden?: (context: WidgetContext) => boolean;
   /** Classes of the entry's cell (e.g. the columns it spans), for this view state and count. */
@@ -215,6 +222,7 @@ export const SECTIONS: readonly Section[] = [
       {
         key: "mailboxUsage",
         source: "mailboxUsage",
+        modules: ["microsoft365", "imap"],
         render: (c) => (
           <MailboxUsageWidget
             view={c.view("mailboxUsage")}
@@ -232,6 +240,7 @@ export const SECTIONS: readonly Section[] = [
       {
         key: "endpoints",
         source: "endpoints",
+        modules: ["endpoints"],
         // Nothing for a tenant without servers or clients, not an empty card.
         hidden: (c) => !showEndpoints(c.view("endpoints")),
         render: (c) => <EndpointsWidget view={c.view("endpoints")} {...state(c)} />,
@@ -367,8 +376,12 @@ function usePriceCell(isProviderAdmin: boolean): PriceCell {
   };
 }
 
-/** Every tenant widget that applies, laid out section by section. */
+/**
+ * Every tenant widget that applies, laid out section by section. The widgets of a module of the
+ * installation that is off are left out here, for the whole page at once.
+ */
 export function DashboardWidgets({ widgets, loading, ...context }: DashboardWidgetsProps) {
+  const enabledModules = useSession().modules;
   const visible = visibleSources(widgets, context.canAdminister);
   const price = usePriceCell(context.isProviderAdmin);
   const full: WidgetContext = {
@@ -381,7 +394,10 @@ export function DashboardWidgets({ widgets, loading, ...context }: DashboardWidg
     <div className="@container/widgets space-y-6">
       {SECTIONS.map((section) => {
         const entries = section.entries.filter(
-          (entry) => visible.has(entry.source) && !entry.hidden?.(full),
+          (entry) =>
+            visible.has(entry.source) &&
+            isModuleShown(entry.modules, enabledModules) &&
+            !entry.hidden?.(full),
         );
         if (entries.length === 0) {
           return null;

@@ -11,6 +11,7 @@ import {
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { IconButton } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -307,15 +308,12 @@ function UploadRow({
               {t("upload.item.retry")}
             </Button>
           ) : null}
-          <Button
-            variant="ghost"
+          <IconButton
+            icon={Trash2}
             size="icon-sm"
             onClick={() => manager.remove(item.localId)}
-            aria-label={t("upload.item.remove", { name: item.name })}
-            title={t("upload.item.remove", { name: item.name })}
-          >
-            <Trash2 />
-          </Button>
+            label={t("upload.item.remove", { name: item.name })}
+          />
         </div>
       </div>
 

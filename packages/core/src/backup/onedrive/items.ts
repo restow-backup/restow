@@ -279,12 +279,50 @@ export function reusedFileObject(
   path: string,
   now: number,
 ): ManifestObject {
-  return fileObject(
+  const object = fileObject(
     item,
     path,
     { size: previous.size, sha256: previous.sha256, chunks: previous.chunks },
     { now, contentType: previous.metadata?.contentType },
   );
+  return { ...object, metadata: withKnownMetadata(object.metadata ?? {}, previous, item) };
+}
+
+/** Who made and last changed the item: kept from the earlier copy when Graph left it out. */
+const AUTHOR_KEYS = ["createdBy", "lastModifiedBy"] as const;
+/** The sharing facet as recorded (information only). */
+const SHARING_KEYS = ["sharedScope", "sharedBy", "sharedDateTime"] as const;
+
+/**
+ * The same bytes are the same item: what the earlier copy knew about it stays
+ * when this entry does not say. Authorship missing from the entry is taken from
+ * the copy. Sharing is taken from the copy only when the entry carries no word
+ * on it at all (`shared` absent): a getItem answer, which selects `shared`,
+ * says `null` for "not shared" (graph/resources/drive.ts), and a sharing
+ * change arrives flagged in the delta and is fetched that way (run.ts).
+ */
+export function withKnownMetadata(
+  metadata: Readonly<Record<string, string>>,
+  previous: ManifestObject,
+  item: DriveItem,
+): Record<string, string> {
+  const before = previous.metadata ?? {};
+  const out: Record<string, string> = { ...metadata };
+  for (const key of AUTHOR_KEYS) {
+    const kept = before[key];
+    if (out[key] === undefined && kept !== undefined) {
+      out[key] = kept;
+    }
+  }
+  if (item.shared === undefined) {
+    for (const key of SHARING_KEYS) {
+      const kept = before[key];
+      if (kept !== undefined) {
+        out[key] = kept;
+      }
+    }
+  }
+  return out;
 }
 
 /**

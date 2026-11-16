@@ -7,6 +7,7 @@
 
 import { queryOptions } from "@tanstack/react-query";
 
+import type { ModuleId } from "@/lib/modules";
 import { getActiveTenantId } from "@/lib/tenant";
 
 const rawBaseUrl = import.meta.env.VITE_API_URL as string | undefined;
@@ -145,7 +146,10 @@ async function readProblem(response: Response): Promise<ProblemDetails | null> {
 }
 
 export interface ApiRequestInit extends Omit<RequestInit, "body"> {
-  /** JSON-serialisable body; encoded and typed for you. */
+  /**
+   * JSON-serialisable body; encoded and typed for you. A `Blob` (a `File`) goes out as it is,
+   * with its own type as the content type (an upload of raw bytes, such as a logo).
+   */
   body?: unknown;
   /** Override the tenant header for this call (`null` sends none). */
   tenantId?: string | null;
@@ -156,7 +160,10 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
   const { body, tenantId, headers: extraHeaders, ...rest } = init;
   const headers = new Headers(extraHeaders);
   headers.set("accept", "application/json");
-  if (body !== undefined) {
+  const raw = typeof Blob !== "undefined" && body instanceof Blob ? body : null;
+  if (raw) {
+    headers.set("content-type", raw.type || "application/octet-stream");
+  } else if (body !== undefined) {
     headers.set("content-type", "application/json");
   }
   // Texts the server writes for the operator (test mails) follow the UI
@@ -177,7 +184,7 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
       credentials: "include",
       ...rest,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
   } catch (cause) {
     throw new NetworkError(cause);
@@ -196,6 +203,42 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
     return undefined as T;
   }
 
+  return (await response.json()) as T;
+}
+
+/**
+ * PUT raw bytes (`application/octet-stream`) against `/api/v1` and decode the JSON answer;
+ * errors are the same `ApiError`/`NetworkError` as {@link apiFetch}. No tenant header.
+ */
+export async function apiPutBytes<T>(
+  path: string,
+  body: Blob,
+  init: { headers?: Record<string, string>; signal?: AbortSignal } = {},
+): Promise<T> {
+  const headers = new Headers({
+    accept: "application/json",
+    "content-type": "application/octet-stream",
+    ...init.headers,
+  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PUT",
+      credentials: "include",
+      headers,
+      body,
+      signal: init.signal,
+    });
+  } catch (cause) {
+    throw new NetworkError(cause);
+  }
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      await readProblem(response),
+      `Request to ${path} failed with status ${response.status}`,
+    );
+  }
   return (await response.json()) as T;
 }
 
@@ -315,6 +358,17 @@ export interface SetupState {
    * public: the login page prefills them for a one-click demo sign-in.
    */
   demo: { enabled: boolean; email: string | null; password: string | null };
+  /**
+   * Restoring an installation from a database dump in the wizard: possible when the opt-in
+   * updater answers, and how a restore stands. Absent on older servers.
+   */
+  restore?: {
+    available: boolean;
+    status: string | null;
+    phase: string | null;
+    /** Why the restore failed or needs attention (failed, needs_attention only). */
+    message?: string | null;
+  };
 }
 
 export interface SmtpSetup {
@@ -353,6 +407,11 @@ export interface SetupSubmission {
    * (`RESTOW_TIME_ZONE`, `TZ`, Europe/Berlin).
    */
   timeZone?: string;
+  /**
+   * The modules ticked in the step "What do you want to protect with Restow?" (lib/modules.ts),
+   * at least one. Absent: every module.
+   */
+  modules?: ModuleId[];
   firstAdmin: { name: string; email: string; password: string };
   /** Absent when the operator skips the mail step: it is set up later in the settings. */
   mail?: { transport: "smtp"; smtp: SmtpSetup } | { transport: "graph"; graph: GraphMailSetup };
@@ -415,6 +474,9 @@ export type ProviderRole = "owner" | "administrator" | "technician" | "read_only
  * - `providerTeam.tenantScope` limiting a member of the provider team to chosen tenants
  * - `archive.mailboxCapture` archive capture from the mailbox (Graph, IMAP)
  * - `archive.smtpCapture`  archive capture by SMTP (journaling, forwarded copies)
+ * - `branding.provider`    the provider's branding of mails and chat webhooks (0.5.0)
+ * - `branding.tenant`      a tenant's own branding, instead of the provider's (0.5.0)
+ * - `reports.customer`     the customer monthly report to a tenant's contacts (0.5.0)
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -425,6 +487,9 @@ export const GATED_FEATURES = [
   "providerTeam.tenantScope",
   "archive.mailboxCapture",
   "archive.smtpCapture",
+  "branding.provider",
+  "branding.tenant",
+  "reports.customer",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
@@ -437,6 +502,11 @@ export interface Me {
   activeTenantId: string | null;
   /** The gated core features this installation enables. */
   features: GatedFeature[];
+  /**
+   * The installation's modules that are on (lib/modules.ts); absent on servers from before
+   * modules existed, which reads as every module.
+   */
+  modules?: ModuleId[];
   /**
    * Fields contributed by server extensions, keyed by the extension's field
    * name. Opaque to the core: only the web extension that pairs with the

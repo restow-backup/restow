@@ -118,6 +118,17 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/v1/setup/state",
   "POST /api/v1/setup",
   "POST /api/v1/setup/token",
+  // Restoring an installation from a dump in the wizard (routes/setup-restore.ts): the setup token.
+  "GET /api/v1/setup/restore",
+  "POST /api/v1/setup/restore/uploads",
+  "PUT /api/v1/setup/restore/uploads/:id",
+  "POST /api/v1/setup/restore/uploads/:id/complete",
+  "POST /api/v1/setup/restore/start",
+  "POST /api/v1/setup/restore/activate",
+  "POST /api/v1/setup/restore/abort",
+  // A worker node joins with its one-time token (features/cluster/join-routes.ts).
+  "GET /api/v1/cluster-join/version",
+  "POST /api/v1/cluster-join",
   "GET /api/v1/accounts/set-password/:token",
   "POST /api/v1/accounts/set-password",
   "GET /api/v1/openapi.json",
@@ -133,10 +144,26 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/v1/runs/:runId/progress",
   "POST /agent/v1/runs/:runId/finish",
   "GET /agent/v1/update",
+  // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
+  // per address), the session routes authenticate with the session's own secret (HTTP Basic).
+  "POST /agent/v1/recovery/sessions",
+  "GET /agent/v1/recovery/sessions/current",
+  "GET /agent/v1/recovery/sessions/current/credentials",
+  "GET /agent/v1/recovery/sessions/current/ssh-keys",
+  "POST /agent/v1/recovery/sessions/current/progress",
+  "POST /agent/v1/recovery/sessions/current/log",
+  "POST /agent/v1/recovery/sessions/current/event",
+  "POST /agent/v1/recovery/sessions/current/release",
+  "POST /agent/v1/recovery/sessions/current/finish",
+  "POST /agent/v1/recovery/sessions/current/rebind",
   "GET /install/linux.sh",
   "GET /install/macos.sh",
+  "GET /install/windows.ps1",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
+  // The recovery ISO from RESTOW_RECOVERY_ISO_DIR (docs/BAREMETAL.md 8.5): a public download of
+  // exactly the file the signed checksums of a release list.
+  "GET /install/recovery/:version/:file",
   // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,
   // the node installer is a public download.
   "POST /agent/pve/v1/enroll",
@@ -154,6 +181,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/pve/v1/runs/:runId/log",
   "POST /agent/pve/v1/runs/:runId/progress",
   "POST /agent/pve/v1/runs/:runId/restic",
+  "POST /agent/pve/v1/runs/:runId/restore-end",
   "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/blocks",
   "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/hashes",
   "POST /agent/pve/v1/snapshots/:snapshotId/restic",
@@ -164,6 +192,10 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // (features/archive-capture/hooks.ts).
   "POST /api/v1/hooks/graph/notifications",
   "POST /api/v1/hooks/graph/lifecycle",
+  // The public branding images (0.5.0, features/branding/public.ts): chat services fetch the
+  // logo and the accent band themselves; only image bytes, by an unguessable token.
+  "GET /api/v1/public/branding/:file",
+  "GET /api/v1/public/branding/accent/:file",
 ]);
 
 /**
@@ -176,6 +208,8 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
 export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> = {
   // --- Identity -------------------------------------------------------------
   "GET /api/v1/me": view(NONE),
+  // Which menu entries the active tenant offers (features/navigation): no content.
+  "GET /api/v1/navigation": view(),
   "GET /api/v1/settings/passkey-ready": view(NONE),
   // Accepting the operator notice is the operator's decision: owners and
   // administrators only. Technicians and read-only members are held up by the
@@ -196,6 +230,17 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/tenants/:id/customer": configure(byParam("id")),
   "PUT /api/v1/tenants/:id/contacts": configure(byParam("id")),
   "PUT /api/v1/tenants/:id/notification-recipients": configure(byParam("id")),
+  // A tenant's own branding (0.5.0, Service Provider): the provider's admins set it up.
+  "GET /api/v1/tenants/:id/branding": view(byParam("id")),
+  "PUT /api/v1/tenants/:id/branding": configure(byParam("id")),
+  "PUT /api/v1/tenants/:id/branding/logo": configure(byParam("id")),
+  "DELETE /api/v1/tenants/:id/branding/logo": configure(byParam("id")),
+  // The customer monthly report (0.5.0, Service Provider).
+  "GET /api/v1/tenants/:id/customer-report": view(byParam("id")),
+  "PUT /api/v1/tenants/:id/customer-report": configure(byParam("id")),
+  "GET /api/v1/tenants/:id/customer-report/preview": view(byParam("id")),
+  "GET /api/v1/tenants/:id/customer-report/preview.pdf": view(byParam("id")),
+  "POST /api/v1/tenants/:id/customer-report/test": configure(byParam("id")),
   // A tenant's own prices (settings/tenant-pricing.ts): business figures of the provider, read by
   // its admins for the tenants they may enter, changed by the owner (and only while the gate
   // `tenants.additional` is open).
@@ -255,9 +300,30 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // figures of the provider, read by its admins, changed by the owner.
   "GET /api/v1/settings/pricing": view(PROVIDER),
   "PUT /api/v1/settings/pricing": own(),
+  // The installation's modules (settings/modules.ts): what the web interface shows, with what each
+  // module holds across every tenant. Switching one off only hides it (no data, job or route is
+  // touched), so it is configuration work: administrators and owners with every tenant.
+  "GET /api/v1/settings/modules": view(PROVIDER),
+  "PUT /api/v1/settings/modules": configure(PROVIDER),
   // The estimate of the price cards, per tenant: a member limited to some tenants gets those
   // (the handler narrows it, like the tenant list).
   "GET /api/v1/settings/pricing/estimate": view(LIST),
+  // The provider's branding (0.5.0, features/branding): everyone on the team sees it and the
+  // preview, the owner changes it; a test mail goes to the one who asks.
+  "GET /api/v1/settings/branding": view(PROVIDER),
+  "PUT /api/v1/settings/branding": own(),
+  "PUT /api/v1/settings/branding/logo": own(),
+  "DELETE /api/v1/settings/branding/logo": own(),
+  "GET /api/v1/settings/branding/preview": view(PROVIDER),
+  "POST /api/v1/settings/branding/test": configure(PROVIDER),
+  // The provider's notification recipients and its summary reports across tenants (0.5.0):
+  // administrators keep the list (only owners mark recipients mandatory, checked by the handler).
+  "GET /api/v1/settings/notification-recipients": view(PROVIDER),
+  "PUT /api/v1/settings/notification-recipients": configure(PROVIDER),
+  "POST /api/v1/settings/notification-recipients/:id/test": configure(PROVIDER),
+  "GET /api/v1/settings/summary-reports": view(PROVIDER),
+  "PUT /api/v1/settings/summary-reports/:cadence": configure(PROVIDER),
+  "POST /api/v1/settings/summary-reports/:cadence/test": configure(PROVIDER),
   // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
   // machines, so changing it needs an administrator with every tenant.
   "GET /api/v1/settings/agent-policy": view(PROVIDER),
@@ -267,6 +333,20 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // Reading is for every provider admin; everything that changes something (the source, a
   // check, announcing, cancelling or dismissing an update, which restarts the installation)
   // is for the owner.
+  // Restore mode after restoring a database dump (features/restore-mode): every provider admin
+  // sees it and may compare again; switching it on or off and importing keys is the owner's.
+  "GET /api/v1/restore-mode": view(PROVIDER),
+  "GET /api/v1/restore-mode/banner": view(NONE),
+  "POST /api/v1/restore-mode/check": configure(PROVIDER),
+  "POST /api/v1/restore-mode/start": own(),
+  "POST /api/v1/restore-mode/import-keys": own(),
+  "POST /api/v1/restore-mode/end": own(),
+  // Installation > Cluster (features/cluster): worker nodes get the master key and database
+  // logins, so everything about them, reading included, is the owner's.
+  "GET /api/v1/cluster": own(),
+  "POST /api/v1/cluster/join-tokens": own(),
+  "DELETE /api/v1/cluster/join-tokens/:id": own(),
+  "DELETE /api/v1/cluster/nodes/:id": own(),
   "GET /api/v1/updates": view(PROVIDER),
   "PATCH /api/v1/updates/settings": own(),
   "POST /api/v1/updates/check": own(),
@@ -289,6 +369,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // directory, moving the database, removing an old copy and the pre-update dumps (a dump is
   // the whole database: the most sensitive export there is) for the owner.
   "GET /api/v1/updates/database": view(PROVIDER),
+  // The installation's space rule for backups (#99): the owner, like the update settings.
+  "GET /api/v1/updates/space-rule": view(PROVIDER),
+  "PUT /api/v1/updates/space-rule": own(),
   "POST /api/v1/updates/database/check": own(),
   "POST /api/v1/updates/database/move": own(),
   "DELETE /api/v1/updates/database/old-copies/:id": own(),
@@ -375,6 +458,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // object: administrators and up (and a recent sign-in, features/suspicion/routes.ts).
   "POST /api/v1/suspicions/hold/release": configure(),
   "POST /api/v1/suspicions/hold/false-alarm": operate(),
+  // The backups the size and space guard held (#99): reading for every role, continuing once
+  // for technicians and up, the object's limit and the settings for administrators and up.
+  "GET /api/v1/run-size/holds": view(),
+  "POST /api/v1/run-size/holds/:id/continue": operate(),
+  "POST /api/v1/run-size/holds/:id/raise": configure(),
+  "GET /api/v1/run-size/settings": view(),
+  "PUT /api/v1/run-size/settings": configure(),
+  // The space rule of the tenant's own storage targets: administrators and up, like the targets.
+  "GET /api/v1/run-size/targets": view(),
+  "PUT /api/v1/run-size/targets/:id": configure(),
 
   // --- Jobs, schedules, verification --------------------------------------------
   "GET /api/v1/jobs": view(),
@@ -422,6 +515,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // tenants the member's team role covers; one tenant's jobs read-only, by its id.
   "GET /api/v1/tenant-jobs": view(LIST),
   "GET /api/v1/tenant-jobs/:tenantId": view(byParam("tenantId")),
+  // Capacity planning (features/capacity): utilisation, growth and the estimate per tenant,
+  // narrowed by the handler to the tenants the member's team role covers; one tenant's
+  // repositories by its id.
+  "GET /api/v1/capacity": view(LIST),
+  "GET /api/v1/capacity/:tenantId": view(byParam("tenantId")),
   // What runs right now, for the "All tenants" start page: narrowed by the handler to the
   // tenants the member's team role covers, like the tenant list.
   "GET /api/v1/tenant-running": view(LIST),
@@ -449,6 +547,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/snapshots": view(),
   "GET /api/v1/snapshots/objects": view(),
   "GET /api/v1/snapshots/people": view(),
+  // Which groups and sites a person belongs to: names and roles, like the people list.
+  "GET /api/v1/snapshots/people/memberships": view(),
   "GET /api/v1/snapshots/objects/:id/versions": view(),
   "GET /api/v1/snapshots/search": operate(),
   "GET /api/v1/snapshots/:id/tree": operate(),
@@ -462,6 +562,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/restore/:id": view(),
   "GET /api/v1/restore/targets": operate(),
   "POST /api/v1/restore": operate(),
+  "POST /api/v1/restore/archive": operate(),
   "POST /api/v1/restore/:id/cancel": operate(),
   "GET /api/v1/restore/:id/download": operate(),
 
@@ -498,9 +599,13 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/archive/items/:id": operate(),
   "GET /api/v1/archive/items/:id/preview": operate(),
   "GET /api/v1/archive/items/:id/download": operate(),
+  // The restore explorer's source "From the archive" (#48): archived mail of one mailbox,
+  // content like the search; restoring it into the mailbox is a restore.
+  "GET /api/v1/archive/gap": operate(),
   // Archive capture beyond journaling (0.4.4): its state, a resync, the hold confirmation.
   "GET /api/v1/archive/capture": view(),
   "GET /api/v1/archive/capture/mailboxes": view(),
+  "GET /api/v1/archive/capture/mailboxes/:objectId/gaps": view(),
   "POST /api/v1/archive/capture/mailboxes/:objectId/resync": configure(),
   "GET /api/v1/archive/capture/holds": view(),
   "PUT /api/v1/archive/capture/holds/:sourceId": configure(),
@@ -514,7 +619,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/storage": view(),
   "GET /api/v1/storage/usage": view(),
   // Where backups land now (shown wherever a backup is started or configured).
+  "GET /api/v1/storage/write-once": view(),
   "GET /api/v1/storage/destination": view(),
+  // How far the copies of the restic repositories are (per copy target, per object).
+  "GET /api/v1/storage/repository-copies": view(),
+  "GET /api/v1/storage/repository-copies/objects/:id": view(),
   "GET /api/v1/storage/targets": view(),
   "GET /api/v1/storage/targets/:id": view(),
   "POST /api/v1/storage/targets": configure(),
@@ -523,7 +632,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/storage/targets/probe": configure(),
   "POST /api/v1/storage/targets/:id/test": operate(),
   "POST /api/v1/storage/targets/:id/completeness": operate(),
+  // Whether a copy can become the primary, and "Catch up now" (a storage check and the copies).
+  "GET /api/v1/storage/targets/:id/promotion": view(),
+  // Lists both storages, like the completeness check.
+  "POST /api/v1/storage/targets/:id/promotion/check": operate(),
+  "POST /api/v1/storage/targets/:id/catch-up": operate(),
   "POST /api/v1/storage/targets/:id/promote": configure(),
+  // The repository repair (docs/STORAGE.md): a scan changes nothing, the repair does.
+  "GET /api/v1/storage/repositories/repairs": view(),
+  "POST /api/v1/storage/repositories/scan": operate(),
+  "POST /api/v1/storage/repositories/repair": configure(),
   "POST /api/v1/storage/targets/:id/migration/cancel": configure(),
   "POST /api/v1/storage/targets/:id/migration/retry": configure(),
   // Immutable backups: raising is configure(); lowering is checked in the handler (provider
@@ -549,6 +667,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/jobs/:id/run": operate(),
   "POST /api/v1/pve/jobs/:id/cancel": operate(),
   "PUT /api/v1/pve/guests/:id/job": configure(),
+  "POST /api/v1/pve/jobs/:id/guests": configure(),
   // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
   "POST /api/v1/pve/guests/:id/repository/reset": configure(),
   "PUT /api/v1/pve/guests/:id/restow-server": configure(),
@@ -612,6 +731,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/removals": view(),
+  "GET /api/v1/endpoints/capabilities": view(),
   "GET /api/v1/endpoints/agent-updates": view(),
   "PUT /api/v1/endpoints/agent-updates": configure(),
   "DELETE /api/v1/endpoints/agent-updates/machines/:id": configure(),
@@ -627,6 +747,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/endpoints/:id/revoke": configure(),
   "POST /api/v1/endpoints/:id/uninstall": configure(),
   "POST /api/v1/endpoints/:id/remove": configure(),
+  // Only a `delete` removal can be cancelled, and that is the owners' (features/endpoints/routes.ts).
+  "POST /api/v1/endpoints/:id/remove/cancel": own(TENANT),
   "POST /api/v1/endpoints/:id/tasks": operate(),
   "POST /api/v1/endpoints/:id/cancel": operate(),
   "POST /api/v1/endpoints/:id/update": configure(),
@@ -639,6 +761,39 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints/:id/browse": operate(),
   "POST /api/v1/endpoints/:id/downloads": operate(),
   "GET /api/v1/endpoints/:id/downloads/:downloadId": operate(),
+  // Bare metal (preview): the card with the layout's summary, and the full manifest with the
+  // machine's serial numbers only for those who configure machines.
+  "GET /api/v1/endpoints/:id/baremetal": view(),
+  "GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId": configure(),
+  // "Probe now" (docs/BAREMETAL.md 12.3): a check that restores a copy in the lab, like checking
+  // a backup; nothing leaves the installation.
+  "POST /api/v1/endpoints/:id/baremetal/probe": operate(),
+  // Bare metal recovery (docs/BAREMETAL.md 9, 11): a code hands out the machine's repository
+  // password to the ISO, a session reads all of its backups, a rebind token gives the machine a
+  // new agent secret. All of it, and the ISO's download facts, is configuration work.
+  "GET /api/v1/recovery-iso": configure(),
+  "GET /api/v1/recovery-iso/file/:file": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes/:codeId/revoke": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes/:codeId/extend": configure(),
+  "GET /api/v1/endpoints/:id/recoveries": configure(),
+  "GET /api/v1/endpoints/:id/recoveries/:recoveryId": configure(),
+  "POST /api/v1/endpoints/:id/recoveries/:recoveryId/approve": configure(),
+  "POST /api/v1/endpoints/:id/recoveries/:recoveryId/cancel": configure(),
+  "PUT /api/v1/endpoints/:id/recoveries/:recoveryId/ssh-keys": configure(),
+  "POST /api/v1/endpoints/:id/rebind-token": configure(),
+  // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1): reading the databases
+  // and their backups is for every member; checking a backup (a restore under a temporary name
+  // with CHECKDB) and the agent's sign-in check need a technician; a restore under a new name,
+  // the restore script for another machine and the TDE confirmation are an administrator's, as
+  // the tenant side asks for a tenant admin and the design for the role "Administrator".
+  "GET /api/v1/endpoints/:id/sql": view(),
+  "GET /api/v1/endpoints/:id/sql/databases/:databaseId/backups": view(),
+  "POST /api/v1/endpoints/:id/sql/verify": operate(),
+  "POST /api/v1/endpoints/:id/sql/inventory": operate(),
+  "POST /api/v1/endpoints/:id/sql/restore": configure(),
+  "GET /api/v1/endpoints/:id/sql/backups/:backupId/restore-script": configure(),
+  "POST /api/v1/endpoints/:id/sql/databases/:databaseId/tde-confirm": configure(),
 
   // --- Webhooks --------------------------------------------------------------------
   "GET /api/v1/reports/catalog": view(),

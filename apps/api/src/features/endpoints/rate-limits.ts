@@ -15,3 +15,17 @@ export const TEN_MINUTES_MS = 10 * 60 * 1000;
 export const AGENT_API_LIMIT = 600;
 /** Requests to the restic REST endpoint (`/agent/restic`) per endpoint and 10 minutes. */
 export const RESTIC_API_LIMIT = 20_000;
+/**
+ * Requests of a recovery session to its `reader` restic route (`/agent/recovery/restic`) per
+ * session and 10 minutes (docs/BAREMETAL.md 9.6): a restore reads many ranges of pack files, and
+ * the agent's 20,000 would slow a large one down.
+ */
+export const RECOVERY_RESTIC_LIMIT = 120_000;
+
+export const ONE_HOUR_MS = 60 * 60 * 1000;
+/**
+ * Downloads of the recovery ISO from this instance (`GET /install/recovery/:version/:file`) per
+ * client address and hour (docs/BAREMETAL.md 8.5): an ISO is up to 900 MiB, and one machine
+ * needs it once.
+ */
+export const RECOVERY_ISO_DOWNLOAD_LIMIT = 10;

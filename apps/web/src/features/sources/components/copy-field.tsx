@@ -2,7 +2,7 @@ import { Check, Copy } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/kit";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
@@ -48,15 +48,13 @@ export function CopyField({ id, value, label, className }: CopyFieldProps) {
         className="font-mono text-xs"
         onFocus={(event) => event.currentTarget.select()}
       />
-      <Button
+      <IconButton
+        icon={copied ? Check : Copy}
         variant="outline"
         size="icon"
         onClick={() => void copy()}
-        aria-label={t("actions.copyLink")}
-        title={t("actions.copyLink")}
-      >
-        {copied ? <Check /> : <Copy />}
-      </Button>
+        label={t("actions.copyLink")}
+      />
     </div>
   );
 }

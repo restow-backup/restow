@@ -854,8 +854,9 @@ describe("Proxmox VE in the list of machine jobs (#53)", () => {
     ]);
     await click(items[1]);
     await flush(3);
-    // The Proxmox VE job form lists the guests to put into the new job.
-    expect(slot("pve-job-guests")?.textContent).toContain("mail01 · VM 102 · pve1");
+    // The Proxmox VE job form lists the guests to put into the new job, by node.
+    expect(slot("pve-job-guest-node")?.getAttribute("data-node")).toBe("pve1");
+    expect(slot("pve-job-guest-node")?.textContent).toContain("mail01 · VM 102");
     // Wide and in two columns, so a job's settings fit on a desktop screen without scrolling.
     expect(slot("pve-job-form")?.closest('[data-slot="dialog-content"]')?.className).toContain(
       "max-w-5xl",
@@ -863,6 +864,38 @@ describe("Proxmox VE in the list of machine jobs (#53)", () => {
     expect(slot("pve-job-column-schedule")?.contains(slot("pve-job-cadence"))).toBe(true);
     expect(slot("pve-job-column-settings")?.contains(slot("pve-job-boot-test"))).toBe(true);
     expect(slot("pve-job-column-settings")?.contains(slot("pve-job-guests"))).toBe(true);
+  });
+
+  const moduleRoutes = {
+    "GET /backup-jobs": () => json(list([endpointJob()])),
+    "GET /pve": () => json(overview),
+  };
+
+  it("offers no Proxmox VE job while that module of the installation is off, and keeps the rows", async () => {
+    opened = await openJobs("/jobs?type=endpoint", {
+      routes: moduleRoutes,
+      session: adminSession({ modules: ["microsoft365", "endpoints"] }),
+    });
+    await flush(6);
+    // New job is the machines' one button: no menu with a Proxmox VE entry.
+    expect(slot("new-job-menu")).toBeNull();
+    expect(slot("new-job")?.getAttribute("data-type")).toBe("endpoint");
+    // Hidden is not stopped: the Proxmox VE job that exists is still a row of the list.
+    expect(text()).toContain("Nightly VMs");
+  });
+
+  it("opens the Proxmox VE form directly while Servers & clients is off and Proxmox VE is on", async () => {
+    opened = await openJobs("/jobs?type=endpoint", {
+      routes: moduleRoutes,
+      session: adminSession({ modules: ["pve"] }),
+    });
+    await flush(6);
+    expect(slot("new-job-menu")).toBeNull();
+    expect(slot("new-job")?.getAttribute("data-type")).toBe("pve");
+    await click(slot("new-job"));
+    await flush(3);
+    expect(slot("pve-job-guest-node")?.getAttribute("data-node")).toBe("pve1");
+    expect(slot("pve-job-guest-node")?.textContent).toContain("mail01 · VM 102");
   });
 });
 

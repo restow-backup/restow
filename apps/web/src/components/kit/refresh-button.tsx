@@ -35,7 +35,7 @@ export function RefreshButton({
       label={name}
       tooltip={fetching ? t("refresh.refreshing") : name}
       aria-busy={fetching || undefined}
-      iconClassName={cn(fetching && "animate-spin", iconClassName)}
+      iconClassName={cn(fetching && "motion-safe:animate-spin", iconClassName)}
       onClick={() => {
         if (!fetching) {
           onRefresh();

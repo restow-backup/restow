@@ -1,4 +1,6 @@
+import type { RunSpaceOverride } from "@restow/core";
 import { type Context, Hono } from "hono";
+import { providerDb } from "../../db.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import {
@@ -8,6 +10,8 @@ import {
   type SessionEnv,
 } from "../../middleware/session.js";
 import { parseJsonBody } from "../../schemas.js";
+import { spaceFromRequest, spaceRuleSchema } from "../run-size/schemas.js";
+import { installationSpaceRuleView, updateInstallationSpaceRule } from "../run-size/service.js";
 import type { DatabaseService } from "./database.js";
 import { databaseService, restartService, updateService } from "./instance.js";
 import type { RestartService } from "./restarts.js";
@@ -166,6 +170,21 @@ export function buildUpdatesRoutes(
       return c.json(await service.view());
     });
   }
+
+  // The space backups keep free on a storage target (#99): the installation's default, and the
+  // whole rule on the installation's default target (Installation › Database, next to the disks).
+  routes.get("/space-rule", async (c) => c.json(await installationSpaceRuleView(providerDb)));
+  routes.put("/space-rule", async (c) => {
+    const input = await parseJsonBody(c.req, spaceRuleSchema);
+    const user = c.get("user");
+    return c.json(
+      await updateInstallationSpaceRule(
+        providerDb,
+        input.space === null ? null : (spaceFromRequest(input.space) as RunSpaceOverride),
+        { userId: user.id, label: user.email, ip: clientIp(c) },
+      ),
+    );
+  });
 
   return routes;
 }

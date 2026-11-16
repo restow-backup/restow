@@ -11,6 +11,7 @@
  * - config.ts       rules, overrides and sync state inside `sources.config`
  * - groups.ts       group search for the rules editor
  * - group-mailboxes.ts  Microsoft 365 group mailboxes from groups/delta (pure planning)
+ * - memberships.ts  owners and members of the groups (and their sites), for the explorer
  * - csv.ts          IMAP account list and CSV import
  * - credentials.ts  Entra app credentials from environment values
  */
@@ -24,6 +25,7 @@ export * from "./groups.js";
 export * from "./inactive.js";
 export * from "./locks.js";
 export * from "./login-refused.js";
+export * from "./memberships.js";
 export * from "./plan.js";
 export * from "./rules.js";
 export * from "./sites.js";

@@ -1,0 +1,39 @@
+{
+  "errors": [
+    {
+      "message": "Sales was restored as Sales_restored_20261105, but DBCC CHECKDB did not run to its end: Could not allocate space for object 'dbo.SORT temporary run storage:  140737488355328' in database 'tempdb' because the 'PRIMARY' filegroup is full. (1105).",
+      "code": "sql_verify_no_space"
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:Sales_restored_20261105",
+    "restore:Sales_restored_20261105"
+  ],
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "Sales_restored_20261105",
+    "fetched": true,
+    "sha256Match": true,
+    "restored": true,
+    "moves": [
+      {
+        "logicalName": "Sales",
+        "physicalName": "Q:\\Data\\Sales_restored_20261105_c79dd7ba_1.mdf"
+      },
+      {
+        "logicalName": "Sales_log",
+        "physicalName": "L:\\Log\\Sales_restored_20261105_c79dd7ba_2.ldf"
+      }
+    ],
+    "checkdb": {
+      "ran": false,
+      "physicalOnly": false,
+      "errors": [],
+      "durationMs": 610000
+    },
+    "durationMs": 1000
+  },
+  "status": "partial"
+}

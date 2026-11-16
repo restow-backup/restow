@@ -20,6 +20,7 @@ import notificationsDe from "../resources/de/notifications.json" with { type: "j
 import pricingDe from "../resources/de/pricing.json" with { type: "json" };
 import pveDe from "../resources/de/pve.json" with { type: "json" };
 import reportsDe from "../resources/de/reports.json" with { type: "json" };
+import resourcesDe from "../resources/de/resources.json" with { type: "json" };
 import restoreDe from "../resources/de/restore.json" with { type: "json" };
 import retentionDe from "../resources/de/retention.json" with { type: "json" };
 import schedulesDe from "../resources/de/schedules.json" with { type: "json" };
@@ -57,6 +58,7 @@ import notificationsEn from "../resources/en/notifications.json" with { type: "j
 import pricingEn from "../resources/en/pricing.json" with { type: "json" };
 import pveEn from "../resources/en/pve.json" with { type: "json" };
 import reportsEn from "../resources/en/reports.json" with { type: "json" };
+import resourcesEn from "../resources/en/resources.json" with { type: "json" };
 import restoreEn from "../resources/en/restore.json" with { type: "json" };
 import retentionEn from "../resources/en/retention.json" with { type: "json" };
 import schedulesEn from "../resources/en/schedules.json" with { type: "json" };
@@ -124,6 +126,7 @@ export const namespaces = [
   "reports",
   "suspicion",
   "pricing",
+  "resources",
 ] as const;
 
 export type Namespace = (typeof namespaces)[number];
@@ -183,6 +186,7 @@ export const resources = {
     reports: reportsDe,
     suspicion: suspicionDe,
     pricing: pricingDe,
+    resources: resourcesDe,
   },
   en: {
     common: commonEn,
@@ -222,6 +226,7 @@ export const resources = {
     reports: reportsEn,
     suspicion: suspicionEn,
     pricing: pricingEn,
+    resources: resourcesEn,
   },
 } satisfies Record<SupportedLanguage, Record<Namespace, Record<string, unknown>>>;
 

@@ -200,7 +200,7 @@ describe("who may use the Updates tab", () => {
   });
 });
 
-describe("what needs a recent sign-in", () => {
+describe("what needs a recent sign-in [UPDATE-014]", () => {
   const STEP_UP: [string, string, unknown][] = [
     ["PATCH", "/api/v1/updates/settings", { sourceUrl: "https://git.example.com/a/b" }],
     ["PATCH", "/api/v1/updates/settings", { sourceUrl: null }],
@@ -256,7 +256,7 @@ describe("what needs a recent sign-in", () => {
     }
   });
 
-  it("still checks the owner role first", async () => {
+  it("still checks the owner role first [UPDATE-014]", async () => {
     signedIn("admin", { signedInSecondsAgo: 11 * 60 });
     mocks.providerRows = [{ role: "administrator", allTenants: true }];
     const response = await call("POST", "/api/v1/updates/maintenance", {

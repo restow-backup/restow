@@ -11,7 +11,13 @@
  * dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { archive, type ChunkReader, RestoreIntegrityError } from "@restow/core";
+import {
+  archive,
+  type ChunkReader,
+  MissingChunkError,
+  ObjectUnreadableError,
+  RestoreIntegrityError,
+} from "@restow/core";
 import {
   archiveAnchor,
   archiveItemMailboxes,
@@ -69,6 +75,10 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
   const adminId = randomUUID();
   /** Items the fake chunk reader reports as damaged, and the ones it read. */
   const damaged = new Set<string>();
+  /** Items whose chunk the index no longer has. */
+  const missing = new Set<string>();
+  /** Every read fails as an S3 target answering 503 SlowDown (an outage, no evidence). */
+  const outage = { on: false };
   const readIds: string[] = [];
 
   beforeAll(async () => {
@@ -158,6 +168,16 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
           ({
             readObjectToBuffer: async (object: { id?: string }) => {
               readIds.push(object.id ?? "");
+              if (outage.on) {
+                const slowDown = Object.assign(new Error("Please reduce your request rate."), {
+                  name: "SlowDown",
+                  $metadata: { httpStatusCode: 503 },
+                });
+                throw new ObjectUnreadableError("packs/ab/ab12", false, slowDown);
+              }
+              if (missing.has(object.id ?? "")) {
+                throw new MissingChunkError("cd".repeat(32));
+              }
               if (damaged.has(object.id ?? "")) {
                 throw new RestoreIntegrityError("content hash mismatch");
               }
@@ -305,7 +325,7 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     );
   });
 
-  it("verifies an intact chain as ok, and reports the first break in a tampered one", async () => {
+  it("verifies an intact chain as ok, and reports the first break in a tampered one [ARCHIVE-001]", async () => {
     const okRes = await app.request("/archive/chain/verify", {
       headers: { "x-restow-tenant": fabrikam },
     });
@@ -397,7 +417,11 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
         checked: number;
         brokenAt: unknown;
         anchors: { checked: number; unsealed: number; failed: { reason: string } | null };
-        content: { checked: number; failures: { itemId: string; problem: string }[] };
+        content: {
+          checked: number;
+          inconclusive: number;
+          failures: { itemId: string; problem: string }[];
+        };
       };
     };
 
@@ -417,6 +441,22 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     ]);
     damaged.clear();
 
+    // A chunk gone from the index is evidence too, with its own problem.
+    missing.add(ids[2] as string);
+    const missingResult = await verify();
+    expect(missingResult.ok).toBe(false);
+    expect(missingResult.content.failures).toEqual([
+      expect.objectContaining({ itemId: ids[2], problem: "missing" }),
+    ]);
+    missing.clear();
+
+    // Storage answering 503 proves nothing about the messages: not checked, not failed.
+    outage.on = true;
+    const unreachable = await verify();
+    outage.on = false;
+    expect(unreachable.ok).toBeNull();
+    expect(unreachable.content).toMatchObject({ checked: 0, inconclusive: 3, failures: [] });
+
     // The newest entry removed: every link still verifies, the anchor does not.
     await owner.delete(archiveItems).where(eq(archiveItems.id, ids[2] as string));
     const truncated = await verify();
@@ -429,7 +469,19 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
       .select({ action: auditLog.action, details: auditLog.details })
       .from(auditLog)
       .where(eq(auditLog.tenantId, tailspin));
-    expect(audits.filter((row) => row.action === "archive.chain.verified")).toHaveLength(3);
+    const checks = audits.filter((row) => row.action === "archive.chain.verified");
+    expect(checks).toHaveLength(5);
+    // The audit names what each failed item proved, and what was left unchecked.
+    expect(checks.map((row) => row.details)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ok: false,
+          contentFailed: [{ itemId: ids[1], problem: "mismatch" }],
+          contentInconclusive: 0,
+        }),
+        expect.objectContaining({ ok: null, contentFailed: [], contentInconclusive: 3 }),
+      ]),
+    );
   });
 
   it("reads an archived message for download and tells when its content is not recorded", async () => {

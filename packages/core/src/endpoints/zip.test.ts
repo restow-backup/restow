@@ -1,5 +1,27 @@
-import { describe, expect, it } from "vitest";
-import { parentPrefix, safeEntryName, UniqueNames } from "./zip.js";
+import { spawnSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { readZip } from "../restore/testing/zip-reader.js";
+import {
+  type ResticSession,
+  resticBinary,
+  resticInit,
+  resticSnapshots,
+  runRestic,
+} from "./restic-cli.js";
+import {
+  parentPrefix,
+  safeEntryName,
+  streamSnapshotZip,
+  tarEntrySnapshotPath,
+  UniqueNames,
+} from "./zip.js";
+
+function resticAvailable(): boolean {
+  return spawnSync(resticBinary(), ["version"], { stdio: "ignore" }).status === 0;
+}
 
 describe("ZIP entry names", () => {
   it("cannot climb out of the archive", () => {
@@ -45,5 +67,164 @@ describe("ZIP entry names", () => {
     expect(parentPrefix("/home/anna/docs/")).toBe("home/anna/");
     expect(parentPrefix("/etc")).toBe("");
     expect(parentPrefix("/")).toBe("");
+  });
+});
+
+describe("leaving files out of a ZIP", () => {
+  it("names a tar entry by its path in the snapshot", () => {
+    expect(tarEntrySnapshotPath("etc/restow-agent/state.json")).toBe(
+      "/etc/restow-agent/state.json",
+    );
+    expect(tarEntrySnapshotPath("etc/luks-keys/")).toBe("/etc/luks-keys");
+    expect(tarEntrySnapshotPath("C/ProgramData/Restow/state/state.json")).toBe(
+      "/C/ProgramData/Restow/state/state.json",
+    );
+  });
+
+  it.skipIf(!resticAvailable())(
+    "skips the files the caller names, in a folder and as a single file",
+    async () => {
+      const work = await mkdtemp(join(tmpdir(), "restow-zip-skip-"));
+      try {
+        const source = join(work, "source");
+        await mkdir(join(source, "etc", "restow-agent"), { recursive: true });
+        await mkdir(join(source, "etc", "luks-keys"), { recursive: true });
+        await writeFile(join(source, "etc", "hosts"), "127.0.0.1 localhost\n");
+        await writeFile(join(source, "etc", "restow-agent", "state.json"), '{"secret":1}');
+        await writeFile(join(source, "etc", "restow-agent", "agent.json"), "{}");
+        await writeFile(join(source, "etc", "luks-keys", "data.key"), "key");
+        const session: ResticSession = {
+          repositoryUrl: join(work, "repo"),
+          username: "",
+          password: "",
+          repositoryPassword: "repository-password-for-tests",
+          cacheDir: join(work, "cache"),
+        };
+        await resticInit(session);
+        await runRestic(session, ["backup", "--host", "test-host", source]);
+        const snapshotId = (await resticSnapshots(session))[0]?.id ?? "";
+        const locked = new Set([
+          `${source}/etc/restow-agent/state.json`,
+          `${source}/etc/luks-keys/data.key`,
+        ]);
+        const zip = streamSnapshotZip({
+          session,
+          snapshotId,
+          paths: [`${source}/etc`, `${source}/etc/luks-keys/data.key`],
+          selection: [
+            { path: `${source}/etc`, type: "dir" },
+            { path: `${source}/etc/luks-keys/data.key`, type: "file" },
+          ],
+          skip: (path) => locked.has(path),
+        });
+        const chunks: Buffer[] = [];
+        for await (const chunk of zip.stream) chunks.push(chunk as Buffer);
+        const names = readZip(Buffer.concat(chunks)).map((entry) => entry.name);
+        expect(names).toContain("etc/hosts");
+        expect(names).toContain("etc/restow-agent/agent.json");
+        expect(names).toContain("etc/luks-keys/");
+        expect(
+          names.filter((name) => name.endsWith("state.json") || name.endsWith(".key")),
+        ).toEqual([]);
+      } finally {
+        await rm(work, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+});
+
+describe.skipIf(process.platform === "win32")("ZIP download that ends early", () => {
+  let dir = "";
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+    dir = "";
+  });
+
+  /**
+   * A stand-in for restic: `dump` writes its pid, then (for a folder) a tar header that fails
+   * its checksum, then output without end, as a large file would. Left unread it blocks on the
+   * full pipe and never ends by itself.
+   */
+  async function fakeRestic(): Promise<{ session: ResticSession; pid: () => Promise<number> }> {
+    dir = await mkdtemp(join(tmpdir(), "restow-zip-"));
+    const pidFile = join(dir, "pid");
+    const binary = join(dir, "restic");
+    await writeFile(
+      binary,
+      [
+        "#!/bin/sh",
+        `echo $$ > '${pidFile}'`,
+        `if [ "$2" = "--archive" ]; then printf '%0512d' 0 | tr 0 x; fi`,
+        "exec yes restic",
+        "",
+      ].join("\n"),
+    );
+    await chmod(binary, 0o755);
+    const session: ResticSession = {
+      repositoryUrl: "rest:http://127.0.0.1:1/",
+      username: "u",
+      password: "p",
+      repositoryPassword: "r",
+      cacheDir: dir,
+      binary,
+    };
+    const pid = async () => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const text = await readFile(pidFile, "utf8").catch(() => "");
+        if (text.trim()) return Number(text.trim());
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error("the fake restic never started");
+    };
+    return { session, pid };
+  }
+
+  function alive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function ended(pid: number): Promise<boolean> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (!alive(pid)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  }
+
+  it("stops restic dump when its tar is broken, and the download fails", async () => {
+    const { session, pid } = await fakeRestic();
+    const zip = streamSnapshotZip({
+      session,
+      snapshotId: "abcdef12",
+      paths: ["/etc"],
+      selection: [{ path: "/etc", type: "dir" }],
+    });
+    const failed = new Promise<Error>((resolve) => zip.stream.once("error", resolve));
+    zip.stream.resume();
+    expect((await failed).message).toBe("tar header checksum mismatch");
+    const child = await pid();
+    // Without anyone reading its output it would wait on the pipe for good.
+    expect(await ended(child)).toBe(true);
+  });
+
+  it("stops restic dump when the client leaves in the middle of a file", async () => {
+    const { session, pid } = await fakeRestic();
+    const zip = streamSnapshotZip({
+      session,
+      snapshotId: "abcdef12",
+      paths: ["/big.iso"],
+      selection: [{ path: "/big.iso", type: "file" }],
+    });
+    const child = await pid();
+    // Some bytes arrive, then the response is torn down (no abort signal given).
+    await new Promise<void>((resolve) => zip.stream.once("data", () => resolve()));
+    zip.stream.destroy();
+    expect(await ended(child)).toBe(true);
   });
 });

@@ -1,0 +1,1 @@
+UUID=C3D4-E5F6 /boot/efi vfat umask=0022,fmask=0022,dmask=0022 0 1

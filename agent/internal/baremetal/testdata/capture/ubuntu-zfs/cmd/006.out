@@ -1,0 +1,6 @@
+DEVNAME=/dev/sda3
+LABEL=rpool
+UUID=9876543210987654321
+VERSION=5000
+TYPE=zfs_member
+USAGE=filesystem

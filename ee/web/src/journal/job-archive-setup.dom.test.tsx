@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { CaptureKind } from "@/features/backup-jobs/api";
 import type { CaptureWays } from "@/features/backup-jobs/capture-ways";
 import { i18n } from "@/i18n";
+import { tenantNavOffersKey } from "@/lib/tenant-nav-offers";
 
 import { type JournalSetup, journalKeys } from "./api";
 import { JobArchiveSetup } from "./job-archive-setup";
@@ -97,9 +98,12 @@ function render(
 }
 
 /** Mounted for real (queries run), with an empty cache: what would it ask the server? */
-async function requestsOf(kinds: CaptureKind[], capture: CaptureWays): Promise<string[]> {
+async function requestsOf(
+  kinds: CaptureKind[],
+  capture: CaptureWays,
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+): Promise<string[]> {
   apiFetch.mockClear();
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -115,7 +119,6 @@ async function requestsOf(kinds: CaptureKind[], capture: CaptureWays): Promise<s
   });
   await act(async () => root.unmount());
   container.remove();
-  client.clear();
   return apiFetch.mock.calls.map((call) => String(call[0]));
 }
 
@@ -151,5 +154,20 @@ describe("JobArchiveSetup", () => {
     expect(await requestsOf(["m365"], GRAPH_ONLY)).toEqual([]);
     // Exchange journaling chosen for Microsoft 365 mailboxes: now it asks.
     expect(await requestsOf(["m365", "imap"], JOURNAL)).toEqual(["/archive/journal"]);
+  });
+
+  it("asks the menu offers again once the journal address is read, while they lack the archive", async () => {
+    edition = "business";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Reading the setup issues the address: journaling set up, the entry "Archive" may appear.
+    client.setQueryData(tenantNavOffersKey("t-1"), { offers: { archive: false } });
+    expect(await requestsOf(["m365"], JOURNAL, client)).toEqual(["/archive/journal"]);
+    expect(client.getQueryState(tenantNavOffersKey("t-1"))?.isInvalidated).toBe(true);
+
+    // Offers that include the archive already are left alone.
+    const offered = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    offered.setQueryData(tenantNavOffersKey("t-1"), { offers: { archive: true } });
+    await requestsOf(["m365"], JOURNAL, offered);
+    expect(offered.getQueryState(tenantNavOffersKey("t-1"))?.isInvalidated).toBe(false);
   });
 });

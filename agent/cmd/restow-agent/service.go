@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/restow-backup/restow/agent/internal/eventlog"
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/svc"
 )
@@ -48,6 +49,13 @@ func cmdService(args []string, stdout, stderr io.Writer) int {
 		}
 		if exe != paths.InstalledAgentBinary() {
 			fmt.Fprintf(stderr, "note: the agent binary is at %s, not at the standard location %s\n", exe, paths.InstalledAgentBinary())
+		}
+		// The folders exist protected before the service can start: else a
+		// service that starts before the enrollment would be the first to
+		// create them (an elevated administrator runs this).
+		if err := paths.Default().Ensure(); err != nil {
+			fmt.Fprintf(stderr, "The service is not installed: cannot create the agent directories: %v\n", err)
+			return exitError
 		}
 		opErr = m.Install(exe)
 		if opErr == nil {
@@ -96,6 +104,7 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("uninstall", stderr)
 	yes := fs.Bool("yes", false, "do not ask for confirmation")
 	keepLogs := fs.Bool("keep-logs", false, "keep the log directory")
+	keepBinaries := fs.Bool("keep-binaries", false, "leave the agent and restic binaries in place (the Windows installer removes them itself afterwards)")
 	if err := parseFlags(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -117,12 +126,13 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	}
 	layout := paths.Default()
 	err := svc.Uninstall(svc.UninstallOptions{
-		Layout: layout, KeepLogs: *keepLogs, SkipService: devLayout(), KeepBinaries: devLayout(), Out: stdout,
+		Layout: layout, KeepLogs: *keepLogs, SkipService: devLayout(), KeepBinaries: devLayout() || *keepBinaries, Out: stdout,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "Uninstall finished with problems: %v\n", err)
 		return exitError
 	}
+	eventlog.Info(eventlog.IDUninstalled, "The Restow agent was uninstalled by an administrator of this computer.")
 	fmt.Fprintln(stdout, "The agent was removed from this machine.")
 	fmt.Fprintln(stdout, "Backups stay on the Restow instance. Revoke this endpoint in the Restow UI (Endpoints) to finish the removal there.")
 	return exitOK

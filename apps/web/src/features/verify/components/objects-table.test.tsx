@@ -619,6 +619,50 @@ describe("ObjectsTable", () => {
       );
     }
 
+    it("names the service with the object, e.g. OneDrive · name (0.5.0)", () => {
+      const html = emptyTable([unconfirmed]);
+      const label = /<p[^>]*data-slot="object-label"[^>]*>[\s\S]*?<\/p>/.exec(html)?.[0] ?? "";
+      expect(label.replace(/<[^>]+>/g, "")).toBe("OneDrive · Empty drive");
+      // A label that is only the kind (a technical id) is not doubled.
+      const bare = emptyTable([readiness({ object: object({ kind: "onedrive" }) })]);
+      const bareLabel = /<p[^>]*data-slot="object-label"[^>]*>[\s\S]*?<\/p>/.exec(bare)?.[0] ?? "";
+      expect(bareLabel.replace(/<[^>]+>/g, "")).toBe("OneDrive");
+    });
+
+    it("shows an object empty by Microsoft 365 grey, says why, and offers nothing to confirm or revoke", () => {
+      const bySource = readiness({
+        object: object({ id: "e3", displayName: "msp@contoso.test", kind: "onedrive" }),
+        state: "empty",
+        readiness: "yellow",
+        report: {
+          ...emptyReport,
+          id: "r11",
+          reasons: [
+            {
+              code: "snapshot_empty_confirmed_by_source",
+              severity: "yellow" as const,
+              count: 1,
+              ageHours: null,
+              failure: null,
+            },
+          ],
+        },
+        contentStats: { items: 1, bytes: 0 },
+        emptyConfirmation: null,
+        emptyBySource: true,
+      });
+      const html = emptyTable([bySource]);
+      expect(html).toContain('data-slot="empty-by-source"');
+      expect(html).toContain("Empty according to Microsoft 365");
+      const line = /<p[^>]*data-slot="empty-result"[^>]*>[\s\S]*?<\/p>/.exec(html)?.[0] ?? "";
+      expect(line).toContain(
+        "Empty according to Microsoft 365 and to the backup (1 item, 0 bytes)",
+      );
+      expect(html).not.toContain("Revoke");
+      expect(html).not.toContain("Confirm as empty");
+      expect(html).not.toContain('data-tone="warning"');
+    });
+
     it("says what an empty object holds in one quiet line, not 0 of 0 verified", () => {
       const html = emptyTable([unconfirmed]);
       const line = /<p[^>]*data-slot="empty-result"[^>]*>[\s\S]*?<\/p>/.exec(html)?.[0] ?? "";
@@ -637,7 +681,7 @@ describe("ObjectsTable", () => {
     it("shows a confirmed object grey, with who confirmed it and when, and a way back", () => {
       const html = emptyTable([confirmed]);
       const badges = html.match(/<span data-slot="badge"[^>]*>[\s\S]*?<\/span>/g) ?? [];
-      const state = badges.find((tag) => tag.includes("Confirmed empty") && !tag.includes(" by "));
+      const state = badges.find((tag) => />Empty</.test(tag));
       expect(state).toContain('data-tone="muted"');
       expect(html).toContain("Confirmed empty by admin@contoso.test on");
       expect(html).toContain("Revoke");

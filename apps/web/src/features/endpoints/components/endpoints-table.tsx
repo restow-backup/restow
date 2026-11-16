@@ -25,6 +25,7 @@ import {
   type RowAction,
   RowActionsMenu,
   rowActionsColumn,
+  StatusBadge,
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -41,7 +42,7 @@ import {
   machineStatuses,
   machineStatusRank,
 } from "../machine-status.js";
-import { type EndpointArea, endpointDetailTo, fileRestoreTo } from "../paths.js";
+import { baremetalWizardTo, type EndpointArea, endpointDetailTo, fileRestoreTo } from "../paths.js";
 import {
   assigneeFilterOptions,
   assigneeFilterValue,
@@ -231,6 +232,15 @@ export function EndpointsTable({
                   {name}
                 </Link>
               )}
+              {endpoint.recovery ? (
+                <Link
+                  to={baremetalWizardTo(endpoint.id)}
+                  className="shrink-0"
+                  data-slot="endpoint-recovering"
+                >
+                  <StatusBadge tone="info">{t("list.recovering")}</StatusBadge>
+                </Link>
+              ) : null}
             </span>
           );
         },

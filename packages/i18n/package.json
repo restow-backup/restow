@@ -1,6 +1,6 @@
 {
   "name": "@restow/i18n",
-  "version": "0.4.12",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Restow translations (de, en) and the shared i18next setup with ICU message formatting.",
@@ -25,8 +25,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "i18next": "^26.5.2",
-    "i18next-icu": "^2.6.1",
+    "i18next": "^26.7.2",
+    "i18next-icu": "^2.7.0",
     "intl-messageformat": "^10.7.0"
   }
 }

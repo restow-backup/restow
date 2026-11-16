@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 /**
  * The repository of a Proxmox VE container must really be on the primary when a backup gets
- * its credential (docs/PVE.md, "New backup chain"), end to end with the real restic binary:
+ * its credential (docs/PVE.md, "Repository problems"), end to end with the real restic binary:
  *
- *   - the repository deleted from the primary: the next credential creates a new one (a new
- *     password), the old restore points become unavailable (no readiness, no restore), the
- *     guest records the new chain and the audit log says so, and the backup succeeds;
+ *   - the repository deleted from the primary while restore points refer to it: the backup is
+ *     refused (`pve-repository-missing`), nothing begins silently (0.4.2 to 0.4.12 began a new
+ *     chain and made every restore point unavailable); after a reset the next backup creates a
+ *     new repository (a new password) and the guest records the new chain;
  *   - the repository only on another target of the tenant (a retired primary after a "keep"
  *     switch): the backup is refused with a clear problem, nothing is created;
  *   - a backup stopped in the UI: its credential may still release its own lock (and open the
@@ -29,6 +30,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -180,6 +182,7 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     repository = await import("./repository.js");
@@ -235,7 +238,7 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
     }
   });
 
-  it("begins a new chain when the repository is gone from the primary", async () => {
+  it("refuses a backup while the repository is missing and restore points refer to it", async () => {
     const first = await backUp();
     expect(await exists(join(repositoryDir(), "config"))).toBe(true);
     const before = await guestRow();
@@ -247,7 +250,33 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
     expect(await audits("pve.repository.reinitialized")).toHaveLength(0);
 
     // The repository disappears from the primary (the field incident: the primary changed).
+    // Restore points still refer to it: the backup is refused, nothing begins silently.
     await rm(repositoryDir(), { recursive: true, force: true });
+    const refusedRun = await openRun();
+    const refused = await call(`/runs/${refusedRun}/restic`, {});
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { type: string }).type).toBe(
+      "urn:restow:problem:pve-repository-missing",
+    );
+    await ok(await call(`/runs/${refusedRun}/finish`, { status: "failed", error: "refused" }), 204);
+    expect(await pointStatus(first.snapshotId)).toBe("active");
+    expect(await audits("pve.repository.reinitialized")).toHaveLength(0);
+    expect((await guestRow())?.repositoryProblem).toMatchObject({
+      type: "pve-repository-missing",
+      activePoints: 2,
+    });
+    const refusedDetail = await service.guestDetail(shared.db, fixture.tenantId, guestId);
+    expect(refusedDetail.repository?.problem?.type).toBe("pve-repository-missing");
+
+    // An administrator resets it: the restore points become unavailable at once, and the next
+    // backup begins a new chain in a new repository.
+    await repository.resetGuestRepository(
+      shared.db,
+      fixture.tenantId,
+      guestId,
+      "paperless",
+      actor(),
+    );
     const third = await backUp();
     expect(third.credential.repositoryPassword).not.toBe(first.credential.repositoryPassword);
     expect(await exists(join(repositoryDir(), "config"))).toBe(true);
@@ -256,24 +285,22 @@ describe.skipIf(!canRun)("the repository of a container is checked before a back
     expect(await pointStatus(third.snapshotId)).toBe("active");
 
     const guest = await guestRow();
+    expect(guest?.repositoryProblem).toBeNull();
     expect(guest?.repositoryChains).toHaveLength(1);
     expect(guest?.repositoryChains[0]).toMatchObject({
-      reason: "missing",
+      reason: "reset",
       unavailablePoints: 2,
-      actor: null,
+      actor: "admin@contoso.example",
       target: { name: "Installation default", kind: "local", installationDefault: true },
     });
     // The installation default's path stays with the provider.
     expect(guest?.repositoryChains[0]?.target?.location).toBeNull();
     expect(guest?.lastSnapshotId).toBe(third.snapshotId);
 
-    const [event] = await audits("pve.repository.reinitialized");
-    expect(event?.target).toBe(guestId);
-    expect(event?.details).toMatchObject({ reason: "missing", unavailablePoints: 2 });
-
     // The guest page shows the chain and the unavailable restore points as such.
     const detail = await service.guestDetail(shared.db, fixture.tenantId, guestId);
-    expect(detail.repository?.chains[0]?.reason).toBe("missing");
+    expect(detail.repository?.chains[0]?.reason).toBe("reset");
+    expect(detail.repository?.problem).toBeNull();
     const listed = new Map(detail.snapshots.map((s) => [s.id, s]));
     expect(listed.get(first.snapshotId)).toMatchObject({ available: false, browsable: false });
     expect(listed.get(third.snapshotId)).toMatchObject({ available: true, backupType: "first" });

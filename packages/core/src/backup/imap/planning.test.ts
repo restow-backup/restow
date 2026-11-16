@@ -59,6 +59,8 @@ describe("breakdownByUidNext", () => {
   it("separates messages delivered since the last run from retries of older ones", () => {
     expect(breakdownByUidNext([3, 40, 41, 57], 40)).toEqual({ arrived: 3, retried: 1 });
     expect(breakdownByUidNext([], 40)).toEqual({ arrived: 0, retried: 0 });
+    // A previous run whose server sent no UIDNEXT: nothing to split by.
+    expect(breakdownByUidNext([3, 40], undefined)).toEqual({});
   });
 });
 
@@ -133,5 +135,17 @@ describe("readImapState", () => {
   it("keeps well-formed folder entries", () => {
     const state = readImapState({ imap: { version: 1, folders: { INBOX: previous } } });
     expect(state.imap.folders.INBOX).toEqual(previous);
+  });
+
+  it("accepts the state of a server with a NIL delimiter and no UIDNEXT", () => {
+    const flat = { uidValidity: "7", delimiter: "", messages: 3 };
+    expect(readImapState({ imap: { version: 1, folders: { INBOX: flat } } }).imap.folders).toEqual({
+      INBOX: flat,
+    });
+    // Stored as null before 0.5.0: read as "".
+    const legacy = { uidValidity: "7", uidNext: 4, delimiter: null, messages: 3 };
+    expect(
+      readImapState({ imap: { version: 1, folders: { INBOX: legacy } } }).imap.folders.INBOX,
+    ).toEqual({ ...legacy, delimiter: "" });
   });
 });

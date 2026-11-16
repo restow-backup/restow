@@ -18,6 +18,7 @@ import {
   matchesSelection,
   type RestoreRequest,
   type RestoreSelection,
+  type RestoreSourceOverride,
   type SnapshotRecord,
 } from "../engine/types.js";
 import type { ManifestObject, SnapshotManifest } from "../manifest.js";
@@ -43,8 +44,11 @@ export interface ResolvedSource {
  */
 export async function resolveRestoreSource(
   ctx: Pick<JobContext, "snapshots" | "storage" | "keys">,
-  request: Pick<RestoreRequest, "snapshotId" | "protectedObject">,
+  request: Pick<RestoreRequest, "snapshotId" | "protectedObject" | "source">,
 ): Promise<ResolvedSource> {
+  if (request.source) {
+    return resolveOverride(request.source, request.protectedObject);
+  }
   const record = await ctx.snapshots.get(request.snapshotId);
   if (!record) {
     throw new RestoreSourceError(`snapshot ${request.snapshotId} does not exist`);
@@ -62,6 +66,39 @@ export async function resolveRestoreSource(
   }
   const manifest = await loadManifest(ctx.storage, record.manifestPath, ctx.keys);
   return { record, manifest };
+}
+
+/**
+ * A source the host handed over instead of a snapshot (archived messages,
+ * ./archive-source.ts). It must name the protected object being restored, as
+ * a snapshot must belong to it; the record stands for no stored snapshot.
+ */
+function resolveOverride(
+  source: RestoreSourceOverride,
+  protectedObject: RestoreRequest["protectedObject"],
+): ResolvedSource {
+  const manifest = source.manifest;
+  if (manifest.source.protectedObjectId !== protectedObject.id) {
+    throw new RestoreSourceError(
+      `the ${source.kind} source of this restore belongs to a different protected object`,
+    );
+  }
+  return {
+    record: {
+      id: manifest.snapshotId,
+      tenantId: manifest.tenantId,
+      protectedObjectId: protectedObject.id,
+      jobId: null,
+      sequence: 0,
+      manifestPath: null,
+      status: "active",
+      itemCount: manifest.objects.length,
+      byteSize: manifest.objects.reduce((sum, object) => sum + object.size, 0),
+      startedAt: null,
+      completedAt: new Date(manifest.createdAt),
+    },
+    manifest,
+  };
 }
 
 function comparePaths(a: ManifestObject, b: ManifestObject): number {
@@ -99,10 +136,14 @@ export function selectObjects(
     }
   }
   for (const object of manifest.objects) {
-    if (objectTypeOf(object) !== "attachment" || selected.has(object.path)) {
+    const type = objectTypeOf(object);
+    if ((type !== "attachment" && type !== "event-attachment") || selected.has(object.path)) {
       continue;
     }
-    const owner = catalog.attachmentOwner(object);
+    const owner =
+      type === "attachment"
+        ? catalog.attachmentOwner(object)
+        : catalog.eventAttachmentOwner(object);
     if (owner !== undefined && selected.has(owner)) {
       selected.set(object.path, object);
     }
@@ -118,9 +159,11 @@ export interface RestorePlan {
   readonly mail: ManifestObject[];
   /** Attachments by the path of their (selected) message. */
   readonly attachmentsByMessage: Map<string, ManifestObject[]>;
-  /** Attachments selected without their message. */
+  /** Attachments selected without their message (or event). */
   readonly orphanAttachments: ManifestObject[];
   readonly events: ManifestObject[];
+  /** Event attachments by the path of their (selected) event. */
+  readonly attachmentsByEvent: Map<string, ManifestObject[]>;
   readonly contacts: ManifestObject[];
   readonly files: ManifestObject[];
   readonly versions: ManifestObject[];
@@ -141,6 +184,7 @@ export function planRestore(manifest: SnapshotManifest, selection: RestoreSelect
     attachmentsByMessage: new Map(),
     orphanAttachments: [],
     events: [],
+    attachmentsByEvent: new Map(),
     contacts: [],
     files: [],
     versions: [],
@@ -150,6 +194,9 @@ export function planRestore(manifest: SnapshotManifest, selection: RestoreSelect
   };
   const selectedMail = new Set(
     objects.filter((object) => objectTypeOf(object) === "mail").map((object) => object.path),
+  );
+  const selectedEvents = new Set(
+    objects.filter((object) => objectTypeOf(object) === "event").map((object) => object.path),
   );
   for (const object of objects) {
     switch (objectTypeOf(object)) {
@@ -170,6 +217,17 @@ export function planRestore(manifest: SnapshotManifest, selection: RestoreSelect
       case "event":
         plan.events.push(object);
         break;
+      case "event-attachment": {
+        const owner = catalog.eventAttachmentOwner(object);
+        if (owner === undefined || !selectedEvents.has(owner)) {
+          plan.orphanAttachments.push(object);
+          break;
+        }
+        const list = plan.attachmentsByEvent.get(owner) ?? [];
+        list.push(object);
+        plan.attachmentsByEvent.set(owner, list);
+        break;
+      }
       case "contact":
         plan.contacts.push(object);
         break;

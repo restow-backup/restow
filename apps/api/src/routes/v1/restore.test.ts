@@ -139,7 +139,7 @@ describe.skipIf(!testDatabaseAdminUrl)("POST /api/v1/restore, mode 'replace'", (
     reason: "Ticket 9001: restore-replace-not-allowed v1 HTTP regression",
   });
 
-  it("refuses mode 'replace' for an Exchange mailbox target with 422 and the problem type", async () => {
+  it("refuses mode 'replace' for an Exchange mailbox target with 422 and the problem type [RESTORE-001]", async () => {
     const res = await post(REPLACE(f.mailbox.second, "mail/Inbox"));
     expect(res.status).toBe(422);
     expect(res.headers.get("content-type")).toContain("application/problem+json");
@@ -158,7 +158,7 @@ describe.skipIf(!testDatabaseAdminUrl)("POST /api/v1/restore, mode 'replace'", (
     });
   });
 
-  it("refuses mode 'replace' for a OneDrive target too, and stores nothing", async () => {
+  it("refuses mode 'replace' for a OneDrive target too, and stores nothing [RESTORE-002]", async () => {
     const before = await db.select().from(restoreJobs);
     const res = await post(REPLACE(f.drive, "Documents"));
     expect(res.status).toBe(422);

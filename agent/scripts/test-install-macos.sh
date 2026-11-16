@@ -48,6 +48,8 @@ cp "$work/release-key.pub" "$work/src/release-signing.pub"
   fail "build failed"
 }
 mv "$work/src/dist" "$work/dist"
+# The release lists the recovery ISO too (C-M4-3); the installer ignores it.
+printf '%s  recovery/restow-recovery_%s_amd64.iso\n' "$(printf 'iso' | shasum -a 256 | cut -d ' ' -f 1)" "$VERSION" >>"$work/dist/SHA256SUMS"
 ssh-keygen -q -Y sign -f "$work/release-key" -n restow-agent-release "$work/dist/SHA256SUMS" >/dev/null 2>&1 || fail "signing failed"
 
 container=restow-fakeinstance-test

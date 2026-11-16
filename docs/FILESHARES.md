@@ -939,6 +939,16 @@ document is written next to the repository as `file-shares/<id>/restow-repositor
 (packages/cli) can open the repository from the storage target and the master key alone.
 `file_shares.repository_ready_at` records it.
 
+On write-once storage (docs/STORAGE.md, "Write-once storage": the primary's last test found that
+it refuses to delete or overwrite) a prefix that holds data without `config` and that no restore
+point of the share refers to (a first run that straddled a storage change, leftovers no one can
+delete there) is left where it is: the repository is created under a fresh prefix next to it,
+`file-shares/<id>.chain-<n>/`, recorded as `file_shares.repository_prefix`, with its password file
+there. Every reader (the runner's restic route, restores, browsing, the check, the restore check,
+retention, the measurement, a storage "move", the repository repair, the renewal of immutable
+backups) opens the recorded prefix. Elsewhere, and while restore points refer to the data, such a
+prefix is refused as `split` as before.
+
 ---
 
 ## 6. What is preserved
@@ -1296,7 +1306,9 @@ large share is ordinary.
   restore point whose `files > 0` is never removed, whatever the rules say. `restic forget <ids>`
   then `restic prune` (`resticForget`, `resticPrune` [V]); stale locks first, as for endpoints
   (`apps/worker/src/endpoints/maintenance.ts` [V]). A retired share keeps all its restore points
-  until it is purged.
+  until it is purged. On a write-once primary (docs/STORAGE.md, "Write-once storage") retention is
+  not applied: no `forget`, no `prune`, every restore point stays, and the share page and the job's
+  retention settings say so.
 - **Check** (`file-share-check`): `restic check --read-data-subset 5%` weekly.
 - **Restore check** (`file-share-verify`): `restoreTestSamples` over the samples of the newest
   restore point (`packages/core/src/endpoints/restore-test.ts` [V]), same green/red rules; readiness
@@ -1325,8 +1337,11 @@ works without it. A search term needs at least three characters (shorter ones ar
 ### 8.6 Purge (`file-share-purge`)
 
 Deleting a share's backups (an explicit action, 9.1): delete every object under
-`file-shares/<id>/` on the primary target, the cache volume through the mounter, then the rows
-(cascade). Audited. Removing a share from a job, or retiring it, never deletes backups.
+`file-shares/<id>/` (and under the recorded prefix, 5.4) on the primary target, the cache volume
+through the mounter, then the rows (cascade). Audited. Removing a share from a job, or retiring it,
+never deletes backups. On write-once storage nothing is deleted: the repository stays where it is,
+with its sealed password file, only Restow's records of the share go, and the audit entry counts
+what was kept (`kept`).
 
 ---
 

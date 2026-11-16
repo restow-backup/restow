@@ -7,6 +7,7 @@ import {
   FileArchive,
   Hourglass,
   Info,
+  Paperclip,
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
@@ -112,6 +113,7 @@ export function ExportPage({ exportId }: { exportId: string }) {
             <ResultCard detail={detail} now={now} />
           )}
           <FailuresCard detail={detail} />
+          <IncompleteCard detail={detail} />
         </div>
         <RequestCard detail={detail} />
       </div>
@@ -266,6 +268,13 @@ function ResultCard({ detail, now }: { detail: MailExportDetail; now: number }) 
               value={number(report.failed)}
               tone={report.failed > 0 ? "destructive" : undefined}
             />
+            {(report.incomplete ?? 0) > 0 ? (
+              <Stat
+                label={t("result.incompleteMessages")}
+                value={number(report.incomplete ?? 0)}
+                tone="warning"
+              />
+            ) : null}
           </div>
         ) : detail.status === "completed" ? (
           <p className="text-sm text-muted-foreground">{t("result.noReport")}</p>
@@ -402,6 +411,50 @@ function FailuresCard({ detail }: { detail: MailExportDetail }) {
           </p>
         ) : null}
       </CardContent>
+    </Card>
+  );
+}
+
+/** Mails that are in the file without all their parts: never shown as a clean copy. */
+function IncompleteCard({ detail }: { detail: MailExportDetail }) {
+  const { t, i18n } = useTranslation("exports");
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const rows = detail.report?.incompleteItems ?? [];
+  const total = detail.report?.incomplete ?? rows.length;
+  if (total === 0) {
+    return null;
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Paperclip className="size-4 text-muted-foreground" aria-hidden="true" />
+          {t("incomplete.title")}
+        </CardTitle>
+        <CardDescription>{t("incomplete.description")}</CardDescription>
+      </CardHeader>
+      {rows.length > 0 ? (
+        <CardContent className="space-y-2">
+          <ul className="divide-y divide-border rounded-md border border-border">
+            {rows.map((row) => (
+              <li key={`${row.ref}:${row.reason}`} className="space-y-0.5 px-3 py-2 text-sm">
+                <p className="break-all font-mono text-xs">{row.ref}</p>
+                <p className="break-words text-xs text-muted-foreground" lang="en">
+                  {row.reason}
+                </p>
+              </li>
+            ))}
+          </ul>
+          {total > rows.length ? (
+            <p className="text-xs text-muted-foreground">
+              {t("failures.truncated", {
+                shown: formatInteger(rows.length, language),
+                total: formatInteger(total, language),
+              })}
+            </p>
+          ) : null}
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

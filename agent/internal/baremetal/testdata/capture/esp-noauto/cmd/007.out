@@ -1,0 +1,2 @@
+ ext:     logical_offset:        physical_offset: length:   expected: flags:
+   0:        0..   32767:     229376..    262143:  32768:            

@@ -131,15 +131,21 @@ export interface CaptureContext {
    */
   append(mail: CapturedMail): Promise<archive.CaptureArchiveItemResult>;
   /**
-   * Which of the given refs and Message-IDs the archive already holds for this mailbox
-   * (as an item, an assignment or a capture row): check before downloading a mail.
+   * Which of the given refs the archive already holds for this mailbox (as an item, an
+   * assignment or a capture row), and what it holds under the given Message-IDs (size and
+   * date per mail): check before downloading a mail.
    */
   alreadyCaptured(query: {
     readonly externalRefs?: readonly string[];
     readonly messageIds?: readonly string[];
-  }): Promise<{ externalRefs: Set<string>; messageKeys: Set<string> }>;
+  }): Promise<{ externalRefs: Set<string>; messages: archive.HeldMails }>;
   /** Persist `state` now, mid-step (a long catch-up), so an abort resumes from here. */
   checkpoint(state: ArchiveStreamState): Promise<void>;
+  /**
+   * What the way could not take in (./gaps.ts): a refused folder, a message never
+   * delivered or without a MIME export. A mail `append` captures resolves its gap itself.
+   */
+  readonly gaps: archive.CaptureGapSink;
 }
 
 /** What {@link CaptureWay.ensure} reports. */
@@ -167,6 +173,17 @@ export interface DrainResult {
   /** Refs that are done (captured, already archived, gone at the service): deleted from pending. */
   readonly handled: readonly string[];
   readonly captured: number;
+  /**
+   * Refs whose fetch failed (a 403, a 5xx after retries): they stay pending with one more
+   * attempt counted, and after PENDING_MAX_ATTEMPTS they are dropped as a capture gap
+   * (./service.ts), left to the catch-up. `error` says why, for the log and the pending row.
+   */
+  readonly failed?: { readonly refs: readonly string[]; readonly error: string };
+  /**
+   * Refs whose MIME export failed this time (a 5xx, an item-level 403) and that stay pending: they wait
+   * before the next fetch (./streams.ts), the gap sink counts their attempts.
+   */
+  readonly deferred?: readonly string[];
 }
 
 export interface CatchUpResult {
@@ -192,6 +209,11 @@ export interface BackfillResult {
    * budget): the framework queues it again and it resumes from `job.cursor`.
    */
   readonly completed: boolean;
+  /**
+   * Not completed because folders or messages failed and are retried later: no
+   * continuation is queued at once; the next capture pass queues the backfill again.
+   */
+  readonly retryLater?: boolean;
 }
 
 /** What a way's background component gets (see {@link CaptureWay.start}). */
@@ -220,6 +242,11 @@ export interface CaptureWay {
   ensure(ctx: CaptureContext): Promise<EnsureResult>;
   drain(ctx: CaptureContext, refs: readonly string[]): Promise<DrainResult>;
   catchUp(ctx: CaptureContext): Promise<CatchUpResult>;
+  /**
+   * Ask once more for open gaps that may succeed by now (./gaps.ts `retryDue`, once a day):
+   * the way puts them where its next drain or catch-up finds them. Called before the drain.
+   */
+  retryGaps?(ctx: CaptureContext): Promise<number>;
   /** No job wants the stream any more: remove what the way set up (a subscription). Best effort. */
   release?(ctx: CaptureContext): Promise<void>;
   /** The one-time takeover of the mailbox's existing mail, checkpointed in `ctx.job.cursor`. */

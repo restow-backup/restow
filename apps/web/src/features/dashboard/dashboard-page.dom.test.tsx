@@ -143,7 +143,13 @@ beforeEach(() => {
     slots: {
       "dashboard.provider": (props: SlotProps["dashboard.provider"]) => {
         seenSlot = props;
-        return <div data-slot="provider-test" data-kind={props.view.kind} />;
+        // The page hands its price card and "Running now" over to be laid out with the view.
+        return (
+          <div data-slot="provider-test" data-kind={props.view.kind}>
+            {props.priceCard}
+            {props.runningNow}
+          </div>
+        );
       },
     },
   });
@@ -217,6 +223,25 @@ describe("the overview of a tenant", () => {
     const price = page.querySelector('[data-widget="price"]') as Element;
     expect(text(price)).toContain("Price per month");
     expect(text(price)).toContain("€36.80 / month");
+  });
+
+  it("shows a tenant's own administrator no price at all, and does not even ask for one", async () => {
+    // The installation has a price and the estimate would answer; only a provider admin asks.
+    estimate = estimateFixture({
+      tenants: [estimateTenant({ tenantId: "mueller", name: "Müller GmbH" })],
+    });
+    const { page } = await open({
+      scope: "tenant",
+      role: "tenant_admin",
+      isProviderAdmin: false,
+      canViewAllTenants: false,
+    });
+    expect(page.querySelector('[data-widget="readiness"]')).not.toBeNull();
+    expect(page.querySelector('[data-widget="price"]')).toBeNull();
+    expect(page.querySelector('[data-widget="allTenantsPrice"]')).toBeNull();
+    expect(urls.some((url) => url.includes("/settings/pricing"))).toBe(false);
+    expect(text(page)).not.toContain("Price per month");
+    expect(text(page)).not.toContain("€");
   });
 
   it("links every readiness row that has objects to the table of those objects", async () => {
@@ -310,11 +335,8 @@ describe("the overview under All tenants", () => {
     expect(text(widget as Element)).toContain("web01");
     expect(text(widget as Element)).toContain("Müller GmbH");
     expect(text(widget as Element)).toContain("1 run in progress");
-    // The widget comes before the provider view.
-    const following = (widget as Element).compareDocumentPosition(
-      page.querySelector('[data-slot="provider-test"]') as Element,
-    );
-    expect(following & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The provider view lays it out itself (the slot is handed it), not the page above it.
+    expect(page.querySelector('[data-slot="provider-test"] [data-widget="running"]')).toBe(widget);
     await act(async () => {
       (widget as Element)
         .querySelector<HTMLButtonElement>('button[aria-label="Open Müller GmbH"]')
@@ -357,6 +379,9 @@ describe("the overview under All tenants", () => {
     const card = page.querySelector('[data-widget="allTenantsPrice"]') as Element;
     expect(text(card)).toContain("€46.80 / month");
     expect(urls.some((url) => /\/settings\/pricing\/estimate$/.test(url))).toBe(true);
+    expect(page.querySelector('[data-slot="provider-test"] [data-widget="allTenantsPrice"]')).toBe(
+      card,
+    );
     const running = page.querySelector('[data-widget="running"]') as Element;
     expect(card.compareDocumentPosition(running) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {

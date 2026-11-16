@@ -2,8 +2,9 @@
  * Small helpers shared by the resource modules: URL building, OData quoting,
  * paging over `@odata.nextLink`, and turning non-2xx answers into GraphError.
  */
+import { isTransientTransferError } from "../../storage/transfer.js";
 import type { GraphClient, GraphRequest, GraphResponse } from "../client.js";
-import { GraphError } from "../errors.js";
+import { GraphError, isGraphError } from "../errors.js";
 
 /** One page of a collection response. */
 export interface CollectionPage<T> {
@@ -122,4 +123,31 @@ export function stripReadOnly<T extends Record<string, unknown>>(
     result[key] = value;
   }
   return result as Partial<T>;
+}
+
+/**
+ * Whether a write that failed may still have been carried out by Graph, so
+ * sending it again could create a second item: the gateway gave up waiting
+ * (502, 504), no answer came in time, or the connection broke after the
+ * request went out. The Graph client never sends such a POST again on its
+ * own (`GraphOutcomeUnknownError`); the caller looks for what it may have
+ * created first.
+ */
+export function isWriteOutcomeUnknown(error: unknown): boolean {
+  if (error instanceof Error) {
+    if (error.name === "GraphOutcomeUnknownError" || error.name === "GraphResponseTimeoutError") {
+      return true;
+    }
+    // The answer to an upload session's last fragment was lost (./upload-session.ts).
+    if (
+      error.name === "UploadSessionError" &&
+      (error as { details?: { completionUnknown?: boolean } }).details?.completionUnknown === true
+    ) {
+      return true;
+    }
+  }
+  if (isGraphError(error)) {
+    return error.status === 502 || error.status === 504;
+  }
+  return isTransientTransferError(error);
 }

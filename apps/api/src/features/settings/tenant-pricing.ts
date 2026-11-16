@@ -5,11 +5,21 @@ import { audit } from "../../lib/audit.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { getPricing, type PricingDto, priceSchema } from "./pricing.js";
+import {
+  getPricing,
+  PRICE_KEYS,
+  type PricingDto,
+  priceOrNull,
+  priceSchema,
+  type UnitPrices,
+  unitPricesOf,
+} from "./pricing.js";
 
 /**
  * A tenant's own prices (0.4.8): the mailbox price and the storage price of one customer can
- * differ from the installation's (pricing.ts). The currency and the storage unit stay global.
+ * differ from the installation's (pricing.ts), and since 0.5.0 each price per protected unit
+ * (server, client, VM, container, file share) as well. The currency and the storage unit stay
+ * global.
  *
  * The overrides belong to the Service Provider edition: they are read and changed only while the
  * feature gate `tenants.additional` is open. With the gate closed a change is refused (the
@@ -31,16 +41,24 @@ export const tenantPricingSchema = z
   .object({
     mailboxPrice: priceSchema.optional(),
     storagePrice: priceSchema.optional(),
+    serverPrice: priceSchema.optional(),
+    clientPrice: priceSchema.optional(),
+    vmPrice: priceSchema.optional(),
+    containerPrice: priceSchema.optional(),
+    fileSharePrice: priceSchema.optional(),
   })
   .strict();
 
 export type TenantPricingInput = z.infer<typeof tenantPricingSchema>;
 
 /** The prices of one tenant that differ from the installation's; null = takes the installation's. */
-export interface TenantPriceOverridesDto {
+export interface TenantPriceOverridesDto extends UnitPrices {
   mailboxPrice: number | null;
   storagePrice: number | null;
 }
+
+/** Every price of one side (installation, tenant, effective); null = none. */
+export type TenantPriceSet = TenantPriceOverridesDto;
 
 /** GET and PUT /api/v1/tenants/:id/pricing. */
 export interface TenantPricingDto {
@@ -50,30 +68,51 @@ export interface TenantPricingDto {
   /** Whether tenants may have prices of their own here (the gate `tenants.additional` is open). */
   overridesEnabled: boolean;
   /** The installation's prices. */
-  global: { mailboxPrice: number | null; storagePrice: number | null };
-  /** The tenant's own prices; both null while `overridesEnabled` is false, stored or not. */
+  global: TenantPriceSet;
+  /** The tenant's own prices; all null while `overridesEnabled` is false, stored or not. */
   overrides: TenantPriceOverridesDto;
   /** What applies to the tenant: its own price where it has one, else the installation's. */
-  effective: { mailboxPrice: number | null; storagePrice: number | null };
+  effective: TenantPriceSet;
 }
 
-const NO_OVERRIDES: TenantPriceOverridesDto = { mailboxPrice: null, storagePrice: null };
+export const NO_OVERRIDES: TenantPriceOverridesDto = {
+  mailboxPrice: null,
+  storagePrice: null,
+  ...unitPricesOf(null),
+};
 
 /** The stored overrides, without whatever is not a price. */
 export function resolveTenantOverrides(
   stored: TenantPricing | null | undefined,
 ): TenantPriceOverridesDto {
-  const number = (value: unknown) =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
   return {
-    mailboxPrice: number(stored?.mailboxPrice),
-    storagePrice: number(stored?.storagePrice),
+    mailboxPrice: priceOrNull(stored?.mailboxPrice),
+    storagePrice: priceOrNull(stored?.storagePrice),
+    ...unitPricesOf(stored),
   };
+}
+
+/** The installation's prices as one set. */
+export function globalPriceSet(global: PricingDto): TenantPriceSet {
+  const set = {} as TenantPriceSet;
+  for (const key of PRICE_KEYS) {
+    set[key] = global[key];
+  }
+  return set;
 }
 
 /** The price that applies: the tenant's own one, else the installation's. */
 export function effectivePrice(own: number | null, global: number | null): number | null {
   return own ?? global;
+}
+
+/** Per price, the tenant's own one where it has one, else the installation's. */
+function effectivePrices(overrides: TenantPriceOverridesDto, global: PricingDto): TenantPriceSet {
+  const set = {} as TenantPriceSet;
+  for (const key of PRICE_KEYS) {
+    set[key] = effectivePrice(overrides[key], global[key]);
+  }
+  return set;
 }
 
 export function toTenantPricingDto(
@@ -88,12 +127,9 @@ export function toTenantPricingDto(
     currency: global.currency,
     storageUnit: global.storageUnit,
     overridesEnabled,
-    global: { mailboxPrice: global.mailboxPrice, storagePrice: global.storagePrice },
+    global: globalPriceSet(global),
     overrides: { ...overrides },
-    effective: {
-      mailboxPrice: effectivePrice(overrides.mailboxPrice, global.mailboxPrice),
-      storagePrice: effectivePrice(overrides.storagePrice, global.storagePrice),
-    },
+    effective: effectivePrices(overrides, global),
   };
 }
 
@@ -153,7 +189,7 @@ export async function updateTenantPricing(
       throw new ProblemError(409, "Tenant is being deleted");
     }
     const after: TenantPricing = { ...resolveStored(row.pricing) };
-    for (const key of ["mailboxPrice", "storagePrice"] as const) {
+    for (const key of PRICE_KEYS) {
       const value = input[key];
       if (value === null) {
         delete after[key];
@@ -180,8 +216,12 @@ export async function updateTenantPricing(
 /** The stored object as a plain copy; anything else (never written by this module) reads as `{}`. */
 function resolveStored(stored: TenantPricing | null | undefined): TenantPricing {
   const overrides = resolveTenantOverrides(stored);
-  return {
-    ...(overrides.mailboxPrice !== null ? { mailboxPrice: overrides.mailboxPrice } : {}),
-    ...(overrides.storagePrice !== null ? { storagePrice: overrides.storagePrice } : {}),
-  };
+  const result: TenantPricing = {};
+  for (const key of PRICE_KEYS) {
+    const value = overrides[key];
+    if (value !== null) {
+      result[key] = value;
+    }
+  }
+  return result;
 }

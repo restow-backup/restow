@@ -36,6 +36,12 @@ export interface SiteLibraryState {
    * reported, so a resumed attempt still counts them in its result.
    */
   readonly failures?: number;
+  /**
+   * Job cursor only: Graph refused the library in this job, its objects are
+   * the previous snapshot's (carried forward), so a resumed attempt marks it
+   * the same way.
+   */
+  readonly carriedForward?: true;
 }
 
 export interface SiteManifestState {
@@ -92,6 +98,7 @@ function readLibraries(value: unknown): SiteLibraryState[] {
         folder: entry.folder,
         drive,
         ...(failures !== undefined ? { failures } : {}),
+        ...(entry.carriedForward === true ? { carriedForward: true as const } : {}),
       });
     }
   }

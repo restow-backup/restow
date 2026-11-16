@@ -430,6 +430,8 @@ describe("CustomerDataPanel: adding a contact to an empty tenant (interactive)",
             email: undefined,
             phone: undefined,
             isPrimary: true,
+            // Sent with every save (0.5.0): the server replaces the list.
+            monthlyReport: false,
           },
         ],
       }),

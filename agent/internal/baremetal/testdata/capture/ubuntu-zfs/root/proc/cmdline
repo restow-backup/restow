@@ -1,0 +1,1 @@
+BOOT_IMAGE=/BOOT/ubuntu_x1y2z3@/vmlinuz-5.15.0-125-generic root=ZFS=rpool/ROOT/ubuntu_x1y2z3 ro

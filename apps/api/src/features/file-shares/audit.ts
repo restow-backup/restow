@@ -17,6 +17,9 @@ export const FILE_SHARE_TENANT_AUDIT_ACTIONS = {
   purgeRequested: "file_share.purge_requested",
   backupRequested: "file_share.backup_requested",
   restoreRequested: "file_share.restore_requested",
+  // A restore (or a copy job's run) read the repository from another target than the primary
+  // (docs/STORAGE.md, "Restoring from a copy").
+  restoreReadFromCopy: "file_share.restore_read_from_copy",
   restoreTestRequested: "file_share.restore_test_requested",
   runCancelled: "file_share.run_cancel_requested",
   quotaChanged: "file_share.quota_changed",

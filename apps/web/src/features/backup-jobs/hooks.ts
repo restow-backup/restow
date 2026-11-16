@@ -6,6 +6,7 @@ import { historyKeys } from "@/features/history/api";
 import { useLiveOpen } from "@/features/history/live/provider";
 import { useDebouncedValue } from "@/features/schedules/hooks";
 import { useSession } from "@/lib/session";
+import { tenantNavOffersKey } from "@/lib/tenant-nav-offers";
 
 import {
   type AddMembersInput,
@@ -178,7 +179,10 @@ export function useMachineFolders(endpointIds: readonly string[], enabled = true
   });
 }
 
-/** Refresh the jobs and the machines (a machine's job changes with a job's scope). */
+/**
+ * Refresh the jobs and the machines (a machine's job changes with a job's scope), and the
+ * tenant's menu offers: a mail job that starts archiving brings the entry "Archive".
+ */
 function useRefreshJobs() {
   const { tenantId } = useJobsScope();
   const queryClient = useQueryClient();
@@ -187,6 +191,7 @@ function useRefreshJobs() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: backupJobKeys.all(tenantId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.all(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: tenantNavOffersKey(tenantId) }),
       ]),
     [queryClient, tenantId],
   );

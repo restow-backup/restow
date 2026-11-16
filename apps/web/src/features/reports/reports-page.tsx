@@ -13,6 +13,7 @@ import {
   Send,
   Settings,
   Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -59,6 +60,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { webhookDetailTo } from "@/features/integrations/paths";
 import { guestTo } from "@/features/pve/paths";
+// The words of a failing channel's mail reasons (`failureReasonKey`) live in `settings`.
+import "@/features/settings/i18n";
 import { downloadFile } from "@/features/stats/download";
 import { errorMessageKey } from "@/lib/api";
 import { ExtensionSlot } from "@/lib/extensions";
@@ -83,8 +86,9 @@ import {
   useTestRule,
   useUpdateRule,
 } from "./hooks";
+import { notificationObject } from "./notification-item";
 import { reportsTo } from "./paths";
-import { channelSummary, presetOf, REPORTS_ROLES } from "./presenters";
+import { channelSummary, failureReasonKey, presetOf, REPORTS_ROLES } from "./presenters";
 import { reportErrorMessage } from "./report-errors";
 import { RuleFormDialog } from "./rule-form-dialog";
 
@@ -175,6 +179,7 @@ export function AlertRulesPanel() {
   const [creating, setCreating] = React.useState<ReportTrigger | null>(null);
   const scheduledAvailable = catalog.data?.scheduledAvailable ?? false;
   const periods = catalog.data?.periods ?? [1, 7, 30, 90];
+  const pdfAvailable = catalog.data?.pdfAvailable ?? false;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -207,12 +212,13 @@ export function AlertRulesPanel() {
             </div>
           }
         />
-        <RuleTables periods={periods} />
+        <RuleTables periods={periods} pdfAvailable={pdfAvailable} />
         {creating ? (
           <RuleFormDialog
             open
             trigger={creating}
             periods={periods}
+            pdfAvailable={pdfAvailable}
             onOpenChange={(open) => {
               if (!open) setCreating(null);
             }}
@@ -223,7 +229,13 @@ export function AlertRulesPanel() {
   );
 }
 
-function RuleTables({ periods }: { periods: readonly number[] }) {
+function RuleTables({
+  periods,
+  pdfAvailable,
+}: {
+  periods: readonly number[];
+  pdfAvailable: boolean;
+}) {
   const { t } = useTranslation("reports");
   const query = useReportRules();
   const [editing, setEditing] = React.useState<ReportRule | null>(null);
@@ -272,6 +284,7 @@ function RuleTables({ periods }: { periods: readonly number[] }) {
           open
           rule={editing}
           periods={periods}
+          pdfAvailable={pdfAvailable}
           onOpenChange={(open) => {
             if (!open) setEditing(null);
           }}
@@ -367,15 +380,21 @@ function TriggerSummary({ rule }: { rule: ReportRule }) {
     );
   }
   const preset = presetOf(rule.cron);
-  const cadence = preset
-    ? t(`rules.cadence.${preset.frequency}`, {
-        weekday: t(`weekdays.${preset.weekday}`),
-        time: preset.time,
-      })
-    : (rule.cron ?? "");
+  // A calendar cadence (0.5.0): the previous day, week or month.
+  const cadence = rule.cadence
+    ? t(`rules.calendar.${rule.cadence}`)
+    : preset
+      ? t(`rules.cadence.${preset.frequency}`, {
+          weekday: t(`weekdays.${preset.weekday}`),
+          time: preset.time,
+        })
+      : (rule.cron ?? "");
   return (
     <span className="space-y-0.5">
-      <span className="block text-sm">{cadence}</span>
+      <span className="block text-sm">
+        {cadence}
+        {rule.attachPdf ? ` · ${t("rules.withPdf")}` : ""}
+      </span>
       <span className="block text-xs text-muted-foreground">
         {rule.nextRunAt ? (
           <>
@@ -386,6 +405,40 @@ function TriggerSummary({ rule }: { rule: ReportRule }) {
         )}
       </span>
     </span>
+  );
+}
+
+/**
+ * The rule's channels whose deliveries fail right now (0.5.0): an address the mail server
+ * refuses, or a webhook that keeps failing. One alert about each went out through the other
+ * channels.
+ */
+export function DeliveryProblems({ rule }: { rule: Pick<ReportRule, "deliveryProblems"> }) {
+  const { t, i18n } = useTranslation("reports");
+  const problems = rule.deliveryProblems ?? [];
+  if (problems.length === 0) return null;
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <Alert variant="destructive" className="mt-2 py-2" data-slot="rule-delivery-problems">
+      <TriangleAlert />
+      <AlertTitle className="text-xs">{t("rules.deliveryProblems.title")}</AlertTitle>
+      <AlertDescription>
+        <ul className="space-y-0.5 text-xs">
+          {problems.map((problem) => (
+            <li key={`${problem.channel}:${problem.recipient}`}>
+              {t(`rules.deliveryProblems.${problem.channel}`, {
+                recipient: problem.recipient,
+                since: new Date(problem.since).toLocaleString(language, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }),
+                reason: t(failureReasonKey(problem.channel, problem.reason), { status: "" }),
+              })}
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -438,6 +491,7 @@ function RuleRow({
         ) : (
           parts.join(" · ")
         )}
+        <DeliveryProblems rule={rule} />
       </TableCell>
       <TableCell>
         {rule.lastDelivery ? (
@@ -673,6 +727,7 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
               <TableRow>
                 <TableHead pin={PIN_FIRST}>{t("deliveries.columns.time")}</TableHead>
                 {allTenants ? <TableHead>{t("deliveries.columns.tenant")}</TableHead> : null}
+                {allTenants ? <TableHead>{t("deliveries.columns.audience")}</TableHead> : null}
                 <TableHead>{t("deliveries.columns.rule")}</TableHead>
                 <TableHead>{t("deliveries.columns.what")}</TableHead>
                 <TableHead>{t("deliveries.columns.channel")}</TableHead>
@@ -683,6 +738,13 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
               {rows.map((row) => {
                 const tenantId = row.tenant?.id;
                 const path = allTenants ? null : subjectPath(row);
+                // The service named with the object (0.5.0), as in the bell and the mails.
+                const target = row.target
+                  ? notificationObject(
+                      { details: { objectName: row.target, objectKind: row.targetKind } },
+                      t,
+                    )
+                  : null;
                 return (
                   <TableRow key={row.id} data-delivery={row.id}>
                     <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
@@ -697,7 +759,22 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
                           >
                             {row.tenant?.name}
                           </Link>
+                        ) : row.audience === "provider" ? (
+                          // The provider's own recipients (0.5.0): no tenant's delivery.
+                          <span className="block" data-slot="delivery-installation">
+                            {t("deliveries.audience.installation")}
+                          </span>
                         ) : null}
+                        {row.aboutTenant ? (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {t("deliveries.audience.about", { tenant: row.aboutTenant.name })}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                    ) : null}
+                    {allTenants ? (
+                      <TableCell className="whitespace-nowrap text-sm">
+                        {t(`deliveries.audience.${row.audience ?? "tenant"}`)}
                       </TableCell>
                     ) : null}
                     <TableCell className="max-w-48 truncate">
@@ -725,17 +802,17 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
                             ? t(`events.${row.event}`)
                             : "–"}
                       </span>
-                      {row.target ? (
+                      {target ? (
                         path ? (
                           <Link
                             to={path as never}
                             className="block truncate text-xs text-primary hover:underline"
                           >
-                            {row.target}
+                            {target}
                           </Link>
                         ) : (
                           <span className="block truncate text-xs text-muted-foreground">
-                            {row.target}
+                            {target}
                           </span>
                         )
                       ) : null}
@@ -761,8 +838,24 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
                       <StatusBadge tone={STATUS_TONE[row.status]}>
                         {row.channel === "webhook" && row.status === "pending"
                           ? t("deliveries.status.handedOver")
-                          : t(`deliveries.status.${row.status}`)}
+                          : row.status === "pending" && row.digest
+                            ? t(`deliveries.digestWaiting.${row.digest}`)
+                            : t(`deliveries.status.${row.status}`)}
                       </StatusBadge>
+                      {row.status === "pending" && row.digest && row.scheduledFor ? (
+                        <span
+                          className="mt-1 block text-xs text-muted-foreground"
+                          data-slot="delivery-digest"
+                        >
+                          {t("deliveries.digestDue")}{" "}
+                          <RelativeTime value={row.scheduledFor} focusable={false} />
+                        </span>
+                      ) : null}
+                      {row.status === "sent" && row.digest ? (
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {t(`deliveries.digestSent.${row.digest}`)}
+                        </span>
+                      ) : null}
                       {row.lastError ? <DeliveryReason error={row.lastError} /> : null}
                     </TableCell>
                   </TableRow>

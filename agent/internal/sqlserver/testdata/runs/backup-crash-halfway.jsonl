@@ -1,0 +1,4 @@
+{"type":"progress","step":"backup","percent":5}
+{"type":"progress","step":"backup","percent":10}
+{"type":"progress","step":"backup","percent":15}
+#exit -1073741510

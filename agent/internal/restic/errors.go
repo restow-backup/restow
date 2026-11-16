@@ -19,11 +19,18 @@ type itemErrors struct {
 	r     *Runner
 	kept  []ItemError
 	count int
+	// snapshot, when set, takes the entries about the file system snapshot
+	// (it reports true for those); they are logged but not counted.
+	snapshot func(item, message string) bool
 }
 
 func (c *itemErrors) add(line []byte) {
 	var em errorMessage
 	if json.Unmarshal(line, &em) != nil {
+		return
+	}
+	if c.snapshot != nil && c.snapshot(em.Item, em.Error.Message) {
+		c.r.log(fmt.Sprintf("snapshot: %s: %s", em.Item, em.Error.Message))
 		return
 	}
 	c.count++
@@ -62,7 +69,17 @@ type Error struct {
 	// counts all of them.
 	Items     []ItemError
 	ItemCount int
+	// Snapshot rates a failed backup that ran with --use-fs-snapshot: did
+	// it fail because of the snapshot (SnapshotFaultNone otherwise).
+	Snapshot SnapshotFault
+	// SnapshotOutcome is what restic reported about the snapshot before it
+	// failed (backup only; nil for other commands).
+	SnapshotOutcome *SnapshotOutcome
 }
+
+// SnapshotUnavailable reports a backup that failed because the file system
+// snapshot cannot be used at all (VSS service, COM, rights).
+func (e *Error) SnapshotUnavailable() bool { return e.Snapshot == SnapshotFaultCertain }
 
 func (e *Error) Error() string {
 	msg := e.Message

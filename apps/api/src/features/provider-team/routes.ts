@@ -1,3 +1,4 @@
+import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { authDb, providerDb } from "../../db.js";
 import { requestLanguage } from "../../lib/language.js";
@@ -5,6 +6,7 @@ import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { syncOwnerRecipients } from "../provider-notifications/service.js";
 import { inviteMemberSchema, memberParamSchema, updateMemberSchema } from "./schemas.js";
 import {
   inviteMember,
@@ -40,6 +42,24 @@ export interface ProviderTeamRoutesDeps extends TeamDeps {
   requireProvider: MiddlewareHandler<SessionEnv>;
 }
 
+/**
+ * The owners are notification recipients of their own (0.5.0, features/provider-notifications):
+ * every change of the team brings their rows up to date. A failure here never undoes the change.
+ */
+async function syncOwners(providerDb: Database): Promise<void> {
+  try {
+    await syncOwnerRecipients(providerDb);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "owner recipients could not be synced",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
 function actorOf(c: Context<SessionEnv>): TeamActor {
   const user = c.get("user");
   return { userId: user.id, email: user.email, ip: clientIp(c) };
@@ -55,18 +75,23 @@ export function buildProviderTeamRoutes(deps: ProviderTeamRoutesDeps): Hono<Sess
 
   routes.post("/", deps.requireProvider, async (c) => {
     const input = await parseJsonBody(c.req, inviteMemberSchema);
-    return c.json(await inviteMember(team, input, actorOf(c), requestLanguage(c)), 201);
+    const invited = await inviteMember(team, input, actorOf(c), requestLanguage(c));
+    await syncOwners(deps.providerDb);
+    return c.json(invited, 201);
   });
 
   routes.patch("/:userId", deps.requireProvider, async (c) => {
     const { userId } = parseOrProblem(memberParamSchema, c.req.param());
     const input = await parseJsonBody(c.req, updateMemberSchema);
-    return c.json(await updateMember(team, userId, input, actorOf(c)));
+    const updated = await updateMember(team, userId, input, actorOf(c));
+    await syncOwners(deps.providerDb);
+    return c.json(updated);
   });
 
   routes.delete("/:userId", deps.requireProvider, async (c) => {
     const { userId } = parseOrProblem(memberParamSchema, c.req.param());
     await removeMember(team, userId, actorOf(c));
+    await syncOwners(deps.providerDb);
     return c.body(null, 204);
   });
 

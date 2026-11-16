@@ -8,7 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { defaultEndpointConfig } from "@restow/core";
-import { endpointRuns, endpoints, runSamples } from "@restow/db";
+import { endpointRuns, endpoints, runSamples, runSizeHolds } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { EndpointFixture } from "./testing/fixture.js";
@@ -208,5 +208,45 @@ describe.skipIf(!testDatabaseAdminUrl)("run samples of agent runs against Postgr
       agentService.reportProgress(agent, runId, { filesDone: 1, bytesDone: 1 }, at(9)),
     ).rejects.toMatchObject({ status: 404 });
     expect((await samplesOf(runId))?.points.length).toBe(before);
+  }, 30_000);
+
+  it("says a run the size guard held was held, but leaves a partial run its own failure (#99)", async () => {
+    const { id, agent } = await machine();
+    const finish = async (status: "failed" | "partial") => {
+      const { runId } = await agentService.startRun(
+        agent,
+        { kind: "backup", startedAt: t0.toISOString() },
+        t0,
+      );
+      await fixture.db.insert(runSizeHolds).values({
+        tenantId: fixture.tenantId,
+        objectKind: "endpoint",
+        objectId: id,
+        objectName: "srv",
+        runId,
+        reason: "size",
+        status: "resolved",
+        resolution: "continued",
+        bytes: 21,
+      });
+      await agentService.finishRun(
+        agent,
+        runId,
+        {
+          status,
+          finishedAt: at(12).toISOString(),
+          ...(status === "partial" ? { snapshotId: SNAPSHOT } : {}),
+          stats: { totalBytesProcessed: 1, filesNew: 1 },
+          errors: [{ message: "Fatal: unexpected HTTP response (403): 403 Forbidden" }],
+          logTail: "",
+        } as never,
+        at(12),
+      );
+      const [run] = await fixture.db.select().from(endpointRuns).where(eq(endpointRuns.id, runId));
+      return run?.failure?.code;
+    };
+    expect(await finish("failed")).toBe("storage.run_held");
+    // A partial run made a restore point: not held, its own explanation stays.
+    expect(await finish("partial")).toBe("endpoint.repository_refused");
   }, 30_000);
 });

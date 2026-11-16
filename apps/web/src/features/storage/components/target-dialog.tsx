@@ -333,12 +333,19 @@ export function RoleField({
               {t(primaryBlocked ? "role.replacePrimary" : "role.primary")}
             </SelectItem>
             <SelectItem value="copy">{t("role.copy")}</SelectItem>
+            <SelectItem value="previous">{t("role.attachPrevious")}</SelectItem>
           </SelectContent>
         </Select>
         <p id="target-role-hint" className="text-xs text-muted-foreground">
           {primaryBlocked && value === "copy"
             ? t(`form.primaryBlocked.${primaryBlocked}`)
-            : t(replacing ? "role.replacePrimaryHint" : `role.${value}Hint`)}
+            : t(
+                replacing
+                  ? "role.replacePrimaryHint"
+                  : value === "previous"
+                    ? "role.attachPreviousHint"
+                    : `role.${value}Hint`,
+              )}
         </p>
       </div>
       {replacing ? (

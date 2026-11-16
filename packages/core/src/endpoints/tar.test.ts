@@ -144,4 +144,31 @@ describe("reading the tar archives of restic dump", () => {
     );
     expect(await Promise.race([ended.then(() => "ended"), timeout])).toBe("ended");
   });
+
+  it("lets go of its source when the archive is broken or the caller stops early", async () => {
+    // A corrupt header: the source is destroyed, so `restic dump` writing it is not left
+    // blocked on a pipe nobody reads.
+    const broken = new PassThrough();
+    broken.write(Buffer.alloc(512, 0x78));
+    await expect(
+      (async () => {
+        for await (const _ of readTar(broken)) {
+          // nothing
+        }
+      })(),
+    ).rejects.toThrow("tar header checksum mismatch");
+    expect(broken.destroyed).toBe(true);
+    // The caller leaves after the first entry: the same.
+    const tar = await tarOf([
+      { name: "a.txt", content: "a" },
+      { name: "b.txt", content: "b" },
+    ]);
+    const source = new PassThrough();
+    source.write(tar);
+    for await (const entry of readTar(source)) {
+      expect(entry.name).toBe("a.txt");
+      break;
+    }
+    expect(source.destroyed).toBe(true);
+  });
 });

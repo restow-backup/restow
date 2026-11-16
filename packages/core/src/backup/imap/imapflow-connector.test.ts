@@ -586,6 +586,64 @@ describe("ImapFlowSession.fetchMeta", () => {
   });
 });
 
+describe("ImapFlowSession folder answers of servers that leave things out", () => {
+  async function sessionOver(client: Record<string, unknown>) {
+    const connector = new ImapFlowConnector({
+      createClient: () =>
+        ({
+          secureConnection: true,
+          usable: true,
+          mailbox: false,
+          connect: async () => {},
+          logout: async () => {},
+          close: () => {},
+          on: () => undefined,
+          once: () => undefined,
+          ...client,
+        }) as never,
+    });
+    return connector.connect(
+      account,
+      { kind: "password", password: "p" },
+      { logger: noopLogger, signal: new AbortController().signal },
+    );
+  }
+
+  it("reports a NIL hierarchy delimiter as an empty string", async () => {
+    // imapflow's list() for `* LIST (\HasNoChildren) NIL "INBOX"`.
+    const session = await sessionOver({
+      list: async () => [
+        { path: "INBOX", name: "INBOX", parent: [], delimiter: null, flags: new Set() },
+      ],
+    });
+    expect(await session.listFolders()).toEqual([
+      { path: "INBOX", name: "INBOX", parent: [], delimiter: "", selectable: true },
+    ]);
+  });
+
+  it("reports a missing UIDNEXT as 0", async () => {
+    const session = await sessionOver({
+      mailboxOpen: async () => ({ path: "INBOX", uidValidity: 7n, exists: 2 }),
+    });
+    expect(await session.openFolder("INBOX")).toEqual({
+      path: "INBOX",
+      uidValidity: "7",
+      uidNext: 0,
+      exists: 2,
+    });
+  });
+
+  it("refuses a folder without UIDVALIDITY with a command error, not a crash of the run", async () => {
+    const session = await sessionOver({
+      mailboxOpen: async () => ({ path: "Odd", uidNext: 3, exists: 2 }),
+    });
+    const error = await session.openFolder("Odd").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ImapSessionError);
+    expect(error).toMatchObject({ connectionLost: false });
+    expect((error as Error).message).toContain("no UIDVALIDITY");
+  });
+});
+
 describe("ImapFlowSession archive capture commands", () => {
   function captureClient() {
     const listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -657,6 +715,49 @@ describe("ImapFlowSession archive capture commands", () => {
     );
     return { session, options };
   }
+
+  it("asks for X-GM-LABELS in the FLAGS listing only when asked and the server is Gmail", async () => {
+    const { client } = captureClient();
+    const queries: Record<string, unknown>[] = [];
+    Object.assign(client, {
+      async *fetch(_range: string, query: Record<string, unknown>) {
+        queries.push(query);
+        yield {
+          uid: 7,
+          flags: new Set(["\\Seen"]),
+          ...(query.labels ? { labels: new Set(["\\Inbox", "Projekte"]) } : {}),
+        };
+      },
+    });
+    const { session } = await sessionOf(client);
+    expect(session.gmailExtensions).toBe(false);
+    expect(await session.listFlags({ labels: true })).toEqual([{ uid: 7, flags: ["\\Seen"] }]);
+    client.capabilities.set("X-GM-EXT-1", true);
+    expect(session.gmailExtensions).toBe(true);
+    expect(await session.listFlags()).toEqual([{ uid: 7, flags: ["\\Seen"] }]);
+    expect(await session.listFlags({ labels: true })).toEqual([
+      { uid: 7, flags: ["\\Seen"], labels: ["\\Inbox", "Projekte"] },
+    ]);
+    expect(queries.map((query) => query.labels === true)).toEqual([false, false, true]);
+  });
+
+  it("asks for X-GM-MSGID (imapflow's emailId) only when asked and the server is Gmail", async () => {
+    const { client } = captureClient();
+    const queries: Record<string, unknown>[] = [];
+    Object.assign(client, {
+      async *fetch(_range: string, query: Record<string, unknown>) {
+        queries.push(query);
+        yield { uid: 7, flags: new Set<string>(), ...(query.emailId ? { emailId: "1781" } : {}) };
+      },
+    });
+    const { session } = await sessionOf(client);
+    expect(await session.listFlags({ gmailIds: true })).toEqual([{ uid: 7, flags: [] }]);
+    client.capabilities.set("X-GM-EXT-1", true);
+    expect(await session.listFlags({ gmailIds: true })).toEqual([
+      { uid: 7, flags: [], gmailMessageId: "1781" },
+    ]);
+    expect(queries.map((query) => query.emailId === true)).toEqual([false, true]);
+  });
 
   it("reads STATUS without selecting and passes maxIdleTime through", async () => {
     const { client, calls } = captureClient();

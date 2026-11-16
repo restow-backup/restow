@@ -32,6 +32,20 @@
       },
       "noBackup": "Noch keine Sicherung"
     },
+    "memberships": {
+      "title": "Teams & Websites",
+      "loadError": "Die Teams und Websites dieser Person konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "empty": "Für diese Person sind keine Teams oder Websites bekannt. Der Verzeichnisabgleich liest sie aus den Inhabern und Mitgliedern der Microsoft-365-Gruppen.",
+      "emptyIncomplete": "Für diese Person sind noch keine Teams oder Websites bekannt, das ist aber kein Beleg: Der Verzeichnisabgleich hat Inhaber und Mitglieder nicht aller Microsoft-365-Gruppen gelesen (noch nicht, oder die Berechtigung fehlt). Warum, zeigen die Quellen unter „Geschützte Objekte“.",
+      "incomplete": "Diese Liste ist möglicherweise unvollständig: Der Verzeichnisabgleich hat Inhaber und Mitglieder nicht aller Microsoft-365-Gruppen gelesen. Warum, zeigen die Quellen unter „Geschützte Objekte“.",
+      "open": ", öffnet die Sicherungsstände",
+      "more": "{count, plural, one {# weitere anzeigen} other {# weitere anzeigen}}",
+      "roles": {
+        "owner": "Inhaber",
+        "member": "Mitglied"
+      }
+    },
     "deleted": "In der Quelle gelöscht",
     "deletedShort": "Gelöscht",
     "empty": "Dieser Ordner ist zu diesem Sicherungsstand leer.",
@@ -188,6 +202,49 @@
       "emptyMonthDescription": "Dieser Sicherungsstand enthält in diesem Monat keine Termine. Frühere oder spätere Monate können welche haben.",
       "truncated": "Nicht alle Termine dieses Zeitraums werden gezeigt: Es sind mehr, als eine Ansicht auflistet.",
       "unexpanded": "{count, plural, one {# Serie konnte nicht geöffnet werden} other {# Serien konnten nicht geöffnet werden}}: Ihre Termine fehlen hier, die Liste zeigt sie weiterhin."
+    },
+    "archive": {
+      "entry": "Aus dem Archiv",
+      "title": "Aus dem Archiv: {object}",
+      "back": "Zurück zu den Ordnern",
+      "restoreSelected": "{count, plural, =0 {Zurückholen} one {# Nachricht zurückholen} other {# Nachrichten zurückholen}}",
+      "since": "{count, plural, =0 {Seit Beginn der neuesten Sicherung am {date} ist keine Mail ins Archiv gekommen.} one {# Mail kam seit Beginn der neuesten Sicherung am {date} ins Archiv.} other {# Mails kamen seit Beginn der neuesten Sicherung am {date} ins Archiv.}}",
+      "noBackup": "{count, plural, =0 {Dieses Konto hat noch keine Sicherung, und das Archiv hält noch keine Mail dafür.} one {Dieses Konto hat noch keine Sicherung: # Mail liegt im Archiv.} other {Dieses Konto hat noch keine Sicherung: # Mails liegen im Archiv.}}",
+      "loading": "Das Archiv wird gelesen …",
+      "loadError": "Das Archiv konnte nicht gelesen werden.",
+      "empty": "Nichts Neues im Archiv",
+      "emptyDescription": "Was seit der neuesten Sicherung ankam, ist entweder schon gesichert oder wurde nicht archiviert. Ältere Mail finden Sie in den Sicherungsständen oder auf der Seite Archiv.",
+      "columns": {
+        "select": "Auswahl",
+        "message": "Nachricht",
+        "received": "Ins Archiv gekommen"
+      },
+      "selectAll": "Alle auf dieser Seite auswählen",
+      "select": "„{subject}“ auswählen",
+      "readOnly": "Nur lesend: Das Archiv bleibt unverändert. Jeder Abruf wird im Audit-Log protokolliert.",
+      "previous": "Vorherige Seite",
+      "next": "Nächste Seite",
+      "range": "{from}–{to} von {total}",
+      "noSubject": "(Ohne Betreff)",
+      "inBackup": "Schon in der Sicherung",
+      "inBackupHint": "Die neueste Sicherung enthält eine Mail mit derselben Message-ID. Diese Mail lag schon im Postfach, als die Sicherung begann, und kam erst danach ins Archiv. Zurückholen legt eine zweite Kopie an.",
+      "restoreOne": "In das Postfach zurückholen",
+      "close": "Nachricht schließen",
+      "folderName": "Aus dem Archiv {stamp}",
+      "dialog": {
+        "title": "Aus dem Archiv zurückholen",
+        "description": "{count, plural, one {Die Nachricht geht zurück in {object}, dort in den neuen Ordner „{folder}“.} other {Die # Nachrichten gehen zurück in {object}, dort in den neuen Ordner „{folder}“.}} Vorhandenes bleibt unberührt.",
+        "archiveTitle": "Das Archiv bleibt, wie es ist",
+        "archiveUnchanged": "Zurückgeholt wird eine Kopie des Originals. Die archivierte Nachricht, ihre Aufbewahrungsfrist und ein Legal Hold ändern sich dadurch nicht.",
+        "demo": "In dieser Demo wird nicht in ein Postfach zurückgeholt. Laden Sie die Nachricht als .eml herunter.",
+        "gone": "Das Konto ist an seiner Quelle nicht verfügbar. Laden Sie die Nachricht als .eml herunter.",
+        "submit": "Zurückholen"
+      },
+      "errors": {
+        "selectionUnknown": "Einige ausgewählte Nachrichten sind für dieses Konto nicht (mehr) archiviert. Laden Sie die Liste neu und wählen Sie erneut aus.",
+        "notRecorded": "Einige ausgewählte Nachrichten wurden archiviert, bevor ihr Inhaltsverweis gespeichert wurde. Sie lassen sich nur exportieren.",
+        "notInGap": "Einige ausgewählte Nachrichten gehören nicht zu dem, was seit Beginn der neuesten Sicherung ins Archiv kam, etwa weil inzwischen eine neue Sicherung lief. Laden Sie die Liste neu und wählen Sie erneut aus."
+      }
     }
   },
   "details": {
@@ -214,8 +271,17 @@
       "sent": "Gesendet"
     },
     "protection": {
-      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig; die Wiederherstellung ins Postfach funktioniert.",
-      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen; die Wiederherstellung ins Postfach funktioniert."
+      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere kann Exchange nicht geschützt übernehmen, sie lässt sich nur als EML herunterladen.",
+      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere lässt sich nur herunterladen."
+    },
+    "attachmentsNotBackedUp": {
+      "title": "Nicht alle Anhänge gesichert",
+      "description": "Nicht alle Anhänge dieses Beitrags sind in der Sicherung: Microsoft hat sie nicht an die App herausgegeben, oder einige ließen sich bei der Sicherung nicht lesen. Eine Wiederherstellung, ein Download oder ein Export liefert den Beitrag ohne sie."
+    },
+    "carriedForward": {
+      "title": "Bibliothek bei dieser Sicherung nicht lesbar",
+      "description": "Bibliothek war bei dieser Sicherung nicht lesbar; Stand vom {date}, der letzten Sicherung, die sie lesen konnte.",
+      "descriptionUndated": "Bibliothek war bei dieser Sicherung nicht lesbar; ihre Dateien stammen aus einer früheren Sicherung."
     },
     "reading": {
       "plainText": "Nur-Text-Nachricht",
@@ -294,7 +360,7 @@
         "onedrive": "Der Benutzer (UPN) oder die Laufwerks-ID des Ziel-OneDrive; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "site": "Die Bibliothek, in die wiederhergestellt wird, aus einer gesicherten Website desselben Microsoft-365-Tenants; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "group": "Die Adresse des Benutzerpostfachs im selben Microsoft-365-Tenant, das die Termine des Gruppenkalenders und die Unterhaltungen (als Mails) erhält.",
-        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten."
+        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten. Wählen Sie sie aus den Vorschlägen, wenn zwei Server dieselbe Anmeldung kennen."
       }
     },
     "mode": {
@@ -333,6 +399,7 @@
       "accountRequired": "Geben Sie das Konto an, in das wiederhergestellt werden soll.",
       "reasonRequired": "Geben Sie eine Begründung mit mindestens 3 Zeichen an.",
       "targetUnknown": "Dieses Konto ist in diesem Mandanten nicht bekannt. IMAP-Wiederherstellungen sind nur in Konten dieses Mandanten möglich.",
+      "targetAmbiguous": "Mehrere Konten dieses Mandanten haben diese Anmeldung oder Adresse. Wählen Sie das Konto aus den Vorschlägen, die seine Quelle nennen.",
       "selectionUnknown": "Einige ausgewählte Einträge gibt es an diesem Sicherungsstand nicht mehr. Laden Sie den Ordner neu und wählen Sie erneut aus.",
       "originalGone": "Das ursprüngliche Konto existiert nicht mehr. Stellen Sie in ein anderes Konto wieder her oder laden Sie die Daten herunter.",
       "queueUnavailable": "Die Warteschlange ist nicht verfügbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",
@@ -400,6 +467,9 @@
       "confirm": "Wiederherstellung abbrechen",
       "done": "Die Wiederherstellung wurde abgebrochen.",
       "failed": "Die Wiederherstellung konnte nicht abgebrochen werden."
+    },
+    "source": {
+      "archive": "Aus dem Archiv"
     }
   },
   "job": {
@@ -484,7 +554,10 @@
       "unverified": "Wiederhergestellt, aber die Bestätigung des Ziels stimmte nicht mit der Sicherung überein.",
       "exists": "Das Ziel enthält dieses Element bereits.",
       "not_restorable": "Die Sicherung enthält für diese Art von Element keinen wiederherstellbaren Inhalt.",
-      "parent_not_restored": "Gehört zu einer E-Mail, die nicht wiederhergestellt wurde.",
+      "parent_not_restored": "Gehört zu einem Element (E-Mail oder Termin), das nicht wiederhergestellt wurde.",
+      "parent_exists": "Gehört zu einem Element, das im Ziel bereits vorhanden ist und deshalb übersprungen wurde.",
+      "merged": "Mit einem anderen Element wiederhergestellt: als Anhang in dessen MIME oder als dieselbe Gmail-Nachricht unter einem weiteren Label.",
+      "not_applicable": "Im Ziel kein eigenes Element: Es wird anders nachgebildet, als Label, Kategorie oder Kennzeichnung.",
       "wrong_target": "Diese Art von Element lässt sich in dieses Ziel nicht wiederherstellen.",
       "data_missing": "Daten dieses Elements fehlen im Speicher.",
       "integrity": "Die Daten haben die Integritätsprüfung nicht bestanden und wurden nicht wiederhergestellt.",

@@ -147,4 +147,6 @@ dd if="$work/home-mounted.ext4" of="$work/disk.img" bs=$extent count=8 conv=notr
 vgchange -q -an fixvg >/dev/null 2>&1 || true
 losetup -d "$dev"
 gzip -9 -n -c "$work/disk.img" > "$out/mbr-lvm-xfs-ext4.img.gz"
+# 5. The ext4 images with hand-written journals (no root needed for those).
+sh "$out/make-journal-fixtures.sh"
 echo "fixtures written to $out"

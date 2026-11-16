@@ -12,6 +12,16 @@ on:
     branches-ignore: ["dependabot/**"]
   pull_request:
   workflow_call:
+  # By hand only: write the recovery ISO's packages.lock anew from its snapshot
+  # (integrations/recovery/build.sh --update-lock); the job recovery-iso keeps the new
+  # lock as an artifact, and the maintainer commits it after reviewing the diff.
+  workflow_dispatch:
+    inputs:
+      update-lock:
+        description: "Write integrations/recovery/packages.lock anew (recovery-iso keeps it as an artifact)"
+        type: boolean
+        required: false
+        default: false
 
 # Cancel superseded runs on the same ref to save CI minutes. When the release
 # workflow calls this file, github.workflow is "Release", so the group never
@@ -38,7 +48,7 @@ jobs:
 
       - name: Set up pnpm
         # Reads the pinned version from package.json (packageManager).
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -49,11 +59,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint (biome), ee/ import direction, the former product name and shipped test files
+      - name: Lint (biome), ee/ import direction, the former product name, shipped test files and the claims register
         # biome check over the whole repository, then scripts/ci/check-ee-boundary.mjs
         # (the core never imports from ee/), the former-name guard (no tracked file
-        # or path names the product before its rename) and check-package-files.mjs
-        # (no test file or test data in the packages `pnpm deploy` copies into the image).
+        # or path names the product before its rename), check-package-files.mjs
+        # (no test file or test data in the packages `pnpm deploy` copies into the image),
+        # check-separate-works.mjs and check-claims.mjs: every claim of docs/CLAIMS.md
+        # names a test that carries its ID, and no test carries an ID the register does
+        # not know. Claims the product does not keep (parked with it.fails) and claims
+        # without a test are printed as warnings with their count.
         run: pnpm lint
 
   typecheck:
@@ -65,7 +79,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -86,6 +100,9 @@ jobs:
     name: Unit and Postgres tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # The bare metal stage 1 suite (apps/worker baremetal-check.pg.test.ts) runs the real
+    # restore planner: the linux-amd64 agent the agent job built (docs/BAREMETAL.md 21.2).
+    needs: agent
 
     # The Postgres suites (docs/TESTING.md) need a real server and a superuser:
     # every suite creates its own scratch database, and the Row Level Security
@@ -114,7 +131,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -131,15 +148,29 @@ jobs:
         # refuses a suite that skipped itself for lack of it.
         run: sh scripts/ci/install-restic.sh
 
+      - name: Download the restore planner (the agent of the agent job)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-linux-amd64
+          path: ${{ runner.temp }}/planner
+
+      - name: Point the stage 1 suite at the planner
+        # Without RESTOW_PLANNER_BIN the suite fails instead of skipping itself.
+        run: |
+          chmod +x "$RUNNER_TEMP/planner/restow-agent"
+          echo "RESTOW_PLANNER_BIN=$RUNNER_TEMP/planner/restow-agent" >> "$GITHUB_ENV"
+
       - name: Self-test the CI and release tooling
         # The Postgres suite guard, the edge header checker, the ee/ import guard,
-        # the former-name guard, the license check, the release gate (every
+        # the former-name guard, the claims guard (which also runs against the real
+        # register here), the license check, the release gate (every
         # scripts/ci/*.test.mjs) and the smoke's own helpers.
         run: >-
           node --test
           scripts/ci/*.test.mjs
           scripts/smoke/run.test.mjs
           scripts/smoke/lib/*.test.mjs
+          scripts/recovery-e2e/run.test.mjs
 
       - name: Test
         # Root script builds the library packages first (consumers resolve their
@@ -162,7 +193,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -188,7 +219,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -215,10 +246,12 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Self-test the build scripts (strip-ee, the image tree check)
+      - name: Self-test the build scripts (strip-ee, the image tree check, the entrypoint)
         # scripts/docker/strip-ee.mjs turns the workspace into the Community build (it
         # fails when a loader is missing), check-image-tree.mjs is the check the
-        # Dockerfile and the release smoke run on the images (docs/CI.md).
+        # Dockerfile and the release smoke run on the images (docs/CI.md), and
+        # entrypoint.test.mjs runs the entrypoint the Dockerfile writes: the licence
+        # start check comes before the migrations (docs/CLAIMS.md, LICENSE-004).
         run: node --test scripts/docker/*.test.mjs
 
       - name: Set up Docker Buildx
@@ -273,6 +306,53 @@ jobs:
           tags: restow-web-community:ci
           cache-from: type=gha,scope=ci-app
           cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: Build the recovery lab image
+        # docs/BAREMETAL.md 12.3: Debian's QEMU, OVMF, SeaBIOS and virt-firmware from the
+        # recovery ISO's snapshot, the DBX pinned by SHA-256, the lab's own files only
+        # (scripts/docker/lab-image.test.mjs checks the stage and the compose service).
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: lab
+          push: false
+          load: true
+          tags: restow-lab:ci
+          build-args: |
+            RESTOW_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=ci-app
+          cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: The lab image runs its tools, its DBX and nothing of the server
+        # QEMU, qemu-img and virt-fw-vars start; the Secure Boot store takes the union of the
+        # DBX updates (all entries of both); the image holds no database client, no worker and
+        # no server code beside the lab's files; it runs as its own user; the licence notices.
+        run: |
+          set -eu
+          docker run --rm --entrypoint qemu-system-x86_64 restow-lab:ci --version
+          docker run --rm --entrypoint qemu-img restow-lab:ci --version
+          docker run --rm --entrypoint sh restow-lab:ci -c '
+            set -eu
+            test "$(id -u)" = 10001
+            cd /tmp
+            node --input-type=module -e "
+              import { readFileSync, writeFileSync } from \"node:fs\";
+              import { unionDbx, dbxCount } from \"/opt/restow-lab/dbx.js\";
+              const dir = \"/usr/share/restow-lab/dbx/\";
+              const a = readFileSync(dir + \"dbx-kek2011-amd64.bin\"), b = readFileSync(dir + \"dbx-kek2023-x64.efiauth2\");
+              const u = unionDbx([a, b]);
+              if (dbxCount(u) < Math.max(dbxCount(a), dbxCount(b))) process.exit(1);
+              writeFileSync(\"/tmp/dbx.auth2\", u);
+              console.log(\"DBX entries:\", dbxCount(a), dbxCount(b), dbxCount(u));"
+            virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.ms.fd --output /tmp/vars.fd --secure-boot --set-dbx /tmp/dbx.auth2
+            virt-fw-vars --input /tmp/vars.fd --print | grep -q "^dbx"
+            test ! -e /prod && test ! -e /app
+            test ! -e /opt/restow-lab/node_modules && test -z "$(find / -xdev -type d -name node_modules 2>/dev/null)"
+            for f in NOTICES.md packages.txt secureboot_objects-LICENSE.txt; do test -s "/usr/share/doc/restow-lab/$f"; done
+            test -s /usr/share/doc/qemu-system-x86/copyright && test -s /usr/share/doc/ovmf/copyright && test -s /usr/share/doc/seabios/copyright
+          '
+          licenses="$(docker image inspect restow-lab:ci --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')"
+          test "$licenses" = "Apache-2.0 AND GPL-2.0-only AND LGPL-3.0-only AND BSD-2-Clause-Patent"
 
       - name: The images carry their tools
         # restic and the standalone restore tool must be in both application images, the
@@ -389,7 +469,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -410,7 +490,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -518,7 +598,7 @@ jobs:
           # The agent has no third-party Go dependencies and so no go.sum to key a cache on.
           cache: false
 
-      - name: Static checks and unit tests (gofmt, go vet for the four targets, go test -race, ShellCheck)
+      - name: Static checks and unit tests (gofmt, go vet for the five targets, go test -race, ShellCheck)
         if: steps.detect.outputs.present == 'true'
         run: sh agent/scripts/test.sh
 
@@ -534,13 +614,208 @@ jobs:
         if: steps.detect.outputs.present == 'true'
         run: sh agent/build.sh --out "$RUNNER_TEMP/agent-dist"
 
+      - name: Hand the linux-amd64 agent to the test job (the restore planner of stage 1)
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-linux-amd64
+          path: ${{ runner.temp }}/agent-dist/linux-amd64/restow-agent
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Hand the linux-amd64 build to the recovery ISO jobs (agent, restic, notices, sums)
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-dist-linux-amd64
+          path: |
+            ${{ runner.temp }}/agent-dist/linux-amd64
+            ${{ runner.temp }}/agent-dist/SHA256SUMS
+            ${{ runner.temp }}/agent-dist/VERSION
+            ${{ runner.temp }}/agent-dist/RESTIC_VERSION
+          if-no-files-found: error
+          retention-days: 3
+
       - name: The Go modules inside restic are the ones whose licenses are vendored
-        # The build information of the four pinned restic binaries just fetched must list
-        # exactly the modules, versions and hashes of licenses/restic-deps/modules.json, the
-        # source of the notices; a new restic pin needs `node scripts/restic-licenses.mjs
-        # vendor` first. Reads the binaries directly (no Go, no network).
+        # The build information of the five pinned restic binaries just fetched (restic.exe
+        # for Windows) must list the modules, versions and hashes of
+        # licenses/restic-deps/modules.json for their target, the source of the notices; a
+        # new restic pin needs `node scripts/restic-licenses.mjs vendor` first. Reads the
+        # binaries directly (no Go, no network).
         if: steps.detect.outputs.present == 'true' && hashFiles('scripts/restic-licenses.mjs') != ''
-        run: node scripts/restic-licenses.mjs check "$RUNNER_TEMP"/agent-dist/*/restic
+        run: node scripts/restic-licenses.mjs check "$RUNNER_TEMP"/agent-dist/*/restic*
+
+      - name: restic.exe still prints the snapshot errors the agent recognises
+        # The Windows agent learns that a shadow copy failed only from these texts in
+        # restic's JSON output (restic still exits 0, docs/WINDOWS-AGENT.md, section 17.3).
+        # A restic pin that changed them fails here, on Linux, whether or not VSS works
+        # on the Windows runner.
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          exe="$RUNNER_TEMP/agent-dist/windows-amd64/restic.exe"
+          [ -f "$exe" ] || { echo "::notice::no windows-amd64 build in this commit"; exit 0; }
+          for text in 'failed to create snapshot for [' 'failed to delete VSS snapshot' \
+            'Snapshots are not supported for volume' 'VSS error: '; do
+            if ! grep -q -a -F -- "$text" "$exe"; then
+              echo "::error::restic.exe no longer contains '$text'; check internal/restic/snapshot.go against the new restic"
+              exit 1
+            fi
+          done
+          echo "restic.exe contains all four snapshot error texts"
+
+  agent-root:
+    name: Go agent as root (file system snapshots and layout capture on loop devices)
+    # docs/BAREMETAL.md 21.2: LVM (thick, thin, a full volume group), btrfs with nested
+    # subvolumes, md, LUKS and XFS on loop devices, the snapshot helper's namespace and
+    # chroot, restic through it against rest-server, and that nothing stays mounted. The
+    # tests are behind the build tag agentroot and RESTOW_AGENT_ROOT=1, so they never run
+    # elsewhere.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there an agent with these tests in this commit?
+        id: detect
+        run: |
+          if [ -f agent/go.mod ] && grep -rqs --include='*.go' 'agentroot' agent/internal; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no agent-root tests in this commit; nothing to run."
+          fi
+
+      - name: Set up Go
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: Storage tools
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            lvm2 thin-provisioning-tools btrfs-progs mdadm cryptsetup xfsprogs dosfstools fdisk gdisk
+
+      - name: restic and rest-server (pinned in agent/tools.env)
+        if: steps.detect.outputs.present == 'true'
+        env:
+          AGENT_DIR: ${{ github.workspace }}/agent
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          . agent/scripts/lib.sh
+          fetch_tool restic linux amd64 "$RUNNER_TEMP/tools/restic"
+          fetch_tool rest-server linux amd64 "$RUNNER_TEMP/tools/rest-server"
+
+      - name: Tests as root (build tag agentroot)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        env:
+          RESTIC_BINARY: ${{ runner.temp }}/tools/restic
+          RESTOW_TEST_RESTIC: ${{ runner.temp }}/tools/restic
+          RESTOW_TEST_REST_SERVER: ${{ runner.temp }}/tools/rest-server
+        run: |
+          go test -c -tags agentroot -o "$RUNNER_TEMP/fssnap.test" ./internal/fssnap
+          go test -c -tags agentroot -o "$RUNNER_TEMP/baremetal.test" ./internal/baremetal
+          # Each test binary runs in its package folder, where its testdata lies.
+          cd internal/fssnap
+          sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/fssnap.test" -test.v -test.count=1 -test.timeout=20m
+          cd ../baremetal
+          sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/baremetal.test" -test.v -test.count=1 -test.timeout=20m
+          # restow-agent recover (docs/BAREMETAL.md 10.10 to 10.14): the isolation of the
+          # programs of a backup, the executor on loop devices, holders, O_DIRECT probes.
+          if grep -rqs --include='*_test.go' 'agentroot' ../recovery; then
+            cd ..
+            go test -c -tags agentroot -o "$RUNNER_TEMP/recovery.test" ./recovery
+            cd recovery
+            sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/recovery.test" -test.v -test.count=1 -test.timeout=20m
+          fi
+          # The backup through the snapshot helper in its own mount namespace: only root
+          # may make one, so the unit tests of internal/core do not rely on it.
+          if grep -rqs --include='*_test.go' 'agentroot' ../core; then
+            cd ..
+            go test -c -tags agentroot -o "$RUNNER_TEMP/core.test" ./core
+            cd core
+            sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/core.test" -test.v -test.count=1 -test.timeout=10m -test.run '^TestRoot'
+          fi
+
+  agent-windows:
+    name: Go agent on Windows (vet, unit tests)
+    # Windows preview (docs/WINDOWS-AGENT.md, section 3.5): the unit tests that have no
+    # `unix` build tag run natively. Tests that use /bin/sh stand-ins for restic or the
+    # agent carry `//go:build unix` and run in the job above. The service, Job Object,
+    # DPAPI, ACL and hook tests carry the tag windowsintegration; the installer has its
+    # own PowerShell test. The restic.exe integration tests join with the backup code.
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings
+        # The Windows runner checks out with core.autocrlf=true; gofmt would then list
+        # every Go file.
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there an agent in this commit?
+        id: detect
+        run: |
+          if [ -f agent/go.mod ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::agent/ does not exist in this commit; nothing to check."
+          fi
+
+      - name: Set up Go
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: gofmt and go vet (native)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not formatted: $unformatted"
+            exit 1
+          fi
+          go vet ./...
+
+      - name: Unit tests (native, with the race detector when gcc is there)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            CGO_ENABLED=1 go test -race -count=1 ./...
+          else
+            echo "(gcc not found: running without the race detector)"
+            CGO_ENABLED=0 go test -count=1 ./...
+          fi
+
+      - name: Windows integration tests (service, DPAPI, ACLs, Job Objects, hooks, junction sources)
+        # docs/WINDOWS-AGENT.md, section 22.1. The hosted runner runs as an
+        # administrator: the tests create and delete the service RestowAgentTest.
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        run: go test -count=1 -tags windowsintegration ./internal/state/ ./internal/paths/ ./internal/hooks/ ./internal/svc/ ./internal/procctl/ ./internal/core/ ./internal/update/
+
+      - name: Installer tests (Ed25519 against Go, SSHSIG, full run against the fake instance)
+        # Windows PowerShell 5.1, the version every supported Windows has. The
+        # differential test compares the PowerShell Ed25519 check with crypto/ed25519.
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-windows.ps1 -Vectors 300
 
   shellcheck:
     name: Shell scripts (shellcheck, server installer tests)
@@ -571,6 +846,331 @@ jobs:
         # reset before anything is torn down, and what compose finally runs.
         run: bash deploy/demo/test.sh
 
+  recovery-scripts:
+    name: Recovery ISO scripts (self-tests, shellcheck of the hooks)
+    # The build recipe of the recovery ISO (integrations/recovery, a separate GPL work):
+    # its shell helpers, the refusals of build.sh, the boot menus and the package lists,
+    # without root or Docker. The *.sh files are in the shellcheck job as well; the hooks
+    # and auto/config have no .sh name and are checked here.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there a recovery ISO recipe in this commit?
+        id: detect
+        run: |
+          if [ -f integrations/recovery/test/unit.sh ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::integrations/recovery does not exist in this commit; nothing to check."
+          fi
+
+      - name: Self-tests (test/unit.sh)
+        if: steps.detect.outputs.present == 'true'
+        run: sh integrations/recovery/test/unit.sh
+
+      - name: shellcheck of the hooks and auto/config
+        if: steps.detect.outputs.present == 'true'
+        run: >-
+          shellcheck --external-sources --source-path=SCRIPTDIR --severity=style --shell=sh
+          integrations/recovery/config/hooks/live/*.hook.chroot
+          integrations/recovery/auto/config
+
+  recovery-paths:
+    name: Recovery ISO (does this change touch it?)
+    # The ISO is built and tested again when its recipe, the agent or the end-to-end driver
+    # changed, and always when the release workflow calls CI; otherwise the jobs below are
+    # skipped, and the last build of an unchanged state stands (docs/CI.md).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Changed paths
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          UPDATE_LOCK: ${{ inputs.update-lock && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ ! -f integrations/recovery/build.sh ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=""
+          case "$EVENT" in
+            pull_request) base="$BASE_SHA" ;;
+            push) base="$BEFORE" ;;
+          esac
+          # Without the first packages.lock (written by hand with update-lock) there is nothing
+          # to build: build.sh refuses an empty lock, and the release does too.
+          entries="$(grep -cvE '^[[:space:]]*(#|$)' integrations/recovery/packages.lock || true)"
+          if [ "$entries" = 0 ] && [ "$UPDATE_LOCK" != true ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::integrations/recovery/packages.lock has no entries yet; run this workflow by hand with update-lock and commit the lock it writes."
+            exit 0
+          fi
+          if [ "$UPDATE_LOCK" = true ] || [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] ||
+            ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            # By hand, a call from the release workflow, a new branch, or an unknown base: build.
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=false
+          # The names first, then the match: with pipefail, "git diff | grep -q" fails when grep
+          # stops at the first match of a long list and git diff dies of SIGPIPE, and the large
+          # merge of the bare metal work read as "nothing changed".
+          names="$(git diff --name-only "$base" HEAD)"
+          if grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|deploy/release/docker-compose.yml|apps/api/src/features/endpoints/recovery|apps/worker/src/lab/|apps/worker/src/endpoints/(lab-api|boot-probe))' <<<"$names"; then
+            changed=true
+          else
+            echo "::notice::nothing of the recovery ISO changed; its build, comparison and end-to-end tests are skipped."
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  recovery-iso:
+    name: Recovery ISO (build on ubuntu-24.04, image checks)
+    # docs/BAREMETAL.md 8.3: live-build in the pinned debian:trixie container from the
+    # snapshot of snapshot.env, with exactly the packages of packages.lock. No secrets: the
+    # privileged build container gets only the build variables (build.sh --env-file).
+    needs: [agent, recovery-paths]
+    if: needs.recovery-paths.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The agent build of this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist-linux-amd64
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO
+        env:
+          UPDATE_LOCK: ${{ inputs.update-lock && '--update-lock' || '' }}
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          version="$(cat "$RUNNER_TEMP/agent-dist/VERSION")"
+          # shellcheck disable=SC2086 # empty or one flag
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$version" --out "$RUNNER_TEMP/recovery" $UPDATE_LOCK
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Keep the new packages.lock (update-lock)
+        if: inputs.update-lock
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-packages-lock
+          path: ${{ runner.temp }}/recovery/packages.lock
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Image checks (firmware list, tools, version, boot entries, size, keymaps, no secrets)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools xorriso
+          sudo sh integrations/recovery/test/check-image.sh "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" "$VERSION"
+
+      # docs/BAREMETAL.md 21.2 and the risk table (20): the started ISO activates nothing of an
+      # old disk with an md RAID1, a volume group and swap (test/no-autoactivation.sh in QEMU).
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: No auto-activation in the started ISO (QEMU/KVM)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+          node scripts/recovery-e2e/no-autoactivation.mjs \
+            --iso "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" --work-dir "$RUNNER_TEMP/no-autoactivation"
+
+      - name: Keep the serial logs of the auto-activation test
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-no-autoactivation-logs
+          path: ${{ runner.temp }}/no-autoactivation/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Keep the ISO and its hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-iso
+          path: |
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+            ${{ runner.temp }}/recovery/restow-recovery_*_FIRMWARE-LICENSES.txt
+          if-no-files-found: error
+          retention-days: 3
+
+  recovery-iso-rebuild:
+    name: Recovery ISO (second build on ubuntu-22.04, other TZ and umask)
+    needs: [agent, recovery-paths]
+    if: needs.recovery-paths.outputs.changed == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      # build.sh sets TZ, umask and the locale inside the container; the host differs on purpose.
+      TZ: Pacific/Auckland
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The agent build of this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist-linux-amd64
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO again
+        env:
+          UPDATE_LOCK: ${{ inputs.update-lock && '--update-lock' || '' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          version="$(cat "$RUNNER_TEMP/agent-dist/VERSION")"
+          # shellcheck disable=SC2086 # empty or one flag
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$version" --out "$RUNNER_TEMP/recovery" $UPDATE_LOCK
+
+      - name: Keep the ISO and its hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-iso-rebuild
+          path: |
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  recovery-iso-compare:
+    name: Recovery ISO (both builds bit for bit equal)
+    needs: [recovery-iso, recovery-iso-rebuild]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Both builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: recovery-iso*
+          path: builds
+
+      - name: Compare the SHA-256 (diffoscope on a difference)
+        run: |
+          set -euo pipefail
+          first="$(cut -d ' ' -f 1 builds/recovery-iso/*.iso.sha256)"
+          second="$(cut -d ' ' -f 1 builds/recovery-iso-rebuild/*.iso.sha256)"
+          echo "ubuntu-24.04: $first"
+          echo "ubuntu-22.04: $second"
+          if [ "$first" = "$second" ]; then
+            echo "::notice::the recovery ISO builds reproducibly ($first)"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends diffoscope
+          diffoscope --max-report-size 20000000 --text diffoscope.txt \
+            builds/recovery-iso/*.iso builds/recovery-iso-rebuild/*.iso || true
+          head -n 400 diffoscope.txt
+          echo "::error::the two builds of the recovery ISO differ; see diffoscope above"
+          exit 1
+
+  recovery-e2e:
+    name: Recovery end to end (${{ matrix.case }} in QEMU/KVM)
+    # docs/BAREMETAL.md 21.2: a source machine is backed up, restored by the ISO onto other
+    # hardware through the recovery API and must boot. KVM through a udev rule; without
+    # it the driver stops with a clear message (TCG would take hours). One job per case, side
+    # by side: each builds its own source machine and instance, and one slow case no longer
+    # pushes the others past the time limit.
+    needs: [agent, recovery-iso, recovery-paths]
+    if: needs.recovery-paths.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        # E1 and E2, and the boot probes P1 (green) and P2 (red, the emergency target).
+        case: [E1, E2, P1, P2]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: QEMU, OVMF and the firmware variable tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf \
+            python3-virt-firmware xorriso openssh-client
+
+      - name: The agent build and the ISO of this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{agent-dist-linux-amd64,recovery-iso}"
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Case ${{ matrix.case }}
+        # claim: VERIFY-009
+        # P1 and P2 run the recovery lab's container (Dockerfile target lab, built here) next to
+        # the test instance: green for E1's source, red with the emergency pattern for P2.
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          iso="$(ls "$RUNNER_TEMP"/artifacts/recovery-iso/restow-recovery_*_amd64.iso)"
+          node scripts/recovery-e2e/run.mjs --iso "$iso" --agent-dist "$RUNNER_TEMP/artifacts/agent-dist-linux-amd64" \
+            --cases "$CASE" --work-dir "$RUNNER_TEMP/recovery-e2e"
+
+      - name: Keep the serial logs, the report and the boot screens
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-e2e-logs-${{ matrix.case }}
+          path: |
+            ${{ runner.temp }}/recovery-e2e/report.json
+            ${{ runner.temp }}/recovery-e2e/*/*.log
+            ${{ runner.temp }}/recovery-e2e/*/screens/*.ppm
+          if-no-files-found: ignore
+          retention-days: 7
+
   actionlint:
     name: Workflows (actionlint)
     runs-on: ubuntu-24.04
@@ -599,19 +1199,33 @@ jobs:
       - licenses
       - secrets
       - agent
+      - agent-root
+      - agent-windows
       - shellcheck
       - actionlint
+      - recovery-scripts
+      - recovery-paths
+      - recovery-iso
+      - recovery-iso-rebuild
+      - recovery-iso-compare
+      - recovery-e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Every job succeeded
+        # The recovery ISO jobs are skipped when nothing of the ISO changed (recovery-paths);
+        # a skipped one counts as passed, every other job has to succeed.
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          echo "job results: $RESULTS"
-          for result in $RESULTS; do
-            if [ "$result" != "success" ]; then
-              echo "::error::at least one job did not succeed"
-              exit 1
-            fi
-          done
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key) \(.value.result)"' > results.txt
+          cat results.txt
+          failed=0
+          while read -r job result; do
+            case "$job:$result" in
+              *:success) ;;
+              recovery-iso:skipped | recovery-iso-rebuild:skipped | recovery-iso-compare:skipped | recovery-e2e:skipped) ;;
+              *) echo "::error::$job: $result"; failed=1 ;;
+            esac
+          done < results.txt
+          exit "$failed"

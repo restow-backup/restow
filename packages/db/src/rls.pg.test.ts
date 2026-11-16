@@ -111,7 +111,7 @@ async function inTransaction<T>(
   }
 }
 
-describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
+describe.skipIf(!adminUrl)("Row Level Security on the application role [CRYPT-005]", () => {
   let owner: pg.Pool;
   let app: pg.Pool;
   let provider: pg.Pool;
@@ -181,7 +181,7 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     }
   });
 
-  it("provisions an application role that cannot get around the policies", async () => {
+  it("provisions an application role that cannot get around the policies [CRYPT-005]", async () => {
     const roles = await assertDatabaseRoles({ tenant: app, installation: provider });
     expect(roleProblems("tenant", roles.tenant)).toEqual([]);
     expect(roles.tenant).toMatchObject({ superuser: false, bypassRls: false, ownsTables: false });
@@ -231,6 +231,8 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
       "job_start_pause",
       "provider_members",
       "provider_member_tenants",
+      // Restore mode after restoring a database dump (0.5.0): the installation's alone.
+      "installation_restore_mode",
     ]) {
       for (const tenantId of [null, contoso]) {
         await expect(
@@ -581,6 +583,121 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
       ),
     );
     expect(own.rowCount).toBe(1);
+  });
+
+  it("keeps the daily size samples inside the tenant", async () => {
+    const insert = (client: pg.PoolClient, tenantId: string, day: string) =>
+      client.query(
+        `INSERT INTO storage_samples (tenant_id, source_kind, source_id, day, bytes)
+         VALUES ($1, 'chunk_store', NULL, $2, 4096)`,
+        [tenantId, day],
+      );
+
+    await inTransaction(app, contoso, (client) => insert(client, contoso, "2026-10-29"));
+    // A transaction pinned to another tenant cannot write a row for this one ...
+    await expect(
+      inTransaction(app, fabrikam, (client) => insert(client, contoso, "2026-10-30")),
+    ).rejects.toThrow(/row-level security/);
+    // ... nor read it, and the installation role (the sampler's retention) sees every tenant's.
+    const seen = await inTransaction(app, fabrikam, (client) =>
+      client.query("SELECT id FROM storage_samples"),
+    );
+    expect(seen.rowCount).toBe(0);
+    const own = await inTransaction(app, contoso, (client) =>
+      client.query("SELECT bytes::int AS bytes FROM storage_samples"),
+    );
+    expect(own.rows).toEqual([{ bytes: 4096 }]);
+    const all = await provider.query("SELECT id FROM storage_samples");
+    expect(all.rowCount).toBe(1);
+    // The chunk store (no source) is one value for the unique key: a second row for the day fails.
+    await expect(
+      inTransaction(app, contoso, (client) => insert(client, contoso, "2026-10-29")),
+    ).rejects.toThrow(/storage_samples_source_day_uq/);
+    // Old rows leave through the installation role, across tenants.
+    const removed = await provider.query("DELETE FROM storage_samples WHERE day < '2026-10-30'");
+    expect(removed.rowCount).toBe(1);
+  });
+
+  it("keeps the memberships of groups and sites inside the tenant", async () => {
+    // A group mailbox and a person in each tenant, written as the owner.
+    const seed = async (tenantId: string, name: string) => {
+      const { rows: objects } = await owner.query<{ id: string }>(
+        `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id, display_name)
+           SELECT tenant_id, id, 'group', $2, $3 FROM sources WHERE tenant_id = $1
+         RETURNING id`,
+        [tenantId, `group-${name}-${suffix}`, name],
+      );
+      const { rows: people } = await owner.query<{ id: string }>(
+        `INSERT INTO users (tenant_id, entra_object_id, email)
+         VALUES ($1, $2, $3) RETURNING id`,
+        [tenantId, `entra-${name}-${suffix}`, `${name}-${suffix}@example.test`],
+      );
+      return {
+        objectId: (objects[0] as { id: string }).id,
+        userId: (people[0] as { id: string }).id,
+      };
+    };
+    const ours = await seed(contoso, "sales");
+    const theirs = await seed(fabrikam, "board");
+    const insert = (
+      client: pg.PoolClient,
+      tenantId: string,
+      row: { objectId: string; userId: string },
+      role = "member",
+    ) =>
+      client.query(
+        `INSERT INTO directory_memberships (tenant_id, protected_object_id, user_id, role)
+         VALUES ($1, $2, $3, $4)`,
+        [tenantId, row.objectId, row.userId, role],
+      );
+
+    await inTransaction(app, contoso, (client) => insert(client, contoso, ours, "owner"));
+    await inTransaction(app, fabrikam, (client) => insert(client, fabrikam, theirs));
+    // A transaction pinned to one tenant cannot write a membership for the other ...
+    await expect(
+      inTransaction(app, fabrikam, (client) =>
+        insert(client, contoso, { objectId: ours.objectId, userId: theirs.userId }),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // ... nor read, change or remove its rows; an unpinned one sees none at all.
+    const seen = await inTransaction(app, fabrikam, (client) =>
+      client.query<{ role: string }>("SELECT role FROM directory_memberships"),
+    );
+    expect(seen.rows).toEqual([{ role: "member" }]);
+    const changed = await inTransaction(app, fabrikam, (client) =>
+      client.query("UPDATE directory_memberships SET role = 'member' WHERE user_id = $1", [
+        ours.userId,
+      ]),
+    );
+    expect(changed.rowCount).toBe(0);
+    const removed = await inTransaction(app, fabrikam, (client) =>
+      client.query("DELETE FROM directory_memberships WHERE protected_object_id = $1", [
+        ours.objectId,
+      ]),
+    );
+    expect(removed.rowCount).toBe(0);
+    const unpinned = await inTransaction(app, null, (client) =>
+      client.query("SELECT 1 FROM directory_memberships"),
+    );
+    expect(unpinned.rowCount).toBe(0);
+    const own = await inTransaction(app, contoso, (client) =>
+      client.query<{ role: string }>("SELECT role FROM directory_memberships"),
+    );
+    expect(own.rows).toEqual([{ role: "owner" }]);
+    // Only the two roles exist.
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query("UPDATE directory_memberships SET role = 'guest'"),
+      ),
+    ).rejects.toThrow(/directory_memberships_role_ck/);
+    // The rows go with the person and with the object.
+    await owner.query("DELETE FROM users WHERE id = $1", [ours.userId]);
+    await owner.query("DELETE FROM protected_objects WHERE id = $1", [theirs.objectId]);
+    const left = await owner.query(
+      "SELECT 1 FROM directory_memberships WHERE user_id = ANY($1::uuid[])",
+      [[ours.userId, theirs.userId]],
+    );
+    expect(left.rowCount).toBe(0);
   });
 
   it("lets the installation role see every tenant", async () => {

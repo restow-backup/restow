@@ -100,4 +100,7 @@ type Node struct {
 	Path    string    `json:"path"`
 	Size    uint64    `json:"size"`
 	ModTime time.Time `json:"mtime"`
+	// Inode is the inode number at backup time (0 when restic did not
+	// report it); hard links share it.
+	Inode uint64 `json:"inode"`
 }

@@ -1,0 +1,70 @@
+{
+  "disks": [
+    {
+      "driverChain": [
+        "nvme",
+        "pcieport"
+      ],
+      "driverModaliases": [
+        "pci:v0000144Dd0000A80Asv0000144Dsd0000A801bc01sc08i02",
+        "pci:v00008086d0000A33Csv00008086sd00007270bc06sc04i00"
+      ],
+      "eui64": "002538b111b2c3d4",
+      "id": "t0",
+      "identity": "eui.002538b111b2c3d4",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "Samsung SSD 980 PRO 1TB",
+      "nguid": null,
+      "nsid": 1,
+      "path": "/dev/nvme0n1",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "S5GXNX0T0N1",
+      "signatures": [],
+      "sizeBytes": 512110190592,
+      "transport": "nvme",
+      "wwn": null,
+      "zoned": "none"
+    }
+  ],
+  "firmware": {
+    "db": [
+      {
+        "sha256": "a1117f516a32cefcba3f2d1ace10a87972fd6bbe8fe0d0b996e09e65d802a503",
+        "subject": "CN=Microsoft UEFI CA 2023,O=Microsoft Corporation,C=US"
+      },
+      {
+        "sha256": "dbb14a8ee716836045327b288efe274d7c24f9d24964ac6041db36973cd4115c",
+        "subject": "CN=Windows UEFI CA 2023,O=Microsoft Corporation,C=US"
+      }
+    ],
+    "dbx": {
+      "certs": [],
+      "hashes": []
+    },
+    "mode": "uefi",
+    "mokList": [],
+    "sbatLevel": [
+      "sbat,1,2024010900",
+      "shim,4",
+      "grub,3",
+      "grub.debian,4"
+    ],
+    "secureBoot": true,
+    "setupMode": false
+  },
+  "format": "restow-plan-target-v1",
+  "kind": "hardware",
+  "nics": [
+    {
+      "driver": "igb",
+      "mac": "3c:ec:ef:12:34:56",
+      "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+      "name": "enp3s0"
+    }
+  ],
+  "others": [],
+  "ramBytes": 0
+}

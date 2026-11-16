@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Masks the udev rule of the same name in /usr/lib/udev/rules.d: no RAID array of
+# a connected disk is assembled when it appears.

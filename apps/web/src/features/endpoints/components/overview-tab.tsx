@@ -18,6 +18,7 @@ import {
   taskOutcomeOf,
   waitingTasks,
 } from "../presenters.js";
+import { AppNotices } from "./app-notices.js";
 import { AssignmentField } from "./assign-dialog.js";
 import { EndpointDataFoldersNotice } from "./data-folders-notice.js";
 import { Fact, Facts } from "./facts.js";
@@ -25,6 +26,7 @@ import { MachinePolicyCard } from "./machine-policy-card.js";
 import { ReportsCard } from "./reports-card.js";
 import { RunsCard } from "./runs-card.js";
 import { ConnectionBadge, OsLabel, TaskStatusBadge } from "./status.js";
+import { WindowsFactsCard } from "./windows-facts.js";
 import { WithoutBackupBadge, WithoutBackupNotice } from "./without-backup.js";
 
 function taskLabel(task: EndpointTask, format: EndpointFormat): string {
@@ -428,6 +430,8 @@ export function OverviewTab({
     <div className="grid items-start gap-4 lg:grid-cols-3">
       <WithoutBackupNotice endpoint={detail} className="lg:col-span-3" />
       <EndpointDataFoldersNotice detail={detail} className="lg:col-span-3" />
+      {/* What the file backup of a Windows machine with these roles does not bring back (W1). */}
+      <AppNotices notices={detail.appNotices} className="lg:col-span-3" />
       <div className="min-w-0 space-y-4 lg:col-span-2">
         <PendingTasksCard tasks={detail.tasks} />
         <RunsCard
@@ -441,6 +445,9 @@ export function OverviewTab({
       </div>
       <div className="min-w-0 space-y-4">
         <FactsCard detail={detail} />
+        {detail.machine.facts?.windows ? (
+          <WindowsFactsCard facts={detail.machine.facts.windows} />
+        ) : null}
         <MachinePolicyCard detail={detail} />
         <RepositoryCard detail={detail} />
       </div>

@@ -42,6 +42,52 @@ export function throwIfAborted(ctx: Pick<JobContext, "signal">): void {
   }
 }
 
+/**
+ * How long to keep looking for what a write whose answer was lost may still
+ * be making: a 504 or a client timeout means the gateway or the client gave
+ * up, not that the mailbox did, and a large MIME import into a throttled
+ * mailbox can commit a minute later. The waits before each look, in ms
+ * (about two minutes in all).
+ */
+export const UNKNOWN_OUTCOME_LOOKS_MS: readonly number[] = [0, 5_000, 15_000, 30_000, 60_000];
+
+/**
+ * Look for what an unanswered write may have made, with {@link
+ * UNKNOWN_OUTCOME_LOOKS_MS} (or `waits`) between the looks; the first find
+ * ends it. Undefined when none of the looks saw it. Ends with the job.
+ */
+export async function lookAfterUnknownOutcome<T>(
+  ctx: Pick<JobContext, "signal">,
+  find: () => Promise<T | undefined>,
+  waits: readonly number[] = UNKNOWN_OUTCOME_LOOKS_MS,
+): Promise<T | undefined> {
+  for (const wait of waits.length > 0 ? waits : [0]) {
+    if (wait > 0) {
+      await new Promise<void>((resolve, reject) => {
+        if (ctx.signal.aborted) {
+          reject(new JobAbortedError());
+          return;
+        }
+        const timer = setTimeout(() => {
+          ctx.signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, wait);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(new JobAbortedError());
+        };
+        ctx.signal.addEventListener("abort", onAbort, { once: true });
+      });
+    }
+    throwIfAborted(ctx);
+    const found = await find();
+    if (found !== undefined) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
 function pad(value: number): string {
   return value.toString().padStart(2, "0");
 }

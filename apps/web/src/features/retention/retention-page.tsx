@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
+import { WriteOnceRetentionNotice } from "@/features/storage";
 
 import type { RetentionPolicy } from "./api.js";
 import { DeletePolicyDialog } from "./components/delete-policy-dialog.js";
@@ -43,6 +44,7 @@ export function RetentionPage() {
         onCreate={() => setSheet({ mode: "create" })}
         onEdit={onEdit}
         onDelete={onDelete}
+        notice={<WriteOnceRetentionNotice context="settings" />}
       />
 
       <PolicySheet

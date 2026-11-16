@@ -6,6 +6,7 @@ import {
   acknowledgeableRefs,
   acknowledgeBlock,
   acknowledgementApplies,
+  attentionCount,
   itemFolder,
   itemTitle,
   mayAcknowledge,
@@ -125,5 +126,18 @@ describe("tones and words", () => {
   it("reads the tab from the address", () => {
     expect(parseWarningsSearch({ state: "acknowledged" })).toEqual({ state: "acknowledged" });
     expect(parseWarningsSearch({ state: "x" })).toEqual({ state: "open" });
+  });
+});
+
+describe("the menu entry's count", () => {
+  it("adds failed backups and objects to confirm to the open warnings", () => {
+    expect(
+      attentionCount({ open: 2, acknowledged: 5, failed: 1, failedGuests: 3, toConfirm: 4 }),
+    ).toBe(10);
+  });
+
+  it("does not count acknowledged warnings and reads an older server's missing counts as zero", () => {
+    expect(attentionCount({ open: 0, acknowledged: 7, failed: 0 })).toBe(0);
+    expect(attentionCount({ open: 1, acknowledged: 0, failed: 2 })).toBe(3);
   });
 });

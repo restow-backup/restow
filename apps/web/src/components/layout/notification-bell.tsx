@@ -41,7 +41,9 @@ export function unreadAttentionCount(
  * the info tone (Lapis), which says "something new" without raising an alarm.
  */
 export function bellBadgeClass(attention: number): string {
-  return attention > 0 ? "bg-destructive text-white" : "bg-info text-info-foreground";
+  return attention > 0
+    ? "bg-destructive text-destructive-foreground"
+    : "bg-info text-info-foreground";
 }
 
 /**

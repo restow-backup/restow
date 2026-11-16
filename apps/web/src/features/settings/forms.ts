@@ -34,6 +34,7 @@ const FEATURE_REASONS: ReadonlySet<string> = new Set([
   "serviceAccountKey",
   "host",
   "samePassword",
+  "allowedSenders",
 ]);
 
 /**
@@ -209,6 +210,11 @@ export interface MailFormValues {
     username: string;
     password: string;
     from: string;
+    /**
+     * Further From addresses the branding may use (0.5.0): one exact address or `@domain` per
+     * line. Absent reads as none.
+     */
+    allowedSenders?: string;
   };
   graph: {
     /** The notification mail's own app registration, or the backup app. */
@@ -279,6 +285,7 @@ const EMPTY_SMTP: MailFormValues["smtp"] = {
   username: "",
   password: "",
   from: "",
+  allowedSenders: "",
 };
 
 /** A new Microsoft 365 transport starts with an own app registration (the recommended way). */
@@ -307,6 +314,7 @@ export function mailFormFromSettings(mail: MailSettings): MailFormValues {
         username: mail.smtp.username ?? "",
         password: "",
         from: mail.smtp.from,
+        allowedSenders: (mail.smtp.allowedSenders ?? []).join("\n"),
       },
     };
   }
@@ -461,6 +469,10 @@ function smtpIssues(smtp: MailFormValues["smtp"], context: MailFormContext): Iss
   if (!isEmail(smtp.from)) {
     issues.push({ path: ["smtp", "from"], message: smtp.from.trim() ? "email" : "required" });
   }
+  const senders = parseAllowedSenders(smtp.allowedSenders ?? "");
+  if (senders.length > MAX_ALLOWED_SENDERS || senders.some((entry) => !isAllowedSender(entry))) {
+    issues.push({ path: ["smtp", "allowedSenders"], message: "allowedSenders" });
+  }
   const hasUsername = smtp.username.trim().length > 0;
   if (!hasUsername && smtp.password.length > 0) {
     issues.push({ path: ["smtp", "username"], message: "usernameRequired" });
@@ -548,6 +560,7 @@ export function mailFormSchema(context: MailFormContext) {
         username: z.string(),
         password: z.string(),
         from: z.string(),
+        allowedSenders: z.string().optional(),
       }),
       graph: z.object({
         app: z.enum(["backup", "own"]),
@@ -622,8 +635,31 @@ export function toMailInput(values: MailFormValues): MailInput {
       from: smtp.from.trim(),
       username: username.length > 0 ? username : null,
       ...(smtp.password.length > 0 ? { password: smtp.password } : {}),
+      // Always sent: the server keeps only what a save names.
+      allowedSenders: parseAllowedSenders(smtp.allowedSenders ?? ""),
     },
   };
+}
+
+/** At most this many allowed senders (apps/api settings schemas). */
+export const MAX_ALLOWED_SENDERS = 20;
+
+/** The entries of the allowed-senders field: one per line (or comma), lower-cased, unique. */
+export function parseAllowedSenders(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[\n,;]+/)
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/** An exact address or `@domain` (packages/core `isAllowedSenderEntry`). */
+export function isAllowedSender(entry: string): boolean {
+  if (entry.startsWith("@")) return /^@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(entry);
+  return /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]+$/.test(entry);
 }
 
 /** Follow the conventional port unless the admin typed their own. */

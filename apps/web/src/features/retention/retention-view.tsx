@@ -1,4 +1,5 @@
 import { Building, Hourglass, Plus, ShieldAlert } from "lucide-react";
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { EmptyState, PageHeader, RefreshButton } from "@/components/kit";
@@ -21,6 +22,8 @@ export interface RetentionViewProps {
   onCreate: () => void;
   onEdit: (policy: RetentionPolicy) => void;
   onDelete: (policy: RetentionPolicy) => void;
+  /** Shown below the header: that the policies cannot be applied on write-once storage. */
+  notice?: React.ReactNode;
 }
 
 /**
@@ -39,6 +42,7 @@ export function RetentionView({
   onCreate,
   onEdit,
   onDelete,
+  notice,
 }: RetentionViewProps) {
   const { t } = useTranslation("retention");
 
@@ -92,6 +96,7 @@ export function RetentionView({
   return (
     <div className="space-y-6">
       {header}
+      {notice}
       {empty ? (
         <EmptyState
           icon={Hourglass}

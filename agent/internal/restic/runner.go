@@ -16,9 +16,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/procenv"
@@ -48,6 +48,28 @@ type Runner struct {
 	// CancelGrace is how long restic gets to shut down after an interrupt
 	// before it is killed. Default 45 s.
 	CancelGrace time.Duration
+	// PasswordBytes replaces Password when set (recover keeps the password
+	// in a buffer it can zero, ZeroSecrets).
+	PasswordBytes []byte
+	// CACert is a PEM file of trusted certificates (RESTIC_CACERT): the
+	// instance's own CA, or its pinned leaf certificate (recover).
+	CACert string
+	// Proxy is an http:// proxy for the repository (HTTPS_PROXY).
+	Proxy string
+	// OwnProcessGroup starts restic in a process group of its own (Linux),
+	// so Ctrl+C on the console of recover reaches recover only, which asks
+	// before it stops restic.
+	OwnProcessGroup bool
+}
+
+// ZeroSecrets overwrites PasswordBytes (Go cannot promise this for the
+// copies the environment of a started process made; the real protection
+// of recover is the isolation of later steps, docs/BAREMETAL.md 10.13).
+func (r *Runner) ZeroSecrets() {
+	for i := range r.PasswordBytes {
+		r.PasswordBytes[i] = 0
+	}
+	r.PasswordBytes = nil
 }
 
 func (r *Runner) log(line string) {
@@ -59,11 +81,22 @@ func (r *Runner) log(line string) {
 // Env returns the environment of a restic process.
 func (r *Runner) Env() []string {
 	env := procenv.Base()
-	if _, ok := procenv.Get(env, "HOME"); !ok && r.CacheDir != "" {
+	if _, ok := procenv.Get(env, "HOME"); !ok && r.CacheDir != "" && runtime.GOOS != "windows" {
 		env = procenv.Set(env, "HOME", filepath.Dir(r.CacheDir))
 	}
 	env = procenv.Set(env, "RESTIC_REPOSITORY", r.Repo)
-	env = procenv.Set(env, "RESTIC_PASSWORD", r.Password)
+	if r.PasswordBytes != nil {
+		env = procenv.Set(env, "RESTIC_PASSWORD", string(r.PasswordBytes))
+	} else {
+		env = procenv.Set(env, "RESTIC_PASSWORD", r.Password)
+	}
+	if r.CACert != "" {
+		env = procenv.Set(env, "RESTIC_CACERT", r.CACert)
+	}
+	if r.Proxy != "" {
+		env = procenv.Set(env, "HTTPS_PROXY", r.Proxy)
+		env = procenv.Set(env, "HTTP_PROXY", r.Proxy)
+	}
 	if r.RESTUser != "" {
 		env = procenv.Set(env, "RESTIC_REST_USERNAME", r.RESTUser)
 		env = procenv.Set(env, "RESTIC_REST_PASSWORD", r.RESTPass)
@@ -72,7 +105,13 @@ func (r *Runner) Env() []string {
 		env = procenv.Set(env, "RESTIC_CACHE_DIR", r.CacheDir)
 	}
 	if r.TmpDir != "" {
-		env = procenv.Set(env, "TMPDIR", r.TmpDir)
+		if runtime.GOOS == "windows" {
+			// restic (Go) takes its temporary folder from TMP, then TEMP.
+			env = procenv.Set(env, "TMP", r.TmpDir)
+			env = procenv.Set(env, "TEMP", r.TmpDir)
+		} else {
+			env = procenv.Set(env, "TMPDIR", r.TmpDir)
+		}
 	}
 	// One status message every two seconds instead of ten per second; the
 	// agent forwards the latest one to the server every five seconds (the
@@ -95,6 +134,12 @@ type execSpec struct {
 	// RawStdout, when set, receives restic's stdout unchanged instead of
 	// OnStdoutLine (restic dump).
 	RawStdout io.Writer
+	// Prefix, when set, starts Prefix[0] with Prefix[1:] + [Bin] + Args
+	// instead of Bin (the snapshot helper). Environment, output handling,
+	// exit codes and the interrupt stay the same: the helper execs restic.
+	Prefix []string
+	// NewMountNS starts the process in a new mount namespace (Linux only).
+	NewMountNS bool
 }
 
 type execResult struct {
@@ -120,12 +165,26 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 	if r.Bin == "" {
 		return nil, errors.New("restic binary path is not set")
 	}
-	cmd := exec.CommandContext(ctx, r.Bin, spec.Args...)
+	name, args := r.Bin, spec.Args
+	if len(spec.Prefix) > 0 {
+		name = spec.Prefix[0]
+		args = append(append(append([]string(nil), spec.Prefix[1:]...), r.Bin), spec.Args...)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = r.Env()
 	cmd.Stdin = nil
 	// Ask restic to stop cleanly (it removes its lock and temporary files) and
-	// only kill it when it does not react.
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGINT) }
+	// only kill it when it does not react: SIGINT on Unix, CTRL_BREAK to its
+	// own process group on Windows (runner_unix.go, runner_windows.go).
+	configureProcess(cmd)
+	if spec.NewMountNS {
+		if err := newMountNS(cmd); err != nil {
+			return nil, err
+		}
+	}
+	if r.OwnProcessGroup {
+		ownProcessGroup(cmd)
+	}
 	cmd.WaitDelay = r.CancelGrace
 	if cmd.WaitDelay == 0 {
 		cmd.WaitDelay = defaultGrace
@@ -184,6 +243,13 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("cannot start restic (%s): %w", r.Bin, err)
 	}
+	// On Windows restic goes into a Job Object right away; if that fails it
+	// was terminated and Wait below reports it.
+	release, attachErr := afterStart(cmd)
+	defer release()
+	if attachErr != nil {
+		r.log(attachErr.Error())
+	}
 	// Wait copies the output through the writers above and, with WaitDelay
 	// set, does not hang if a grandchild keeps the pipes open.
 	waitErr := cmd.Wait()
@@ -198,7 +264,13 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 		case errors.As(waitErr, &ee), errors.Is(waitErr, exec.ErrWaitDelay):
 			// Exit code taken from ProcessState above.
 		case ctx.Err() != nil:
-			res.ExitCode = exitKilledBySignal
+			// Go reports a cancelled command as the context's error even when
+			// it went on to exit by itself (restic finished before the
+			// interrupt took effect): its own exit code stays, so a caller can
+			// see what it really did. Without one it was killed.
+			if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+				res.ExitCode = exitKilledBySignal
+			}
 		default:
 			return res, waitErr
 		}

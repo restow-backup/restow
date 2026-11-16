@@ -61,7 +61,7 @@ export function DownloadIcon({
   icon?: LucideIcon;
 }) {
   return pending ? (
-    <LoaderCircle aria-hidden="true" className="animate-spin" />
+    <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
   ) : (
     <Icon aria-hidden="true" />
   );

@@ -136,6 +136,8 @@ describe("DriveTree", () => {
     const committed = tree.materialize({ cascadeDeletions: true });
     expect(committed.objects.map((o) => o.path)).toEqual(["notes.txt"]);
     expect(committed.cascaded).toBe(3);
+    // Named, so the run can take back failures of what the deletion took with it.
+    expect([...committed.cascadedIds].sort()).toEqual(["Q3", "Q3#1.0", "REPORTS"]);
     expect(tree.deletedIds()).toEqual(["DOCS"]);
   });
 

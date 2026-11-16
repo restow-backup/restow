@@ -147,8 +147,12 @@ describe("the people list", () => {
     expect(carla?.querySelector('[data-slot="account-address"]')?.textContent).toBe(
       "Mailbox, OneDrive · carla@example.com",
     );
-    // The least proven of the person's restore points: the OneDrive's.
-    expect(carla?.textContent).toContain("Attention");
+    // One rating per service (0.5.0), each naming it: the mailbox's green is not hidden behind
+    // the OneDrive's attention, and the OneDrive's is not the person's.
+    const ratings = [...(carla?.querySelectorAll("[data-service]") ?? [])].map(
+      (node) => node.textContent,
+    );
+    expect(ratings).toEqual(["Mailbox: Ready", "OneDrive: Attention"]);
     expect(carla?.getAttribute("aria-current")).toBe("true");
     expect(dieter?.textContent).toContain("Account deleted");
     // Sites and Microsoft 365 group mailboxes share the heading (0.4.5).
@@ -163,6 +167,31 @@ describe("the people list", () => {
       (node) => node.textContent === "Protected",
     );
     expect(badge?.getAttribute("data-tone")).toBe("neutral");
+  });
+
+  it("shows an empty OneDrive next to a green mailbox as empty, not as needing attention", async () => {
+    stubPeople([
+      {
+        ...CARLA,
+        objects: [
+          object({ id: "m-carla", kind: "mailbox", displayName: "Carla Weber" }),
+          object({
+            id: "d-carla",
+            kind: "onedrive",
+            displayName: "Carla Weber",
+            readiness: "empty",
+          }),
+        ],
+      },
+    ]);
+    mounted = mount(<AccountList value={null} onChange={() => {}} />, { session: SESSION });
+    await waitFor(() => slots("account-person").length === 1, { what: "the person" });
+    const [carla] = slots("account-person");
+    const ratings = [...(carla?.querySelectorAll("[data-service]") ?? [])].map(
+      (node) => node.textContent,
+    );
+    expect(ratings).toEqual(["Mailbox: Ready", "OneDrive: Empty"]);
+    expect(carla?.textContent).not.toContain("Attention");
   });
 
   it("says that the accounts could not be loaded instead of showing an empty list", async () => {

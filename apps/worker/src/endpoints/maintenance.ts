@@ -25,6 +25,7 @@ import { endpointRepositoryLocks, endpointRuns, endpoints } from "@restow/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";
 import { raiseEvents } from "../reporting.js";
+import { reportRepositoryPasswordFinding, targetIdOfBackend } from "../restore-mode.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointName } from "./monitor.js";
 
@@ -243,6 +244,24 @@ export async function keepRepositoryPasswordFile(
       endpointId,
       password: access.repositoryPassword,
       keys,
+      // A stored document that differs is never replaced: it may be the only copy of the
+      // password of backups the database does not know (after restoring a database dump).
+      onDifferent: async (finding) =>
+        reportRepositoryPasswordFinding(
+          deps.providerDb,
+          {
+            tenantId,
+            targetId: await targetIdOfBackend(
+              (id) => deps.runtime.storage.get(id),
+              tenantId,
+              access.storage,
+            ),
+            objectKey: finding.key,
+            storedSha256: finding.storedSha256,
+            kind: finding.kind,
+          },
+          deps.runtime.logger,
+        ),
     });
     if (outcome === "written") {
       deps.runtime.logger.info("stored the sealed repository password next to the repository", {

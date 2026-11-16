@@ -24,12 +24,15 @@ import {
   type TenantKeyring,
 } from "@restow/core";
 import {
+  archiveCaptureGaps,
   archiveCaptureStreams,
   archiveItems,
   backupJobMembers,
   backupJobs,
   createDb,
   type Database,
+  jobs,
+  notifications,
   protectedObjects,
   providers,
   secrets,
@@ -37,7 +40,7 @@ import {
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FakeImapServer as DistFakeImapServer } from "../../../../packages/core/dist/backup/imap/testing/fake-imap.js";
 import { FakeImapServer } from "../../../../packages/core/src/backup/imap/testing/fake-imap.js";
@@ -324,6 +327,270 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     expect(items.some((item) => item.subject === "draft@example.net")).toBe(false);
   });
 
+  it("resumes a backfill across jobs from the stream's cursor, reading each mail once", async () => {
+    const object = await account("hanna@example.net");
+    const old = { internalDate: new Date("2025-06-01T08:00:00Z") };
+    for (let n = 1; n <= 7; n++) {
+      server
+        .folder("INBOX")
+        .add(mail(`big-${n}@example.net`), { ...old, messageId: `<big-${n}@example.net>` });
+    }
+    for (let n = 1; n <= 2; n++) {
+      server
+        .folder("Sent")
+        .add(mail(`sent-${n}@example.net`), { ...old, messageId: `<sent-${n}@example.net>` });
+    }
+    // A budget that runs out after every batch of two: the backfill needs several jobs, and
+    // stops inside INBOX (a huge folder) instead of only between folders.
+    const way = createImapCaptureWay({
+      connector: server,
+      env: {},
+      settings: { backfillBudgetMs: 1 },
+      limits: { metaBatch: 2, maxBatchBytes: 1024 * 1024, maxBatchMessages: 10 },
+    });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    let clock = Date.now();
+    const continued: string[] = [];
+    configureArchiveHandler({
+      providerDb: db,
+      gate: open,
+      ways: { imap_sync: way },
+      enqueueBackfill: async () => {
+        const id = randomUUID();
+        continued.push(id);
+        return id;
+      },
+    });
+    const statuses: unknown[] = [];
+    try {
+      for (let job = 0; job < 12; job++) {
+        // Every continuation is a new job with an empty cursor of its own.
+        let jobCursor: Record<string, unknown> | null = null;
+        const ctx = {
+          db,
+          tenantId,
+          storage,
+          keys,
+          chunkIndex: new MemoryChunkIndex(),
+          logger: silent,
+          signal: new AbortController().signal,
+          now: () => {
+            clock += 1;
+            return new Date(clock);
+          },
+          progress: { phase: () => {}, advance: () => {} },
+          cursor: {
+            load: async () => jobCursor,
+            save: async (next: Record<string, unknown>) => {
+              jobCursor = next;
+            },
+            clear: async () => {
+              jobCursor = null;
+            },
+          },
+        } as unknown as WorkerJobContext;
+        const outcome = await archiveHandler.run(ctx, {
+          jobId: randomUUID(),
+          tenantId,
+          protectedObjectId: object,
+          capture: "imap_sync",
+          mode: "backfill",
+        });
+        const status = (outcome as { summary?: { status?: string } } | undefined)?.summary?.status;
+        statuses.push(status);
+        if (status !== "continued") {
+          break;
+        }
+      }
+    } finally {
+      configureArchiveHandler(null);
+    }
+    expect(statuses.at(-1)).toBe("completed");
+    expect(statuses.length).toBeGreaterThanOrEqual(3);
+    expect(continued).toHaveLength(statuses.length - 1);
+    // Each old mail was read (metadata and source) exactly once across all the jobs.
+    const delivered = server.stats.sourcesDelivered;
+    expect(delivered).toHaveLength(9);
+    expect(new Set(delivered).size).toBe(9);
+    const meta = server.stats.metaDelivered;
+    expect(new Set(meta).size).toBe(meta.length);
+    const items = await itemsOf(object);
+    expect(items).toHaveLength(9);
+    expect(items.every((item) => (item.flags ?? []).includes("captured-late"))).toBe(true);
+    const [stream] = await db
+      .select()
+      .from(archiveCaptureStreams)
+      .where(eq(archiveCaptureStreams.protectedObjectId, object));
+    expect(stream?.status).toBe("live");
+    expect(stream?.backfillCursor).toBeNull();
+  });
+
+  it("waits an hour before it queues a backfill again that ended retry_later at the server's limit", async () => {
+    const object = await account("gmail-cap@example.net");
+    const old = { internalDate: new Date("2025-06-01T08:00:00Z") };
+    // The built core's fake: its NOs are the ImapSessionError the worker's capture knows.
+    const dist = new DistFakeImapServer();
+    dist
+      .addFolder("INBOX")
+      .add(mail("old@example.net"), { ...old, messageId: "<old@example.net>" });
+    const way = createImapCaptureWay({ connector: dist, env: {} });
+    await db.execute(sql`delete from jobs`);
+    const queued: string[] = [];
+    // Like pgBackfillEnqueuer: the jobs row the pass looks at.
+    const enqueueBackfill = async (stream: { tenantId: string; protectedObjectId: string }) => {
+      const [row] = await db
+        .insert(jobs)
+        .values({
+          tenantId: stream.tenantId,
+          queue: "archive",
+          status: "queued",
+          protectedObjectId: stream.protectedObjectId,
+          payload: { mode: "backfill", capture: "imap_sync" },
+        })
+        .returning();
+      queued.push(row?.id as string);
+      return row?.id as string;
+    };
+    const instance = new ArchiveCaptureService({
+      db,
+      providerDb: db,
+      keyrings: new TenantCache(async () => keys),
+      storage: new TenantCache(async () => storage),
+      logger: silent,
+      gate: open,
+      ways: { imap_sync: way },
+      settings: { gateCheckMs: 0, reconcileMs: 0, leaseMs: 60_000 },
+      enqueueBackfill,
+    });
+    await instance.tick();
+    await instance.settle();
+    expect(queued).toHaveLength(1);
+    // Gmail's cap on EXAMINE for hours ("Account exceeded command or bandwidth limits").
+    dist.faults.refuseOpen.set("INBOX", { code: "OVERQUOTA", remaining: Number.POSITIVE_INFINITY });
+    const failedItems: string[] = [];
+    configureArchiveHandler({ providerDb: db, gate: open, ways: { imap_sync: way } });
+    try {
+      const ctx = {
+        jobId: queued[0],
+        db,
+        tenantId,
+        storage,
+        keys,
+        chunkIndex: new MemoryChunkIndex(),
+        logger: silent,
+        signal: new AbortController().signal,
+        now: () => new Date(),
+        progress: {
+          phase: () => {},
+          advance: () => {},
+          fail: (ref: string) => failedItems.push(ref),
+        },
+        cursor: { load: async () => null, save: async () => {}, clear: async () => {} },
+      } as unknown as WorkerJobContext;
+      const outcome = await archiveHandler.run(ctx, {
+        jobId: queued[0] as string,
+        tenantId,
+        protectedObjectId: object,
+        capture: "imap_sync",
+        mode: "backfill",
+      });
+      expect(outcome).toMatchObject({ summary: { status: "retry_later" } });
+    } finally {
+      configureArchiveHandler(null);
+    }
+    // What waits is a failed item of the job, so it does not read as a plain success.
+    expect(failedItems).toEqual(["INBOX"]);
+    // The framework completes the job.
+    await db
+      .update(jobs)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(jobs.id, queued[0] as string));
+    const [row] = await db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.id, queued[0] as string));
+    expect((row?.payload as { result?: { status?: string } } | undefined)?.result?.status).toBe(
+      "retry_later",
+    );
+    // Two passes right after: no new job hits the capped account again.
+    await pass(instance);
+    await pass(instance);
+    expect(queued).toHaveLength(1);
+    // An hour later it is queued again.
+    await db
+      .update(jobs)
+      .set({ completedAt: new Date(Date.now() - 2 * 3_600_000) })
+      .where(eq(jobs.id, queued[0] as string));
+    await pass(instance);
+    expect(queued).toHaveLength(2);
+    await db.execute(sql`delete from jobs`);
+  });
+
+  it("records a message never delivered and a folder always refused as open gaps, alerted once", async () => {
+    const object = await account("ida@example.net");
+    // The built core's fake: its NOs are the ImapSessionError the worker's (built) capture
+    // knows, so a refused folder is a command-level error, as in production.
+    const dist = new DistFakeImapServer();
+    dist.addFolder("INBOX");
+    dist.addFolder("Sent", { specialUse: "\\Sent" });
+    server = dist as unknown as FakeImapServer;
+    const way = createImapCaptureWay({ connector: dist, env: {} });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    put("INBOX", "never@example.net");
+    put("INBOX", "fine@example.net");
+    server.faults.omitSource.add("INBOX:1");
+    server.faults.openFailures.add("Sent");
+    // Three passes an hour apart (an attempt counts at most once an hour, ./gaps.ts).
+    for (let n = 0; n < 3; n++) {
+      await db.execute(
+        sql`update archive_capture_gaps set last_attempt_at = last_attempt_at - interval '1 hour'`,
+      );
+      await pass(instance);
+    }
+    const gaps = await db
+      .select()
+      .from(archiveCaptureGaps)
+      .orderBy(archiveCaptureGaps.kind, archiveCaptureGaps.ref);
+    expect(gaps.map((gap) => [gap.kind, gap.ref, gap.reason, gap.openedAt !== null])).toEqual([
+      ["folder", "Sent", expect.any(String), true],
+      ["message", "INBOX;1000;1", "undelivered", true],
+    ]);
+    // The pass itself succeeds: the stream is live, but not complete (the gaps say so).
+    const [stream] = await db.select().from(archiveCaptureStreams);
+    expect(stream?.status).toBe("backfilling");
+    expect(stream?.consecutiveFailures).toBe(0);
+    expect((await itemsOf(object)).map((item) => item.externalRef)).toEqual(["INBOX;1000;2"]);
+
+    const { alertArchiveCapture } = await import("./alerts.js");
+    expect(await alertArchiveCapture({ db, providerDb: db }, new Date())).toBe(1);
+    const [alert] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "archive.failed"));
+    expect(alert?.details).toMatchObject({
+      reason: "capture_gap",
+      protectedObjectId: object,
+      folders: 1,
+      messages: 1,
+    });
+    expect(await alertArchiveCapture({ db, providerDb: db }, new Date())).toBe(0);
+
+    // The folder works again: read, its gap resolved; the message stays open.
+    server.faults.openFailures.clear();
+    put("Sent", "out@example.net");
+    await pass(instance);
+    const open = await db
+      .select({ ref: archiveCaptureGaps.ref })
+      .from(archiveCaptureGaps)
+      .where(isNull(archiveCaptureGaps.resolvedAt));
+    expect(open.map((gap) => gap.ref)).toEqual(["INBOX;1000;1"]);
+    await db.execute(sql`delete from notifications`);
+  });
+
   it("does not download mail the archive already holds for the account", async () => {
     const object = await account("ben@example.net");
     const way = createImapCaptureWay({ connector: server, env: {} });
@@ -338,6 +605,28 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     await pass(instance);
     expect(server.stats.sourcesDelivered.length).toBe(delivered);
     expect(await itemsOf(object)).toHaveLength(1);
+  });
+
+  it("archives a second mail with the same Message-ID and other content, flagged as a conflict", async () => {
+    const object = await account("greta@example.net");
+    const way = createImapCaptureWay({ connector: server, env: {} });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    const ticket = (body: string) =>
+      `Message-ID: <ticket-7@helpdesk.example>\r\nFrom: helpdesk@example.org\r\nTo: erik@example.net\r\nSubject: Ticket 7\r\nDate: Mon, 02 Nov 2026 08:00:00 +0000\r\n\r\n${body}\r\n`;
+    server
+      .folder("INBOX")
+      .add(ticket("Status: open"), { messageId: "<ticket-7@helpdesk.example>" });
+    await pass(instance);
+    // Edited content under the same Message-ID (a ticket system, or a sender reusing it).
+    server.folder("INBOX").add(ticket("Status: closed, the refund of 1,200 EUR was paid"), {
+      messageId: "<ticket-7@helpdesk.example>",
+    });
+    await pass(instance);
+    const items = await itemsOf(object);
+    expect(items.map((item) => item.externalRef)).toEqual(["INBOX;1000;1", "INBOX;1000;2"]);
+    expect(items[1]?.flags).toContain("message-id-conflict");
   });
 
   it("watches accounts with IDLE within the budget, shared by two processes through locks", async () => {
@@ -460,7 +749,7 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
   it("shows a watched account as IDLE without waiting for its next scheduled pass (service loop)", async () => {
     // As the worker runs it: the service's own loop starts the IDLE manager with its
     // services (gate, keyrings, installation pool); no pass is forced by the test.
-    const object = await account("erik@example.net");
+    const object = await account("frida@example.net");
     const way = createImapCaptureWay({
       connector: server,
       env: {},

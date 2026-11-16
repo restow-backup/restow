@@ -16,32 +16,56 @@ import {
   saveTenantAgentPolicy,
 } from "./agent-policy.js";
 import {
+  approveRecovery,
+  type CreateRebindTokenInput,
   type CreateTaskInput,
   type CreateTokenInput,
   cancelEndpointBackup,
+  cancelRecovery,
+  cancelRemoval,
+  confirmSqlTde,
   createDownload,
+  createRebindToken,
   createTask,
   createToken,
   type EndpointProfile,
   endpointKeys,
+  extendRecoveryCode,
   fetchAgentUpdates,
+  fetchBaremetal,
   fetchBrowse,
   fetchEndpoint,
+  fetchEndpointCapabilities,
   fetchEndpoints,
+  fetchRecoveries,
+  fetchRecovery,
+  fetchRecoveryIso,
   fetchRemovals,
   fetchRun,
   fetchRuns,
   fetchSnapshots,
+  fetchSqlBackups,
+  fetchSqlOverview,
   fetchTokens,
+  type IssueRecoveryCodeInput,
+  issueRecoveryCode,
+  type RecoveryStatus,
   type RemovalMode,
   removeEndpoint,
+  requestBootProbe,
   requestEndpointUpdate,
   requestRestoreTest,
+  requestSqlInventory,
+  requestSqlRestore,
+  requestSqlVerify,
   resumeMachineUpdates,
   revealRepositoryPassword,
   revokeEndpoint,
+  revokeRecoveryCode,
   revokeToken,
+  type SqlRestoreInput,
   setAgentUpdates,
+  setRecoverySshKeys,
   type TokenListState,
   type UpdateEndpointInput,
   uninstallEndpoint,
@@ -108,6 +132,21 @@ export function useRuns(endpointId: string, limit: number, enabled: boolean) {
     queryFn: () => fetchRuns(endpointId, limit),
     enabled: scope.enabled && enabled,
     refetchInterval: connected ? false : IDLE_REFRESH_MS,
+  });
+}
+
+/**
+ * The bare metal card of a machine (preview): its state and the newest layout's summary. The
+ * layout changes only with a backup, so it is not polled; a finished run refreshes the detail,
+ * and the card's key sits below it.
+ */
+export function useBaremetal(endpointId: string, wanted = true) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.baremetal(tenantId, endpointId),
+    queryFn: () => fetchBaremetal(endpointId),
+    enabled: enabled && wanted,
+    retry: false,
   });
 }
 
@@ -238,17 +277,44 @@ export function useRemoveEndpoint(endpointId: string) {
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
   return useMutation({
-    mutationFn: (input: { mode: RemovalMode; confirmHostname: string }) =>
+    mutationFn: (input: { mode: RemovalMode; confirmHostname: string; reason?: string }) =>
       removeEndpoint(endpointId, input),
-    onSuccess: () => {
-      queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+    onSuccess: (_result, input) => {
+      // A scheduled deletion keeps the machine (and its page) until it starts.
+      if (input.mode === "expire") {
+        queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+      }
     },
     onSettled: () =>
       Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.removals(tenantId) }),
       ]),
   });
+}
+
+/** Cancel a scheduled deletion of the machine's backups (provider owners, 0.5.0). */
+export function useCancelRemoval(endpointId: string) {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: () => cancelRemoval(endpointId),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) }),
+        queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
+      ]),
+  });
+}
+
+/**
+ * Whether the viewer may delete a machine's backups and cancel that (0.5.0): an owner of the
+ * provider team (a provider admin without a team role is one, as on the server).
+ */
+export function useMayDeleteBackups(): boolean {
+  const { isProviderAdmin, providerRole } = useSession();
+  return isProviderAdmin === true && (providerRole ?? "owner") === "owner";
 }
 
 /** Removed machines whose backups are not deleted yet; only for who may remove machines. */
@@ -338,10 +404,80 @@ export function useRequestEndpointUpdate(endpointId: string) {
   });
 }
 
+/** "Probe now" on the bare metal card; the card reads the planned probe afterwards. */
+export function useRequestBootProbe(endpointId: string) {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => requestBootProbe(endpointId),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: endpointKeys.baremetal(tenantId, endpointId) }),
+  });
+}
+
 export function useRestoreTest(endpointId: string) {
   const refresh = useRefreshEndpoint();
   return useMutation({
     mutationFn: () => requestRestoreTest(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+// --- SQL Server (preview) ------------------------------------------------------------------
+
+/** The SQL part of a machine; polls while a check, restore or sign-in check waits. */
+export function useSqlOverview(endpointId: string, enabled: boolean) {
+  const scope = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.sql(scope.tenantId, endpointId),
+    queryFn: () => fetchSqlOverview(endpointId),
+    enabled: scope.enabled && enabled,
+    refetchInterval: (query) => {
+      const pending = query.state.data?.pending;
+      return pending && pending.verify + pending.restore + pending.inventory > 0
+        ? RUN_REFRESH_MS
+        : IDLE_REFRESH_MS;
+    },
+  });
+}
+
+export function useSqlBackups(endpointId: string, databaseId: string | null) {
+  const scope = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.sqlBackups(scope.tenantId, endpointId, databaseId ?? ""),
+    queryFn: () => fetchSqlBackups(endpointId, databaseId ?? ""),
+    enabled: scope.enabled && databaseId !== null,
+  });
+}
+
+export function useSqlRestore(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (input: SqlRestoreInput) => requestSqlRestore(endpointId, input),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useSqlVerify(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (databaseId?: string) => requestSqlVerify(endpointId, databaseId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useSqlInventory(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: () => requestSqlInventory(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useConfirmSqlTde(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (databaseId: string) => confirmSqlTde(endpointId, databaseId),
     onSettled: () => refresh(endpointId),
   });
 }
@@ -465,5 +601,122 @@ export function useSaveTenantAgentPolicy() {
       queryClient.setQueryData(agentPolicyKeys.tenant(tenantId), view);
       void queryClient.invalidateQueries({ queryKey: endpointKeys.all(tenantId) });
     },
+  });
+}
+
+// --- Bare metal recovery (docs/BAREMETAL.md 9, 11) ------------------------------------------
+
+/**
+ * What the installation offers for machines: whether bare metal is on (preview), so the list and
+ * the enroll dialog word what the agent can do. Absent on an older server: treated as off.
+ */
+export function useEndpointCapabilities() {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.capabilities(tenantId),
+    queryFn: fetchEndpointCapabilities,
+    enabled,
+    retry: false,
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** The recovery ISO of the installation; the code dialog and the wizard need a verified one. */
+export function useRecoveryIso(wanted = true) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.recoveryIso(tenantId),
+    queryFn: fetchRecoveryIso,
+    enabled: enabled && wanted,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useRecoveries(endpointId: string, wanted = true) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.recoveries(tenantId, endpointId),
+    queryFn: () => fetchRecoveries(endpointId),
+    enabled: enabled && wanted,
+    refetchInterval: IDLE_REFRESH_MS,
+  });
+}
+
+/** While a session waits for its release or runs, it is followed every five seconds. */
+export const RECOVERY_POLL_MS = 5_000;
+const FOLLOWED: readonly RecoveryStatus[] = ["issued", "pending_approval", "active", "finishing"];
+
+export function useRecovery(endpointId: string, recoveryId: string | null) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.recovery(tenantId, endpointId, recoveryId ?? ""),
+    queryFn: () => fetchRecovery(endpointId, recoveryId ?? ""),
+    enabled: enabled && recoveryId !== null,
+    refetchInterval: (query) =>
+      query.state.data && FOLLOWED.includes(query.state.data.status) ? RECOVERY_POLL_MS : false,
+  });
+}
+
+function useRecoveryMutation<A>(endpointId: string, run: (input: A) => Promise<unknown>) {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: endpointKeys.recoveries(tenantId, endpointId) }),
+  });
+}
+
+/** Issue a code. The answer is a secret: dropped from the cache at once. */
+export function useIssueRecoveryCode(endpointId: string) {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: IssueRecoveryCodeInput) => issueRecoveryCode(endpointId, input),
+    gcTime: 0,
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: endpointKeys.recoveries(tenantId, endpointId) }),
+  });
+}
+
+export function useRevokeRecoveryCode(endpointId: string) {
+  return useRecoveryMutation(endpointId, (codeId: string) =>
+    revokeRecoveryCode(endpointId, codeId),
+  );
+}
+
+export function useExtendRecoveryCode(endpointId: string) {
+  return useRecoveryMutation(endpointId, (input: { codeId: string; validityHours: number }) =>
+    extendRecoveryCode(endpointId, input.codeId, input.validityHours),
+  );
+}
+
+export function useApproveRecovery(endpointId: string) {
+  return useRecoveryMutation(endpointId, (recoveryId: string) =>
+    approveRecovery(endpointId, recoveryId),
+  );
+}
+
+export function useCancelRecovery(endpointId: string) {
+  return useRecoveryMutation(endpointId, (recoveryId: string) =>
+    cancelRecovery(endpointId, recoveryId),
+  );
+}
+
+export function useSetRecoverySshKeys(endpointId: string) {
+  return useRecoveryMutation(endpointId, (input: { recoveryId: string; keys: string[] }) =>
+    setRecoverySshKeys(endpointId, input.recoveryId, input.keys),
+  );
+}
+
+/** A rebind token: shown once with the commands, dropped from the cache at once. */
+export function useCreateRebindToken(endpointId: string) {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateRebindTokenInput) => createRebindToken(endpointId, input),
+    gcTime: 0,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: endpointKeys.tokensAll(tenantId) }),
   });
 }

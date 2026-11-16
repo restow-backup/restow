@@ -147,7 +147,7 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
       "SELECT details FROM notifications WHERE event = 'backup.overdue' ORDER BY created_at",
     );
 
-  it("alerts by the schedules and by a rule's own deadline, each once per stretch", async () => {
+  it("alerts by the schedules and by a rule's own deadline, each once per stretch [ALERT-003]", async () => {
     // Bell: db only (72 h > 48 h); web and the mailbox (30 h) are within their two days, files
     // (10 h, by its restore point) within either bound.
     expect(await alertOverdueBackups(deps, NOW)).toBe(4);
@@ -179,7 +179,7 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
     expect(await alertOverdueBackups(deps, new Date(NOW.getTime() + 5 * 60_000))).toBe(0);
   });
 
-  it("starts a new stretch after a successful backup", async () => {
+  it("starts a new stretch after a successful backup [ALERT-003]", async () => {
     const backedUp = new Date(NOW.getTime() + HOUR);
     await q("UPDATE pve_guests SET last_success_at = $1 WHERE id = $2", [backedUp, guests.web]);
     const later = new Date(NOW.getTime() + 26 * HOUR);
@@ -281,7 +281,7 @@ describe.skipIf(!adminUrl)("backup.overdue against Postgres", () => {
     expect(byObject.has(running)).toBe(false);
   });
 
-  it("never alerts for an object that no enabled mail job covers", async () => {
+  it("never alerts for an object that no enabled mail job covers [ALERT-003]", async () => {
     const [provider] = await q<{ id: string }>("SELECT provider_id AS id FROM tenants LIMIT 1");
     const [acme] = await q<{ id: string }>(
       "INSERT INTO tenants (provider_id, name, slug) VALUES ($1, 'Acme', 'acme') RETURNING id",

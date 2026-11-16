@@ -59,6 +59,8 @@ export interface ReadinessDto {
   overdue: boolean;
   basis: EndpointReadinessDto["basis"];
   latestSnapshotId: string | null;
+  /** The newest backup recorded no sample files: no restore test of it is possible. */
+  noSamples: boolean;
 }
 
 export interface RunSummaryDto {
@@ -91,6 +93,8 @@ export interface RunSummaryDto {
   dataAdded: number | null;
   totalBytesProcessed: number | null;
   progress: EndpointRun["progress"];
+  /** The layout manifest a whole machine backup recorded (docs/BAREMETAL.md 4.3); null otherwise. */
+  layoutId: string | null;
   /** A stop was asked for in the UI (0.4.2): "Cancelling" while running, and who asked. */
   cancelRequestedAt: string | null;
   cancelledBy: string | null;
@@ -128,6 +132,11 @@ export interface EndpointSummaryDto {
    * null when it is assigned to nobody.
    */
   assignedTo: EndpointAssigneeDto | null;
+  /**
+   * A bare metal recovery session that runs for the machine (pending approval, active,
+   * finishing; docs/BAREMETAL.md 14.6): the list and the page say "Being restored".
+   */
+  recovery: { status: string; phase: string | null } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -236,6 +245,43 @@ export interface MachineDto {
   profileDetection: NonNullable<EndpointSettings["profileDetection"]> | null;
 }
 
+/** The configuration of a machine as its page shows it. */
+export type EndpointConfigDto = Omit<EndpointConfig, "fsSnapshot" | "wholeMachine"> & {
+  fsSnapshot: "auto" | "off" | null;
+  wholeMachine: boolean;
+  /**
+   * What the agent gets (`GET /agent/v1/config`): `wholeMachine` only while
+   * RESTOW_BAREMETAL_PREVIEW is on and for a Linux machine. The default of `fsSnapshot` follows
+   * this, not the stored switch.
+   */
+  wholeMachineActive: boolean;
+};
+
+/**
+ * Whether the agent backs up the whole machine: its job writes the switch, the preview is on and
+ * the machine runs Linux (docs/BAREMETAL.md 5.1, 26.2).
+ */
+export function wholeMachineSent(
+  stored: boolean | undefined,
+  os: string | undefined,
+  baremetalPreview: boolean | undefined,
+): boolean {
+  return stored === true && baremetalPreview === true && os === "linux";
+}
+
+/** The stored configuration in the form of {@link EndpointConfigDto}. */
+export function toConfigDto(
+  config: EndpointConfig,
+  agent: { os?: string; baremetalPreview?: boolean } = {},
+): EndpointConfigDto {
+  return {
+    ...config,
+    fsSnapshot: config.fsSnapshot ?? null,
+    wholeMachine: config.wholeMachine === true,
+    wholeMachineActive: wholeMachineSent(config.wholeMachine, agent.os, agent.baremetalPreview),
+  };
+}
+
 export interface EndpointDetailDto extends EndpointSummaryDto {
   /**
    * Removed from Restow while its backups are still stored (#65): they can be browsed and
@@ -247,10 +293,34 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
     state: "scheduled" | "held" | "deferred" | "done";
     expiresAt: string | null;
   } | null;
-  config: EndpointConfig;
+  /**
+   * A requested deletion of the machine's backups that has not started yet (0.5.0, removal.ts):
+   * the date it starts, who asked and why; it can still be cancelled. Null for none.
+   */
+  backupDeletion: {
+    dueAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    reason: string | null;
+    state: "scheduled" | "held";
+    heldBy: "legal_hold" | "suspicion" | null;
+  } | null;
+  /**
+   * The stored configuration, with `fsSnapshot` as the machine stores it (null: the default) and
+   * `wholeMachine` as its job writes it (docs/BAREMETAL.md 5.1, 6.1).
+   */
+  config: EndpointConfigDto;
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;
   machine: MachineDto;
+  /**
+   * The fixed warnings of W1 (docs/BAREMETAL-WINDOWS.md 6.5): the file backup of this machine
+   * holds files of open databases that are no restorable backup of the roles named. The SQL Server
+   * part goes once the native backup covers every database.
+   */
+  appNotices: { code: string; subjects?: string[] }[];
+  /** The native SQL Server backup (W2a): the agent can do it, and a job switched it on. */
+  sqlNative: { capable: boolean; enabled: boolean };
   configVersion: number;
   /** The configuration version the agent runs; differs from `configVersion` until it fetched the change. */
   agentConfigVersion: number | null;
@@ -342,12 +412,21 @@ export interface EnrollmentTokenDto {
   expiresAt: string;
   state: "valid" | "expired" | "used" | "revoked";
   usedByEndpointId: string | null;
+  /**
+   * `enroll` makes a new machine; `rebind` (0.5.0, docs/BAREMETAL.md 11) gives the existing
+   * machine `endpointId` a new agent secret, for `purpose`.
+   */
+  kind: "enroll" | "rebind";
+  purpose: "baremetal" | "reinstall" | "mac_setup" | null;
+  endpointId: string | null;
+  /** The display name or hostname of the machine a rebind token is for. */
+  endpointName: string | null;
 }
 
 export interface CreatedTokenDto extends EnrollmentTokenDto {
   /** The token, shown exactly once. */
   token: string;
-  os: "linux" | "darwin";
+  os: "linux" | "darwin" | "windows";
   instanceUrl: string;
   /** The install command asks for the token on the terminal; `installUnattended` reads it from a file. */
   commands: {
@@ -360,6 +439,12 @@ export interface CreatedTokenDto extends EnrollmentTokenDto {
     hooksScripts: string;
     hooksAny: string;
   };
+  /**
+   * Windows (0.5.0, preview): the fingerprint of the release signing key the unattended command
+   * pins, and the SHA-256 of windows.ps1 as this instance serves it (for "download, compare, run");
+   * null when the installation ships no key or no script.
+   */
+  windows?: { releaseKeyFingerprint: string | null; scriptSha256: string | null };
   /** Things the operator should know before running the command. */
   warnings: ("insecure_transport" | "instance_url_not_configured")[];
 }
@@ -512,6 +597,7 @@ export function toRunSummary(run: EndpointRun, rated: RatedTests): RunSummaryDto
     progress: run.status === "running" ? run.progress : null,
     cancelRequestedAt: iso(run.cancelRequestedAt),
     cancelledBy: run.cancelledBy ?? null,
+    layoutId: run.layoutId ?? null,
   };
 }
 
@@ -560,6 +646,7 @@ export function toReadiness(readiness: EndpointReadinessDto): ReadinessDto {
     overdue: readiness.overdue,
     basis: readiness.basis,
     latestSnapshotId: readiness.latestSnapshotId,
+    noSamples: readiness.noSamples,
   };
 }
 
@@ -627,6 +714,7 @@ export function toSummary(
   rated: RatedTests,
   job: { id: string; name: string } | null = null,
   assignedTo: EndpointAssigneeDto | null = null,
+  recovery: { status: string; phase: string | null } | null = null,
 ): EndpointSummaryDto {
   return {
     id: endpoint.id,
@@ -650,6 +738,7 @@ export function toSummary(
     attention: attentionOf(endpoint, latestRun, readiness, now, job !== null),
     job,
     assignedTo,
+    recovery: recovery ? { status: recovery.status, phase: recovery.phase } : null,
     createdAt: endpoint.createdAt.toISOString(),
     revokedAt: iso(endpoint.revokedAt),
   };

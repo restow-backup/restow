@@ -34,15 +34,28 @@
  *     (403, not 507: restic gives up at once instead of sending the same pack
  *     again for a quarter of an hour). Lock files are exempt, so a restore on
  *     the machine still works when the budget is used up.
+ *
+ * A write the storage refuses because it is full (no space left, a disk quota, an S3 service at
+ * its quota) is answered with 403 as well when the caller asks for it (`onStorageFull`, the
+ * server's own maintenance listener): restic stops at once and the server, told about it, runs
+ * a prune that only deletes (./restic-cli.ts, docs/STORAGE.md "A full target").
+ *
+ * A deletion the storage refuses for good (a write-once share or a read-only mount: EPERM,
+ * EACCES, EROFS) is answered with 403, like one Object Lock refuses. restic treats 403 as
+ * final; a 500 it tries again for a quarter of an hour per file (lock files included), which
+ * on such a share would only hold the run up.
  */
 import { createHash } from "node:crypto";
 import { Readable, Transform, type TransformCallback } from "node:stream";
 import {
+  isDeleteRefused,
+  isNoSpaceError,
   listWithSizes,
   lockedErrorOf,
   readRange,
   type StorageBackend,
 } from "../storage/backend.js";
+import { deletionsHeldErrorOf } from "../storage/deletion-guard.js";
 import {
   actionOf,
   authorizeResticAction,
@@ -102,6 +115,12 @@ export interface ResticRestOptions {
     key: string;
     retainUntil: Date | null;
   }) => void | Promise<void>;
+  /**
+   * Called for an upload the storage refused because it is full; with it, such an upload is
+   * answered with 403 (final for restic) instead of 500 (which restic retries for a quarter of
+   * an hour per file).
+   */
+  onStorageFull?: (event: { resource: ResticResource }) => void;
   /** Called for every request the authorization matrix refused. */
   onDenied?: (event: { action: ResticAction; resource: ResticResource; reason: string }) => void;
   /** The agent's lock files (see {@link ResticLockRegistry}); without it the agent deletes no lock. */
@@ -116,6 +135,16 @@ export interface ResticRestOptions {
    * {@link QUOTA_EXCEEDED_PROBLEM}); file shares use their own (docs/FILESHARES.md 5.3).
    */
   quotaProblem?: { type: string; detail: string };
+  /**
+   * The size and space guard of backup runs (#99, core run-size): asked before every upload
+   * except a lock file, with its declared length and what it is. A problem holds the run: the
+   * upload is answered with 403 and that problem (final for restic), and nothing is written. A
+   * guard that cannot answer (its database) is a 503, which restic tries again.
+   */
+  admitUpload?: (
+    declaredBytes: number | null,
+    resource: ResticResource,
+  ) => Promise<{ type: string; detail: string } | null>;
   /** Called when an upload was refused because it does not fit the storage budget. */
   onQuotaExceeded?: (event: {
     resource: ResticResource;
@@ -152,6 +181,9 @@ function quotaExceededError(problem?: { type: string; detail: string }): ResticH
   );
 }
 
+/** The problem type of an upload the run size guard refused (#99, core run-size). */
+export const RUN_SIZE_HELD_PROBLEM = "urn:restow:problem:run-size-held";
+
 function errorResponse(error: ResticHttpError): Response {
   if (!error.problemType) {
     return text(error.status, error.message);
@@ -159,7 +191,10 @@ function errorResponse(error: ResticHttpError): Response {
   return new Response(
     JSON.stringify({
       type: error.problemType,
-      title: "Storage quota exceeded",
+      title:
+        error.problemType === RUN_SIZE_HELD_PROBLEM
+          ? "Backup held as unusually large"
+          : "Storage quota exceeded",
       status: error.status,
       detail: error.message,
     }),
@@ -442,10 +477,15 @@ export async function handleResticRequest(
         : text(400, "missing create=true");
     }
     let deferred = 0;
+    let refused = 0;
     for (const key of await storage.list(prefix)) {
       try {
         await storage.delete(key);
       } catch (error) {
+        if (isDeleteRefused(error) || deletionsHeldErrorOf(error)) {
+          refused++;
+          continue;
+        }
         const locked = lockedErrorOf(error);
         if (!locked) {
           throw error;
@@ -453,6 +493,9 @@ export async function handleResticRequest(
         deferred++;
         await options.onDeletionDeferred?.({ resource, key, retainUntil: locked.retainUntil });
       }
+    }
+    if (refused > 0) {
+      return text(403, `forbidden: the storage refuses to delete ${refused} objects`);
     }
     if (deferred > 0) {
       return text(403, `forbidden: ${deferred} objects are still locked`);
@@ -511,21 +554,48 @@ export async function handleResticRequest(
       return response;
     }
     case "write": {
+      // A run the size and space guard holds writes nothing more (lock files excepted, so the
+      // run can still release its lock).
+      if (agentLock === null && options.admitUpload) {
+        let held: { type: string; detail: string } | null;
+        try {
+          held = await options.admitUpload(declaredLength(request), resource);
+        } catch {
+          // Never a refusal for good: restic sends the upload again.
+          return text(503, "the size check of this backup could not be made; try again");
+        }
+        if (held) {
+          return errorResponse(new ResticHttpError(403, held.detail, held.type));
+        }
+      }
       // Lock files do not count against the budget: a restore must work when it is used up.
       const budget =
         agentLock === null && options.remainingBytes ? await options.remainingBytes() : null;
       if (agentLock !== null) {
         await options.locks?.created(agentLock);
       }
-      const { response, bytes, overBudget } = await writeObject(
-        storage,
-        key,
-        resource,
-        request,
-        limit,
-        budget,
-        options.quotaProblem,
-      );
+      let written: Awaited<ReturnType<typeof writeObject>>;
+      try {
+        written = await writeObject(
+          storage,
+          key,
+          resource,
+          request,
+          limit,
+          budget,
+          options.quotaProblem,
+        );
+      } catch (error) {
+        if (!options.onStorageFull || !isNoSpaceError(error)) {
+          throw error;
+        }
+        if (agentLock !== null) {
+          await options.locks?.removed(agentLock).catch(() => undefined);
+        }
+        options.onStorageFull({ resource });
+        return text(403, "forbidden: the storage is full");
+      }
+      const { response, bytes, overBudget } = written;
       if (response.ok) {
         await options.onAllowed?.({ action, resource, bytes });
       } else {
@@ -547,6 +617,11 @@ export async function handleResticRequest(
       try {
         await storage.delete(key);
       } catch (error) {
+        if (isDeleteRefused(error) || deletionsHeldErrorOf(error)) {
+          // A write-once share, or deleting paused (restore mode): final, so restic gives up
+          // at once instead of trying again.
+          return text(403, "forbidden: the storage refuses deletes");
+        }
         const locked = lockedErrorOf(error);
         if (!locked) {
           throw error;

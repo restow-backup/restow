@@ -18,6 +18,7 @@ describe("pveRunning", () => {
     vmid: 101,
     guestName: "files",
     guestKind: "ct" as const,
+    jobId: "job-1",
     jobName: "Every guest",
   };
 
@@ -26,6 +27,7 @@ describe("pveRunning", () => {
       id: "run-1",
       kind: "backup",
       guest: { id: "guest-1", vmid: 101, name: "files", kind: "ct" },
+      jobId: "job-1",
       jobName: "Every guest",
       startedAt: "2026-10-02T10:00:00.000Z",
       cancelling: false,
@@ -44,10 +46,20 @@ describe("pveRunning", () => {
       ...row,
       progress: null,
       cancelRequestedAt: new Date("2026-10-02T10:01:00.000Z"),
+      jobId: null,
       jobName: null,
     });
     expect(dto.progress).toBeNull();
     expect(dto.cancelling).toBe(true);
+    expect(dto.jobId).toBeNull();
     expect(dto.jobName).toBeNull();
+  });
+
+  it("names the job that started the run apart from the job the guest is in", () => {
+    // A backup asked for by hand of a guest in a job: no job started it.
+    const manual = pveRunning({ ...row, jobId: null, jobName: "Every guest" });
+    expect(manual.jobId).toBeNull();
+    expect(manual.jobName).toBe("Every guest");
+    expect(Object.keys(manual)).toContain("jobId");
   });
 });

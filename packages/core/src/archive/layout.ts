@@ -34,3 +34,16 @@ export function archiveItemKey(tenantId: string, receivedAt: Date, itemId: strin
   assertSafeId(itemId, "archive item id");
   return `${archivePrefix(tenantId)}${archiveDateBucket(receivedAt)}/${itemId}.json`;
 }
+
+/**
+ * The item id of a sealed record's key under `archivePrefix(tenantId)`, or null for any other
+ * key (a storage copy or migration looks up the record's retention by it).
+ */
+export function archiveItemIdOfKey(tenantId: string, key: string): string | null {
+  const prefix = archivePrefix(tenantId);
+  if (!key.startsWith(prefix)) {
+    return null;
+  }
+  const match = /^\d{4}\/\d{2}\/([A-Za-z0-9._-]+)\.json$/.exec(key.slice(prefix.length));
+  return match?.[1] ?? null;
+}

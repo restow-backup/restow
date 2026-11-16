@@ -5,6 +5,7 @@ import * as React from "react";
 import { Field, messageId } from "@/components/forms/field";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -467,11 +468,11 @@ function AddShareWizard({
               <TriangleAlert aria-hidden="true" />
               <AlertDescription className="space-y-2">
                 <p>{t("add.untested.description")}</p>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                <label htmlFor="add-share-untested" className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    id="add-share-untested"
                     checked={untestedConfirmed}
-                    onChange={(event) => setUntestedConfirmed(event.target.checked)}
+                    onCheckedChange={(checked) => setUntestedConfirmed(checked === true)}
                     data-action="confirm-untested"
                   />
                   {t("add.untested.confirm")}

@@ -45,7 +45,7 @@ describe("image mode success", () => {
     });
   });
 
-  it("runs every step, verifies the digests and rewrites only the two image variables", async () => {
+  it("runs every step, verifies the digests and rewrites only the two image variables [UPDATE-004]", async () => {
     h.ops.pulledDigests.set(NEW_APP, [digestOf("app-0.2.0")]);
     h.ops.pulledDigests.set(NEW_WEB, [digestOf("web-0.2.0")]);
     const view = await runToEnd("0.2.0", {
@@ -100,7 +100,7 @@ describe("image mode success", () => {
     expect(await h.dumps.list()).toHaveLength(1);
   });
 
-  it("refuses to announce a release that publishes no application digest", async () => {
+  it("refuses to announce a release that publishes no application digest [UPDATE-001]", async () => {
     for (const digests of [{}, { web: releaseDigests("0.2.0").web }]) {
       await expect(h.engine.schedule(scheduleRequest("0.2.0", { digests }))).rejects.toMatchObject({
         name: "EngineError",
@@ -112,7 +112,7 @@ describe("image mode success", () => {
     expect(h.ops.callsTo("pull")).toEqual([]);
   });
 
-  it("fails with fetch.digest_missing, before any pull, when the run has no digest", async () => {
+  it("fails with fetch.digest_missing, before any pull, when the run has no digest [UPDATE-001]", async () => {
     await h.engine.schedule(scheduleRequest("0.2.0", { leadSeconds: 60 }));
     // A state file written by an older updater (or edited by hand) carries none.
     if (h.store.state.runContext) {
@@ -128,7 +128,7 @@ describe("image mode success", () => {
     expect(await h.readEnv()).toBe(DEFAULT_ENV);
   });
 
-  it("verifies both signatures by digest, for exactly this release's signer, before pulling", async () => {
+  it("verifies both signatures by digest, for exactly this release's signer, before pulling [UPDATE-002]", async () => {
     const digests = releaseDigests("0.2.0");
     const view = await runToEnd();
     expect(view.run?.outcome).toBe("succeeded");
@@ -159,7 +159,7 @@ describe("image mode success", () => {
     expect(fetchStep?.detail).toMatchObject({ signatureVerified: true, digestVerified: true });
   });
 
-  it("installs nothing whose signature is missing or from another signer, also for the web image", async () => {
+  it("installs nothing whose signature is missing or from another signer, also for the web image [UPDATE-002]", async () => {
     const digests = releaseDigests("0.2.0");
     const cases: [string, string | null][] = [
       [`ghcr.io/restow-backup/restow@${digests.app}`, null],
@@ -186,7 +186,7 @@ describe("image mode success", () => {
     }
   });
 
-  it("refuses a release tag the release workflow does not sign for the version", async () => {
+  it("refuses a release tag the release workflow does not sign for the version [UPDATE-002]", async () => {
     for (const tag of ["0.2.0", "release-0.2.0", "v0.2.1", "v0.2.0+build"]) {
       const request = scheduleRequest("0.2.0");
       request.release.tag = tag;
@@ -372,7 +372,7 @@ describe("source mode success", () => {
     expect(env).toContain("RESTOW_WEB_IMAGE=restow-web:0.2.0");
   });
 
-  it("refuses a source the operator did not allow, before anything is announced", async () => {
+  it("refuses a source the operator did not allow, before anything is announced [UPDATE-013]", async () => {
     h.source.notAllowed = true;
     const request = scheduleRequest("0.2.0", {
       mode: "source",
@@ -606,7 +606,7 @@ describe("scheduling", () => {
 });
 
 describe("what leaves the process", () => {
-  it("never holds the shared secret, database password or token in state, log or journal", async () => {
+  it("never holds the shared secret, database password or token in state, log or journal [UPDATE-012]", async () => {
     h.redactor.add("shared-secret-value-0123456789");
     h.ops.failOn(
       "pull",

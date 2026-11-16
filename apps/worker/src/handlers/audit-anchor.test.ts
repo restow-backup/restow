@@ -178,7 +178,7 @@ describe.skipIf(!adminUrl)("audit anchor run (Postgres)", () => {
       .orderBy(asc(auditAnchor.anchorDate), asc(auditAnchor.tenantId));
   }
 
-  it("seals completed days only, with the head of a tied run and the day's count", async () => {
+  it("seals completed days only, with the head of a tied run and the day's count [ARCHIVE-002]", async () => {
     const logger = recordingLogger();
     const summary = await writeAuditAnchors({
       db,
@@ -234,7 +234,7 @@ describe.skipIf(!adminUrl)("audit anchor run (Postgres)", () => {
     expect(await anchorChain(db, tenantId, new Date("2026-09-24T00:00:00.000Z"))).toEqual([]);
   });
 
-  it("keeps anchors append-only", async () => {
+  it("keeps anchors append-only [ARCHIVE-002]", async () => {
     // Drizzle wraps the driver error; the trigger's message is on `cause`.
     await expect(db.execute(sql`DELETE FROM audit_anchor`)).rejects.toHaveProperty(
       "cause.message",

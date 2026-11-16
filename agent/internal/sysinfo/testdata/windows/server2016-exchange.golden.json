@@ -1,0 +1,29 @@
+{
+  "description": "Windows Server 2016 Standard with Exchange Server in KVM, domain member, WMI query timed out",
+  "osVersion": "Windows Server 2016 Standard 1607 (build 14393.7428)",
+  "virtualization": "vm",
+  "technology": "qemu",
+  "desktop": false,
+  "windows": {
+    "bitlocker": {
+      "state": "error",
+      "volumes": []
+    },
+    "build": 14393,
+    "displayVersion": "1607",
+    "domain": "mail.example",
+    "domainMember": true,
+    "editionId": "ServerStandard",
+    "installationType": "server",
+    "productName": "Windows Server 2016 Standard",
+    "productType": "server",
+    "roles": {
+      "dfsr": false,
+      "domainController": false,
+      "exchange": true,
+      "hyperV": false,
+      "sqlServer": false
+    },
+    "ubr": 7428
+  }
+}

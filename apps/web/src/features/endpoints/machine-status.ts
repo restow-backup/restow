@@ -34,6 +34,7 @@ export const MACHINE_STATUS_ORDER = [
   "never_seen",
   "revoke_suggested",
   "never",
+  "no_samples",
   "restore_warning",
   "check_overdue",
   "interrupted",
@@ -75,6 +76,9 @@ export const MACHINE_STATUS_META: Record<
   // No contact for longer than the machine's `revokeHintAfterDays` (#65): revoke, then remove.
   revoke_suggested: { tone: "warning", problem: true },
   never: { tone: "warning", problem: true },
+  // The newest backup recorded no sample files: no restore test of it is possible, so it can
+  // never be shown as checked (amber, never the quiet "unverified").
+  no_samples: { tone: "warning", problem: true },
   restore_warning: { tone: "warning", problem: true },
   check_overdue: { tone: "warning", problem: false },
   // The agent restarted during the backup and carries on: neither failed nor done.
@@ -170,7 +174,7 @@ export function machineStatuses(machine: StatusMachine): MachineStatus[] {
   if (machine.readiness.state === "green" && inJob && active) {
     keys.add("verified");
   } else if (machine.readiness.state === "unverified" && machine.lastBackupAt) {
-    keys.add("unverified");
+    keys.add(machine.readiness.noSamples ? "no_samples" : "unverified");
   }
   if (machine.lastBackupAt && !keys.has("failed") && !keys.has("partial")) {
     keys.add("succeeded");

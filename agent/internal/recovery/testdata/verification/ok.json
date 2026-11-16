@@ -1,0 +1,99 @@
+{
+  "format": "restow-verify-v1",
+  "result": "ok",
+  "snapshotId": "4f2a9c1d00000000000000000000000000000000000000000000000000000000",
+  "planSha256": "9b1eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "startedAt": "2026-11-05T09:12:00Z",
+  "finishedAt": "2026-11-05T10:40:13Z",
+  "restoreErrors": 0,
+  "checks": [
+    {
+      "id": "restic_verify",
+      "result": "ok",
+      "findings": [],
+      "evidence": {
+        "errors": 0
+      }
+    },
+    {
+      "id": "storage_stack",
+      "result": "ok",
+      "findings": [],
+      "evidence": {
+        "filesystems": 4,
+        "devices": 3
+      }
+    },
+    {
+      "id": "fstab",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "crypttab",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "initramfs",
+      "result": "ok",
+      "findings": [],
+      "evidence": {
+        "kernel": "6.1.0-27-amd64",
+        "image": "/boot/initrd.img-6.1.0-27-amd64",
+        "readable": true,
+        "bootFreePercent": 61
+      }
+    },
+    {
+      "id": "boot_entries",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "boot_config",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "identity_conflicts",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "mount_points",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "secure_boot",
+      "result": "ok",
+      "findings": [],
+      "evidence": {
+        "secureBoot": true
+      }
+    }
+  ],
+  "hints": [
+    {
+      "code": "keymap_at_boot",
+      "params": {
+        "layout": "de"
+      }
+    }
+  ],
+  "fixups": [
+    {
+      "path": "/etc/fstab",
+      "rule": "fstab",
+      "backup": "/etc/fstab.restow-20261105T101500Z"
+    }
+  ],
+  "notAdaptedKernels": []
+}

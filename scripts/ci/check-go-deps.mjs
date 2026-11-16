@@ -3,7 +3,7 @@
  * Go dependency check (CI). The endpoint agent in agent/ uses the Go standard library
  * only (agent/README.md, "Dependencies"), so there are no Go module licenses to track.
  * This check keeps it that way: it fails as soon as agent/ depends on a module other
- * than its own, in the build or in the tests, for any of the four shipped targets
+ * than its own, in the build or in the tests, for any of the five shipped targets
  * (the same list as agent/build.sh). A third-party Go module needs a license check
  * (allowlist as for npm, see scripts/ci/license-policy.json) before it can be added.
  *
@@ -26,6 +26,7 @@ export const TARGETS = [
   { goos: "linux", goarch: "arm64" },
   { goos: "darwin", goarch: "amd64" },
   { goos: "darwin", goarch: "arm64" },
+  { goos: "windows", goarch: "amd64" },
 ];
 
 export const MODULE_FORMAT = "{{.Path}} {{.Main}}";

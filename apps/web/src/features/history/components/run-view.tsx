@@ -419,6 +419,14 @@ function StatsSection({
                 : "–"}
             </Row>
           )}
+          {detail?.readFrom ? (
+            // The primary no longer held the repository: the restore read its copy.
+            <Row label={t("view.stats.readFrom")} term="read-from">
+              <span className="font-sans">
+                {detail.readFrom.targetName ?? t("view.stats.readFromUnnamed")}
+              </span>
+            </Row>
+          ) : null}
         </dl>
       </div>
       <div className="min-w-0 border-t p-3 sm:border-t-0">

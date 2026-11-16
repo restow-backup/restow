@@ -26,6 +26,13 @@ import {
   requestOk,
   stripReadOnly,
 } from "./common.js";
+import {
+  type AttachmentMeta,
+  addFileAttachmentAt,
+  type FileAttachmentFacts,
+  listAttachmentsAt,
+} from "./mail.js";
+import type { UploadOptions, UploadSource } from "./upload-session.js";
 
 export const CALENDAR_SELECT = [
   "id",
@@ -94,6 +101,29 @@ export function listEvents(
     $top: EVENTS_PAGE_SIZE,
   })}`;
   return paginate<Event>(client, url, UTC_PREFER);
+}
+
+/** The URL of an event of a user or group mailbox. */
+export function eventPath(owner: MailboxOwner, eventId: string): string {
+  return `${ownerPath(owner)}/events/${encodeURIComponent(eventId)}`;
+}
+
+/**
+ * The item of an item attachment of an event (an attached message, event or contact) as Graph
+ * JSON: `$expand` of the derived property `item`.
+ */
+export async function getEventItemAttachment(
+  client: GraphClient,
+  owner: MailboxOwner,
+  eventId: string,
+  attachmentId: string,
+): Promise<Record<string, unknown>> {
+  return requestOk<Record<string, unknown>>(client, {
+    method: "GET",
+    url: `${eventPath(owner, eventId)}/attachments/${encodeURIComponent(attachmentId)}${query({
+      $expand: "microsoft.graph.itemAttachment/item",
+    })}`,
+  });
 }
 
 export async function getEvent(
@@ -255,6 +285,34 @@ export async function createEvent(
     headers: UTC_PREFER,
     body: event,
   });
+}
+
+/** The `attachments` collection of an event. */
+export function eventAttachmentsPath(owner: MailboxOwner, eventId: string): string {
+  return `${eventPath(owner, eventId)}/attachments`;
+}
+
+/**
+ * Add a file attachment to an event: a POST under 3 MB, else an upload
+ * session (Graph v1.0 `event: createUploadSession`, up to 150 MB).
+ */
+export function addEventFileAttachment(
+  client: GraphClient,
+  owner: MailboxOwner,
+  eventId: string,
+  file: FileAttachmentFacts,
+  source: UploadSource,
+  options: UploadOptions = {},
+): Promise<{ id: string | undefined; location: string | undefined }> {
+  return addFileAttachmentAt(client, eventAttachmentsPath(owner, eventId), file, source, options);
+}
+
+export function listEventAttachments(
+  client: GraphClient,
+  owner: MailboxOwner,
+  eventId: string,
+): AsyncGenerator<AttachmentMeta, void, unknown> {
+  return listAttachmentsAt(client, eventPath(owner, eventId));
 }
 
 export async function updateEvent(

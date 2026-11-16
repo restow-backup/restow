@@ -108,5 +108,8 @@
     "endingSoon": "Ihr Update-Zeitraum endet am {date}. Alle bis dahin veröffentlichten Versionen arbeiten dauerhaft mit allen Modulen weiter. Für spätere Versionen können Sie den Update-Zeitraum um ein Jahr verlängern; den neuen Schlüssel installieren Sie hier, er ersetzt diesen.",
     "ended": "Ihr Update-Zeitraum endete am {date}. Die installierte Version und alle bis dahin veröffentlichten Versionen arbeiten dauerhaft mit allen Modulen weiter. Für spätere Versionen können Sie den Update-Zeitraum verlängern.",
     "runAsCommunity": "Diese Version von {appName} wurde nach dem Ende des Update-Zeitraums Ihres Schlüssels veröffentlicht und läuft auf Wunsch des Betreibers als Community (RESTOW_RUN_AS_COMMUNITY). Ihre Daten sind unverändert. Installieren Sie einen Schlüssel, dessen Update-Zeitraum diese Version abdeckt, dann stehen alle Module sofort wieder bereit."
+  },
+  "feature": {
+    "askProvider": "Freischalten kann die Administration der Installation (Ihr Provider)."
   }
 }

@@ -247,6 +247,60 @@ describe.skipIf(!testDatabaseAdminUrl)("stopping machine backups against Postgre
     expect(audits.some((a) => a.target === who.id)).toBe(true);
   });
 
+  it("never hands out a task from before restore mode's hold point, also not again [RETAIN-009]", async () => {
+    const who = await machine();
+    const hour = 3_600_000;
+    // Restored from a dump: a restore still pending there, and an uninstall delivered (and done,
+    // in the timeline the database lost) 40 minutes ago that has no run in the database.
+    const [restore] = await fixture.db
+      .insert(endpointTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        endpointId: who.id,
+        kind: "restore",
+        params: { snapshotId: "abc", paths: ["/srv"], target: "/restore" },
+        createdAt: new Date(Date.now() - hour),
+        expiresAt: new Date(Date.now() + 24 * hour),
+      })
+      .returning();
+    const [uninstall] = await fixture.db
+      .insert(endpointTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        endpointId: who.id,
+        kind: "uninstall",
+        params: {},
+        status: "delivered",
+        createdAt: new Date(Date.now() - hour),
+        deliveredAt: new Date(Date.now() - 40 * 60_000),
+        expiresAt: new Date(Date.now() + 24 * hour),
+      })
+      .returning();
+    await fixture.db.execute(sql`
+      INSERT INTO installation_restore_mode (source, reason, activated_by, hold_jobs_before)
+      VALUES ('cli', 'rollback', '{"label":"cli"}'::jsonb, now() - interval '30 minutes')`);
+    const { apiRestoreModeGuard } = await import("../restore-mode/instance.js");
+    apiRestoreModeGuard().forgetChecks();
+    try {
+      const fresh = await backupNow(who.id);
+      expect((await beat(who)).tasks.map((task) => task.id)).toEqual([fresh]);
+      for (const id of [restore?.id, uninstall?.id]) {
+        const [row] = await fixture.db
+          .select()
+          .from(endpointTasks)
+          .where(eq(endpointTasks.id, id as string));
+        expect(row).toMatchObject({
+          status: "cancelled",
+          errorMessage: expect.stringContaining("from before the database restore"),
+        });
+      }
+      expect((await beat(who)).tasks).toEqual([]);
+    } finally {
+      await fixture.db.execute(sql`DELETE FROM installation_restore_mode`);
+      apiRestoreModeGuard().forgetChecks();
+    }
+  });
+
   it("tells a behind agent to update now; the request ends once it runs the release", async () => {
     const who = await machine();
     expect((await beat(who)).updateNow).toBe(false);

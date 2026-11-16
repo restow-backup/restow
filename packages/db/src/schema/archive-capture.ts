@@ -78,6 +78,10 @@ export const archiveCaptureStreams = pgTable(
     // The `jobs` row of the one-time backfill ("Archiv-Übernahme"), while or after it ran.
     backfillJobId: uuid("backfill_job_id"),
     backfillCompletedAt: timestamp("backfill_completed_at", { withTimezone: true }),
+    // Where the one-time takeover stands (the way's backfill cursor, 0.5.0): kept on the
+    // stream, not in the job, so a continuation, a retry or a re-queued backfill resumes
+    // where the last job stopped. Cleared with `backfill_completed_at`.
+    backfillCursor: jsonb("backfill_cursor").$type<Record<string, unknown>>(),
     state: jsonb("state").$type<ArchiveStreamState>().notNull().default({}),
     // A notification or a resync asked for a pass; cleared when a pass started after it ends.
     dirtySince: timestamp("dirty_since", { withTimezone: true }),
@@ -116,6 +120,11 @@ export const archiveCapturePending = pgTable(
       .references(() => protectedObjects.id, { onDelete: "cascade" }),
     way: archiveCaptureWayEnum("way").notNull(),
     externalRef: text("external_ref").notNull(),
+    // Failed fetches so far (0.5.0): a ref that keeps failing is fetched after the others,
+    // and dropped as a capture gap after PENDING_MAX_ATTEMPTS (apps/worker archive-capture).
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     ...createdOnly(),
   },
   (t) => [
@@ -125,6 +134,60 @@ export const archiveCapturePending = pgTable(
       t.externalRef,
     ),
     index("archive_capture_pending_tenant_idx").on(t.tenantId),
+  ],
+);
+
+/**
+ * What a capture gap is about: a whole folder the live capture could not read, the older mail
+ * of a folder the backfill could not take over (`backfill_folder`, 0.5.0: kept apart, so a live
+ * pass neither resets nor resolves it), or one message.
+ */
+export const archiveCaptureGapKindEnum = pgEnum("archive_capture_gap_kind", [
+  "folder",
+  "message",
+  "backfill_folder",
+]);
+
+/**
+ * Mail a capture way could not take into the archive (0.5.0, docs/ARCHIVE.md
+ * "Lücken der Erfassung"): a folder the server refuses, a message it lists but never
+ * delivers, a Graph message that has no MIME export. One row per stream, kind and `ref`
+ * (IMAP: the folder path, or `<folder>;<uidvalidity>;<uid>`; Graph: the immutable id).
+ * Every failed attempt counts (`attempts`); from the third on (or when a way gives up at
+ * once) the gap is open (`opened_at`): the stream shows "incomplete" with the count, never
+ * fine, and the capture alert `capture_gap` names it. Taken in later after all, it is
+ * resolved (`resolved_at`), kept as a record.
+ */
+export const archiveCaptureGaps = pgTable(
+  "archive_capture_gaps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    streamId: uuid("stream_id")
+      .notNull()
+      .references(() => archiveCaptureStreams.id, { onDelete: "cascade" }),
+    kind: archiveCaptureGapKindEnum("kind").notNull(),
+    ref: text("ref").notNull(),
+    // A failure code of the catalog (`imap.server_limit`), or the way's own (`undelivered`,
+    // `too_large`, `not_convertible`, `export_failed`).
+    reason: text("reason").notNull(),
+    attempts: integer("attempts").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // When the last attempt counted, or the open gap was last asked for again (0.5.0): an
+    // attempt counts at most once an hour, an open gap is retried once a day.
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    ...createdOnly(),
+  },
+  (t) => [
+    uniqueIndex("archive_capture_gaps_stream_ref_uq").on(t.streamId, t.kind, t.ref),
+    index("archive_capture_gaps_open_idx")
+      .on(t.tenantId, t.streamId)
+      .where(sql`${t.resolvedAt} IS NULL AND ${t.openedAt} IS NOT NULL`),
   ],
 );
 

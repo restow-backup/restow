@@ -18,6 +18,7 @@ import type { Readable } from "node:stream";
 import { type Archiver, ZipArchive } from "archiver";
 import {
   normaliseSnapshotPath,
+  type ResticDump,
   type ResticSession,
   resticDump,
   resticStatMany,
@@ -32,6 +33,17 @@ export interface SnapshotZipOptions {
   signal?: AbortSignal;
   /** ZIP comment (snapshot id, endpoint). */
   comment?: string;
+  /**
+   * Files and folders left out of the archive, by their path in the snapshot (absolute,
+   * `/`-separated): the agent's state file and, for the restore role, LUKS key files
+   * (docs/BAREMETAL.md 5.4).
+   */
+  skip?: (snapshotPath: string) => boolean;
+}
+
+/** The snapshot path of an entry of `restic dump --archive tar` (named from the root, no slash). */
+export function tarEntrySnapshotPath(entryName: string): string {
+  return `/${entryName.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
 export interface SnapshotZip {
@@ -151,23 +163,46 @@ export function streamSnapshotZip(
   options: SnapshotZipOptions & { selection: { path: string; type: "file" | "dir" }[] },
 ): SnapshotZip {
   const { session, snapshotId, selection, signal } = options;
+  const skip = options.skip ?? (() => false);
   const archive = new ZipArchive({ zlib: { level: 1 }, comment: options.comment });
   const names = new UniqueNames();
+  // The dump being read. Whatever ends the archive early (a broken tar, an error of the ZIP
+  // writer, the client leaving) cancels it: its output is read by nobody then, and restic
+  // would wait on the full pipe without ending.
+  let current: ResticDump | null = null;
+  const stopCurrent = () => {
+    const dump = current;
+    current = null;
+    if (dump) {
+      dump.cancel();
+      dump.stream.destroy();
+    }
+  };
 
   const pump = async (): Promise<void> => {
     for (const item of selection) {
+      if (skip(item.path)) {
+        continue;
+      }
       if (item.type === "file") {
         const dump = resticDump(session, snapshotId, item.path, { signal });
+        current = dump;
         const name = names.claim(safeEntryName(basename(item.path)) || "file");
         const added = nextEntry(archive);
         archive.append(dump.stream, { name });
         await added;
         await dump.done;
+        current = null;
         continue;
       }
       const dump = resticDump(session, snapshotId, item.path, { archive: "tar", signal });
+      current = dump;
       const prefix = parentPrefix(item.path);
       for await (const entry of readTar(dump.stream)) {
+        if (skip(tarEntrySnapshotPath(entry.name))) {
+          // The reader skips the body the archive does not take.
+          continue;
+        }
         const relative = entry.name.startsWith(prefix)
           ? entry.name.slice(prefix.length)
           : entry.name;
@@ -190,13 +225,17 @@ export function streamSnapshotZip(
         }
       }
       await dump.done;
+      current = null;
     }
     await archive.finalize();
   };
 
   pump().catch((error: unknown) => {
+    stopCurrent();
     archive.destroy(error instanceof Error ? error : new Error(String(error)));
   });
+  archive.on("error", stopCurrent);
+  archive.on("close", stopCurrent);
   signal?.addEventListener("abort", () => archive.destroy(new Error("aborted")), { once: true });
 
   const only = selection.length === 1 ? selection[0] : undefined;

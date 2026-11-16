@@ -1,10 +1,16 @@
 import {
+  BELL_LOCKED_EVENTS,
   bellEventsOf,
   catalogEventsOf,
+  completeDeliveryModes,
+  type DeliveryModes,
+  isCriticalReportEvent,
   isInstallationReportEvent,
   REPORT_EVENT_INFO,
   REPORT_EVENTS,
   type ReportEvent,
+  SUMMARY_ENTRIES,
+  storedDeliveryModes,
   webhookColumnUpdate,
 } from "@restow/core";
 import { type Database, tenantNotificationRecipients, tenants, webhooks } from "@restow/db";
@@ -33,10 +39,28 @@ export interface MatrixEventDto {
   name: ReportEvent;
   group: string;
   level: string;
+  /** A security or data-loss event (0.5.0): always in the bell, always sent at once. */
+  critical: boolean;
+}
+
+/** A webhook's health (0.5.0, the worker records it after each attempt). */
+export interface WebhookHealthDto {
+  status: "ok" | "failing";
+  failingSince: string | null;
+  consecutiveFailures: number;
+  lastError: string | null;
+  alertedAt: string | null;
 }
 
 export type MatrixChannelDto =
-  | { kind: "bell"; id: "bell"; events: ReportEvent[]; custom: boolean }
+  | {
+      kind: "bell";
+      id: "bell";
+      events: ReportEvent[];
+      custom: boolean;
+      /** Events the bell always shows (0.5.0): the critical ones and failed deliveries. */
+      locked: ReportEvent[];
+    }
   | {
       kind: "webhook";
       id: string;
@@ -46,6 +70,7 @@ export type MatrixChannelDto =
       format: string;
       active: boolean;
       events: ReportEvent[];
+      health: WebhookHealthDto;
     }
   | {
       kind: "email";
@@ -54,7 +79,27 @@ export type MatrixChannelDto =
       name: string | null;
       events: ReportEvent[];
       weeklyReport: boolean;
+      /** The summary reports the recipient gets (0.5.0). */
+      reports: { daily: boolean; weekly: boolean; monthly: boolean };
+      delivery: Record<"error" | "warning" | "info", "immediate" | "hourly" | "daily">;
+      failure: { since: string; reason: string; detail: string | null } | null;
     };
+
+/** A webhook's health as the API answers it. */
+export function webhookHealthOf(hook: {
+  failingSince: Date | null;
+  consecutiveFailures: number;
+  lastFailure: string | null;
+  failureAlertedAt: Date | null;
+}): WebhookHealthDto {
+  return {
+    status: hook.failingSince ? "failing" : "ok",
+    failingSince: hook.failingSince?.toISOString() ?? null,
+    consecutiveFailures: hook.consecutiveFailures,
+    lastError: hook.lastFailure,
+    alertedAt: hook.failureAlertedAt?.toISOString() ?? null,
+  };
+}
 
 export interface NotificationMatrixDto {
   events: MatrixEventDto[];
@@ -109,6 +154,7 @@ export async function getNotificationMatrix(
         name,
         group: REPORT_EVENT_INFO[name].group,
         level: REPORT_EVENT_INFO[name].level,
+        critical: isCriticalReportEvent(name),
       })),
       channels: [
         {
@@ -116,6 +162,7 @@ export async function getNotificationMatrix(
           id: "bell",
           events: only(bellEventsOf(tenant.bellEvents)),
           custom: tenant.bellEvents !== null,
+          locked: only(BELL_LOCKED_EVENTS),
         },
         ...hooks.map((hook) => ({
           kind: "webhook" as const,
@@ -125,6 +172,7 @@ export async function getNotificationMatrix(
           format: hook.format,
           active: hook.active,
           events: only(hook.events),
+          health: webhookHealthOf(hook),
         })),
         ...recipients.map((recipient) => ({
           kind: "email" as const,
@@ -133,6 +181,19 @@ export async function getNotificationMatrix(
           name: recipient.name,
           events: only(recipient.events),
           weeklyReport: recipient.events.includes(WEEKLY_REPORT_ENTRY),
+          reports: {
+            daily: recipient.events.includes("report.daily"),
+            weekly: recipient.events.includes("report.weekly"),
+            monthly: recipient.events.includes("report.monthly"),
+          },
+          delivery: completeDeliveryModes(recipient.delivery as DeliveryModes),
+          failure: recipient.failingSince
+            ? {
+                since: recipient.failingSince.toISOString(),
+                reason: recipient.lastFailureReason ?? "transport_error",
+                detail: null,
+              }
+            : null,
         })),
       ],
     };
@@ -186,7 +247,11 @@ export async function updateNotificationMatrix(
     let recipientsChanged = false;
     for (const channel of input.channels) {
       if (channel.kind === "bell") {
-        const events = savedColumn(channel.events, bellEventsOf(tenant.bellEvents), visible);
+        // The critical events and failed deliveries stay on, whatever was sent (0.5.0).
+        const events = catalogEventsOf([
+          ...savedColumn(channel.events, bellEventsOf(tenant.bellEvents), visible),
+          ...BELL_LOCKED_EVENTS,
+        ]);
         await tx
           .update(tenants)
           .set({ bellEvents: events, updatedAt: now })
@@ -211,7 +276,10 @@ export async function updateNotificationMatrix(
         continue;
       }
       const [recipient] = await tx
-        .select({ events: tenantNotificationRecipients.events })
+        .select({
+          events: tenantNotificationRecipients.events,
+          delivery: tenantNotificationRecipients.delivery,
+        })
         .from(tenantNotificationRecipients)
         .where(
           and(
@@ -223,10 +291,27 @@ export async function updateNotificationMatrix(
         throw new ProblemError(404, "Notification recipient not found");
       }
       const events = savedColumn(channel.events, recipient.events, visible);
-      const weekly = recipient.events.includes(WEEKLY_REPORT_ENTRY) ? [WEEKLY_REPORT_ENTRY] : [];
+      // The summary reports: as asked, else as they were (the time-triggered ones need
+      // `reports.timed`; without it the choice is kept for when it becomes available).
+      const reports = SUMMARY_ENTRIES.filter((entry) => {
+        const asked =
+          channel.reports?.[entry.slice("report.".length) as "daily" | "weekly" | "monthly"];
+        return asked === undefined ? recipient.events.includes(entry) : asked;
+      });
       await tx
         .update(tenantNotificationRecipients)
-        .set({ events: normalizeRecipientEvents([...events, ...weekly]), updatedAt: now })
+        .set({
+          events: normalizeRecipientEvents([...events, ...reports]),
+          ...(channel.delivery
+            ? {
+                delivery: storedDeliveryModes({
+                  ...(recipient.delivery as DeliveryModes),
+                  ...channel.delivery,
+                }),
+              }
+            : {}),
+          updatedAt: now,
+        })
         .where(
           and(
             eq(tenantNotificationRecipients.tenantId, tenantId),

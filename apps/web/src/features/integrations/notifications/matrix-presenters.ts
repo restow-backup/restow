@@ -1,4 +1,5 @@
 import type {
+  DeliveryModes,
   EventGroup,
   EventLevel,
   MatrixChannel,
@@ -83,14 +84,57 @@ export function toggleCell(
   return { ...draft, [key]: rows.map((row) => row.name).filter((name) => current.has(name)) };
 }
 
-/** Set a column to a preset. */
+/** Set a column to a preset; the column's locked events stay on. */
 export function applyPreset(
   draft: MatrixDraft,
   key: string,
   preset: ChannelPreset,
   rows: readonly MatrixRow[],
+  locked: readonly ReportEvent[] = [],
 ): MatrixDraft {
-  return { ...draft, [key]: presetEvents(preset, rows) };
+  const chosen = new Set([...presetEvents(preset, rows), ...locked]);
+  return { ...draft, [key]: rows.map((row) => row.name).filter((name) => chosen.has(name)) };
+}
+
+/**
+ * The events a column cannot switch off (0.5.0): the bell always shows the critical events and
+ * failed deliveries. Other columns have none.
+ */
+export function lockedEventsOf(channel: MatrixChannel): readonly ReportEvent[] {
+  return channel.kind === "bell" ? (channel.locked ?? []) : [];
+}
+
+/**
+ * The digest modes of an e-mail column that are not "at once", for the chip under its title
+ * (0.5.0): `[["warning", "daily"], ["info", "hourly"]]`. Empty for every other column, and for a
+ * recipient who gets everything at once.
+ */
+export function digestModesOf(
+  channel: MatrixChannel,
+): [keyof DeliveryModes, Exclude<DeliveryModes[keyof DeliveryModes], "immediate">][] {
+  if (channel.kind !== "email" || !channel.delivery) return [];
+  const modes = channel.delivery;
+  return (["error", "warning", "info"] as const).flatMap((level) => {
+    const mode = modes[level];
+    return mode === "hourly" || mode === "daily" ? [[level, mode] as const] : [];
+  }) as [keyof DeliveryModes, Exclude<DeliveryModes[keyof DeliveryModes], "immediate">][];
+}
+
+/** Why a column's deliveries fail right now (0.5.0), or null while they get through. */
+export function channelFailure(
+  channel: MatrixChannel,
+): { since: string; reason: string; attempts: number | null } | null {
+  if (channel.kind === "webhook" && channel.health?.status === "failing") {
+    return {
+      since: channel.health.failingSince ?? "",
+      reason: channel.health.lastError ?? "",
+      attempts: channel.health.consecutiveFailures,
+    };
+  }
+  if (channel.kind === "email" && channel.failure) {
+    return { since: channel.failure.since, reason: channel.failure.reason, attempts: null };
+  }
+  return null;
 }
 
 /** The columns that differ from the server's, as the update to send. */

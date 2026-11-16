@@ -16,6 +16,7 @@ import {
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { composeFacts } from "../mounts/instance.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import type { FileShareActor } from "./audit.js";
 import {
   browseSnapshot,
@@ -230,6 +231,8 @@ fileSharesRoutes.delete("/:id", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const { confirmName } = await parseJsonBody(c.req, deleteShareSchema);
   assertRecentSignIn(c.get("auth").session);
+  // Restore mode: the restored database may not know every backup in the share's repository.
+  await assertNotInRestoreMode("file_share_purge", c.get("tenantId"));
   return c.json(await purgeShare(db, c.get("tenantId"), id, confirmName, contextOf(c)), 202);
 });
 

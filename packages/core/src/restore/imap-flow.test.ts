@@ -59,12 +59,51 @@ class FakeImapFlow extends EventEmitter {
   async getMailboxLock(path: string): Promise<{ path: string; release(): void }> {
     this.locks++;
     this.calls.push(`LOCK ${path}`);
+    this.mailbox = {
+      path,
+      ...(this.permanentFlags ? { permanentFlags: this.permanentFlags } : {}),
+    };
     return { path, release: () => this.locks-- };
   }
 
-  async search(query: { header: Record<string, string> }): Promise<number[]> {
-    this.calls.push(`SEARCH ${query.header["message-id"]}`);
-    return [7, 9];
+  /** Stored messages for date and size searches. */
+  readonly stored: Array<{ uid: number; internalDate: Date; size: number }> = [];
+  /**
+   * The server's time zone as an offset from UTC in hours: SEARCH ON, SINCE
+   * and BEFORE compare the day of the internal date there (RFC 3501 ignores
+   * time and zone; Dovecot uses the server's local time, Gmail its own).
+   */
+  serverUtcOffsetHours = 0;
+
+  async search(query: {
+    header?: Record<string, string>;
+    on?: Date;
+    since?: Date;
+    before?: Date;
+    larger?: number;
+    smaller?: number;
+  }): Promise<number[]> {
+    if (query.header !== undefined) {
+      this.calls.push(`SEARCH ${query.header["message-id"]}`);
+      return [7, 9];
+    }
+    // imapflow sends a date criterion as the UTC day of the Date it is given.
+    const sentDay = (date: Date) => date.toISOString().slice(0, 10);
+    const serverDay = (date: Date) =>
+      new Date(date.getTime() + this.serverUtcOffsetHours * 3_600_000).toISOString().slice(0, 10);
+    this.calls.push(`SEARCH ${JSON.stringify(query)}`);
+    return this.stored
+      .filter((message) => {
+        const day = serverDay(message.internalDate);
+        return (
+          (query.on === undefined || day === sentDay(query.on)) &&
+          (query.since === undefined || day >= sentDay(query.since)) &&
+          (query.before === undefined || day < sentDay(query.before)) &&
+          (query.larger === undefined || message.size > query.larger) &&
+          (query.smaller === undefined || message.size < query.smaller)
+        );
+      })
+      .map((message) => message.uid);
   }
 
   async append(
@@ -77,6 +116,19 @@ class FakeImapFlow extends EventEmitter {
       `APPEND ${path} ${flags.join(" ")} ${date?.toISOString() ?? "-"} ${content.length}`,
     );
     return this.appendResult;
+  }
+
+  /** What SELECT reported for the mailbox the last lock opened. */
+  mailbox: { path: string; permanentFlags?: Set<string> } | false = false;
+  permanentFlags: Set<string> | undefined = new Set(["\\Seen", "\\*"]);
+
+  async messageCopy(
+    range: string,
+    destination: string,
+    options: { uid?: boolean },
+  ): Promise<{ path: string; destination: string } | false> {
+    this.calls.push(`COPY ${range} ${destination} uid=${options.uid === true}`);
+    return { path: "INBOX", destination };
   }
 
   async fetchOne(uid: string): Promise<{ source: Buffer } | false> {
@@ -115,6 +167,28 @@ describe("ImapFlowRestoreSession", () => {
     expect(session.specialUseMailbox("\\sent")).toBe("INBOX.Sent");
     expect(session.specialUseMailbox("\\Inbox")).toBe("INBOX");
     expect(session.specialUseMailbox("\\Trash")).toBeUndefined();
+  });
+
+  it("knows a Gmail account by All Mail, copies by UID and reads PERMANENTFLAGS", async () => {
+    const gmail: Box[] = [
+      { path: "INBOX", delimiter: "/", specialUse: "\\Inbox" },
+      { path: "[Gmail]/All Mail", delimiter: "/", specialUse: "\\All" },
+      { path: "Work", delimiter: "/" },
+    ];
+    const fake = new FakeImapFlow({} as ImapFlowOptions, gmail);
+    const session = await ImapFlowRestoreSession.open(asClient(fake));
+    expect(session.isGmail).toBe(true);
+    await session.copy("INBOX", 41, "Work");
+    expect(fake.calls).toContain("COPY 41 Work uid=true");
+    expect(await session.permanentFlags("INBOX")).toEqual(["\\Seen", "\\*"]);
+    fake.permanentFlags = undefined;
+    expect(await session.permanentFlags("INBOX")).toBeUndefined();
+    expect(fake.locks).toBe(0);
+
+    const plain = await ImapFlowRestoreSession.open(
+      asClient(new FakeImapFlow({} as ImapFlowOptions, namespaced)),
+    );
+    expect(plain.isGmail).toBe(false);
   });
 
   it("creates missing levels once and keeps the name the server gave them", async () => {
@@ -183,6 +257,28 @@ describe("ImapFlowRestoreSession", () => {
     fake.logoutFails = true;
     await session.close();
     expect(fake.closed).toBe(true);
+  });
+});
+
+describe("ImapFlowRestoreSession.findSimilar", () => {
+  it("finds a message appended late in the UTC day on a server east of UTC", async () => {
+    const fake = new FakeImapFlow({} as ImapFlowOptions, namespaced);
+    // Dovecot in Europe/Berlin: 23:30 UTC on 1 March is 00:30 on 2 March there.
+    fake.serverUtcOffsetHours = 1;
+    const internalDate = new Date("2025-03-01T23:30:00Z");
+    fake.stored.push(
+      { uid: 12, internalDate, size: 2048 },
+      { uid: 13, internalDate, size: 4096 },
+      { uid: 14, internalDate: new Date("2025-03-05T10:00:00Z"), size: 2048 },
+    );
+    const session = await ImapFlowRestoreSession.open(asClient(fake));
+
+    expect(await session.findSimilar("INBOX", { internalDate, size: 2048 })).toEqual([12]);
+    // West of UTC as well: 00:30 UTC on 2 March is 1 March in New York.
+    fake.serverUtcOffsetHours = -5;
+    const early = new Date("2025-03-02T00:30:00Z");
+    fake.stored.push({ uid: 15, internalDate: early, size: 777 });
+    expect(await session.findSimilar("INBOX", { internalDate: early, size: 777 })).toEqual([15]);
   });
 });
 

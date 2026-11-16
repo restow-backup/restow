@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { ErrorState } from "@/components/kit";
+import { ErrorState, NativeSelect } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,16 +22,16 @@ import {
   STORAGE_BILLING,
   type StorageBilling,
   savePricing,
+  UNIT_LINES,
+  type UnitPriceKey,
 } from "./api.js";
 import { formatMoney, parsePrice, priceText, tenantsWithOwnPrices } from "./presenters.js";
 import { usePricingEstimate } from "./use-estimate.js";
 
-const SELECT =
-  "h-9 rounded-md border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50";
-
 /**
  * The provider's prices (installation section, 0.4.7): per month, per gigabyte or terabyte of
- * stored backups and per protected mailbox. The tenant overview shows what a tenant comes to at
+ * stored backups and per protected mailbox, and (0.5.0) optionally per protected server, client,
+ * VM, container and file share. The tenant overview shows what a tenant comes to at
  * these prices, in a small card for the provider; nothing bills or limits anything. Every
  * provider admin reads them, the owner changes them.
  */
@@ -142,6 +142,12 @@ function OwnPriceList({ estimate, language }: { estimate: PricingEstimate; langu
                     unit: estimate.storageUnit,
                   })
                 : null,
+              ...UNIT_LINES.map((def) => {
+                const price = tenant[def.price] ?? null;
+                return tenant.overridden[def.flag] && price !== null
+                  ? t(`pricing.overrides.${def.flag}`, { price: money(price) })
+                  : null;
+              }),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -164,15 +170,25 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
   const [billing, setBilling] = React.useState<StorageBilling>(pricing.storageBilling ?? "exact");
   const [storage, setStorage] = React.useState(priceText(pricing.storagePrice, language));
   const [mailbox, setMailbox] = React.useState(priceText(pricing.mailboxPrice, language));
+  const [unitTexts, setUnitTexts] = React.useState<Record<UnitPriceKey, string>>(() =>
+    unitTextsOf(pricing, language),
+  );
   const storagePrice = parsePrice(storage);
   const mailboxPrice = parsePrice(mailbox);
-  const valid = storagePrice !== undefined && mailboxPrice !== undefined;
+  const unitPrices = UNIT_LINES.map(
+    (def) => [def.price, parsePrice(unitTexts[def.price])] as const,
+  );
+  const valid =
+    storagePrice !== undefined &&
+    mailboxPrice !== undefined &&
+    unitPrices.every(([, price]) => price !== undefined);
   const changed =
     currency !== pricing.currency ||
     unit !== pricing.storageUnit ||
     billing !== (pricing.storageBilling ?? "exact") ||
     storagePrice !== pricing.storagePrice ||
-    mailboxPrice !== pricing.mailboxPrice;
+    mailboxPrice !== pricing.mailboxPrice ||
+    unitPrices.some(([key, price]) => price !== (pricing[key] ?? null));
   const save = useMutation({
     mutationFn: () =>
       savePricing({
@@ -181,6 +197,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
         storageBilling: billing,
         storagePrice: storagePrice ?? null,
         mailboxPrice: mailboxPrice ?? null,
+        ...Object.fromEntries(unitPrices.map(([key, price]) => [key, price ?? null])),
       }),
     onSuccess: (data) => {
       queryClient.setQueryData(pricingKey, data);
@@ -232,8 +249,8 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
               aria-invalid={storagePrice === undefined}
               onChange={(event) => setStorage(event.target.value)}
             />
-            <select
-              className={SELECT}
+            <NativeSelect
+              className="w-auto"
               aria-label={t("pricing.unit")}
               value={unit}
               disabled={disabled}
@@ -241,7 +258,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
             >
               <option value="GB">{t("pricing.perGb")}</option>
               <option value="TB">{t("pricing.perTb")}</option>
-            </select>
+            </NativeSelect>
           </div>
           <p className="text-xs text-muted-foreground">{t("pricing.storageHint")}</p>
         </div>
@@ -249,9 +266,9 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
           <label htmlFor={`${id}-billing`} className="block text-sm font-medium">
             {t("pricing.billing.label")}
           </label>
-          <select
+          <NativeSelect
             id={`${id}-billing`}
-            className={`${SELECT} block w-full`}
+            className="block w-full"
             value={billing}
             disabled={disabled}
             onChange={(event) => setBilling(event.target.value as StorageBilling)}
@@ -261,18 +278,59 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
                 {t(`pricing.billing.${value}`)}
               </option>
             ))}
-          </select>
+          </NativeSelect>
           <p className="text-xs text-muted-foreground">{t("pricing.billing.hint")}</p>
         </div>
       </div>
+      <section
+        className="space-y-3 border-t pt-4"
+        aria-labelledby={`${id}-units`}
+        data-slot="unit-prices"
+      >
+        <div className="space-y-1">
+          <h3 id={`${id}-units`} className="text-sm font-medium">
+            {t("pricing.units.title")}
+          </h3>
+          <p className="text-xs text-muted-foreground">{t("pricing.units.description")}</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {UNIT_LINES.map((def) => {
+            const price = unitPrices.find(([key]) => key === def.price)?.[1];
+            const fieldId = `${id}-${def.flag}`;
+            return (
+              <div key={def.price} className="space-y-1.5">
+                <label htmlFor={fieldId} className="text-sm font-medium">
+                  {t(`pricing.units.${def.flag}`)}
+                </label>
+                <Input
+                  id={fieldId}
+                  inputMode="decimal"
+                  placeholder={t("pricing.none")}
+                  value={unitTexts[def.price]}
+                  disabled={disabled}
+                  aria-invalid={price === undefined}
+                  aria-describedby={`${fieldId}-hint`}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setUnitTexts((current) => ({ ...current, [def.price]: value }));
+                  }}
+                />
+                <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
+                  {t(`pricing.units.${def.flag}Hint`)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1.5">
           <label htmlFor={`${id}-currency`} className="block text-sm font-medium">
             {t("pricing.currency")}
           </label>
-          <select
+          <NativeSelect
             id={`${id}-currency`}
-            className={`${SELECT} block`}
+            className="block w-auto"
             value={currency}
             disabled={disabled}
             onChange={(event) => setCurrency(event.target.value)}
@@ -282,7 +340,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
                 {code}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         {canChange ? (
           <Button type="submit" disabled={!valid || !changed || save.isPending}>
@@ -299,4 +357,13 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
       ) : null}
     </form>
   );
+}
+
+/** The unit prices as the fields show them; empty for none. */
+function unitTextsOf(pricing: Pricing, language: string): Record<UnitPriceKey, string> {
+  const texts = {} as Record<UnitPriceKey, string>;
+  for (const def of UNIT_LINES) {
+    texts[def.price] = priceText(pricing[def.price] ?? null, language);
+  }
+  return texts;
 }

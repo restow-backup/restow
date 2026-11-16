@@ -2,13 +2,18 @@
  * Jobs a killed worker left active (reconcile.ts, #46), against the real schema and
  * pg-boss: an orphan goes back to its queue with its attempt given back and its row
  * queued; a row pg-boss no longer has active takes pg-boss' state; a job a live worker
- * may be running is left alone. Runs when RESTOW_TEST_DATABASE_URL is set.
+ * may be running is left alone. In restore mode a job of the restored dump is cancelled instead,
+ * an archive backfill and a restore with their cursor entries too. Runs when
+ * RESTOW_TEST_DATABASE_URL is set.
  */
 import { createDb } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { PgStreamStore } from "./archive-capture/streams.js";
+import type { CaptureStream } from "./archive-capture/ways.js";
 import { reconcileJobs, reconcileJobsOnce } from "./reconcile.js";
+import { RestoreModeJobHold } from "./restore-mode.js";
 import { dropTestDatabase, ignoreTerminatedConnection } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -46,6 +51,8 @@ describe.skipIf(!adminUrl)("reconciling jobs a stopped worker left behind", () =
     boss.on("error", ignoreTerminatedConnection);
     await boss.start();
     await boss.createQueue("backup", { name: "backup", retryLimit: 5, retryDelay: 60 });
+    await boss.createQueue("archive", { name: "archive", retryLimit: 5, retryDelay: 60 });
+    await boss.createQueue("restore", { name: "restore", retryLimit: 5, retryDelay: 60 });
     const [provider] = await q<{ id: string }>(
       "INSERT INTO providers (name) VALUES ('p') RETURNING id",
     );
@@ -238,5 +245,103 @@ describe.skipIf(!adminUrl)("reconciling jobs a stopped worker left behind", () =
         "SELECT id FROM jobs j WHERE j.status = 'active' AND j.pg_boss_job_id IS NOT NULL AND j.updated_at < now()",
       ),
     ).toContain("jobs_active_boss_idx");
+  });
+
+  it("cancels an orphan from before restore mode instead of putting it back (a restored dump)", async () => {
+    const orphan = await running(30, 0);
+    await liveWorker(5);
+    const activatedAt = new Date();
+    const hold = new RestoreModeJobHold(
+      db,
+      async () => ({
+        active: true,
+        id: "rm",
+        activatedAt,
+        holdJobsBefore: activatedAt,
+        keepUnknownBefore: null,
+      }),
+      noopLogger as never,
+    );
+    const summary = await reconcileJobs(db, {
+      now: new Date(),
+      selfStartedAt: new Date(),
+      logger: noopLogger as never,
+      hold,
+    });
+    expect(summary).toEqual({ requeued: 0, settled: 0, held: 1 });
+    expect((await bossJob(orphan.bossId))?.state).toBe("cancelled");
+    expect(await jobRow(orphan.jobId)).toMatchObject({
+      status: "cancelled",
+      failure: { code: "job.restore_mode_hold" },
+    });
+    // A job created after restore mode began is not held.
+    expect(await hold.holds(new Date(activatedAt.getTime() + 1000))).toBeNull();
+  });
+
+  it("holds an archive backfill and a restore of the dump: their cursor entries go, a fresh backfill may be queued", async () => {
+    const [object] = await q<{ id: string }>(
+      `WITH s AS (INSERT INTO sources (tenant_id, kind, name, config) VALUES ($1, 'imap', 'IMAP', '{}') RETURNING id)
+       INSERT INTO protected_objects (tenant_id, source_id, kind, external_id, display_name)
+       SELECT $1, id, 'mailbox', 'alice@example.test', 'Alice' FROM s RETURNING id`,
+      [tenantId],
+    );
+    const objectId = object?.id ?? "";
+    const createdOn = new Date(Date.now() - 60 * 60_000);
+    const activatedAt = new Date();
+    const hold = new RestoreModeJobHold(
+      db,
+      async () => ({
+        active: true,
+        id: "rm",
+        activatedAt,
+        holdJobsBefore: activatedAt,
+        keepUnknownBefore: null,
+      }),
+      noopLogger as never,
+    );
+    const jobsOfTheDump: { queue: string; bossId: string; jobId: string }[] = [];
+    for (const [queue, payload] of [
+      ["archive", { mode: "backfill", capture: "imap_sync" }],
+      ["restore", { kind: "mail" }],
+    ] as const) {
+      const bossId = (await boss.send(queue, payload)) as string;
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO jobs (tenant_id, queue, status, pg_boss_job_id, protected_object_id, payload)
+         VALUES ($1, $2, 'active', $3, $4, $5::jsonb) RETURNING id`,
+        [tenantId, queue, bossId, objectId, JSON.stringify(payload)],
+      );
+      const jobId = row?.id ?? "";
+      // Where the job was when the dump was taken (the restore's record of what it restored).
+      await q(
+        `INSERT INTO job_cursor_entries (tenant_id, job_id, key, value)
+         VALUES ($1, $2, 'a', '1'), ($1, $2, 'b', '2')`,
+        [tenantId, jobId],
+      );
+      jobsOfTheDump.push({ queue, bossId, jobId });
+    }
+
+    for (const job of jobsOfTheDump) {
+      // pg-boss hands it to the worker again (its expiry, a retry): the gate holds it.
+      expect(await hold.holdIfBeforeRestore(job.queue, { id: job.bossId, createdOn })).toBe(true);
+      expect((await bossJob(job.bossId))?.state).toBe("cancelled");
+      expect(await jobRow(job.jobId)).toMatchObject({
+        status: "cancelled",
+        failure: { code: "job.restore_mode_hold" },
+      });
+      // The job's cursor entries are gone with it (the jobs trigger of migration 0079): nothing
+      // resumes from a position the restored index does not know.
+      expect(await q("SELECT key FROM job_cursor_entries WHERE job_id = $1", [job.jobId])).toEqual(
+        [],
+      );
+    }
+    // The held backfill counts neither as queued nor as failed: the capture pass queues a fresh
+    // one at once, created after restore mode began, which runs from the stream's own cursor.
+    const backfill = await new PgStreamStore(db).backfillJobs({
+      tenantId,
+      protectedObjectId: objectId,
+      way: "imap_sync",
+    } as CaptureStream);
+    expect(backfill).toEqual({ live: false, lastFailedAt: null, lastRetryLaterAt: null });
+    expect(await hold.holds(new Date(activatedAt.getTime() + 1000))).toBeNull();
   });
 });

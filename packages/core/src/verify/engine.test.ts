@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manifestKey } from "../engine/layout.js";
+import { manifestKey, wrappedKeyKey } from "../engine/layout.js";
 import { noopLogger } from "../engine/logger.js";
 import { sealManifest } from "../engine/sealed-manifest.js";
 import { loadManifest } from "../engine/snapshot.js";
@@ -50,7 +50,7 @@ function allChunkIds(objects: readonly ManifestObject[]): string[] {
 }
 
 describe("verifyProtectedObject", () => {
-  it("rates a healthy, current snapshot green after reading the sample back byte-exact", async () => {
+  it("rates a healthy, current snapshot green after reading the sample back byte-exact [VERIFY-001]", async () => {
     const fixture = await mailboxFixture();
     const outcome = await verify(fixture);
 
@@ -87,7 +87,7 @@ describe("verifyProtectedObject", () => {
     expect(outcome.checked).toBe(0);
   });
 
-  it("detects a chunk that is gone from the chunk index", async () => {
+  it("detects a chunk that is gone from the chunk index [VERIFY-002]", async () => {
     const fixture = await mailboxFixture(5);
     for (const id of allChunkIds(fixture.objects)) {
       fixture.index.chunks.delete(id);
@@ -103,7 +103,7 @@ describe("verifyProtectedObject", () => {
     expect(fixture.ctx.progressSink.failures[0]?.cause?.code).toBe("verify.chunk_missing");
   });
 
-  it("detects a damaged pack as unreadable (authenticated decryption fails)", async () => {
+  it("detects a damaged pack as unreadable (authenticated decryption fails) [VERIFY-002]", async () => {
     const fixture = await mailboxFixture(5);
     for (const key of await fixture.primary.list(`tenants/${fixture.ctx.tenantId}/packs/`)) {
       // Past the pack header: inside the first sealed chunk.
@@ -148,7 +148,7 @@ describe("verifyProtectedObject", () => {
     await expect(verify(bucket)).rejects.toBeInstanceOf(VerifyIncompleteError);
   });
 
-  it("detects chunks that decrypt fine but are not the chunks the manifest names", async () => {
+  it("detects chunks that decrypt fine but are not the chunks the manifest names [VERIFY-002]", async () => {
     const fixture = await mailboxFixture(4);
     // Rewrite every pack so each index entry points at its neighbour's sealed
     // bytes: authenticated decryption still succeeds (each sealed blob carries
@@ -172,7 +172,7 @@ describe("verifyProtectedObject", () => {
     expect(outcome.readiness).toBe("red");
   });
 
-  it("detects an object whose bytes differ from the manifest hash", async () => {
+  it("detects an object whose bytes differ from the manifest hash [VERIFY-002]", async () => {
     const fixture = await mailboxFixture(3);
     const record = await fixture.snapshots.latestCompleted(fixture.protectedObject.id);
     const key = record?.manifestPath as string;
@@ -259,6 +259,41 @@ describe("verifyProtectedObject", () => {
     });
   });
 
+  it("rates an empty backup by the source's own size signal the backup recorded (0.5.0)", async () => {
+    const folders = [
+      { path: "files/Documents", type: "folder", size: 0 },
+      { path: "files/Pictures", type: "folder", size: 0 },
+    ];
+    const measure = (rootBytes: number) => ({ rootBytes, rootChildren: 2, at: 1 });
+
+    const empty = createStoreFixture();
+    const signal = { service: "onedrive" as const, before: measure(0), after: measure(0) };
+    await writeSnapshot(empty, folders, undefined, signal);
+    const neutral = await verify(empty);
+    expect(neutral.details.reasons).toEqual([
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 2 },
+    ]);
+    expect(neutral.details.snapshot?.source).toEqual({
+      service: "onedrive",
+      verdict: "empty",
+      bytes: 0,
+      signal,
+    });
+
+    const contradicted = createStoreFixture();
+    await writeSnapshot(contradicted, folders, undefined, {
+      service: "onedrive",
+      before: measure(20_480),
+      after: measure(20_480),
+    });
+    const red = await verify(contradicted);
+    expect(red.readiness).toBe("red");
+    expect(red.details.reasons).toEqual([
+      { code: "backup_missing_source_content", severity: "red", bytes: 20_480 },
+    ]);
+    expect(red.details.snapshot?.source?.verdict).toBe("content");
+  });
+
   it("keeps nothing_to_verify for data of a type a check cannot read back", async () => {
     const fixture = createStoreFixture();
     await writeSnapshot(fixture, [
@@ -285,7 +320,7 @@ describe("verifyProtectedObject", () => {
     expect(outcome.details.counts.eligible.site).toBe(1);
   });
 
-  it("marks the object red when the scrub found one of its packs corrupt", async () => {
+  it("marks the object red when the scrub found one of its packs corrupt [READY-013]", async () => {
     const fixture = await mailboxFixture(3);
     const record = await fixture.snapshots.latestCompleted(fixture.protectedObject.id);
     const manifest = await loadManifest(
@@ -306,7 +341,7 @@ describe("verifyProtectedObject", () => {
     });
   });
 
-  it("reads every object in a health check and lists only the failures", async () => {
+  it("reads every object in a health check and lists only the failures [VERIFY-004]", async () => {
     const fixture = await mailboxFixture(40);
     const victim = fixture.objects.find((object) => object.path === "mail/Inbox/17.eml");
     fixture.index.chunks.delete(victim?.chunks[0] as string);
@@ -318,6 +353,70 @@ describe("verifyProtectedObject", () => {
     expect(outcome.details.items.map((item) => item.path)).toEqual(["mail/Inbox/17.eml"]);
     expect(outcome.details.itemsOmitted).toBe(45);
     expect(outcome.readiness).toBe("red");
+  });
+
+  it("reads the attachments of a JSON-format message with it: a missing attachment chunk is red [VERIFY-003]", async () => {
+    const fixture = createStoreFixture();
+    // A 60 MB message stored as Graph JSON plus attachment objects (backup/exchange/mail.ts).
+    const message = "mail/Inbox/Big report (AAMk1).json";
+    const { objects } = await writeSnapshot(fixture, [
+      { path: "mail/Inbox", type: "folder", size: 0 },
+      { path: message, type: "mail", size: 900, seed: 3, metadata: { format: "json" } },
+      {
+        path: "mail/Inbox/Big report (AAMk1).attachments/report.pdf (AAMkA1)",
+        type: "attachment",
+        size: 4000,
+        seed: 4,
+        metadata: { messagePath: message, messageItemId: "AAMk1" },
+      },
+      {
+        path: "mail/Inbox/Big report (AAMk1).attachments/data.xlsx (AAMkA2)",
+        type: "attachment",
+        size: 3000,
+        seed: 5,
+        metadata: { messagePath: message, messageItemId: "AAMk1" },
+      },
+    ]);
+    const healthy = await verify(fixture);
+    expect(healthy.readiness).toBe("green");
+    expect(healthy.details.items.find((item) => item.path === message)).toMatchObject({
+      status: "verified",
+      parts: 2,
+    });
+
+    const attachment = objects.find((object) => object.path.endsWith("data.xlsx (AAMkA2)"));
+    fixture.index.chunks.delete(attachment?.chunks[0] as string);
+    const sample = await verify(fixture);
+    expect(sample.readiness).toBe("red");
+    expect(sample.details.reasons[0]).toMatchObject({ code: "items_missing", severity: "red" });
+    expect(sample.details.items[0]).toMatchObject({
+      path: message,
+      status: "missing",
+      failedPart: attachment?.path,
+    });
+    const health = await verify(fixture, { kind: "health_check" });
+    expect(health.readiness).toBe("red");
+    expect(health.missing).toBe(1);
+  });
+
+  it("reads a file's historical versions in a health check and with a sampled file [VERIFY-003]", async () => {
+    const fixture = createStoreFixture({ kind: "onedrive" });
+    const { objects } = await writeSnapshot(fixture, [
+      { path: "Documents/Q3.xlsx", type: "file", size: 800, seed: 7 },
+      { path: "Documents/Q3.xlsx:versions/2.0", type: "file-version", size: 780, seed: 8 },
+      { path: "Documents/Q3.xlsx:versions/1.0", type: "file-version", size: 760, seed: 9 },
+    ]);
+    const version = objects.find((object) => object.path.endsWith(":versions/1.0"));
+    fixture.index.chunks.delete(version?.chunks[0] as string);
+    for (const kind of ["verify", "health_check"] as const) {
+      const outcome = await verify(fixture, { kind });
+      expect(outcome.readiness).toBe("red");
+      expect(outcome.details.items[0]).toMatchObject({
+        path: "Documents/Q3.xlsx",
+        status: "missing",
+        failedPart: version?.path,
+      });
+    }
   });
 
   it("stops on cancellation instead of recording findings", async () => {
@@ -379,6 +478,54 @@ describe("a check that cannot read the data rates nothing", () => {
     await expect(verify(gone)).rejects.toBeInstanceOf(VerifyIncompleteError);
   });
 
+  it("rates a manifest gone from every target red when the targets still hold the tenant [READY-007]", async () => {
+    // A lifecycle rule on the manifests prefix (or a cleanup by hand) removed the latest
+    // backup's manifest on the primary and its copy; the tenant's wrapped key is still on both,
+    // as the worker mirrors it to every target.
+    const fixture = createStoreFixture({ copies: 1 });
+    await writeSnapshot(fixture, mailboxItems(3));
+    const { tenantId } = fixture.ctx;
+    for (const target of [fixture.primary, ...fixture.copies]) {
+      await target.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped dek"));
+      for (const key of await target.list(`tenants/${tenantId}/manifests/`)) {
+        await target.delete(key);
+      }
+    }
+    const outcome = await verify(fixture);
+    expect(outcome.readiness).toBe("red");
+    expect(outcome.details.reasons.map((reason) => reason.code)).toEqual(["manifest_missing"]);
+    expect(outcome.details.manifestCause?.code).toBe("verify.manifest_missing");
+    expect(fixture.ctx.progressSink.failures).toHaveLength(1);
+  });
+
+  it("rates a manifest missing on every target red when an older manifest is still there", async () => {
+    const fixture = createStoreFixture({ copies: 1 });
+    await writeSnapshot(fixture, mailboxItems(3));
+    fixture.clock.now = new Date(fixture.clock.now.getTime() + HOUR);
+    const latest = await writeSnapshot(fixture, mailboxItems(4));
+    const key = manifestKey(fixture.ctx.tenantId, latest.snapshotId);
+    for (const target of [fixture.primary, ...fixture.copies]) {
+      await target.delete(key);
+    }
+    const outcome = await verify(fixture);
+    expect(outcome.details.reasons[0]).toMatchObject({ code: "manifest_missing", severity: "red" });
+  });
+
+  it("stays incomplete for a missing manifest when a copy target is empty or cannot be listed [READY-007]", async () => {
+    const empty = createStoreFixture({ copies: 1 });
+    await writeSnapshot(empty, mailboxItems(3));
+    const { tenantId } = empty.ctx;
+    await empty.primary.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped dek"));
+    // The copy is an emptied bucket: it holds nothing of the tenant.
+    for (const key of (await empty.copies[0]?.list(`tenants/${tenantId}/`)) ?? []) {
+      await empty.copies[0]?.delete(key);
+    }
+    for (const key of await empty.primary.list(`tenants/${tenantId}/manifests/`)) {
+      await empty.primary.delete(key);
+    }
+    await expect(verify(empty)).rejects.toBeInstanceOf(VerifyIncompleteError);
+  });
+
   it("rates a manifest that does not decode red", async () => {
     const fixture = await mailboxFixture(3);
     for (const key of await fixture.primary.list(`tenants/${fixture.ctx.tenantId}/manifests/`)) {
@@ -389,7 +536,7 @@ describe("a check that cannot read the data rates nothing", () => {
     expect(outcome.details.reasons[0]).toMatchObject({ code: "manifest_unreadable" });
   });
 
-  it("keeps red with evidence found before the storage stopped answering", async () => {
+  it("keeps red with evidence found before the storage stopped answering [READY-005]", async () => {
     const fixture = await mailboxFixture(5);
     // Every chunk index entry is gone (evidence, read from the database), then the storage fails.
     for (const id of allChunkIds(fixture.objects)) {
@@ -401,14 +548,14 @@ describe("a check that cannot read the data rates nothing", () => {
     expect(outcome.details.reasons[0]).toMatchObject({ code: "items_missing" });
   });
 
-  it("is incomplete for an old backup it could not read: too old is no proof of damage", async () => {
+  it("is incomplete for an old backup it could not read: too old is no proof of damage [READY-005]", async () => {
     const fixture = await mailboxFixture(3);
     fixture.clock.now = new Date(fixture.clock.now.getTime() + 10 * 24 * HOUR);
     fixture.primary.failReads(`tenants/${fixture.ctx.tenantId}/packs/`, socket("ECONNREFUSED"));
     await expect(verify(fixture)).rejects.toBeInstanceOf(VerifyIncompleteError);
   });
 
-  it("reads from a copy when the primary does not answer, and never calls that missing", async () => {
+  it("reads from a copy when the primary does not answer, and never calls that missing [COPY-002]", async () => {
     const fixture = createStoreFixture({ copies: 1 });
     await writeSnapshot(fixture, mailboxItems(3));
     const copy = fixture.copies[0] as MemoryStorage;

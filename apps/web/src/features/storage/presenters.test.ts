@@ -316,6 +316,15 @@ describe("API problems", () => {
     expect(
       storageErrorKey(problem("urn:restow:problem:storage-previous-holds-endpoint-repositories")),
     ).toBe("storage:errors.previousHoldsEndpointRepositories");
+    expect(storageErrorKey(problem("urn:restow:problem:storage-previous-holds-moved-aside"))).toBe(
+      "storage:errors.previousHoldsMovedAside",
+    );
+    expect(storageErrorKey(problem("urn:restow:problem:storage-switch-blocked-by-repair"))).toBe(
+      "storage:errors.switchBlockedByRepair",
+    );
+    expect(storageErrorKey(problem("urn:restow:problem:storage-repair-blocked"))).toBe(
+      "storage:errors.repairBlocked",
+    );
     expect(storageErrorKey(new ApiError(500, null, "boom"))).toBe("common:errors.server");
   });
 

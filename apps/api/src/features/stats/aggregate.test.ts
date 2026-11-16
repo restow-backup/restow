@@ -147,19 +147,20 @@ describe("aggregateTenant with endpoints", () => {
       "tenant",
     );
     // End of 09-21 and 09-22: the endpoint's backup of 09-20 is untested (unverified);
-    // the test of 09-22 18:00 counts from the end of that day.
+    // the test of 09-22 18:00 counts from the end of that day. The mailbox's backup of 09-10 is
+    // more than seven days old at every moment of the period: red by its age, although its
+    // check of 09-11 was green.
     expect(aggregate.readiness).toEqual([
-      { green: 1, yellow: 0, red: 0, unverified: 1 },
-      { green: 2, yellow: 0, red: 0, unverified: 0 },
-      { green: 2, yellow: 0, red: 0, unverified: 0 },
+      { green: 0, yellow: 0, red: 1, unverified: 1 },
+      { green: 1, yellow: 0, red: 1, unverified: 0 },
+      { green: 1, yellow: 0, red: 1, unverified: 0 },
     ]);
-    expect(aggregate.readinessStart).toEqual({ green: 1, yellow: 0, red: 0, unverified: 1 });
-    expect(aggregate.readinessEnd).toEqual({ green: 2, yellow: 0, red: 0, unverified: 0 });
+    expect(aggregate.readinessStart).toEqual({ green: 0, yellow: 0, red: 1, unverified: 1 });
+    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 1, unverified: 0 });
     // Objects and endpoints are one protected total.
     expect(aggregate.levels.start.protectedObjects).toBe(2);
     expect(aggregate.levels.end.protectedObjects).toBe(2);
-    // The mailbox was checked 09-11: more than 8 days old at the end, so it needs attention.
-    expect(aggregate.overallEnd).toBe("yellow");
+    expect(aggregate.overallEnd).toBe("red");
   });
 
   it("makes an unproven endpoint the reason a tenant of proven objects is not ready", () => {
@@ -167,8 +168,11 @@ describe("aggregateTenant with endpoints", () => {
       facts({
         protectedObjectCount: 1,
         objects: [{ ...mailbox, createdAt: at("2026-09-15") }],
-        snapshots: [{ ...mailboxBackup, completedAt: at("2026-09-16") }],
-        reports: [{ ...mailboxCheck, checkedAt: at("2026-09-20"), createdAt: at("2026-09-20") }],
+        // Backed up and checked within 48 hours of the period's end: current.
+        snapshots: [{ ...mailboxBackup, completedAt: at("2026-09-22", 6) }],
+        reports: [
+          { ...mailboxCheck, checkedAt: at("2026-09-22", 8), createdAt: at("2026-09-22", 8) },
+        ],
         endpoints: endpointFacts({ list: [server], backups: [serverBackup] }),
       }),
       period,
@@ -246,8 +250,9 @@ describe("aggregateTenant with endpoints", () => {
     const aggregate = aggregateTenant(base, period, "tenant");
     expect(aggregate.backups[1]).toEqual({ succeeded: 1, failed: 0, cancelled: 0 });
     expect(aggregate.levels.end.protectedObjects).toBe(1);
-    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
-    expect(aggregate.overallEnd).toBe("yellow");
+    // The mailbox's backup of 09-10 is more than seven days old: red by its age.
+    expect(aggregate.readinessEnd).toEqual({ green: 0, yellow: 0, red: 1, unverified: 0 });
+    expect(aggregate.overallEnd).toBe("red");
   });
 
   it("keeps endpoints out of the largest objects and the storage figures", () => {
@@ -308,7 +313,8 @@ describe("the provider scope with endpoints", () => {
     const merged = mergeTotals([endpointsOnly, mixed, empty], period.buckets.length);
     // Available for the provider as soon as one tenant has endpoints.
     expect(merged.available.objects).toBe(true);
-    expect(merged.readinessEnd).toEqual({ green: 2, yellow: 0, red: 0, unverified: 1 });
+    // Adatum's mailbox backup of 09-10 is red by its age.
+    expect(merged.readinessEnd).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1 });
     expect(merged.levels.end.protectedObjects).toBe(3);
 
     const stats = buildStats({

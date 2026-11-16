@@ -12,7 +12,8 @@ import type {
   FailureParams,
   FailureTechnical,
 } from "../failures/types.js";
-import { INTERRUPTED_RUN_CODE, resticExitCodeOf } from "./run-errors.js";
+import { INTERRUPTED_RUN_CODE, NOTE_RUN_CODES, resticExitCodeOf } from "./run-errors.js";
+import { SQL_ERROR_CODES } from "./sql/schemas.js";
 
 export interface RunErrorInput {
   path?: string | null;
@@ -34,8 +35,27 @@ const BY_CODE: Readonly<Record<string, FailureCode>> = {
   not_regular: "endpoint.file_not_regular",
   read_error: "endpoint.read_error",
   agent_stopped: "endpoint.agent_stopped",
+  snapshot_failed: "endpoint.snapshot_failed",
+  snapshot_unavailable: "endpoint.snapshot_unavailable",
+  layout_capture_failed: "endpoint.layout_capture_failed",
+  // A backup path that exists but was not backed up (a locked drive, a mount point).
+  source_unreadable: "endpoint.source_unreadable",
+  source_is_mount_point: "endpoint.source_is_mount_point",
   [INTERRUPTED_RUN_CODE]: "endpoint.interrupted",
+  // The native SQL Server backup (W2a): every code of the contract has its own explanation.
+  ...Object.fromEntries(
+    SQL_ERROR_CODES.map((sqlCode) => [sqlCode, `endpoint.${sqlCode}` as FailureCode]),
+  ),
 };
+
+/** The codes whose explanation is transient: the agent's next attempt may well work. */
+const TRANSIENT: ReadonlySet<FailureCode> = new Set([
+  "endpoint.timeout",
+  "endpoint.interrupted",
+  "endpoint.snapshot_failed",
+  "endpoint.sql_instance_unreachable",
+  "endpoint.sql_verify_timeout",
+]);
 
 /** restic's words for "the server could not be reached or answered badly" (exit code 1). */
 const NETWORK_TEXT =
@@ -43,9 +63,17 @@ const NETWORK_TEXT =
 const REFUSED_TEXT = /unexpected http response \(40[13]\)|403 forbidden/i;
 
 const NEEDS_FIRST = [
+  // The sign-in to SQL Server decides before anything the run met afterwards.
+  "sql_login_missing",
+  "sql_powershell_constrained",
+  "sql_strict_encryption",
   "pre_hook_failed",
   "hooks_not_allowed",
+  "snapshot_unavailable",
   "no_paths",
+  // A whole folder missing from the backup decides before a file restic could not read.
+  "source_unreadable",
+  "source_is_mount_point",
   "timeout",
   "target_not_empty",
   "post_hook_failed",
@@ -70,12 +98,7 @@ export function classifyRunError(error: RunErrorInput): FailureCause {
   const known = error.code ? BY_CODE[error.code] : undefined;
   if (known) {
     const params: FailureParams = error.path ? { path: error.path.slice(0, 300) } : {};
-    return cause(
-      known,
-      error,
-      known === "endpoint.timeout" || known === "endpoint.interrupted",
-      params,
-    );
+    return cause(known, error, TRANSIENT.has(known), params);
   }
   const exitCode = resticExitCodeOf(error.code ?? undefined);
   if (exitCode !== null) {
@@ -100,12 +123,15 @@ export function classifyRunError(error: RunErrorInput): FailureCause {
  * first one. `null` for a run without errors. `count` is how many errors were reported.
  */
 export function failureOfRun(errors: readonly RunErrorInput[]): FailureCause | null {
-  if (errors.length === 0) {
+  // A snapshot left behind or a layout the server did not keep is a note beside the outcome,
+  // never its explanation.
+  const candidates = errors.filter((error) => !NOTE_RUN_CODES.has(error.code ?? ""));
+  if (candidates.length === 0) {
     return null;
   }
   const first =
-    NEEDS_FIRST.map((code) => errors.find((error) => error.code === code)).find(Boolean) ??
-    errors[0];
+    NEEDS_FIRST.map((code) => candidates.find((error) => error.code === code)).find(Boolean) ??
+    candidates[0];
   if (!first) {
     return null;
   }
@@ -133,6 +159,29 @@ export function repositoryDamagedCause(message?: string | null): FailureCause {
     transient: false,
     params: {},
     technical: message ? { message: redactSensitiveText(message).slice(0, 500) } : {},
+  };
+}
+
+/** Stage 1 of the bare metal check rated a whole machine backup red (docs/BAREMETAL.md 12.6). */
+export function baremetalCheckFailedCause(failedChecks: readonly string[]): FailureCause {
+  return {
+    code: "endpoint.baremetal_check_failed",
+    transient: false,
+    params: {},
+    technical: failedChecks.length > 0 ? { checks: failedChecks.slice(0, 20).join(", ") } : {},
+  };
+}
+
+/** The boot probe rated a whole machine backup red (docs/BAREMETAL.md 12.3, 12.6). */
+export function bootProbeFailedCause(
+  kind: "boot_failed" | "recovery_failed" | "verification_failed",
+  evidence: string | null,
+): FailureCause {
+  return {
+    code: "endpoint.boot_probe_failed",
+    transient: false,
+    params: { reason: kind },
+    technical: evidence ? { evidence: redactSensitiveText(evidence).slice(0, 300) } : {},
   };
 }
 

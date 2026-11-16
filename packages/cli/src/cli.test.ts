@@ -186,7 +186,7 @@ async function filesBelow(dir: string): Promise<string[]> {
 }
 
 describe("restow-restore", () => {
-  it("restores and verifies an intact store with exit code 0", async () => {
+  it("restores and verifies an intact store with exit code 0 [RESTORE-014]", async () => {
     const store = await buildStore("intact", null);
     const io = captureIo();
     expect(await restore(store, io)).toBe(0);

@@ -37,6 +37,7 @@ import {
 import { planRestore } from "../../restore/selection.js";
 import { LocalStorageBackend } from "../../storage/local.js";
 import { ExchangeBackupEngine, type ExchangeBackupEngineOptions } from "./engine.js";
+import { MIME_OUTAGE_AFTER } from "./mail.js";
 import { mailObjectPath, shortId } from "./paths.js";
 import { EXCHANGE_PHASES, MailboxAccessError, META } from "./run.js";
 import { MAIL_SELECT_VERSION, parseCursor, readState } from "./state.js";
@@ -231,6 +232,7 @@ function bigMessage(extra: Partial<NewMessage> = {}): NewMessage {
         contentType: "image/png",
         bytes: new Uint8Array([9, 9, 9]),
         isInline: true,
+        contentId: "image001.png@01DB2F6A.5C3E1D20",
       },
     ],
     ...extra,
@@ -269,6 +271,7 @@ describe("ExchangeBackupEngine", () => {
     return new ExchangeBackupEngine({
       graph: () => graph.client(),
       checkpointEveryItems: 1,
+      mimeServerErrorBackoffMs: 0,
       snapshotIdGenerator: () => `snap-${nextSnapshot++}`,
       packIdGenerator: () => `pack-${nextPack++}`,
       ...options,
@@ -344,6 +347,98 @@ describe("ExchangeBackupEngine", () => {
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+  });
+
+  describe("records the mailbox's own size signal for the restore check (0.5.0)", () => {
+    const AT = Date.parse("2026-09-22T10:00:00Z");
+    const treeListings = () =>
+      graph.calls.filter((call) => new URL(call.url).pathname.endsWith("/mailFolders"));
+
+    function emptyMailbox(): FakeMailbox {
+      const empty = new FakeMailbox(USER);
+      empty.addFolder({
+        id: F.inbox,
+        displayName: "Inbox",
+        parentFolderId: null,
+        wellKnownName: "inbox",
+      });
+      empty.addFolder({
+        id: F.sent,
+        displayName: "Sent Items",
+        parentFolderId: null,
+        wellKnownName: "sentitems",
+      });
+      empty.addFolder({
+        id: F.hidden,
+        displayName: "Quick Step Settings",
+        parentFolderId: null,
+        isHidden: true,
+      });
+      empty.addCalendar({ id: "cal-default", name: "Calendar", isDefaultCalendar: true });
+      return empty;
+    }
+
+    it("counts the planned folders once for a mailbox with content, search folders left out", async () => {
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toEqual({
+        service: "mailbox",
+        // Inbox 3, Projects 1, Restow 1, Sent Items 1; the hidden folder holds 1.
+        before: { visibleItems: 6, hiddenItems: 1, folders: 5, at: AT },
+        after: null,
+        archive: "none",
+      });
+      expect(treeListings()).toHaveLength(1);
+    });
+
+    it("counts an empty mailbox before and after the run", async () => {
+      box = emptyMailbox();
+      graph = createFakeGraph(box.routes());
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toEqual({
+        service: "mailbox",
+        before: { visibleItems: 0, hiddenItems: 0, folders: 3, at: AT },
+        after: { visibleItems: 0, hiddenItems: 0, folders: 3, at: AT },
+        archive: "none",
+      });
+      expect(treeListings()).toHaveLength(2);
+    });
+
+    it("records what Graph counts when the backup finds nothing, and a count that changes", async () => {
+      box = emptyMailbox();
+      let listing = 0;
+      must(box.folders.get(F.inbox)).totalItemCount = () => (listing++ === 0 ? 4 : 5);
+      must(box.folders.get(F.hidden)).totalItemCount = 2;
+      graph = createFakeGraph(box.routes());
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toEqual({
+        service: "mailbox",
+        before: { visibleItems: 4, hiddenItems: 2, folders: 3, at: AT },
+        after: { visibleItems: 5, hiddenItems: 2, folders: 3, at: AT },
+        archive: "none",
+      });
+    });
+
+    it("gives no second count when the folders cannot be listed again", async () => {
+      box = emptyMailbox();
+      graph = createFakeGraph(box.routes());
+      let listings = 0;
+      box.intercept = (call) => {
+        if (new URL(call.url).pathname.endsWith("/mailFolders") && listings++ > 0) {
+          return { status: 503, json: graphError("ServiceUnavailable") };
+        }
+        return undefined;
+      };
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toMatchObject({
+        service: "mailbox",
+        before: { visibleItems: 0, hiddenItems: 0 },
+        after: null,
+      });
+    });
   });
 
   it("stores every message, folder, event and contact on the first run", async () => {
@@ -827,6 +922,186 @@ describe("ExchangeBackupEngine", () => {
     expect(result.bytes).toBeGreaterThan(0);
   });
 
+  describe("content changes behind an unchanged subject and preview", () => {
+    function withAttachments(): void {
+      box.addMessage(
+        message("AAMkMsgAtt", F.inbox, "Contract drafts", {
+          hasAttachments: true,
+          bodyPreview: "Please find the drafts attached.",
+          attachments: [
+            {
+              id: "a1",
+              name: "v1.docx",
+              contentType: "application/msword",
+              bytes: new Uint8Array(4000),
+            },
+            {
+              id: "a2",
+              name: "v2.docx",
+              contentType: "application/msword",
+              bytes: new Uint8Array(5000),
+            },
+          ],
+        }),
+      );
+    }
+
+    /** The content checks sent in `$batch` sub-requests, as message ids. */
+    function contentChecks(): string[] {
+      return graph
+        .callsTo("POST", "/$batch")
+        .flatMap((call) => (call.json as { requests: Array<{ url: string }> }).requests)
+        .map((sub) => decodeURIComponent(sub.url))
+        .filter((url) => url.includes("$expand=attachments("))
+        .map((url) => url.match(/messages\/([^/?]+)\?/)?.[1] ?? "");
+    }
+
+    it("fetches a received mail again when an attachment was removed", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      const signature = byId(await manifestOf(first.snapshotId), "AAMkMsgAtt").metadata?.[
+        META.contentSignature
+      ];
+      expect(signature).toMatch(/^[0-9a-f]{64}$/);
+      graph.calls.length = 0;
+
+      // Outlook "Remove attachment": subject, hasAttachments and bodyPreview stay the same.
+      const before = fake("AAMkMsgAtt");
+      box.updateMessage("AAMkMsgAtt", { attachments: before.attachments?.slice(0, 1) });
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+      const stored = byId(await manifestOf(second.snapshotId), "AAMkMsgAtt");
+      expect(stored.metadata?.[META.fetchedInSnapshot]).toBe("snap-2");
+      expect(stored.metadata?.[META.contentSignature]).toMatch(/^[0-9a-f]{64}$/);
+      expect(stored.metadata?.[META.contentSignature]).not.toBe(signature);
+    });
+
+    it("fetches a received mail again when its body was edited past the preview", async () => {
+      withAttachments();
+      await engine.run(newContext(), mailbox, {});
+      graph.calls.length = 0;
+      const before = fake("AAMkMsgAtt");
+      box.updateMessage("AAMkMsgAtt", {
+        mime: `${before.mime}\r\nA note added far below the first 255 characters.`,
+      });
+      await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+    });
+
+    it("does not fetch again for a flag, read-state or category change", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      const signature = byId(await manifestOf(first.snapshotId), "AAMkMsgAtt").metadata?.[
+        META.contentSignature
+      ];
+      graph.calls.length = 0;
+      // Exchange moves lastModifiedDateTime (and PidTagMessageSize) for each of these.
+      box.updateMessage("AAMkMsgAtt", {
+        isRead: false,
+        flagStatus: "flagged",
+        categories: ["Legal"],
+      });
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual([]);
+      expect(byId(await manifestOf(second.snapshotId), "AAMkMsgAtt").metadata).toMatchObject({
+        [META.flagStatus]: "flagged",
+        [META.fetchedInSnapshot]: "snap-1",
+        [META.contentSignature]: signature,
+      });
+      // Only the entry that changed is checked.
+      expect(contentChecks()).toEqual(["AAMkMsgAtt"]);
+    });
+
+    it("keeps a changed message unproven, not green, when its check goes unanswered, and checks it next run", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      const firstCopy = byId(await manifestOf(first.snapshotId), "AAMkMsgAtt");
+      // The attachment goes and the check is throttled past the client's retries.
+      const before = fake("AAMkMsgAtt");
+      box.updateMessage("AAMkMsgAtt", { attachments: before.attachments?.slice(0, 1) });
+      box.interceptBatchSub = (url) =>
+        decodeURIComponent(url).includes("$expand=attachments(")
+          ? { status: 503, body: graphError("ServiceUnavailable", "try later") }
+          : undefined;
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+      expect(second.failures).toEqual([
+        expect.objectContaining({
+          cause: expect.objectContaining({ code: "graph.mail_content_unchecked" }),
+        }),
+      ]);
+      const kept = byId(await manifestOf(second.snapshotId), "AAMkMsgAtt");
+      expect(kept.chunks).toEqual(firstCopy.chunks);
+      // The old modification time stays, so the change is still seen as one.
+      expect(kept.mtime).toBe(firstCopy.mtime);
+
+      // The delta does not list it again; the retry checks it and fetches the new content.
+      box.interceptBatchSub = undefined;
+      graph.calls.length = 0;
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(third.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+      expect(
+        byId(await manifestOf(third.snapshotId), "AAMkMsgAtt").metadata?.[META.fetchedInSnapshot],
+      ).toBe("snap-3");
+    });
+
+    it("gives a message stored by a retry its signature, so its next flag change downloads nothing", async () => {
+      withAttachments();
+      let refuse = true;
+      box.intercept = (call) =>
+        refuse && call.method === "GET" && call.url.includes("/messages/AAMkMsgAtt/$value")
+          ? { status: 403, json: graphError("ErrorAccessDenied", "Access is denied.") }
+          : undefined;
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures.map((f) => f.itemRef)).toEqual([
+        expect.stringContaining("Contract drafts"),
+      ]);
+      refuse = false;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(
+        byId(await manifestOf(second.snapshotId), "AAMkMsgAtt").metadata?.[META.contentSignature],
+      ).toMatch(/^[0-9a-f]{64}$/);
+      box.updateMessage("AAMkMsgAtt", { isRead: false });
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+    });
+
+    it("fetches a copy stored without a signature once on its next change, then trusts the signature", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      // A restore point written before the signature was recorded.
+      const manifest = await manifestOf(first.snapshotId);
+      const legacy = {
+        ...manifest,
+        objects: manifest.objects.map((o) => {
+          if (o.id !== "AAMkMsgAtt") {
+            return o;
+          }
+          const { [META.contentSignature]: _signature, ...metadata } = o.metadata ?? {};
+          return { ...o, metadata };
+        }),
+      };
+      const record = must(await snapshots.get(first.snapshotId));
+      await new LocalStorageBackend(root).put(
+        must(record.manifestPath),
+        await sealManifest(legacy, dek, must(record.manifestPath)),
+      );
+      box.updateMessage("AAMkMsgAtt", { isRead: false });
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+      box.updateMessage("AAMkMsgAtt", { isRead: true });
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+    });
+  });
+
   it("resyncs only the folder whose delta token is gone", async () => {
     await engine.run(newContext(), mailbox, {});
     box.deleteMessage("AAMkMsg3");
@@ -1048,6 +1323,146 @@ describe("ExchangeBackupEngine", () => {
     expect(readState(manifest2.state).mailRetry).toEqual({});
   });
 
+  describe("a plain HTTP 500 on $value", () => {
+    /** Exchange's answer while its backend cannot hand out the MIME: no conversion code. */
+    const plain500 = {
+      status: 500,
+      json: graphError("UnknownError", "An internal server error occurred."),
+    };
+    const ref = mailObjectPath("mail/Inbox/Projects", "Kickoff / agenda", "AAMkMsg4");
+
+    it("asks again with backoff and keeps the MIME format when the third attempt works", async () => {
+      fake("AAMkMsg4").mimeResponses = [plain500, plain500];
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([]);
+      expect(mimeDownloads().filter((id) => id === "AAMkMsg4")).toHaveLength(3);
+      const stored = byId(await manifestOf(result.snapshotId), "AAMkMsg4");
+      expect(messageFormatOf(stored)).toBe("mime");
+      expect(stored.path).toBe(ref);
+    });
+
+    it("is an item failure retried next run, never a JSON copy, until three runs in a row failed", async () => {
+      fake("AAMkMsg4").mimeUnavailable = plain500;
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+        [ref, "graph.service_unavailable"],
+      ]);
+      let manifest = await manifestOf(first.snapshotId);
+      expect(manifest.objects.find((o) => o.id === "AAMkMsg4")).toBeUndefined();
+      expect(readState(manifest.state).mailRetry).toEqual({ [F.projects]: ["AAMkMsg4"] });
+      expect(readState(manifest.state).mailMimeServerErrors).toEqual({ AAMkMsg4: 1 });
+
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures.map((f) => f.itemRef)).toEqual([ref]);
+      manifest = await manifestOf(second.snapshotId);
+      expect(manifest.objects.find((o) => o.id === "AAMkMsg4")).toBeUndefined();
+      expect(readState(manifest.state).mailMimeServerErrors).toEqual({ AAMkMsg4: 2 });
+
+      // The third run in a row: the content is kept as JSON, marked as a server error, and
+      // the run says so (no original file for EML, MBOX or PST export yet).
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      manifest = await manifestOf(third.snapshotId);
+      const json = byId(manifest, "AAMkMsg4");
+      expect(third.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+        [json.path, "graph.mail_stored_without_mime"],
+      ]);
+      expect(messageFormatOf(json)).toBe("json");
+      expect(json.metadata?.[META.formatReason]).toBe("server_error");
+      expect(readState(manifest.state).mailRetry).toEqual({});
+      expect(readState(manifest.state).mailMimeServerErrors).toEqual({});
+
+      // Still refused: the JSON copy stays, and so does the warning.
+      const again = await engine.run(newContext({ jobId: "job-3b" }), mailbox, {});
+      expect(again.failures.map((f) => f.cause?.code)).toEqual(["graph.mail_stored_without_mime"]);
+
+      // Exchange hands out the MIME again: the next incremental run replaces the JSON.
+      fake("AAMkMsg4").mimeUnavailable = undefined;
+      graph.calls.length = 0;
+      const fourth = await engine.run(newContext({ jobId: "job-4" }), mailbox, {});
+      expect(fourth.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual(["AAMkMsg4"]);
+      manifest = await manifestOf(fourth.snapshotId);
+      const healed = byId(manifest, "AAMkMsg4");
+      expect(messageFormatOf(healed)).toBe("mime");
+      expect(healed.path).toBe(ref);
+      expect(healed.metadata?.[META.formatReason]).toBeUndefined();
+      expect(
+        manifest.objects.filter((o) => o.metadata?.[META.messageItemId] === "AAMkMsg4"),
+      ).toEqual([]);
+      expect(mailObjects(manifest)).toHaveLength(MESSAGE_COUNT);
+    });
+
+    it("stops the backoff for the rest of the run when $value answers 500 for every message", async () => {
+      for (const message of box.messages.values()) {
+        message.mimeUnavailable = plain500;
+      }
+      const first = await engine.run(newContext(), mailbox, {});
+      // Five messages paid their three attempts; every further one was not asked at all.
+      expect(mimeDownloads()).toHaveLength(MIME_OUTAGE_AFTER * 3);
+      expect(first.failures).toHaveLength(MESSAGE_COUNT);
+      expect(first.failures.every((f) => f.cause?.transient === true)).toBe(true);
+      const state = readState((await manifestOf(first.snapshotId)).state);
+      // Only the messages actually asked count towards the JSON fallback.
+      expect(Object.keys(state.mailMimeServerErrors)).toHaveLength(MIME_OUTAGE_AFTER);
+      expect(Object.values(state.mailRetry).flat()).toHaveLength(MESSAGE_COUNT);
+
+      for (const message of box.messages.values()) {
+        message.mimeUnavailable = undefined;
+      }
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(mailObjects(await manifestOf(second.snapshotId))).toHaveLength(MESSAGE_COUNT);
+    });
+
+    it("stores a message Exchange cannot convert as JSON with its reason and does not ask again", async () => {
+      fake("AAMkMsg4").mimeUnavailable = {
+        status: 500,
+        json: graphError("ErrorMimeContentConversionFailed", "MIME conversion failed."),
+      };
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures).toEqual([]);
+      expect(mimeDownloads().filter((id) => id === "AAMkMsg4")).toHaveLength(1);
+      const json = byId(await manifestOf(first.snapshotId), "AAMkMsg4");
+      expect(messageFormatOf(json)).toBe("json");
+      expect(json.metadata?.[META.formatReason]).toBe("conversion_refused");
+
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+    });
+
+    it("asks again for the MIME of a JSON copy stored without a reason (before 0.5.0)", async () => {
+      fake("AAMkMsg4").mimeResponses = [
+        { status: 500, json: graphError("ErrorMimeContentConversionFailed") },
+      ];
+      const first = await engine.run(newContext(), mailbox, {});
+      // What 0.4 left after two quick plain 500s: a JSON copy that says nothing about why.
+      const record = must(await snapshots.get(first.snapshotId));
+      const manifest1 = await manifestOf(first.snapshotId);
+      const legacy = {
+        ...manifest1,
+        objects: manifest1.objects.map((o) => {
+          if (o.id !== "AAMkMsg4") {
+            return o;
+          }
+          const { [META.formatReason]: _reason, ...metadata } = o.metadata ?? {};
+          return { ...o, metadata };
+        }),
+      };
+      await new LocalStorageBackend(root).put(
+        must(record.manifestPath),
+        await sealManifest(legacy, dek, must(record.manifestPath)),
+      );
+      graph.calls.length = 0;
+
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual(["AAMkMsg4"]);
+      const healed = byId(await manifestOf(second.snapshotId), "AAMkMsg4");
+      expect(messageFormatOf(healed)).toBe("mime");
+    });
+  });
+
   it("fails the run resumably when throttling outlasts the client's retries", async () => {
     fake("AAMkMsg4").mimeResponses = Array.from({ length: 6 }, () => ({
       status: 429,
@@ -1110,7 +1525,11 @@ describe("ExchangeBackupEngine", () => {
     expect(byId(manifest, "AAMkMsgBig/AAMkAtt3").metadata).toMatchObject({
       [META.isInline]: "true",
       [META.contentType]: "image/png",
+      // What `<img src="cid:image001.png@01DB2F6A.5C3E1D20">` in the HTML body names.
+      [META.contentId]: "image001.png@01DB2F6A.5C3E1D20",
     });
+    expect(byId(manifest, "AAMkMsgBig/AAMkAtt1").metadata?.[META.contentId]).toBeUndefined();
+    expect(byPath(manifest, bigPath).metadata?.[META.contentIdUnavailable]).toBeUndefined();
     // A link attachment has no content Graph v1.0 exposes; it is named on the message instead.
     expect(manifest.objects.find((o) => o.id === "AAMkMsgBig/AAMkAtt2")).toBeUndefined();
 
@@ -1193,6 +1612,19 @@ describe("ExchangeBackupEngine", () => {
     expect(sixth.counters.removed).toBe(1);
   });
 
+  it("says so on a JSON message when Graph does not name the attachments' Content-IDs", async () => {
+    box.refuseDerivedSelect = true;
+    box.addMessage(bigMessage());
+    const result = await engine.run(newContext(), mailbox, {});
+    expect(result.failures).toEqual([]);
+    const manifest = await manifestOf(result.snapshotId);
+    const big = must(manifest.objects.find((o) => o.id === "AAMkMsgBig"));
+    expect(big.metadata?.[META.contentIdUnavailable]).toBe("true");
+    expect(byId(manifest, "AAMkMsgBig/AAMkAtt3").metadata).toMatchObject({
+      [META.isInline]: "true",
+    });
+  });
+
   it("re-paths the objects of a renamed folder and drops those of a deleted folder", async () => {
     const first = await engine.run(newContext(), mailbox, {});
     const before = byId(await manifestOf(first.snapshotId), "AAMkMsg5");
@@ -1258,6 +1690,29 @@ describe("ExchangeBackupEngine", () => {
 
     const result = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
     box.interceptBatchSub = undefined;
+    const manifest = await manifestOf(result.snapshotId);
+
+    expect(result.failures.map((f) => f.itemRef)).toEqual(["mail/Inbox/Projects"]);
+    expect(result.counters.removed).toBe(0);
+    expect(manifest.objects.filter((o) => o.path.startsWith("mail/Inbox/Projects/Restow"))).toEqual(
+      restowBefore,
+    );
+    const state = readState(manifest.state);
+    expect(state.mailFolders[F.restow]?.path).toBe("mail/Inbox/Projects/Restow");
+    expect(state.mailDeltaLinks[F.restow]).toBeDefined();
+  });
+
+  it("keeps the subtree of a folder whose child listing is missing from the $batch answer", async () => {
+    const first = await engine.run(newContext(), mailbox, {});
+    const restowBefore = (await manifestOf(first.snapshotId)).objects.filter((o) =>
+      o.path.startsWith("mail/Inbox/Projects/Restow"),
+    );
+    expect(restowBefore.length).toBeGreaterThan(0);
+    // Graph's envelope answers 200 but leaves out the sub-response for this parent, every time.
+    box.omitBatchSub = (url) => url.includes(`/mailFolders/${F.projects}/childFolders`);
+
+    const result = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+    box.omitBatchSub = undefined;
     const manifest = await manifestOf(result.snapshotId);
 
     expect(result.failures.map((f) => f.itemRef)).toEqual(["mail/Inbox/Projects"]);
@@ -1409,6 +1864,42 @@ describe("ExchangeBackupEngine", () => {
     expect(cursor.cursor).toBeNull();
   });
 
+  describe("access lost while the run goes (consent revoked, access policy added)", () => {
+    const denied = { status: 403, json: graphError("ErrorAccessDenied", "Access is denied.") };
+
+    it("fails with the access cause instead of committing a partial snapshot", async () => {
+      // The first folder delta goes through; then Exchange answers 403 for everything.
+      let deltas = 0;
+      box.intercept = (call) => {
+        const path = new URL(call.url).pathname;
+        if (path.endsWith("/messages/delta") && !new URL(call.url).searchParams.has("$skiptoken")) {
+          deltas++;
+        }
+        const revoked = deltas > 1;
+        return revoked && (path.endsWith("/messages/delta") || path.endsWith("/mailFolders/inbox"))
+          ? denied
+          : undefined;
+      };
+      const error = await engine.run(newContext(), mailbox, {}).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(MailboxAccessError);
+      expect((error as MailboxAccessError).status).toBe(403);
+      expect(await snapshots.latestCompleted(mailbox.id)).toBeNull();
+      expect(await snapshots.get("snap-1")).toBeNull();
+    });
+
+    it("keeps a 403 of one folder a folder failure when the mailbox still answers", async () => {
+      box.intercept = (call) =>
+        new URL(call.url).pathname.includes(`/mailFolders/${F.hidden}/messages/delta`)
+          ? denied
+          : undefined;
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({ itemRef: "mail/Quick Step Settings" }),
+      ]);
+      expect(mailObjects(await manifestOf(result.snapshotId))).toHaveLength(MESSAGE_COUNT - 1);
+    });
+  });
+
   it("backs the mailbox up when one well-known folder lookup is refused (no 0 of 0 failure)", async () => {
     const answerSub = (
       box as unknown as { answerBatchSub(url: string): unknown }
@@ -1500,6 +1991,249 @@ describe("ExchangeBackupEngine", () => {
     const manifest = await manifestOf(result.snapshotId);
     expect(mailObjects(manifest)).toHaveLength(MESSAGE_COUNT);
     expect(byId(manifest, "AAMkMsg1").metadata?.[META.fetchedInSnapshot]).toBe("snap-2");
+  });
+
+  describe("event attachments (user calendars)", () => {
+    const agenda = new Uint8Array(Buffer.from("PK\u0003\u0004agenda"));
+
+    function meetingWithAgenda(): void {
+      box.addEvent({
+        id: "evt-att",
+        calendarId: "cal-default",
+        type: "singleInstance",
+        subject: "Board meeting",
+        changeKey: "ck-att-1",
+        hasAttachments: true,
+        start: { dateTime: "2026-10-05T08:00:00.0000000", timeZone: "UTC" },
+        end: { dateTime: "2026-10-05T09:00:00.0000000", timeZone: "UTC" },
+        attachments: [
+          {
+            id: "att-docx",
+            name: "agenda.docx",
+            contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            bytes: agenda,
+          },
+          {
+            id: "att-link",
+            name: "Budget sheet",
+            contentType: "application/octet-stream",
+            bytes: new Uint8Array(),
+            odataType: "#microsoft.graph.referenceAttachment",
+          },
+        ],
+      });
+    }
+
+    function attachmentCalls(): number {
+      return graph.calls.filter((call) =>
+        /\/events\/[^/]+\/attachments/.test(new URL(call.url).pathname),
+      ).length;
+    }
+
+    it("stores the file attachment of an event below the event", async () => {
+      meetingWithAgenda();
+      const ctx = newContext();
+      const result = await engine.run(ctx, mailbox, {});
+      expect(result.failures).toEqual([]);
+      const manifest = await manifestOf(result.snapshotId);
+      const eventPath = `calendar/Calendar/Board meeting.${shortId("evt-att")}.json`;
+      const attachment = byId(manifest, "evt-att/att-docx");
+      expect(attachment.type).toBe("event-attachment");
+      expect(attachment.path).toBe(
+        `calendar/Calendar/Board meeting.${shortId("evt-att")}.attachments/agenda.docx.${shortId("att-docx")}`,
+      );
+      expect(attachment.metadata).toMatchObject({
+        [META.eventItemId]: "evt-att",
+        [META.eventPath]: eventPath,
+        [META.name]: "agenda.docx",
+        [META.isInline]: "false",
+        calendarId: "cal-default",
+      });
+      expect(await readBytes(ctx, attachment)).toEqual(Buffer.from(agenda));
+      expect(byPath(manifest, eventPath).metadata).toMatchObject({
+        [META.attachmentsChangeKey]: "ck-att-1",
+        [META.attachmentCount]: "1",
+        [META.referenceAttachments]: '["Budget sheet"]',
+      });
+
+      // Unchanged event: nothing is listed again, the attachment is carried forward.
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(attachmentCalls()).toBe(0);
+      expect(byId(await manifestOf(second.snapshotId), "evt-att/att-docx").chunks).toEqual(
+        attachment.chunks,
+      );
+
+      // The attachment removed from the event: gone from the next restore point.
+      box.updateEvent("evt-att", { attachments: [], hasAttachments: false });
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      const after = await manifestOf(third.snapshotId);
+      expect(after.objects.filter((o) => o.metadata?.[META.eventItemId] === "evt-att")).toEqual([]);
+    });
+
+    it("backs up the attachments of a series exception, keyed by the exception", async () => {
+      const master = must(box.events.get("evt-master"));
+      const exception = must(master.exceptions?.[0]);
+      const minutes = new Uint8Array(Buffer.from("minutes of the moved meeting"));
+      Object.assign(exception, {
+        changeKey: "ck-exc-1",
+        hasAttachments: true,
+        attachments: [
+          { id: "att-min", name: "minutes.txt", contentType: "text/plain", bytes: minutes },
+        ],
+      });
+      const ctx = newContext();
+      const result = await engine.run(ctx, mailbox, {});
+      expect(result.failures).toEqual([]);
+      const manifest = await manifestOf(result.snapshotId);
+      const masterPath = `calendar/Calendar/Weekly sync.${shortId("evt-master")}.json`;
+      const stored = byId(manifest, "evt-exc-1/att-min");
+      expect(stored.type).toBe("event-attachment");
+      expect(
+        stored.path.startsWith(
+          `calendar/Calendar/Weekly sync.${shortId("evt-master")}.attachments/`,
+        ),
+      ).toBe(true);
+      expect(stored.metadata).toMatchObject({
+        [META.eventItemId]: "evt-exc-1",
+        [META.seriesMasterId]: "evt-master",
+        [META.eventPath]: `${masterPath}#evt-exc-1`,
+        [META.name]: "minutes.txt",
+      });
+      expect(await readBytes(ctx, stored)).toEqual(Buffer.from(minutes));
+
+      // Unchanged exception: not listed again, carried forward.
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(
+        graph.calls.filter((call) => new URL(call.url).pathname.includes("/events/evt-exc-1/")),
+      ).toEqual([]);
+      expect(byId(await manifestOf(second.snapshotId), "evt-exc-1/att-min").chunks).toEqual(
+        stored.chunks,
+      );
+
+      // The attachment taken off the exception: gone from the next restore point.
+      Object.assign(exception, { changeKey: "ck-exc-2", hasAttachments: false, attachments: [] });
+      box.updateEvent("evt-master", {});
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      const after = await manifestOf(third.snapshotId);
+      expect(
+        after.objects.filter((o) => o.metadata?.[META.seriesMasterId] === "evt-master"),
+      ).toEqual([]);
+    });
+
+    it("records an attachment that cannot be read as an item failure", async () => {
+      meetingWithAgenda();
+      const attachment = must(box.events.get("evt-att")?.attachments?.[0]);
+      attachment.contentResponse = {
+        status: 500,
+        json: graphError("UnknownError", "An internal server error occurred."),
+      };
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: `calendar/Calendar/Board meeting.${shortId("evt-att")}.json`,
+        }),
+      ]);
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.objects.find((o) => o.id === "evt-att/att-docx")).toBeUndefined();
+      // Not marked as done: the next run reads the attachments again.
+      expect(
+        byPath(manifest, `calendar/Calendar/Board meeting.${shortId("evt-att")}.json`).metadata?.[
+          META.attachmentsChangeKey
+        ],
+      ).toBeUndefined();
+      delete attachment.contentResponse;
+      const next = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(next.failures).toEqual([]);
+      expect(byId(await manifestOf(next.snapshotId), "evt-att/att-docx").type).toBe(
+        "event-attachment",
+      );
+    });
+  });
+
+  describe("online archive (In-Place Archive)", () => {
+    function archiveProbes(): number {
+      return graph.callsTo("GET", "/settings/exchange").length;
+    }
+
+    it("warns on every run that a mailbox with an online archive is not fully covered", async () => {
+      box.onlineArchive = "MBX:archive@a7809c93";
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "online-archive",
+          cause: expect.objectContaining({
+            code: "graph.online_archive_not_covered",
+            transient: false,
+          }),
+        }),
+      ]);
+      expect(first.counters.failed).toBe(0);
+      expect(sink.failures.map((failure) => failure.itemRef)).toContain("online-archive");
+      const state = readState((await manifestOf(first.snapshotId)).state);
+      expect(state.onlineArchive).toEqual({
+        status: "present",
+        checkedAt: "2026-09-22T10:00:00.000Z",
+      });
+      expect(new URL(must(graph.callsTo("GET", "/settings/exchange")[0]).url).pathname).toBe(
+        `/beta/users/${encodeURIComponent(USER)}/settings/exchange`,
+      );
+
+      // The next run the same day: the answer comes from the state, the warning again.
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(archiveProbes()).toBe(0);
+      expect(second.failures.map((failure) => failure.cause?.code)).toEqual([
+        "graph.online_archive_not_covered",
+      ]);
+    });
+
+    it("records nothing for a mailbox without an online archive", async () => {
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(archiveProbes()).toBe(1);
+      expect(result.failures).toEqual([]);
+      expect(readState((await manifestOf(result.snapshotId)).state).onlineArchive).toMatchObject({
+        status: "none",
+      });
+    });
+
+    it("is not plain green when Graph refuses the probe, and asks again next run", async () => {
+      box.onlineArchive = {
+        status: 403,
+        json: graphError("Authorization_RequestDenied", "Insufficient privileges"),
+      };
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "online-archive",
+          cause: expect.objectContaining({ code: "graph.online_archive_unknown" }),
+        }),
+      ]);
+      expect(readState((await manifestOf(result.snapshotId)).state).onlineArchive).toBeUndefined();
+      graph.calls.length = 0;
+      box.onlineArchive = "MBX:archive@a7809c93";
+      const next = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(archiveProbes()).toBe(1);
+      expect(next.failures.map((failure) => failure.cause?.code)).toEqual([
+        "graph.online_archive_not_covered",
+      ]);
+    });
+
+    it("keeps reporting an archive seen before while the probe goes unanswered", async () => {
+      box.onlineArchive = "MBX:archive@a7809c93";
+      await engine.run(newContext(), mailbox, {});
+      box.onlineArchive = { status: 503, json: graphError("ServiceUnavailable", "try later") };
+      // A day later the cached answer is due again.
+      const later = (): JobContext => {
+        const ctx = newContext({ jobId: "job-2" });
+        return { ...ctx, now: () => new Date("2026-09-24T10:00:00Z") };
+      };
+      const next = await engine.run(later(), mailbox, {});
+      expect(next.failures.map((failure) => failure.cause?.code)).toEqual([
+        "graph.online_archive_not_covered",
+      ]);
+    });
   });
 
   it("refuses protected objects of another kind", async () => {

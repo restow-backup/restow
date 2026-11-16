@@ -30,6 +30,7 @@ import { loadRatedTests } from "../endpoints/service.js";
 import { backupResultOf, type JobDto, type JobViewRow } from "../jobs/dto.js";
 import { decodeCursor, encodeCursor, type JobPageCursor } from "../jobs/pagination.js";
 import { jobViewQuery, toJobDtos } from "../jobs/service.js";
+import { readFromIn } from "../storage/repository-source.js";
 import { loadSnapshotVerifications } from "../verify/verification-state.js";
 import {
   batchOf,
@@ -1102,6 +1103,7 @@ async function mailDetail(
       row.job.itemFailureSummary?.total ?? 0,
     ),
     logTail: null,
+    readFrom: null,
     docsUrl: config.docsTroubleshootingUrl,
   };
 }
@@ -1268,6 +1270,7 @@ async function endpointDetail(
     })),
     errorCount: row.errors.length,
     logTail: row.logTail,
+    readFrom: readFromIn(stats?.readFrom),
     docsUrl: config.docsTroubleshootingUrl,
   };
 }
@@ -1407,6 +1410,7 @@ async function shareDetail(
     errors,
     errorCount: Math.max(row.itemCount, errors.length),
     logTail: row.logTail,
+    readFrom: readFromIn(stats?.readFrom),
     docsUrl: config.docsTroubleshootingUrl,
   };
 }

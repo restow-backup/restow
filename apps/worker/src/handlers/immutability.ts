@@ -21,18 +21,19 @@
  */
 import {
   endpointPrefix,
-  fileShareRepositoryPrefix,
   type ImmutableStorageBackend,
   immutableBackendOf,
   keyPrefix,
   listWithSizes,
   lockClassOf,
   lockUntil,
+  packPrefix,
   RENEWAL_CONCURRENCY,
   type RenewalReport,
   renewalDue,
   renewalResumable,
   renewRetention,
+  repositoryPrefixOf,
   type StorageBackend,
   s3LockMode,
   spreadSample,
@@ -140,13 +141,18 @@ export async function resticPrefixes(
           row.removalDueAt !== null &&
           row.removalDueAt > now),
     );
-    const shares = await tx.select({ id: fileShares.id }).from(fileShares);
-    const guests = await tx.select({ id: pveGuests.id }).from(pveGuests);
+    const shares = await tx
+      .select({ id: fileShares.id, prefix: fileShares.repositoryPrefix })
+      .from(fileShares);
+    const guests = await tx
+      .select({ id: pveGuests.id, prefix: pveGuests.repositoryPrefix })
+      .from(pveGuests);
+    // The prefix each repository's current chain lies under (a fresh one on write-once storage).
     return {
       prefixes: [
         ...machine.map((row) => endpointPrefix(row.id)),
-        ...shares.map((row) => fileShareRepositoryPrefix(row.id)),
-        ...guests.map((row) => `pve-guests/${row.id}/`),
+        ...shares.map((row) => repositoryPrefixOf("file_share", row.id, row.prefix)),
+        ...guests.map((row) => repositoryPrefixOf("container", row.id, row.prefix)),
       ],
     };
   });
@@ -233,8 +239,16 @@ export async function maintainImmutableTarget(options: {
     const packPaths = await withTenantTx(db, tenantId, (tx) =>
       tx.select({ path: packs.path }).from(packs).where(eq(packs.tenantId, tenantId)),
     );
+    // The catalogued packs and every pack file the target lists: after restoring a database
+    // dump the catalog lacks the packs written since, and they must stay locked as well
+    // (docs/STORAGE.md, "Restore mode and progress markers"). Packs whose deletion was refused
+    // by the lock are left out so they run out.
+    const listedPacks = await backend.list(packPrefix(tenantId));
+    const packKeys = [...new Set([...packPaths.map((pack) => pack.path), ...listedPacks])].filter(
+      (path) => !skip.has(path),
+    );
     const keys = [
-      ...packPaths.map((pack) => pack.path).filter((path) => !skip.has(path)),
+      ...packKeys,
       ...(await backend.list(keyPrefix(tenantId))),
       ...(await resticKeys(backend, repositories, skip)),
     ];

@@ -314,6 +314,11 @@ function MachineSheetBody({
             </DetailFact>
           ) : null}
         </dl>
+        {readiness.noSamples ? (
+          <p className="text-sm text-muted-foreground" data-slot="machine-sheet-no-samples">
+            {t("readiness.noSamplesHint")}
+          </p>
+        ) : null}
         {machine.job === null && readiness.state !== "no_backup" ? (
           <p className="text-sm text-muted-foreground">{t("readiness.frozenHint")}</p>
         ) : null}

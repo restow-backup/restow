@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 
 import type { GatedFeature } from "@/lib/api";
+import type { ModuleId } from "@/lib/modules";
 
 /**
  * Sidebar navigation model. Feature modules export `navItems` in this shape
@@ -52,6 +53,12 @@ export interface NavLockContext {
    * Entries that look across every tenant hide while it is false.
    */
   providerAllTenants?: boolean;
+  /**
+   * The installation's modules that are on (lib/modules.ts); absent or null hides nothing. A lock
+   * never reads it: the sections of the tenant page and of the installation page do, to leave
+   * the ones of a module that is off out of their sub-navigation.
+   */
+  modules?: readonly ModuleId[] | null;
 }
 
 /**
@@ -117,6 +124,20 @@ export interface NavItem {
    */
   visible?: (context: NavLockContext) => boolean;
   /**
+   * The modules of the installation the entry belongs to (lib/modules.ts): it is left out of the
+   * sidebar and the command palette while none of them is on (lib/use-nav-items.ts). The page
+   * itself stays reachable by its address and says that its module is hidden. Without the field
+   * the entry belongs to every installation. Independent of a lock, which is an edition's.
+   */
+  modules?: readonly ModuleId[];
+  /**
+   * The entry depends on the active tenant's own state (lib/tenant-nav-offers.ts, GET
+   * /api/v1/navigation): offered only while the tenant offers it, hidden while that is
+   * still unknown. "Archive" uses it: hidden where the archive is neither set up nor holds
+   * mail (docs/ARCHIVE.md). The page itself stays reachable by its address.
+   */
+  tenantOffer?: TenantNavOffer;
+  /**
    * A feature that does not exist yet but already has its place in the
    * menu: the release that brings it (`0.2.0`). The entry shows a "Soon"
    * badge and opens a short placeholder page instead of the feature.
@@ -133,6 +154,11 @@ export interface NavItem {
    * what assistive technology reads ("3 open warnings").
    */
   useBadge?: () => NavBadge | null;
+  /**
+   * The entry leads to the Updates section (installation › Server & operation): the sidebar draws
+   * the dot "update available" on it for the people who may see that section.
+   */
+  leadsToUpdates?: boolean;
 }
 
 /** A count next to a menu entry. */
@@ -166,6 +192,9 @@ export interface NavActivityItem {
   to: string;
   search?: Readonly<Record<string, string>>;
 }
+
+/** Entries that depend on the active tenant's state (see {@link NavItem.tenantOffer}). */
+export type TenantNavOffer = "archive";
 
 /** A nav item as shown, with whether its lock holds it closed. */
 export interface PlacedNavItem extends NavItem {

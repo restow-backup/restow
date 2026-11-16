@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { capacityPath, statfsSpace } from "./capacity.js";
+import { primaryLocation, statfsSpace } from "./capacity.js";
 
 const LOCAL = { kind: "local" as const, basePath: "/data/chunks" };
 const S3 = {
@@ -13,24 +13,27 @@ const S3 = {
   forcePathStyle: false,
 };
 
-describe("capacityPath", () => {
-  it("reads the tenant's own local repository", () => {
+describe("primaryLocation", () => {
+  it("is the tenant's own repository when it has one", () => {
     const own = { ownTarget: { kind: "local", config: { basePath: "/mnt/contoso" } } };
-    expect(capacityPath(own, LOCAL, false)).toBe("/mnt/contoso");
+    expect(primaryLocation(own, LOCAL)).toEqual({ kind: "local", basePath: "/mnt/contoso" });
+    const bucket = {
+      ownTarget: { kind: "s3", config: { bucket: "backups", region: "eu-central-1" } },
+    };
+    expect(primaryLocation(bucket, LOCAL)).toMatchObject({ kind: "s3", bucket: "backups" });
   });
 
-  it("knows no capacity of an S3 repository or an unusable configuration", () => {
-    expect(capacityPath({ ownTarget: { kind: "s3", config: { bucket: "b" } } }, LOCAL, true)).toBe(
-      null,
-    );
-    expect(capacityPath({ ownTarget: { kind: "local", config: {} } }, LOCAL, true)).toBeNull();
-    expect(capacityPath({ ownTarget: null }, S3, true)).toBeNull();
+  it("knows no repository for an unusable configuration of the tenant's own", () => {
+    expect(primaryLocation({ ownTarget: { kind: "local", config: {} } }, LOCAL)).toBeNull();
+    expect(
+      primaryLocation({ ownTarget: { kind: "s3", config: { bucket: "" } } }, LOCAL),
+    ).toBeNull();
   });
 
-  it("reads the installation default only for the tenant that has it to itself", () => {
-    expect(capacityPath({ ownTarget: null }, LOCAL, true)).toBe("/data/chunks");
-    expect(capacityPath({ ownTarget: null }, LOCAL, false)).toBeNull();
-    expect(capacityPath({ ownTarget: null }, null, true)).toBeNull();
+  it("is the installation default for a tenant without a repository of its own", () => {
+    expect(primaryLocation({ ownTarget: null }, LOCAL)).toBe(LOCAL);
+    expect(primaryLocation({ ownTarget: null }, S3)).toBe(S3);
+    expect(primaryLocation({ ownTarget: null }, null)).toBeNull();
   });
 });
 

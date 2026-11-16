@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The live-build configuration of the recovery ISO. lb config runs this; build.sh
+# sets SNAPSHOT_TIMESTAMP and RESTOW_VERSION. Every mirror is the snapshot of one
+# time, the image is a hybrid ISO for USB sticks, virtual media and VMs, and it
+# starts with UEFI Secure Boot (shim, GRUB and kernel signed for Debian) and with
+# legacy BIOS. The parameters against auto-activation and the GPU driver block
+# list are part of each menu entry (config/bootloaders), so that "with graphics
+# drivers" can leave the block list out.
+set -eu
+
+: "${SNAPSHOT_TIMESTAMP:?SNAPSHOT_TIMESTAMP is not set (snapshot.env)}"
+: "${RESTOW_VERSION:?RESTOW_VERSION is not set}"
+mirror="http://snapshot.debian.org/archive/debian/$SNAPSHOT_TIMESTAMP/"
+security="http://snapshot.debian.org/archive/debian-security/$SNAPSHOT_TIMESTAMP/"
+
+lb config noauto \
+  --mode debian \
+  --distribution trixie \
+  --architectures amd64 \
+  --archive-areas "main non-free-firmware" \
+  --mirror-bootstrap "$mirror" \
+  --mirror-chroot "$mirror" \
+  --mirror-binary "$mirror" \
+  --mirror-chroot-security "$security" \
+  --mirror-binary-security "$security" \
+  --security true \
+  --updates false \
+  --backports false \
+  --apt-recommends false \
+  --apt-indices false \
+  --cache-packages true \
+  --firmware-binary false \
+  --firmware-chroot false \
+  --linux-flavours amd64 \
+  --binary-image iso-hybrid \
+  --bootloaders "grub-efi,syslinux" \
+  --uefi-secure-boot enable \
+  --iso-application "Restow Recovery" \
+  --iso-publisher "Restow" \
+  --iso-volume RESTOW_RECOVERY \
+  --hdd-label RESTOW_RECOVERY \
+  --memtest none \
+  --win32-loader false \
+  --zsync false \
+  --checksums sha256 \
+  --bootappend-live "boot=live components quiet" \
+  "$@"

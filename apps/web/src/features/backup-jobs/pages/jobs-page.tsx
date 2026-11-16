@@ -35,6 +35,7 @@ import { fileSharesTo } from "@/features/file-shares/paths";
 import { deleteJob as deletePveJob, type PveJob, pveKeys } from "@/features/pve/api";
 import { JobDialog as PveJobDialog } from "@/features/pve/pve-page";
 import { pveConnected, usePveOverview } from "@/features/pve/use-overview";
+import { isModuleShown } from "@/lib/modules";
 import { canAccess, useSession } from "@/lib/session";
 import { JOB_ROLES } from "../access.js";
 import {
@@ -157,6 +158,10 @@ export function JobsPage({
   const pveWithoutJob = (pveData?.guests ?? []).filter((guest) =>
     guest.attention.includes("no_job"),
   ).length;
+  // What "New job" offers follows the installation's modules (lib/modules.ts): a kind of job of
+  // a module that is off is not offered. The rows of such jobs stay, they are not offers.
+  const offerPveJob = withPve && isModuleShown(["pve"], session.modules);
+  const offerMachineJob = !offerPveJob || isModuleShown(["endpoints"], session.modules);
   const [pveEditing, setPveEditing] = React.useState<PveJob | "new" | null>(null);
   const [pveDeleting, setPveDeleting] = React.useState<PveJob | null>(null);
   const refreshPve = () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
@@ -184,7 +189,7 @@ export function JobsPage({
               fetching={query.isFetching}
               onRefresh={() => void query.refetch()}
             />
-            {withPve ? (
+            {offerPveJob && offerMachineJob ? (
               <NewJobMenu
                 closed={access.closed}
                 closedProps={closedProps(access)}
@@ -192,7 +197,13 @@ export function JobsPage({
                 onPve={() => setPveEditing("new")}
               />
             ) : (
-              <Button disabled={access.closed} onClick={onCreate} {...closedProps(access)}>
+              <Button
+                disabled={access.closed}
+                onClick={offerPveJob ? () => setPveEditing("new") : onCreate}
+                data-slot="new-job"
+                data-type={offerPveJob ? "pve" : kind}
+                {...closedProps(access)}
+              >
                 <ListPlus aria-hidden="true" />
                 {t("actions.new")}
               </Button>
@@ -290,7 +301,7 @@ export function JobsPage({
               description={t(`list.empty.description.${kind}`)}
               variant="plain"
               actions={
-                withPve ? (
+                offerPveJob && offerMachineJob ? (
                   <NewJobMenu
                     variant="outline"
                     closed={access.closed}
@@ -302,7 +313,7 @@ export function JobsPage({
                   <Button
                     variant="outline"
                     disabled={access.closed}
-                    onClick={onCreate}
+                    onClick={offerPveJob ? () => setPveEditing("new") : onCreate}
                     {...closedProps(access)}
                   >
                     <ListPlus aria-hidden="true" />

@@ -18,6 +18,12 @@ export interface StoredSelection {
   paths?: string[];
   folderPaths?: string[];
   objectIds?: string[];
+  /**
+   * A restore from the archive (features/restore/archive.ts): the archived messages it
+   * puts back, instead of a part of a snapshot. Not part of the core selection; the
+   * worker hands these messages to the engines as their source.
+   */
+  archiveItemIds?: string[];
 }
 
 /** What the service found in the snapshot for the requested entries. */
@@ -135,6 +141,9 @@ export function resolveSelection(
 
 /** The summary of a stored selection (for lists and the audit log). */
 export function summarizeSelection(selection: StoredSelection): SelectionSummary {
+  if (selection.archiveItemIds) {
+    return { all: false, folders: 0, items: selection.archiveItemIds.length };
+  }
   if (selection.all) {
     return { all: true, folders: 0, items: 0 };
   }
@@ -163,6 +172,10 @@ export function parseStoredSelection(value: unknown): StoredSelection {
   if (paths) selection.paths = paths;
   if (folderPaths) selection.folderPaths = folderPaths;
   if (objectIds) selection.objectIds = objectIds;
+  const archiveItemIds = strings(record.archiveItemIds);
+  if (archiveItemIds?.length) {
+    return { archiveItemIds };
+  }
   if (!selection.all && !paths?.length && !folderPaths?.length && !objectIds?.length) {
     selection.all = true;
   }

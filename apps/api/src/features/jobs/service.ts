@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ArchiveJobPayload,
   type BackupJobPayload,
   type FirstBackupCandidate,
   readinessWithoutFreshness,
@@ -54,6 +55,7 @@ import {
   backupResultOf,
   finiteNumber,
   type ItemCauseCountDto,
+  isArchiveBackfill,
   isRetryable,
   type JobDetailDto,
   type JobDto,
@@ -462,8 +464,8 @@ async function loadBackupCandidates(
 async function insertQueuedJob(
   tx: Transaction,
   tenantId: string,
-  queue: "backup" | "verify",
-  payload: BackupJobPayload | VerifyJobPayload,
+  queue: "backup" | "verify" | "archive",
+  payload: BackupJobPayload | VerifyJobPayload | ArchiveJobPayload,
   pgBossJobId: string,
 ): Promise<void> {
   await tx.insert(jobs).values({
@@ -671,6 +673,29 @@ export async function enqueueFirstBackups(
   }
 }
 
+/** Queue the backfill of an archived mailbox again; it resumes from the stream's cursor. */
+async function enqueueArchiveBackfill(
+  tx: Transaction,
+  db: Database,
+  tenantId: string,
+  protectedObjectId: string,
+  capture: ArchiveJobPayload["capture"],
+): Promise<string | null> {
+  const payload: ArchiveJobPayload = {
+    jobId: randomUUID(),
+    tenantId,
+    protectedObjectId,
+    capture,
+    mode: "backfill",
+  };
+  const pgBossJobId = await sendJob(tx, "archive", payload, db);
+  if (pgBossJobId === null) {
+    return null;
+  }
+  await insertQueuedJob(tx, tenantId, "archive", payload, pgBossJobId);
+  return payload.jobId;
+}
+
 async function enqueueVerify(
   tx: Transaction,
   db: Database,
@@ -828,13 +853,21 @@ export async function retryJob(
     if (!isRetryable(job, object) || !object) {
       throw new ProblemError(409, "Job not retryable", {
         detail:
-          "Only failed or cancelled backup and verify jobs of an active object can be retried.",
+          "Only failed or cancelled backup, verify and archive takeover jobs of an active object can be retried.",
         extensions: { queue: job.queue, status: job.status },
       });
     }
     const payload = job.payload ?? {};
     let newJobId: string | null;
-    if (job.queue === "backup") {
+    if (isArchiveBackfill(job)) {
+      newJobId = await enqueueArchiveBackfill(
+        tx,
+        db,
+        tenantId,
+        object.id,
+        payload.capture as ArchiveJobPayload["capture"],
+      );
+    } else if (job.queue === "backup") {
       newJobId = await enqueueBackup(tx, db, tenantId, object.id, payload.full === true);
     } else {
       const kind = payload.kind === "health_check" ? "health_check" : "verify";

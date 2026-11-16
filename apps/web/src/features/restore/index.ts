@@ -51,6 +51,8 @@ export const routes = [explorerRoute, jobRoute];
 export const navItems: NavItem[] = [
   {
     id: "restore",
+    // The backups of mailboxes and drives, and the archive as a source.
+    modules: ["microsoft365", "imap", "archive"],
     path: RESTORE_PATHS.explorer,
     labelKey: "restore:nav.explorer",
     icon: MailSearch,

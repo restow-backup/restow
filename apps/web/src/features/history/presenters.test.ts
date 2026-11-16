@@ -27,6 +27,33 @@ describe("stateView", () => {
     overrides: Partial<Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited">>,
   ) => stateView({ state: "succeeded", kind: "backup", checkIncomplete: false, ...overrides });
 
+  it("names a finished restore check by its rating, never a plain 'Completed' for a red one", () => {
+    const check = (state: Run["state"], checkReadiness: Run["checkReadiness"]) =>
+      stateView({ state, kind: "restore_check", checkIncomplete: false, checkReadiness });
+    expect(check("failed", "red")).toMatchObject({ key: "checkFailed", tone: "destructive" });
+    expect(check("partial", "yellow")).toMatchObject({ key: "checkAttention", tone: "warning" });
+    expect(check("succeeded", "green")).toMatchObject({ key: "checkPassed", tone: "success" });
+    // Without a rating (an older server, a check that could not complete) as before.
+    expect(check("succeeded", undefined)).toMatchObject({ key: "succeeded", tone: "neutral" });
+    expect(
+      stateView({
+        state: "succeeded",
+        kind: "restore_check",
+        checkIncomplete: true,
+        checkReadiness: null,
+      }).key,
+    ).toBe("incomplete");
+    // A rating never colours a backup.
+    expect(
+      stateView({
+        state: "succeeded",
+        kind: "backup",
+        checkIncomplete: false,
+        checkReadiness: "red",
+      }).key,
+    ).toBe("succeeded");
+  });
+
   it("shows a run Graph or the storage held back amber, not red", () => {
     expect(view({ state: "failed", serviceLimited: true })).toEqual({
       key: "limited",

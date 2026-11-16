@@ -4,6 +4,7 @@ import {
   MAX_REPORT_RECIPIENTS,
   MAX_REPORT_THROTTLE_MINUTES,
   MIN_OVERDUE_DEADLINE_HOURS,
+  REPORT_CADENCES,
   REPORT_EVENTS,
   REPORT_PERIOD_DAYS,
   REPORT_SECTIONS,
@@ -31,7 +32,8 @@ export type ReportRuleField =
   | "overdueAfterHours"
   | "intervalMinutes"
   | "cron"
-  | "timezone";
+  | "timezone"
+  | "cadence";
 
 /** A 422 problem naming the field, like a schema failure (`issues[0].path`). */
 export function reportRuleProblem(
@@ -98,6 +100,13 @@ const ruleFields = {
   webhookId: z.string().uuid().nullable().default(null),
   language: z.enum(["de", "en"]).nullable().default(null),
   overdueAfterHours: overdueAfterHours.optional(),
+  /**
+   * A schedule rule's calendar cadence (0.5.0): the previous day, week or month at 07:00 in the
+   * rule's time zone. Excludes `intervalMinutes` and `cron`.
+   */
+  cadence: z.enum(REPORT_CADENCES).nullable().optional(),
+  /** Attach the PDF statistics report (0.5.0). */
+  attachPdf: z.boolean().optional(),
 };
 
 export const createReportRuleSchema = z.object({
@@ -135,6 +144,8 @@ export const updateReportRuleSchema = z
     webhookId: z.string().uuid().nullable(),
     language: z.enum(["de", "en"]).nullable(),
     overdueAfterHours,
+    cadence: z.enum(REPORT_CADENCES).nullable(),
+    attachPdf: z.boolean(),
   })
   .partial()
   .strict();
@@ -191,7 +202,29 @@ export const updateNotificationMatrixSchema = z.object({
       z.discriminatedUnion("kind", [
         z.object({ kind: z.literal("bell"), events: matrixEventsSchema }),
         z.object({ kind: z.literal("webhook"), id: z.string().uuid(), events: matrixEventsSchema }),
-        z.object({ kind: z.literal("email"), id: z.string().uuid(), events: matrixEventsSchema }),
+        z.object({
+          kind: z.literal("email"),
+          id: z.string().uuid(),
+          events: matrixEventsSchema,
+          /** Digest mode per severity (0.5.0); left out keeps the recipient's. */
+          delivery: z
+            .object({
+              error: z.enum(["immediate", "hourly", "daily"]).optional(),
+              warning: z.enum(["immediate", "hourly", "daily"]).optional(),
+              info: z.enum(["immediate", "hourly", "daily"]).optional(),
+            })
+            .strict()
+            .optional(),
+          /** The summary reports (0.5.0); left out keeps the recipient's choice. */
+          reports: z
+            .object({
+              daily: z.boolean().optional(),
+              weekly: z.boolean().optional(),
+              monthly: z.boolean().optional(),
+            })
+            .strict()
+            .optional(),
+        }),
       ]),
     )
     .min(1)

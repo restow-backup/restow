@@ -39,6 +39,12 @@ const (
 	TaskVerifySample = "verify_sample"
 	TaskUpdateConfig = "update_config"
 	TaskUninstall    = "uninstall"
+	// SQL Server (agent 0.5.0, Windows): restore under a new name, the
+	// check of a backup from the repository, and a fresh SQL inventory
+	// (the "Check sign-in" button; it ends on delivery, like update_config).
+	TaskSQLRestore   = "sql_restore"
+	TaskSQLVerify    = "sql_verify"
+	TaskSQLInventory = "sql_inventory"
 )
 
 // Run kinds.
@@ -46,6 +52,20 @@ const (
 	RunBackup       = "backup"
 	RunRestore      = "restore"
 	RunVerifySample = "verify_sample"
+	// RunSQL is the native SQL Server backup of one instance (one run per
+	// instance and slot; never started by a task). RunSQLRestore and
+	// RunSQLVerify belong to the tasks of the same name.
+	RunSQL        = "sql"
+	RunSQLRestore = "sql_restore"
+	RunSQLVerify  = "sql_verify"
+)
+
+// Capabilities an agent announces at enrollment and in every heartbeat.
+const (
+	// CapabilitySQLNative: the agent backs up SQL Server natively (W2a:
+	// COPY_ONLY fulls, restore under a new name, check with CHECKDB). Only
+	// a Windows agent sends it; the server offers no SQL action without it.
+	CapabilitySQLNative = "sql_native_v1"
 )
 
 // Run statuses.
@@ -113,6 +133,8 @@ type EnrollRequest struct {
 	// catch_up_skipped; "" when nothing waits. nil leaves it out (unknown). A
 	// server of an earlier release ignores it.
 	Waiting *string `json:"waiting,omitempty"`
+	// Capabilities (agent 0.5.0): see the Capability constants.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // MachineFacts say what the machine is (agent 0.4.0 and later). The server
@@ -125,6 +147,9 @@ type MachineFacts struct {
 	Technology string `json:"technology"`
 	// Desktop: a graphical session is installed.
 	Desktop bool `json:"desktop"`
+	// Windows (agent 0.5.0) are the facts of a Windows machine; absent on
+	// other systems.
+	Windows *WindowsFacts `json:"windows,omitempty"`
 }
 
 // Repository is the restic repository the endpoint writes to.
@@ -139,6 +164,12 @@ type EnrollResponse struct {
 	AgentSecret string     `json:"agentSecret"`
 	Repository  Repository `json:"repository"`
 	Config      *Config    `json:"config,omitempty"`
+	// Rebound (server 0.5.0): the token was a reconnect token, and the
+	// instance issued a new agent secret for an existing machine instead of
+	// creating one. Its repository, settings and history are kept; the
+	// previous installation of the machine loses its access. Absent for a
+	// new enrollment.
+	Rebound bool `json:"rebound,omitempty"`
 }
 
 // Schedule describes when backups run.
@@ -186,7 +217,24 @@ type Config struct {
 	// for the pause to end; the backup is not missed and not failed. Absent
 	// on an older server, which means not paused.
 	StartsPaused bool `json:"startsPaused,omitempty"`
+	// WholeMachine (server 0.5.0, preview): back up every local file system
+	// with the disk layout (docs/BAREMETAL.md, 5). Sent only when true and
+	// only to Linux machines; absent means false. An older agent ignores it
+	// and backs up Paths, which the job keeps.
+	WholeMachine bool `json:"wholeMachine,omitempty"`
+	// FSSnapshot (server 0.5.0): "auto" takes LVM or btrfs snapshots where
+	// possible, "off" reads the live file systems (6.1). Absent means off.
+	FSSnapshot string `json:"fsSnapshot,omitempty"`
+	// SQL (server 0.5.0) is the native SQL Server backup of the job; absent
+	// when the job does not set it. Only a Windows agent acts on it.
+	SQL *SQLConfig `json:"sql,omitempty"`
 }
+
+// Values of Config.FSSnapshot.
+const (
+	FSSnapshotAuto = "auto"
+	FSSnapshotOff  = "off"
+)
 
 // Catch-up modes of a policy.
 const (
@@ -203,7 +251,17 @@ type Policy struct {
 	CatchUp      *CatchUp      `json:"catchUp,omitempty"`
 	// MaxRetries is the number of automatic retries after a failed backup.
 	MaxRetries *int `json:"maxRetries,omitempty"`
+	// SnapshotOnFailure (server 0.5.0) says what a backup does when the file
+	// system snapshot fails: continue (absent, the default) backs up from
+	// the live file system and ends partial, fail stops the backup.
+	SnapshotOnFailure string `json:"snapshotOnFailure,omitempty"`
 }
+
+// Values of Policy.SnapshotOnFailure.
+const (
+	SnapshotOnFailureContinue = "continue"
+	SnapshotOnFailureFail     = "fail"
+)
 
 // BackupWindow is a weekly time range. Days are the days the window
 // begins on (1 = Monday ... 7 = Sunday); a To not after From ends on the
@@ -250,6 +308,13 @@ type HeartbeatRequest struct {
 	// catch_up_skipped; "" when nothing waits. nil leaves it out (unknown). A
 	// server of an earlier release ignores it.
 	Waiting *string `json:"waiting,omitempty"`
+	// Capabilities (agent 0.5.0): see the Capability constants.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// SQLInventory (agent 0.5.0, Windows) is the SQL Server inventory,
+	// sent once after it was collected (every 6 hours while the native SQL
+	// backup is on, or after a sql_inventory task); at most
+	// MaxSQLInventoryBytes.
+	SQLInventory *SQLInventory `json:"sqlInventory,omitempty"`
 }
 
 // Task is a command from the server, delivered in the heartbeat answer.
@@ -353,7 +418,55 @@ type FinishRequest struct {
 	// the ransomware signals of the server (agent 0.4.0 and newer; a server
 	// that does not know it ignores it).
 	Activity *activity.Report `json:"activity,omitempty"`
+	// Consistency (agent 0.5.0) is how consistent the backed-up files are:
+	// whether a file system snapshot was used. Set for every backup that got
+	// as far as restic; a server of an earlier release ignores it.
+	Consistency *Consistency `json:"consistency,omitempty"`
+	// Layout (agent 0.5.0) is the layout manifest of a whole-machine backup,
+	// exactly the canonical bytes written to layout.json (contract C1). Sent
+	// only with a snapshot id; a server of an earlier release ignores it.
+	Layout json.RawMessage `json:"layout,omitempty"`
+	// SQL is the result of a sql run (one instance), SQLRestore of a
+	// sql_restore run, SQLVerify of a sql_verify run (facts only: the
+	// server judges them). Notices are fixed warnings of the run (at most
+	// MaxNotices). A server of an earlier release ignores them.
+	SQL        *SQLRunReport     `json:"sql,omitempty"`
+	SQLRestore *SQLRestoreReport `json:"sqlRestore,omitempty"`
+	SQLVerify  *SQLVerifyReport  `json:"sqlVerify,omitempty"`
+	Notices    []Notice          `json:"notices,omitempty"`
 }
+
+// Consistency is the report field shared by every snapshot method (VSS on
+// Windows, LVM and btrfs on Linux, APFS on macOS; docs/AGENT.md).
+type Consistency struct {
+	// Method is the snapshot method of the machine: vss, lvm, btrfs, apfs,
+	// or mixed (more than one); empty when the system has none.
+	Method string `json:"method,omitempty"`
+	// State: used (requested, no volume failed; volumes the provider does
+	// not support do not count), partial (at least one volume was read
+	// live), unavailable (no snapshot at all) or off (not requested).
+	State string `json:"state"`
+	// LiveFilesystems are the volumes or file systems read from the live
+	// file system although a snapshot was requested, at most
+	// MaxLiveFilesystems.
+	LiveFilesystems []string `json:"liveFilesystems,omitempty"`
+}
+
+// MaxLiveFilesystems bounds Consistency.LiveFilesystems.
+const MaxLiveFilesystems = 32
+
+// Consistency methods and states.
+const (
+	SnapshotMethodVSS   = "vss"
+	SnapshotMethodLVM   = "lvm"
+	SnapshotMethodBtrfs = "btrfs"
+	SnapshotMethodMixed = "mixed"
+
+	ConsistencyUsed        = "used"
+	ConsistencyPartial     = "partial"
+	ConsistencyUnavailable = "unavailable"
+	ConsistencyOff         = "off"
+)
 
 // RestoreTest is the result of a restore test (verify_sample) as the agent
 // observed it, without a verdict: the server decides from it whether the

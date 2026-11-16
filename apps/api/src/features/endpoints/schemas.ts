@@ -1,4 +1,6 @@
 import {
+  DEFAULT_REBIND_VALIDITY_HOURS,
+  DEFAULT_RECOVERY_VALIDITY_HOURS,
   ENDPOINT_ARCH,
   ENDPOINT_OS,
   ENDPOINT_PROFILES,
@@ -7,6 +9,15 @@ import {
   MAX_BANDWIDTH_KBPS,
   MAX_BANDWIDTH_WINDOWS,
   MAX_ENDPOINT_QUOTA_GIB,
+  MAX_REBIND_VALIDITY_HOURS,
+  MAX_RECOVERY_VALIDITY_HOURS,
+  noControlChars,
+  parseCapabilities,
+  parseWindowsFacts,
+  RECOVERY_LOG_MAX_LINES,
+  type RecoveryFinishInput,
+  recoveryFinishSchema,
+  sqlNewNameIssue,
 } from "@restow/core";
 import { z } from "zod";
 
@@ -63,9 +74,25 @@ export const machineFactsSchema = z
       .max(64)
       .transform((value) => value.replace(/[^a-z0-9_-]/gi, "").slice(0, 32)),
     desktop: z.boolean(),
+    // Windows only (agent 0.5.0, W1): checked and bounded in @restow/core (parseWindowsFacts); a
+    // malformed one is dropped, the rest of the facts stays.
+    windows: z
+      .unknown()
+      .optional()
+      .transform((value) => parseWindowsFacts(value)),
   })
+  .transform(({ windows, ...rest }) => (windows ? { ...rest, windows } : rest))
   .optional()
   .catch(undefined);
+
+/**
+ * What the agent can do beyond the base contract (agent 0.5.0: `sql_native_v1`): known-looking
+ * codes only (@restow/core parseCapabilities). Absent from an older agent.
+ */
+export const capabilitiesSchema = z
+  .unknown()
+  .optional()
+  .transform((value) => parseCapabilities(value));
 
 /**
  * The data folders an agent found (agent 0.4.0 and later): names only; the service keeps those of
@@ -90,6 +117,7 @@ export const enrollSchema = z.object({
   hooks: hookPolicySchema.optional().catch("off"),
   machine: machineFactsSchema,
   dataFolders: dataFoldersSchema,
+  capabilities: capabilitiesSchema,
 });
 
 /** A code of what a due backup waits for, or "" for nothing. */
@@ -124,10 +152,15 @@ export const heartbeatSchema = z.object({
    * may add is kept and shown as "waiting".
    */
   waiting: z.string().regex(AGENT_WAITING_CODE).optional().catch(undefined),
+  capabilities: capabilitiesSchema,
+  // The SQL inventory (agent 0.5.0, W2a; at most 64 KiB from the agent): checked and bounded in
+  // @restow/core (parseSqlInventory); a malformed one is dropped and the heartbeat still counts.
+  sqlInventory: z.unknown().optional(),
 });
 
 export const startRunSchema = z.object({
-  kind: z.enum(["backup", "restore", "verify_sample"]),
+  // `sql`, `sql_restore`, `sql_verify`: the native SQL Server backup (agent 0.5.0, W2a).
+  kind: z.enum(["backup", "restore", "verify_sample", "sql", "sql_restore", "sql_verify"]),
   taskId: uuid.nullish(),
   startedAt: isoDate,
 });
@@ -227,6 +260,20 @@ export const finishRunSchema = z.object({
   // report of the ransomware signals (docs/RANSOMWARE.md), checked and bounded where it is used
   // (@restow/core parseActivityReport). An older agent sends none; a malformed one is dropped.
   activity: z.unknown().optional(),
+  // Whether a file system snapshot was used (agents from 0.5.0 on): checked and bounded where it is
+  // kept (@restow/core parseRunConsistency); an older agent sends none, a malformed one is dropped.
+  consistency: z.unknown().optional(),
+  // The layout manifest of a whole machine backup (agents from 0.5.0 on, docs/BAREMETAL.md 4.3):
+  // checked where it is stored (@restow/core parseLayoutManifest, at most 512 KiB canonical); a
+  // refused one leaves the run as reported and adds the hint `layout_rejected`.
+  layout: z.unknown().optional(),
+  // The native SQL Server backup (agents from 0.5.0, W2a): the report of a `sql`, `sql_restore` or
+  // `sql_verify` run, and the fixed warnings of any run. Checked and bounded in @restow/core
+  // (parseSqlBackupReport, parseSqlRestoreReport, parseSqlVerifyReport, parseRunNotices).
+  sql: z.unknown().optional(),
+  sqlRestore: z.unknown().optional(),
+  sqlVerify: z.unknown().optional(),
+  notices: z.unknown().optional(),
 });
 
 export const runIdParamSchema = z.object({ runId: uuid });
@@ -317,6 +364,10 @@ export const updateEndpointSchema = z
         // Time windows with a limit of their own (only for a machine in no job); null or [] removes them.
         bandwidthWindows: bandwidthWindowsSchema.nullable().optional(),
         onlyOnAcPower: z.boolean().optional(),
+        // The shadow copy of a Windows machine (VSS); refused for other systems.
+        useVss: z.boolean().optional(),
+        // File system snapshots of a Linux machine (LVM, btrfs); null returns to the default.
+        fsSnapshot: z.enum(["auto", "off"]).nullable().optional(),
       })
       .optional(),
     settings: z
@@ -373,6 +424,8 @@ export const removeEndpointSchema = z
   .object({
     mode: z.enum(["delete", "expire"]),
     confirmHostname: z.string().max(300),
+    /** Required for `delete` (removal.ts); kept in the audit entry. */
+    reason: z.string().max(1000).optional(),
   })
   .strict();
 export const tokenIdParamSchema = z.object({ tokenId: uuid });
@@ -419,26 +472,19 @@ export const createDownloadSchema = z.object({
 
 export const downloadParamSchema = z.object({ id: uuid, downloadId: uuid });
 
+export const layoutParamSchema = z.object({ id: uuid, layoutId: uuid });
+
 /**
- * A restore folder on a Linux or macOS machine: absolute and in plain form
- * (no "." or ".." segment, no double or trailing slash), never the root. The
- * agent checks the same and more (who may change the folders above it).
+ * A restore folder: its length and no control characters here; the rules of the machine's system
+ * (@restow/core restoreTargetIssue: Unix `/...`, Windows `X:\...`) are checked by the service,
+ * which knows the machine. The agent checks the same and more (who may change the folders above
+ * it).
  */
 export const restoreTargetSchema = z
   .string()
   .max(1024)
   // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
-  .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters")
-  .refine((value) => value.startsWith("/") && value !== "/", "must be an absolute path below /")
-  .refine(
-    (value) =>
-      !value.endsWith("/") &&
-      value
-        .slice(1)
-        .split("/")
-        .every((segment) => segment !== "" && segment !== "." && segment !== ".."),
-    'must be a plain path without ".", ".." or double slashes',
-  );
+  .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters");
 
 export const createTaskSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("backup_now") }),
@@ -486,6 +532,7 @@ export const agentPolicyLevelSchema = z
     bandwidthKbps: z.number().int().min(1).max(10_000_000).nullable().optional(),
     onlyOnAcPower: z.boolean().optional(),
     retries: z.number().int().min(0).max(10).optional(),
+    snapshotOnFailure: z.enum(["continue", "fail"]).optional(),
   })
   .strict();
 
@@ -497,10 +544,238 @@ export const globalAgentPolicySchema = z
   .object({
     settings: agentPolicyLevelSchema,
     locks: z
-      .array(z.enum(["backupWindow", "catchUp", "bandwidthKbps", "onlyOnAcPower", "retries"]))
-      .max(5),
+      .array(
+        z.enum([
+          "backupWindow",
+          "catchUp",
+          "bandwidthKbps",
+          "onlyOnAcPower",
+          "retries",
+          "snapshotOnFailure",
+        ]),
+      )
+      .max(6),
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// Bare metal recovery (docs/BAREMETAL.md 9, 11)
+// ---------------------------------------------------------------------------
+
+/** A string the ISO reports: at most `max` characters, no control characters (4.2). */
+const isoText = (max: number) =>
+  z.string().max(max).refine(noControlChars, "control character in string");
+const hex64 = z
+  .string()
+  .regex(/^[0-9a-fA-F]{64}$/, "not 64 hex digits")
+  .transform((value) => value.toLowerCase());
+const count = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
+export const recoveryHardwareSchema = z.object({
+  firmware: z.enum(["uefi", "bios"]),
+  secureBoot: z.boolean().nullable(),
+  ramBytes: count,
+  disks: z
+    .array(
+      z.object({
+        sizeBytes: count,
+        logicalSectorSize: z
+          .number()
+          .int()
+          .min(0)
+          .max(1 << 20),
+        model: isoText(200),
+        serial: isoText(200),
+        wwn: isoText(200),
+        transport: isoText(32),
+      }),
+    )
+    .max(64),
+  nics: z.array(z.object({ mac: isoText(200), driver: isoText(200), link: z.boolean() })).max(64),
+});
+
+/** POST /agent/v1/recovery/sessions: the ISO exchanges a code (9.3). */
+export const recoveryExchangeSchema = z.object({
+  codeProof: hex64,
+  sessionSecretSha256: hex64,
+  recoveryVersion: shortText(64).refine(noControlChars, "control character in string"),
+  hardware: recoveryHardwareSchema,
+});
+
+export const RECOVERY_PHASES = [
+  "connected",
+  "waiting_approval",
+  "planning",
+  "confirmed",
+  "partitioning",
+  "restoring",
+  "configuring",
+  "verifying",
+  "done",
+] as const;
+
+export const recoveryProgressSchema = z.object({
+  phase: z.enum(RECOVERY_PHASES),
+  step: count,
+  stepsTotal: count,
+  bytesDone: count,
+  totalBytes: count,
+  filesDone: count,
+  totalFiles: count,
+  message: isoText(500).default(""),
+  sshHostKeys: z
+    .array(z.object({ type: isoText(64), fingerprint: isoText(200) }))
+    .max(16)
+    .optional(),
+});
+
+export const recoveryLogSchema = z.object({
+  lines: z.array(z.string().max(4096)).max(RECOVERY_LOG_MAX_LINES),
+});
+
+/** What the ISO tells the audit trail: remote access, a key file made anew (10.2, 10.13). */
+export const recoveryEventSchema = z.object({
+  kind: z.enum(["remote_access_enabled", "keyfile_regenerated"]),
+  detail: z
+    .record(z.string().max(64), isoText(1024))
+    .default({})
+    .refine((detail) => JSON.stringify(detail).length <= 4096, "detail larger than 4 KiB"),
+});
+
+/** The finish of the ISO (9.8): one schema with the worker, which stores a probe's relayed finish. */
+export { recoveryFinishSchema };
+
+/** POST /agent/v1/recovery/sessions/current/rebind (10.19): the enroll facts of the restored system. */
+export const recoveryRebindSchema = z.object({
+  token: shortText(200),
+  hostname: shortText(253),
+  os: shortText(20),
+  arch: archSchema,
+  agentVersion: shortText(64),
+  osVersion: z.string().trim().max(200).default(""),
+  hooks: hookPolicySchema.optional().catch("off"),
+});
+
+/** POST /api/v1/endpoints/:id/recovery-codes (9.2). */
+export const issueRecoveryCodeSchema = z
+  .object({
+    snapshotId: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "not a full restic snapshot id")
+      .transform((value) => value.toLowerCase())
+      .optional(),
+    validityHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_RECOVERY_VALIDITY_HOURS)
+      .default(DEFAULT_RECOVERY_VALIDITY_HOURS),
+    requireApproval: z.boolean().default(true),
+  })
+  .strict();
+
+export const extendRecoveryCodeSchema = z
+  .object({ validityHours: z.number().int().min(1).max(MAX_RECOVERY_VALIDITY_HOURS) })
+  .strict();
+
+export const recoveryCodeParamSchema = z.object({ id: uuid, codeId: uuid });
+export const recoveryParamSchema = z.object({ id: uuid, recoveryId: uuid });
+
+export const recoveryLogQuerySchema = z.object({
+  logAfter: z.string().max(100).optional(),
+  logLimit: z.coerce.number().int().min(1).max(500).default(100),
+});
+
+/** The public key types the ISO's SSH server takes (10.2). */
+export const SSH_KEY_TYPES = [
+  "ssh-ed25519",
+  "ecdsa-sha2-nistp256",
+  "ecdsa-sha2-nistp384",
+  "ecdsa-sha2-nistp521",
+  "ssh-rsa",
+] as const;
+
+/** One OpenSSH public key line, its type named inside the key blob as well. */
+export function isSshPublicKey(line: string): boolean {
+  if (line.length > 16 * 1024 || !noControlChars(line)) {
+    return false;
+  }
+  const [type, blob, ...comment] = line.trim().split(/\s+/);
+  if (!type || !blob || !(SSH_KEY_TYPES as readonly string[]).includes(type)) {
+    return false;
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(blob) || comment.join(" ").length > 1024) {
+    return false;
+  }
+  const bytes = Buffer.from(blob, "base64");
+  if (bytes.length < 4 + type.length) {
+    return false;
+  }
+  const length = bytes.readUInt32BE(0);
+  return length === type.length && bytes.subarray(4, 4 + length).toString("latin1") === type;
+}
+
+export const recoverySshKeysSchema = z
+  .object({
+    keys: z
+      .array(
+        z
+          .string()
+          .max(16 * 1024)
+          .refine(isSshPublicKey, "not an SSH public key"),
+      )
+      .max(20),
+  })
+  .strict();
+
+/** POST /api/v1/endpoints/:id/rebind-token (11). */
+export const createRebindTokenSchema = z
+  .object({
+    validityHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_REBIND_VALIDITY_HOURS)
+      .default(DEFAULT_REBIND_VALIDITY_HOURS),
+    // `mac_setup` comes with macOS (M6).
+    purpose: z.enum(["reinstall", "baremetal"]),
+    unrevoke: z.boolean().default(false),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+// ---------------------------------------------------------------------------
+
+/** A database name for SQL Server: 1 to 128 characters, the agent's rules (@restow/core sqlNewNameIssue). */
+export const sqlNewNameSchema = z.string().superRefine((value, context) => {
+  const issue = sqlNewNameIssue(value);
+  if (issue !== null) {
+    context.addIssue({ code: "custom", message: issue, params: { issue } });
+  }
+});
+
+const sqlInstanceName = z
+  .string()
+  .min(1)
+  .max(64)
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+  .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters");
+
+export const sqlRestoreSchema = z
+  .object({
+    backupId: uuid,
+    newName: sqlNewNameSchema,
+    // W2a restores on the instance of the backup or another instance of the same machine.
+    targetInstance: sqlInstanceName.optional(),
+    checkdb: z.boolean().optional(),
+  })
+  .strict();
+
+export const sqlVerifySchema = z.object({ databaseId: uuid.optional() }).strict();
+
+export const sqlDatabaseParamSchema = z.object({ id: uuid, databaseId: uuid });
+export const sqlBackupParamSchema = z.object({ id: uuid, backupId: uuid });
 
 export const agentUpdatesSchema = z.object({
   paused: z.boolean(),
@@ -516,5 +791,11 @@ export type HeartbeatInput = z.infer<typeof heartbeatSchema>;
 export type FinishRunInput = z.infer<typeof finishRunSchema>;
 export type ProgressInput = z.infer<typeof progressSchema>;
 export type StartRunInput = z.infer<typeof startRunSchema>;
-export type { EndpointOsName };
+export type RecoveryExchangeInput = z.infer<typeof recoveryExchangeSchema>;
+export type RecoveryProgressInput = z.infer<typeof recoveryProgressSchema>;
+export type RecoveryEventInput = z.infer<typeof recoveryEventSchema>;
+export type RecoveryRebindInput = z.infer<typeof recoveryRebindSchema>;
+export type IssueRecoveryCodeInput = z.infer<typeof issueRecoveryCodeSchema>;
+export type CreateRebindTokenInput = z.infer<typeof createRebindTokenSchema>;
+export type { EndpointOsName, RecoveryFinishInput };
 export { MAX_ERRORS };

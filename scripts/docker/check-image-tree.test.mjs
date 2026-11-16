@@ -159,7 +159,7 @@ describe("the community build", () => {
     assert.ok(result.files >= 4);
   });
 
-  it("flags dist/ee, the loader's import and the source map path into ee/", () => {
+  it("flags dist/ee, the loader's import and the source map path into ee/ [LICENSE-010]", () => {
     prodTree({ withEe: true });
     const { findings } = scanTree(root, { variant: "community" });
     assert.ok(findings.some((finding) => finding.startsWith("api/dist/ee/: ")));

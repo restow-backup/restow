@@ -107,8 +107,10 @@ import {
   EndpointScheduleFields,
   HooksField,
   RetentionField,
+  SqlField,
   useProblemText,
 } from "./settings-fields.js";
+import { WholeMachineField } from "./whole-machine-field.js";
 
 export interface JobEditorProps {
   open: boolean;
@@ -402,6 +404,11 @@ function EditorForm({
     return kind === "mail" && !otherAllJob ? { ...base, scopeMode: "all" } : base;
   });
   const [draft, setDraft] = React.useState<JobDraft>(initial);
+  // What the agents get: with the preview off the server keeps a stored switch but sends the
+  // folders (docs/BAREMETAL.md 26.2).
+  const storedWholeMachine = initial.settings.wholeMachine;
+  const wholeMachineActive =
+    draft.settings.wholeMachine && defaults.wholeMachine?.available === true;
   const [attempted, setAttempted] = React.useState(false);
   const [attempts, setAttempts] = React.useState(0);
   const [conflicts, setConflicts] = React.useState<MemberConflict[] | null>(null);
@@ -922,12 +929,42 @@ function EditorForm({
                           })}
                     </p>
                   ) : null}
+                  {defaults.wholeMachine?.available ? (
+                    <WholeMachineField
+                      idPrefix={ids("whole-machine")}
+                      draft={draft.settings}
+                      defaults={defaults.wholeMachine}
+                      onChange={(next) => editSettings(next)}
+                    />
+                  ) : defaults.wholeMachine && storedWholeMachine ? (
+                    // The preview is off but the job kept the switch (the server keeps it): the
+                    // agents back up the folders, so they stay editable and the switch can only be
+                    // turned off.
+                    <WholeMachineField
+                      idPrefix={ids("whole-machine")}
+                      draft={draft.settings}
+                      defaults={defaults.wholeMachine}
+                      onChange={(next) => editSettings(next)}
+                      offOnly
+                    />
+                  ) : null}
+                  {wholeMachineActive ? (
+                    <p
+                      className="flex items-start gap-2 text-sm font-medium"
+                      data-slot="whole-machine-folders"
+                    >
+                      <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                      {t("wholeMachine.foldersAll")}
+                    </p>
+                  ) : null}
                   <FoldersField
                     idPrefix={ids("folders-field")}
                     paths={draft.settings.paths}
                     onChange={(paths) => editSettings({ paths })}
                     machines={machines}
                     error={settingsText("paths") ?? at("paths")}
+                    // Greyed out, not cleared: an agent older than 0.5.0 backs up these folders.
+                    disabled={wholeMachineActive}
                   />
                   <ProfileNote machines={machineFolders.data?.items ?? []} />
                   {linuxFolders(draft.settings.paths, defaults.basis?.os) ? (
@@ -1005,6 +1042,29 @@ function EditorForm({
                   onChange={(policy) => editSettings({ policy })}
                   zone={draft.endpointSchedule.timeZone}
                 />
+
+                <EditorSection
+                  id={ids("sql")}
+                  title={t("editor.sql.title")}
+                  description={t("editor.sql.description")}
+                >
+                  <SqlField
+                    idPrefix={ids("sql-field")}
+                    sql={draft.settings.sql}
+                    onChange={(sql) => editSettings({ sql })}
+                    dailyTime={
+                      draft.endpointSchedule.kind === "daily"
+                        ? draft.endpointSchedule.timeOfDay
+                        : null
+                    }
+                    problems={{
+                      databases: settingsText("sqlDatabases"),
+                      stagingDir: settingsText("sqlStagingDir"),
+                      verifyTime: settingsText("sqlVerifyTime") ?? at("sql"),
+                      verifyMaxGiB: settingsText("sqlVerifyMaxGiB"),
+                    }}
+                  />
+                </EditorSection>
 
                 <EditorSection
                   id={ids("retention")}

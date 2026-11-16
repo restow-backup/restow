@@ -11,10 +11,78 @@ import { PVE_NAMESPACE } from "./i18n.js";
  * restored VM's QEMU guest agent answered (a container: its init runs). A VM that only started
  * is amber, one that did not boot red; a test the node skipped or could not carry out is grey.
  */
+/**
+ * What a boot test's reason stands for, whatever outcome came with it (pveBootTestOutcomeOf in
+ * @restow/core, which the server applies; the web app has no dependency on core, and its test
+ * checks this table against core's). Green is proof only: a reason that proves nothing never
+ * shows green.
+ */
+export const BOOT_TEST_REASON_OUTCOMES: Readonly<Record<string, PveBootTestOutcome>> = {
+  agent_answered: "green",
+  system_running: "green",
+  // restow-pve before 0.5.0
+  init_running: "green",
+  memory_limit: "skipped",
+  node_memory: "skipped",
+  node_resources: "skipped",
+  storage_space: "skipped",
+  storage_content: "skipped",
+  storage_io_error: "skipped",
+  no_storage: "skipped",
+  backup_running: "skipped",
+  boot_test_running: "skipped",
+  restores_off: "skipped",
+  boot_tests_off: "skipped",
+  custom_qemu_args: "skipped",
+  host_disk: "skipped",
+  bridge_not_isolated: "skipped",
+  node_error: "error",
+  no_guest_agent: "yellow",
+  agent_not_answering: "yellow",
+  guest_paused: "yellow",
+  system_degraded: "yellow",
+  system_starting: "yellow",
+  system_unknown: "yellow",
+  init_running_unverified: "yellow",
+  init_unknown: "yellow",
+  restore_failed: "red",
+  start_failed: "red",
+  guest_stopped: "red",
+  guest_panicked: "red",
+  guest_internal_error: "red",
+  system_maintenance: "red",
+};
+
+/**
+ * Reasons with a text of their own (`guest.bootTestReason.<reason>`): every one that is not a
+ * proof. A green one says why with `guest.bootTestDetail.*`; a reason the app does not know
+ * shows the node's message.
+ */
+export const BOOT_TEST_REASON_TEXTS: readonly string[] = Object.keys(
+  BOOT_TEST_REASON_OUTCOMES,
+).filter((reason) => BOOT_TEST_REASON_OUTCOMES[reason] !== "green");
+
+/**
+ * The outcome a boot test stands for: a skipped or error reason rates nothing, a red reason is
+ * red, a yellow reason takes a green down to yellow; a green or an unknown reason keeps the
+ * outcome.
+ */
+export function bootTestOutcome(outcome: PveBootTestOutcome, reason = ""): PveBootTestOutcome {
+  const meant = BOOT_TEST_REASON_OUTCOMES[reason];
+  if (meant === undefined || meant === "green") {
+    return outcome;
+  }
+  if (meant === "yellow") {
+    return outcome === "green" ? "yellow" : outcome;
+  }
+  return meant;
+}
+
 export function bootTestVariant(
   outcome: PveBootTestOutcome,
+  reason = "",
 ): "success" | "warning" | "destructive" | "muted" {
-  switch (outcome) {
+  switch (bootTestOutcome(outcome, reason)) {
     case "green":
       return "success";
     case "yellow":
@@ -28,18 +96,66 @@ export function bootTestVariant(
 
 /** The line under a boot test's badge: why it is green, amber or red. */
 export function bootTestDetailKey(
-  test: Pick<PveBootTest, "outcome" | "guestAgent">,
+  test: Pick<PveBootTest, "outcome" | "guestAgent"> & { reason?: string },
   kind: GuestKind,
 ): string | null {
-  if (test.outcome === "green") {
+  const reason = test.reason ?? "";
+  const outcome = bootTestOutcome(test.outcome, reason);
+  if (BOOT_TEST_REASON_TEXTS.includes(reason) && outcome !== "green") {
+    return `guest.bootTestReason.${reason}`;
+  }
+  if (outcome === "green") {
+    if (reason === "system_running") {
+      return "guest.bootTestDetail.greenSystemd";
+    }
     return kind === "ct" || !test.guestAgent
       ? "guest.bootTestDetail.greenContainer"
       : "guest.bootTestDetail.green";
   }
-  if (test.outcome === "yellow" || test.outcome === "red") {
-    return `guest.bootTestDetail.${test.outcome}`;
+  if (outcome === "yellow" || outcome === "red") {
+    return `guest.bootTestDetail.${outcome}`;
   }
   return null;
+}
+
+/**
+ * The temporary guest a boot test made and could not remove (whatever its outcome), while no
+ * later inventory of the node said it is gone; null when nothing is left.
+ */
+export function bootTestLeftover(
+  test:
+    | Pick<PveBootTest, "tempVmid" | "cleanedUp" | "storage" | "leftoverGoneAt">
+    | null
+    | undefined,
+): { vmid: number; storage: string | null } | null {
+  if (!test || test.tempVmid === null || test.tempVmid === undefined) {
+    return null;
+  }
+  return test.cleanedUp === false && !test.leftoverGoneAt
+    ? { vmid: test.tempVmid, storage: test.storage ?? null }
+    : null;
+}
+
+/** Amber: the temporary guest of a boot test is still on the node, and what to do about it. */
+export function BootTestLeftoverNote({
+  leftover,
+  node,
+}: {
+  leftover: { vmid: number; storage: string | null };
+  node?: string | null;
+}) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  return (
+    <span
+      className="max-w-96 text-xs break-words text-warning-text"
+      data-slot="pve-boot-test-leftover"
+    >
+      {leftover.storage
+        ? t("guest.bootTestLeftover.onStorage", { vmid: leftover.vmid, storage: leftover.storage })
+        : t("guest.bootTestLeftover.plain", { vmid: leftover.vmid })}{" "}
+      {t("guest.bootTestLeftover.what", { node: node ?? "?" })}
+    </span>
+  );
 }
 
 export function BootTestBadge({
@@ -53,19 +169,21 @@ export function BootTestBadge({
   if (!test) {
     return <Badge variant="muted">{t("guest.bootTestNone")}</Badge>;
   }
+  const outcome = bootTestOutcome(test.outcome, test.reason);
   const detail = bootTestDetailKey(test, kind);
-  // Red says it in the badge; the node's message is the text. The other outcomes explain why.
+  const leftover = bootTestLeftover(test);
+  // Red says it in the badge; the node's message is the text. The other outcomes, and a red
+  // whose reason has a text of its own, explain why.
   const summary =
-    detail && test.outcome !== "red"
+    detail && (outcome !== "red" || detail.startsWith("guest.bootTestReason."))
       ? t(detail, { seconds: test.bootSeconds === null ? "?" : Math.round(test.bootSeconds) })
       : null;
   const badge = (
-    <Badge variant={bootTestVariant(test.outcome)}>
-      {t(`guest.bootTestOutcome.${test.outcome}`)}
+    <Badge variant={bootTestVariant(test.outcome, test.reason)}>
+      {t(`guest.bootTestOutcome.${outcome}`)}
     </Badge>
   );
-  const tone =
-    test.outcome === "red" ? "destructive" : test.outcome === "yellow" ? "warning" : "muted";
+  const tone = outcome === "red" ? "destructive" : outcome === "yellow" ? "warning" : "muted";
   return (
     <span className="inline-flex flex-col gap-0.5" data-slot="pve-boot-test">
       {test.message ? (
@@ -76,7 +194,28 @@ export function BootTestBadge({
         badge
       )}
       <RelativeTime value={test.checkedAt} focusable={false} className="text-xs" />
-      {test.outcome === "red" && test.message ? (
+      {summary && detail?.startsWith("guest.bootTestReason.") ? (
+        <span
+          className={`max-w-80 text-xs break-words ${outcome === "red" ? "text-destructive-text" : outcome === "yellow" ? "text-warning-text" : "text-muted-foreground"}`}
+          data-slot="pve-boot-test-reason"
+        >
+          {summary}
+        </span>
+      ) : null}
+      {outcome !== "red" &&
+      outcome !== "green" &&
+      test.message &&
+      test.reason &&
+      !(test.reason in BOOT_TEST_REASON_OUTCOMES) ? (
+        // A reason of a newer restow-pve this app has no text for: what the node said.
+        <span
+          className="line-clamp-2 max-w-80 text-xs break-words text-muted-foreground"
+          data-slot="pve-boot-test-node-message"
+        >
+          {test.message}
+        </span>
+      ) : null}
+      {outcome === "red" && test.message ? (
         // What the node saw (restore, start or stop of the temporary guest), not only red.
         <span
           className="line-clamp-2 max-w-80 text-xs break-words text-destructive-text"
@@ -85,6 +224,7 @@ export function BootTestBadge({
           {test.message}
         </span>
       ) : null}
+      {leftover ? <BootTestLeftoverNote leftover={leftover} /> : null}
     </span>
   );
 }

@@ -7,6 +7,7 @@
  * `accountEnabled`; protection rules decide what to back up (docs/MICROSOFT.md).
  */
 import type { Group, Organization, User } from "@microsoft/microsoft-graph-types";
+import { JobAbortedError } from "../../engine/chunkstore.js";
 import type { GraphClient } from "../client.js";
 import { type DeltaBatch, type DeltaSummary, type DeltaTokenStore, syncDelta } from "../delta.js";
 import { collect, odataString, paginate, query, requestOk } from "./common.js";
@@ -217,4 +218,59 @@ export async function getOrganization(client: GraphClient): Promise<TenantOrgani
 export function initialDomainOf(organization: TenantOrganization): string | undefined {
   const domains = organization.verifiedDomains ?? [];
   return (domains.find((d) => d.isInitial) ?? domains.find((d) => d.isDefault))?.name ?? undefined;
+}
+
+/**
+ * Whether a mailbox has an online archive (In-Place Archive), from Graph beta's mailbox
+ * discovery: `GET /beta/users/{id}/settings/exchange` (exchangeSettings, application
+ * permission User.Read.All) names `inPlaceArchiveMailboxId` next to `primaryMailboxId`.
+ * Graph v1.0 has no way to read an online archive; this only says whether there is one
+ * (docs/MICROSOFT.md "Online-Archiv").
+ *
+ *   present   Graph names an archive mailbox
+ *   none      Graph answered and names none
+ *   unknown   Graph refused or failed (no permission, beta unavailable, any error): never
+ *             read as "no archive"
+ */
+export type OnlineArchiveProbe =
+  | { readonly status: "present"; readonly archiveMailboxId: string }
+  | { readonly status: "none" }
+  | { readonly status: "unknown"; readonly reason: string };
+
+/**
+ * The beta endpoint, relative to the client's v1.0 base: `../beta` resolves to the same host
+ * (national clouds included), so the app token never leaves Graph.
+ */
+export function exchangeSettingsUrl(userId: string): string {
+  return `../beta/users/${encodeURIComponent(userId)}/settings/exchange`;
+}
+
+export async function probeOnlineArchive(
+  client: GraphClient,
+  userId: string,
+): Promise<OnlineArchiveProbe> {
+  let response: Awaited<ReturnType<GraphClient["request"]>>;
+  try {
+    response = await client.request<{ inPlaceArchiveMailboxId?: unknown }>({
+      method: "GET",
+      url: exchangeSettingsUrl(userId),
+    });
+  } catch (error) {
+    if (error instanceof JobAbortedError) {
+      throw error;
+    }
+    return { status: "unknown", reason: error instanceof Error ? error.message : String(error) };
+  }
+  if (response.status < 200 || response.status >= 300) {
+    const code = (response.body as { error?: { code?: unknown } } | null)?.error?.code;
+    return {
+      status: "unknown",
+      reason: `HTTP ${response.status}${typeof code === "string" ? ` ${code}` : ""}`,
+    };
+  }
+  const id = (response.body as { inPlaceArchiveMailboxId?: unknown } | null)
+    ?.inPlaceArchiveMailboxId;
+  return typeof id === "string" && id.trim().length > 0
+    ? { status: "present", archiveMailboxId: id }
+    : { status: "none" };
 }

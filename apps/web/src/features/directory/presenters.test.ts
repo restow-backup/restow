@@ -294,6 +294,16 @@ describe("readinessView", () => {
     ).toEqual({ variant: "destructive", key: "readiness.red" });
   });
 
+  it("shows an empty object grey, confirmed by an admin or empty by Microsoft 365 (0.5.0)", () => {
+    for (const empty of ["admin", "source"] as const) {
+      expect(
+        readinessView(
+          object({ readiness: { rating: "yellow", checkedAt: "2026-09-22T00:00:00Z", empty } }),
+        ),
+      ).toEqual({ variant: "muted", key: "readiness.empty" });
+    }
+  });
+
   it("never shows a per_mailbox account as ready while it has no working password of its own, even from an older verified restore point", () => {
     // Regression: a stale green readiness rating from before a source moved
     // to per_mailbox, or before a password stopped working, still showed

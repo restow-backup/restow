@@ -67,6 +67,8 @@ export async function provisionTestRoles(ownerUrl: string): Promise<TestDatabase
         await admin.$client.query(`DROP ROLE IF EXISTS ${tenant.name}`);
         await admin.$client.query(`DROP ROLE IF EXISTS ${installation.name}`);
         await admin.$client.query(`DROP ROLE IF EXISTS ${auth.name}`);
+        // The worker nodes' role (packages/db roles.ts), when a suite let a node join.
+        await admin.$client.query(`DROP ROLE IF EXISTS ${installation.name}_node`);
       } finally {
         await admin.$client.end();
       }

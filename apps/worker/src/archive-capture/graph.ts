@@ -451,11 +451,57 @@ interface SubscriptionState {
 
 interface GraphState extends ArchiveStreamState {
   readonly folders?: archive.GraphCatchUpState["folders"];
+  readonly knownFolders?: archive.GraphCatchUpState["knownFolders"];
   readonly subscription?: SubscriptionState | null;
   readonly subscriptionRetryAt?: string | null;
   readonly forceCatchUp?: boolean;
   readonly lastCatchUpAt?: string;
   readonly nextCatchUpAt?: string;
+}
+
+/**
+ * The capture's sink: the context (dedupe, append, gaps) plus the retry of a message whose
+ * MIME export failed with a 5xx in a catch-up or the backfill: it goes into the drain's
+ * pending list (as a notification would), so the next pass asks for it again.
+ */
+function captureSink(ctx: CaptureContext): archive.GraphCaptureSink {
+  return {
+    alreadyCaptured: (query) => ctx.alreadyCaptured(query),
+    append: (mail) => ctx.append(mail),
+    gaps: ctx.gaps,
+    retryLater: async (refs) => {
+      if (refs.length === 0) {
+        return;
+      }
+      await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+        tx.execute(sql`
+          insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+          select ${ctx.tenantId}::uuid, ${ctx.stream.protectedObjectId}::uuid, 'graph_sync', ref
+            from unnest(ARRAY[${sql.join(
+              refs.map((ref) => sql`${ref}`),
+              sql`, `,
+            )}]::text[]) as ref
+          on conflict (protected_object_id, way, external_ref) do nothing
+        `),
+      );
+    },
+  };
+}
+
+/** What a run could not archive by MIME: recorded as gaps (./gaps.ts), logged here. */
+function logExportGaps(ctx: CaptureContext, result: archive.GraphCaptureCounts): void {
+  if (result.oversized.length + result.notConvertible.length + result.exportFailed.length > 0) {
+    ctx.logger.warn("mail without a MIME export is not archived; recorded as capture gaps", {
+      tooLarge: result.oversized.length,
+      notConvertible: result.notConvertible.length,
+      exportFailed: result.exportFailed.length,
+    });
+  }
+  if (result.deferred.length > 0) {
+    ctx.logger.info("mail whose MIME export failed is fetched again on a later pass", {
+      messages: result.deferred.length,
+    });
+  }
 }
 
 function stateOf(ctx: CaptureContext): GraphState {
@@ -752,28 +798,52 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         client: access.client,
         userId: access.userId,
         refs,
-        sink: ctx,
+        sink: captureSink(ctx),
         signal: ctx.signal,
       });
-      if (result.failure && result.handled.length === 0) {
-        throw result.failure;
-      }
+      // A ref that keeps failing (an item the app cannot read) must never block the pass:
+      // before, a batch in which nothing was handled threw here, the pass skipped its
+      // catch-up and failed, again and again. It stays pending with its attempts counted,
+      // and the catch-up runs (forced) in the same pass.
       if (result.failure) {
-        ctx.logger.warn("some announced mail could not be fetched; it stays pending", {
-          status: result.failure.status,
-        });
+        ctx.logger.warn(
+          result.handled.length === 0
+            ? "no announced mail of this batch could be fetched; it stays pending, the catch-up runs"
+            : "some announced mail could not be fetched; it stays pending",
+          { status: result.failure.status, refs: result.failed.length },
+        );
       }
-      if (result.oversized.length > 0) {
-        ctx.logger.warn("mail too large for a MIME export is not archived", {
-          messages: result.oversized.length,
-        });
-      }
+      logExportGaps(ctx, result);
       const state = stateOf(ctx);
       return {
         state: result.missing > 0 || result.failure ? { ...state, forceCatchUp: true } : undefined,
         handled: result.handled,
         captured: result.captured,
+        ...(result.deferred.length > 0 ? { deferred: result.deferred } : {}),
+        ...(result.failed.length > 0
+          ? {
+              failed: {
+                refs: result.failed,
+                error: result.failure
+                  ? `HTTP ${result.failure.status}: ${safeErrorMessage(result.failure)}`
+                  : "fetch failed",
+              },
+            }
+          : {}),
       };
+    },
+
+    async retryGaps(ctx): Promise<number> {
+      // A message whose export or fetch kept failing is asked for once a day through the
+      // pending list; one too large or not convertible for a MIME export is not (no retry
+      // changes that).
+      const due =
+        (await ctx.gaps.retryDue?.({
+          kinds: ["message"],
+          reasons: ["export_failed", "fetch_failed"],
+        })) ?? [];
+      await captureSink(ctx).retryLater?.(due.map((gap) => gap.ref));
+      return due.length;
     },
 
     async catchUp(ctx): Promise<CatchUpResult> {
@@ -797,19 +867,19 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
       const result = await archive.catchUpGraphMailbox({
         client: access.client,
         userId: access.userId,
-        state: { folders: state.folders ?? {} },
-        sink: ctx,
+        state: {
+          folders: state.folders ?? {},
+          ...(state.knownFolders ? { knownFolders: state.knownFolders } : {}),
+        },
+        sink: captureSink(ctx),
         activatedAt: ctx.stream.activatedAt,
         backfillCompleted: ctx.stream.backfillCompletedAt !== null,
         fullResync: ctx.reason === "resync",
         signal: ctx.signal,
-        checkpoint: (next) => ctx.checkpoint({ ...state, folders: next.folders }),
+        checkpoint: (next) =>
+          ctx.checkpoint({ ...state, folders: next.folders, knownFolders: next.knownFolders }),
       });
-      if (result.oversized.length > 0) {
-        ctx.logger.warn("mail too large for a MIME export is not archived", {
-          messages: result.oversized.length,
-        });
-      }
+      logExportGaps(ctx, result);
       // A `missed` lifecycle event this catch-up answered is done.
       await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
         tx.execute(sql`
@@ -824,6 +894,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         state: {
           ...rest,
           folders: result.state.folders ?? {},
+          ...(result.state.knownFolders ? { knownFolders: result.state.knownFolders } : {}),
           lastCatchUpAt: ctx.now().toISOString(),
           nextCatchUpAt: next.toISOString(),
         },
@@ -859,18 +930,14 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
       const result = await archive.backfillGraphMailbox({
         client: access.client,
         userId: access.userId,
-        sink: ctx,
+        sink: captureSink(ctx),
         cursor,
         saveCursor: (next) => ctx.job.cursor.save({ ...(stored ?? {}), graphBackfill: next }),
         signal: ctx.signal,
         budgetMs: BACKFILL_BUDGET_MS,
         onPage: ({ messages }) => ctx.job.progress.advance(messages),
       });
-      if (result.oversized.length > 0) {
-        ctx.logger.warn("mail too large for a MIME export is not archived", {
-          messages: result.oversized.length,
-        });
-      }
+      logExportGaps(ctx, result);
       return {
         captured: result.cursor.captured,
         skipped: result.cursor.skipped,

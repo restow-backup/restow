@@ -20,6 +20,10 @@
  *              ends here is announced like one the worker finished (`onJobFinished`:
  *              the job.failed webhook, the bell, the notification rules).
  *
+ * In restore mode (a database dump was restored, restore-mode.ts) an orphan created before
+ * restore mode began is not put back: it and its row are cancelled (`held`), since the restored
+ * database may not know what it did after the dump.
+ *
  * A job whose queue policy keeps one waiting job per object (`stately`) and that
  * already has one waiting is left to pg-boss' expiration: the waiting one covers it, as
  * is a job of a worker that died while another one that started before it still runs
@@ -47,6 +51,14 @@ const LOCK_KEY = 0x72636e31; // "rcn1"
 export interface ReconcileSummary {
   requeued: number;
   settled: number;
+  /** Orphans from before a restored database dump, cancelled instead of requeued. */
+  held?: number;
+}
+
+/** Restore mode's job hold (restore-mode.ts `RestoreModeJobHold`). */
+export interface ReconcileHold {
+  holds(createdOn: Date | null): Promise<unknown | null>;
+  cancel(queue: string, bossJobId: string): Promise<void>;
 }
 
 /** Why the worker stopped, as the job's explanation says. */
@@ -75,6 +87,7 @@ function interruption(
 interface OrphanRow extends Record<string, unknown> {
   id: string;
   name: string;
+  created_on?: Date | string | null;
   retry_count: number;
   retry_limit: number;
   retry_delay: number;
@@ -113,6 +126,8 @@ export interface ReconcileOptions {
    * changes the outcome.
    */
   readonly onJobFinished?: (tenantId: string, job: FinishedJob) => Promise<unknown>;
+  /** Restore mode: orphans from before it are cancelled, not requeued. */
+  readonly hold?: ReconcileHold;
 }
 
 const asDate = (value: Date | string | null): Date | null =>
@@ -139,7 +154,7 @@ export async function reconcileJobs(
 
   // Orphaned: active in pg-boss, started before every live worker.
   const orphans = await providerDb.execute<OrphanRow>(sql`
-    SELECT id::text AS id, name, retry_count, retry_limit, retry_delay, retry_backoff
+    SELECT id::text AS id, name, retry_count, retry_limit, retry_delay, retry_backoff, created_on
       FROM pgboss.job
      WHERE state = 'active'
        AND name IN (${sql.join(
@@ -148,7 +163,14 @@ export async function reconcileJobs(
        )})
        AND started_on < ${cutoff.toISOString()}::timestamptz`);
   let requeued = 0;
+  let held = 0;
   for (const orphan of orphans.rows) {
+    const createdOn = orphan.created_on ? new Date(orphan.created_on) : null;
+    if (options.hold && (await options.hold.holds(createdOn))) {
+      await options.hold.cancel(orphan.name, orphan.id);
+      held++;
+      continue;
+    }
     try {
       const moved = await providerDb.transaction(async (tx) => {
         const result = await tx.execute<OrphanRow>(sql`
@@ -261,10 +283,10 @@ export async function reconcileJobs(
       }
     }
   }
-  if (requeued + settled > 0) {
-    logger.warn("jobs a stopped worker left behind were reconciled", { requeued, settled });
+  if (requeued + settled + held > 0) {
+    logger.warn("jobs a stopped worker left behind were reconciled", { requeued, settled, held });
   }
-  return { requeued, settled };
+  return held > 0 ? { requeued, settled, held } : { requeued, settled };
 }
 
 /** One pass, unless another worker runs it right now (then null). */

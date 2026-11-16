@@ -1,0 +1,2 @@
+{"type":"error","problem":{"code":"sql_restore_failed","step":"headeronly","number":3241,"message":"The media family on device '...' is incorrectly formed. SQL Server cannot process this media family. (3241) RESTORE HEADERONLY is terminating abnormally. (3013)"}}
+#exit 2

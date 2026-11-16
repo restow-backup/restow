@@ -181,7 +181,7 @@ function MounterUpdateNoteView({ view }: { view: UpdatesView }) {
   if (note.kind === "pending") {
     return (
       <Alert variant="info" data-slot="mounter-update" data-kind="pending">
-        <Loader2 className="animate-spin" />
+        <Loader2 className="motion-safe:animate-spin" />
         <AlertDescription>
           <p>{t("updater.mounterUpdate.pending", { running: view.running ?? "" })}</p>
         </AlertDescription>

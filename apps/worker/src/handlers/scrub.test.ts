@@ -14,6 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  archive,
   type ChunkIndex,
   type ChunkLocation,
   ChunkReader,
@@ -35,14 +36,20 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
+  archiveItems,
   createDb,
   type Database,
   jobs,
+  notifications,
   packs,
+  protectedObjects,
   providers,
+  snapshots,
+  sources,
   storageMigrations,
   storageTargets,
   tenants,
+  verifyReports,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
@@ -73,14 +80,14 @@ function packCheck(path: string, status: PackCheck["status"]): PackCheck {
 }
 
 describe("scrub helpers", () => {
-  it("runs a sample scrub unless full is asked for", () => {
+  it("runs a sample scrub unless full is asked for [SCRUB-001]", () => {
     expect(scrubModeOf({ mode: "full" })).toBe("full");
     expect(scrubModeOf({ mode: "sample" })).toBe("sample");
     expect(scrubModeOf({ mode: "recheck" })).toBe("recheck");
     expect(scrubModeOf({ mode: "bogus" as never })).toBe("sample");
   });
 
-  it("lets garbage collection take only chunks unreferenced for the grace period", () => {
+  it("lets garbage collection take only chunks unreferenced for the grace period [SCRUB-006]", () => {
     const now = new Date("2026-09-23T12:00:00.000Z");
     expect(gcCutoff(now).toISOString()).toBe("2026-09-20T12:00:00.000Z");
     expect(GC_GRACE_HOURS).toBe(72);
@@ -115,7 +122,7 @@ describe("scrub helpers", () => {
     expect(packFindingsOfReport(null)).toEqual({ damaged: [], unreadable: [] });
   });
 
-  it("raises nothing for a pack that is only temporarily unreadable, an error once it stayed so", () => {
+  it("raises nothing for a pack that is only temporarily unreadable, an error once it stayed so [SCRUB-004]", () => {
     const run = (persistent: boolean) => ({
       since: "2026-10-17T02:00:00.000Z",
       lastAt: "2026-10-18T03:00:00.000Z",
@@ -169,7 +176,7 @@ describe("scrub helpers", () => {
     ]);
   });
 
-  it("yields garbage collection to running backups, restores and verifies", () => {
+  it("yields garbage collection to running backups, restores and verifies [SCRUB-006]", () => {
     expect(gcBlockerOf([])).toBeNull();
     expect(gcBlockerOf(["scrub", "retention", "directory"])).toBeNull();
     expect(gcBlockerOf(["restore"])).toBe("restore_running");
@@ -301,7 +308,7 @@ describe("copy-target mirror", () => {
     expect(await mirrorCopies(context([]), catalog, "sample")).toBeNull();
   });
 
-  it("copies keys, manifests and packs the copy is missing, then finds it complete", async () => {
+  it("copies keys, manifests and packs the copy is missing, then finds it complete [COPY-001]", async () => {
     const pack = Buffer.from("pack bytes of an earlier backup");
     const packId = randomUUID();
     await primary.put(packKey(tenantId, packId), pack);
@@ -496,7 +503,168 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     return { index, live };
   }
 
-  it("deletes no pack a running restore or verify of the tenant reads", async () => {
+  it("files a red finding for a backup whose manifest is gone from storage that still holds the tenant [SCRUB-007]", async () => {
+    const tenant = await createTenant();
+    const { tenantId } = tenant;
+    const [source] = await db
+      .insert(sources)
+      .values({ tenantId, kind: "m365", name: "M365", status: "active" })
+      .returning();
+    const [object] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: source?.id as string,
+        kind: "mailbox",
+        externalId: "anna@example.org",
+      })
+      .returning();
+    const objectId = object?.id as string;
+    const now = new Date("2026-10-01T03:00:00.000Z");
+    const [older, newest] = await db
+      .insert(snapshots)
+      .values(
+        [1, 2].map((sequence) => ({
+          id: randomUUID(),
+          tenantId,
+          protectedObjectId: objectId,
+          sequence,
+          status: "active" as const,
+          completedAt: new Date(now.getTime() - (3 - sequence) * 3_600_000),
+        })),
+      )
+      .returning({ id: snapshots.id });
+    for (const row of [older, newest]) {
+      await db
+        .update(snapshots)
+        .set({ manifestPath: manifestKey(tenantId, row?.id as string) })
+        .where(eq(snapshots.id, row?.id as string));
+    }
+    // The wrapped key the worker mirrors to every target, and only the older manifest.
+    await tenant.storage.primary.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped"));
+    await tenant.storage.primary.put(manifestKey(tenantId, older?.id as string), Buffer.from("m"));
+
+    // A sample run asks for the newest manifest of each object.
+    const report = (await scrubAt(tenant, now, "sample")) as ScrubReport & {
+      manifests?: { checked: number; missing: { snapshotId: string }[] };
+    };
+    expect(report.manifests).toMatchObject({
+      checked: 1,
+      missing: [{ snapshotId: newest?.id, protectedObjectId: objectId }],
+    });
+    const findings = await db
+      .select({ readiness: verifyReports.recoveryReadiness, details: verifyReports.details })
+      .from(verifyReports)
+      .where(eq(verifyReports.tenantId, tenantId));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.readiness).toBe("red");
+    expect(findings[0]?.details).toMatchObject({
+      origin: "scrub",
+      reasons: [{ code: "manifest_missing", severity: "red", count: 1 }],
+      manifests: [{ snapshotId: newest?.id }],
+    });
+    const raised = await db
+      .select({ event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.tenantId, tenantId));
+    expect(raised.map((row) => row.event)).toContain(SCRUB_EVENTS.corrupt);
+
+    // An emptied target proves nothing: no further finding.
+    for (const key of await tenant.storage.primary.list(`tenants/${tenantId}/`)) {
+      await tenant.storage.primary.delete(key);
+    }
+    const emptied = (await scrubAt(
+      tenant,
+      new Date(now.getTime() + 60_000),
+      "sample",
+    )) as ScrubReport & { manifests?: { missing: unknown[] } };
+    expect(emptied.manifests?.missing).toEqual([]);
+    expect(
+      await db
+        .select({ id: verifyReports.id })
+        .from(verifyReports)
+        .where(eq(verifyReports.tenantId, tenantId)),
+    ).toHaveLength(1);
+  });
+
+  it("mirrors only the archive records written since the last scheduled check, every one on a full check", async () => {
+    const tenant = await createTenant();
+    const copy = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy`));
+    const withCopy = { ...tenant, storage: { ...tenant.storage, copies: [copy] } };
+    // The records are written a batch at a time (writes side by side, one insert per batch):
+    // one write and one insert per record took the test past its time on a busy CI runner.
+    const archived = async (count: number, at: Date) => {
+      const ids = Array.from({ length: count }, () => randomUUID());
+      for (let start = 0; start < ids.length; start += 100) {
+        const batch = ids.slice(start, start + 100);
+        const rows = batch.map((id) => ({
+          id,
+          tenantId: tenant.tenantId,
+          messageId: `<${id}@contoso.example>`,
+          itemHash: `hash-${id}`,
+          prevChainHash: null,
+          chainHash: `chain-${id}`,
+          receivedAt: at,
+          capturedVia: "journal" as const,
+          storagePath: archive.archiveItemKey(tenant.tenantId, at, id),
+          createdAt: at,
+        }));
+        await Promise.all(
+          rows.map((row) =>
+            tenant.storage.primary.put(row.storagePath, Buffer.from(`sealed record ${row.id}`)),
+          ),
+        );
+        await db.insert(archiveItems).values(rows);
+      }
+    };
+    const archiveHeads = () => {
+      const seen: string[] = [];
+      const head = copy.head.bind(copy);
+      copy.head = async (key: string) => {
+        if (key.includes("/archive/")) {
+          seen.push(key);
+        }
+        return head(key);
+      };
+      return seen;
+    };
+    const day = (n: number) => new Date(Date.UTC(2026, 9, n, 12));
+    await archived(1200, day(1));
+    // The first scheduled check knows no position yet: every record, a page at a time.
+    let seen = archiveHeads();
+    const first = await scrubAt(withCopy, day(2), "sample");
+    expect(seen).toHaveLength(1200);
+    expect((first as { copies?: unknown }).copies).toMatchObject({ complete: true, copied: 1200 });
+    // A second one with nothing new looks at no record; one after three new looks at three.
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(3), "sample");
+    expect(seen).toHaveLength(0);
+    await archived(3, day(3));
+    seen = archiveHeads();
+    const third = await scrubAt(withCopy, day(4), "sample");
+    expect(seen).toHaveLength(3);
+    expect((third as { copies?: unknown }).copies).toMatchObject({ complete: true, copied: 3 });
+    // A full check sweeps every record again (verified by hash).
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(5), "full");
+    expect(seen).toHaveLength(1203);
+    // A record younger than the settle time waits for the next check.
+    await archived(1, new Date(day(6).getTime() - 60_000));
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(6), "sample");
+    expect(seen).toHaveLength(0);
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(7), "sample");
+    expect(seen).toHaveLength(1);
+    // A copy added later receives every record written before it, on its first scheduled check.
+    const second = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy-2`));
+    const both = { ...tenant, storage: { ...tenant.storage, copies: [copy, second] } };
+    await scrubAt(both, day(8), "sample");
+    expect((await second.list(archive.archivePrefix(tenant.tenantId))).length).toBe(1204);
+    // Mirrors 1200 records to a copy several times: seconds here, more on a busy CI runner.
+  }, 120_000);
+
+  it("deletes no pack a running restore or verify of the tenant reads [SCRUB-006]", async () => {
     const tenant = await createTenant();
     const bystander = await createTenant();
     const { index, live } = await writeObjects(tenant);

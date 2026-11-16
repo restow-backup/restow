@@ -14,7 +14,10 @@ import {
 import { useSwitchTenant } from "@/components/tenant-switcher";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AllTenantsPriceCard } from "@/features/pricing/all-tenants-price-card";
+import {
+  AllTenantsPriceCard,
+  useAllTenantsPriceVisible,
+} from "@/features/pricing/all-tenants-price-card";
 import { STATS_VIEW, StatsPage } from "@/features/stats";
 import { OwnOrganisationPrompt } from "@/features/tenants/components/own-organisation-prompt";
 import { type ReadinessState, verifyLink } from "@/features/verify/search";
@@ -67,6 +70,7 @@ function StatusView({ allTenants }: { allTenants: boolean }) {
   const { tenants, user } = useSession();
   const switchTenant = useSwitchTenant();
   const dashboard = useDashboard(allTenants ? "all" : "tenant");
+  const priceVisible = useAllTenantsPriceVisible(allTenants);
   const { query } = dashboard;
   const { refetch } = query;
   // The backup runs window, remembered for this person like the storage growth window.
@@ -131,22 +135,31 @@ function StatusView({ allTenants }: { allTenants: boolean }) {
       />
     );
   } else {
+    // The price card and "Running now" are laid out by the provider view, in its grid: the price
+    // card beside the readiness card, "Running now" under them. Without that view (no extension)
+    // they are stacked.
+    const priceCard = priceVisible ? <AllTenantsPriceCard onOpenTenant={openTenant} /> : null;
+    const runningNow = <AllTenantsRunningWidget onOpenTenant={openTenant} />;
     body = allTenants ? (
-      <div className="space-y-6">
-        <AllTenantsPriceCard onOpenTenant={openTenant} />
-        <AllTenantsRunningWidget onOpenTenant={openTenant} />
-        <ExtensionSlot
-          name="dashboard.provider"
-          props={{
-            view: widgetView(data?.provider ?? undefined, loading),
-            onRetry: refresh,
-            retrying,
-            onOpenTenant: openTenant,
-            onTenantDetails: tenantDetails,
-            onOpenReadiness: openReadiness,
-          }}
-        />
-      </div>
+      <ExtensionSlot
+        name="dashboard.provider"
+        props={{
+          view: widgetView(data?.provider ?? undefined, loading),
+          onRetry: refresh,
+          retrying,
+          onOpenTenant: openTenant,
+          onTenantDetails: tenantDetails,
+          onOpenReadiness: openReadiness,
+          priceCard,
+          runningNow,
+        }}
+        fallback={
+          <div className="space-y-6">
+            {priceCard}
+            {runningNow}
+          </div>
+        }
+      />
     ) : (
       <DashboardWidgets
         widgets={data?.widgets}

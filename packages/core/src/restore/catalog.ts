@@ -26,6 +26,7 @@ import {
   objectTypeOf,
   parseBoolean,
   pathSegments,
+  unescapeImapComponent,
   wellKnownFolderOf,
 } from "./conventions.js";
 
@@ -67,6 +68,50 @@ function nonEmpty(value: string | undefined): string | undefined {
 
 const INBOX_ANCHOR = "\\Inbox";
 
+/** The Graph well-known folder for an IMAP SPECIAL-USE (and INBOX). */
+const SPECIAL_USE_WELL_KNOWN: Readonly<Record<string, string>> = {
+  "\\inbox": "inbox",
+  "\\sent": "sentitems",
+  "\\drafts": "drafts",
+  "\\trash": "deleteditems",
+  "\\junk": "junkemail",
+  "\\archive": "archive",
+  // Gmail's All Mail: a mailbox for mail that has no other folder (./gmail.ts).
+  "\\all": "archive",
+};
+
+/** An object an IMAP backup or a mailbox import wrote (docs: conventions, IMAP). */
+function isImapLayout(object: ManifestObject): boolean {
+  const metadata = object.metadata ?? {};
+  return metadata.mailbox !== undefined || metadata.uidValidity !== undefined;
+}
+
+/** The first mailbox component as the source named it, before INBOX is normalised. */
+function rawImapFirstComponent(object: ManifestObject): string | undefined {
+  const mailbox = nonEmpty(object.metadata?.mailbox);
+  const delimiter = imapDelimiterOf(object);
+  const first =
+    mailbox !== undefined
+      ? delimiter === undefined
+        ? mailbox
+        : mailbox.split(delimiter)[0]
+      : folderSegmentsOf(object, "mail")[0];
+  return first === undefined || first.length === 0 ? undefined : unescapeImapComponent(first);
+}
+
+/**
+ * The exception id of an attachment of a changed occurrence of a series: the backup names the
+ * series in `seriesMasterId` and the exception in `eventItemId` (an event's name may hold a
+ * `#` itself, so the path alone does not say it).
+ */
+function occurrenceIdOf(metadata: Record<string, string>): string | undefined {
+  const seriesId = nonEmpty(metadata.seriesMasterId);
+  const eventId = nonEmpty(metadata.eventItemId);
+  return seriesId !== undefined && eventId !== undefined && eventId !== seriesId
+    ? eventId
+    : undefined;
+}
+
 function displayNameKey(area: MailboxArea, segments: readonly string[]): string {
   return `${area}\n${segments.join("/")}`;
 }
@@ -75,18 +120,32 @@ export class SnapshotCatalog {
   private readonly foldersByPath = new Map<string, ManifestObject>();
   private readonly calendarsById = new Map<string, ManifestObject>();
   private readonly messagePathById = new Map<string, string>();
+  private readonly eventPathById = new Map<string, string>();
+  /** Paths of the events that have event-attachment objects in the snapshot. */
+  private readonly eventsWithAttachments = new Set<string>();
   private readonly imapFoldersByMailbox = new Map<string, ManifestObject>();
   /** Real display names of mail and contact folders by area and recorded folder path. */
   private readonly displayNames = new Map<string, string>();
 
-  private constructor(objects: readonly ManifestObject[]) {
-    for (const object of objects) {
+  private constructor(private readonly all: readonly ManifestObject[]) {
+    for (const object of all) {
       const type = objectTypeOf(object);
       if (type === "mail" && object.id !== undefined) {
         this.messagePathById.set(object.id, object.path);
       }
+      if (type === "event" && object.id !== undefined) {
+        this.eventPathById.set(object.id, object.path);
+      }
       if (type === "folder") {
         this.addFolder(object);
+      }
+    }
+    for (const object of all) {
+      if (objectTypeOf(object) === "event-attachment") {
+        const owner = this.eventAttachmentOwner(object);
+        if (owner !== undefined) {
+          this.eventsWithAttachments.add(owner);
+        }
       }
     }
   }
@@ -120,6 +179,11 @@ export class SnapshotCatalog {
     return new SnapshotCatalog(manifest.objects);
   }
 
+  /** Every object of the snapshot. */
+  objects(): readonly ManifestObject[] {
+    return this.all;
+  }
+
   /**
    * The folder names of a recorded path, each level replaced by the real
    * display name its folder object carries: a `/` inside a name cannot
@@ -138,10 +202,32 @@ export class SnapshotCatalog {
    * well-known name when the backup recorded one.
    */
   mailFolderChain(object: ManifestObject): FolderStep[] {
+    if (isImapLayout(object)) {
+      return this.imapFolderChainForExchange(object);
+    }
     const anchor = wellKnownFolderOf(object);
     return this.realNames("mail", folderSegmentsOf(object, "mail")).map((name, index) =>
       index === 0 && anchor !== undefined ? { name, anchor } : { name },
     );
+  }
+
+  /**
+   * The Exchange folders of an object in the IMAP layout (an IMAP backup or
+   * an imported mailbox): the real mailbox names, not their percent-escaped
+   * path segments ("100%", "A/B"), and the levels the source marked as
+   * INBOX or with a SPECIAL-USE anchored on the matching well-known folder.
+   */
+  private imapFolderChainForExchange(object: ManifestObject): FolderStep[] {
+    const steps = this.imapFolderChain(object);
+    // INBOX is spelled INBOX on the wire; the name the source gave it (an
+    // import's "Inbox") is what a rename-mode restore folder shows.
+    const firstRaw = rawImapFirstComponent(object);
+    return steps.map((step, index) => {
+      const name = index === 0 && step.name === "INBOX" && firstRaw ? firstRaw : step.name;
+      const anchor =
+        step.anchor === undefined ? undefined : SPECIAL_USE_WELL_KNOWN[step.anchor.toLowerCase()];
+      return anchor !== undefined ? { name, anchor } : { name };
+    });
   }
 
   /** Exchange contact folders below the default contacts folder (empty: the default folder). */
@@ -158,6 +244,37 @@ export class SnapshotCatalog {
     }
     const byId = nonEmpty(metadata.messageItemId);
     return byId === undefined ? undefined : this.messagePathById.get(byId);
+  }
+
+  /**
+   * Path of the event an event attachment belongs to, if the snapshot names it. An attachment
+   * of a changed occurrence of a series (`eventPath` `<series path>#<exception id>`, the
+   * exception has no event object of its own) belongs to the series' event.
+   */
+  eventAttachmentOwner(attachment: ManifestObject): string | undefined {
+    const metadata = attachment.metadata ?? {};
+    const byPath = nonEmpty(metadata.eventPath);
+    const occurrence = occurrenceIdOf(metadata);
+    if (byPath !== undefined) {
+      const suffix = occurrence === undefined ? "" : `#${occurrence}`;
+      return suffix !== "" && byPath.endsWith(suffix) ? byPath.slice(0, -suffix.length) : byPath;
+    }
+    const byId =
+      occurrence === undefined ? nonEmpty(metadata.eventItemId) : nonEmpty(metadata.seriesMasterId);
+    return byId === undefined ? undefined : this.eventPathById.get(byId);
+  }
+
+  /**
+   * The id of the series exception (changed occurrence) an event attachment belongs to, or
+   * undefined for an attachment of the event (or series) itself.
+   */
+  eventAttachmentOccurrence(attachment: ManifestObject): string | undefined {
+    return occurrenceIdOf(attachment.metadata ?? {});
+  }
+
+  /** Whether the snapshot holds attachment objects for the event at `path`. */
+  hasEventAttachments(path: string): boolean {
+    return this.eventsWithAttachments.has(path);
   }
 
   /**

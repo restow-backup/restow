@@ -60,6 +60,7 @@ export type ProblemTarget =
   | "retention"
   | "retentionPolicy"
   | "archiveCapture"
+  | "sql"
   | "general";
 
 export function problemTarget(path: readonly string[]): ProblemTarget {
@@ -93,6 +94,8 @@ export function problemTarget(path: readonly string[]): ProblemTarget {
           return "hooks";
         case "retention":
           return "retention";
+        case "sql":
+          return "sql";
         default:
           return "general";
       }
@@ -160,6 +163,9 @@ export function conflictsOf(error: unknown): MemberConflict[] | null {
   });
 }
 
+/** Whole machine backups are a preview this installation has not switched on (409). */
+export const BAREMETAL_PREVIEW_OFF_PROBLEM = "urn:restow:problem:baremetal-preview-off";
+
 /** A machine job cannot be paused: the agent decides when to back up. */
 export function isPauseNotSupported(error: unknown): boolean {
   return jobProblemOf(error)?.code === "pause_not_supported";
@@ -191,6 +197,9 @@ export function jobErrorKey(error: unknown): string {
       return error.problem.code === "all_job_exists"
         ? "backupjobs:errors.allJobExists"
         : "backupjobs:errors.state";
+    }
+    if (error.problem?.type === BAREMETAL_PREVIEW_OFF_PROBLEM) {
+      return "backupjobs:errors.baremetalPreviewOff";
     }
     if (isInvalidJob(error)) {
       return "backupjobs:errors.invalid";

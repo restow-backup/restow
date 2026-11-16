@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
-import { bellEventKey } from "./notification-item";
+import { bellEventKey, notificationObject } from "./notification-item";
 
 /**
  * The bell line of an expiring app credential names its stage (core entra/expiry.ts: 30 days,
@@ -54,5 +54,93 @@ describe("the words of every stage", () => {
         date: "Nov 1, 2026",
       }),
     ).toContain("in 1 day");
+  });
+});
+
+describe("the bell line of a failed delivery (0.5.0)", () => {
+  const event = "notification.delivery_failed";
+
+  it("names the transport, the address or the webhook", () => {
+    expect(bellEventKey({ event, details: { scope: "transport" } })).toBe(
+      "bellEvents.notification.delivery_failed_transport",
+    );
+    expect(bellEventKey({ event, details: { scope: "webhook" } })).toBe(
+      "bellEvents.notification.delivery_failed_webhook",
+    );
+    expect(bellEventKey({ event, details: { scope: "recipient" } })).toBe(
+      "bellEvents.notification.delivery_failed_recipient",
+    );
+    expect(bellEventKey({ event, details: null })).toBe(
+      "bellEvents.notification.delivery_failed_recipient",
+    );
+  });
+
+  it("exists in both languages with the address and the webhook in it", async () => {
+    for (const language of ["en", "de"]) {
+      await i18n.changeLanguage(language);
+      for (const scope of ["transport", "recipient", "webhook"]) {
+        const key = `reports:bellEvents.notification.delivery_failed_${scope}`;
+        expect(i18n.exists(key), `${language} ${key}`).toBe(true);
+      }
+      expect(
+        i18n.t("reports:bellEvents.notification.delivery_failed_recipient", {
+          recipient: "ops@contoso.example",
+        }),
+      ).toContain("ops@contoso.example");
+      expect(
+        i18n.t("reports:bellEvents.notification.delivery_failed_webhook", { webhook: "Ops" }),
+      ).toContain("Ops");
+    }
+    await i18n.changeLanguage("en");
+  });
+});
+
+describe("the object a notification names (0.5.0)", () => {
+  it("names the service with the object when the event says which one", async () => {
+    await i18n.changeLanguage("de");
+    const t = (key: string, options?: { defaultValue?: string }) =>
+      String(i18n.t(`reports:${key}`, options));
+    expect(
+      notificationObject(
+        { details: { objectName: "msp@contoso.example", objectKind: "onedrive" } },
+        t,
+      ),
+    ).toBe("OneDrive · msp@contoso.example");
+    expect(
+      notificationObject(
+        { details: { objectName: "msp@contoso.example", objectKind: "mailbox" } },
+        t,
+      ),
+    ).toBe("Postfach · msp@contoso.example");
+    expect(notificationObject({ details: { objectName: "Contoso" } }, t)).toBe("Contoso");
+    expect(
+      notificationObject({ details: { objectName: "x", objectKind: "something-new" } }, t),
+    ).toBe("x");
+    await i18n.changeLanguage("en");
+  });
+});
+
+describe("the bell line of a low disk that holds several places (#98)", () => {
+  it("is one line naming them all; a disk of its own keeps its line", async () => {
+    const shared = {
+      event: "installation.disk_low",
+      details: { disk: "system", disks: ["system", "database", "repository"] },
+    };
+    expect(bellEventKey(shared)).toBe("bellEvents.installation.disk_low_shared");
+    expect(
+      bellEventKey({
+        event: "installation.disk_low",
+        details: { disk: "system", disks: ["system"] },
+      }),
+    ).toBe("bellEvents.installation.disk_low_system");
+    const previous = i18n.language;
+    for (const language of ["en", "de"]) {
+      await i18n.changeLanguage(language);
+      expect(i18n.exists("reports:bellEvents.installation.disk_low_shared"), language).toBe(true);
+      for (const place of ["database", "repository", "system"]) {
+        expect(i18n.exists(`reports:bellEvents.installation.diskPlace.${place}`), place).toBe(true);
+      }
+    }
+    await i18n.changeLanguage(previous);
   });
 });

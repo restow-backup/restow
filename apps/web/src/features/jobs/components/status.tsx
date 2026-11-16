@@ -66,7 +66,9 @@ export function JobStatusBadge({
   const incomplete = display.key === "jobStatus.checkIncomplete";
   return (
     <Badge variant={display.variant} data-check={incomplete ? "incomplete" : undefined}>
-      {status === "active" ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+      {status === "active" ? (
+        <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+      ) : null}
       {display.variant === "warning" ? <TriangleAlert aria-hidden="true" /> : null}
       {incomplete ? <RotateCcw aria-hidden="true" /> : null}
       {t(display.key, display.values)}

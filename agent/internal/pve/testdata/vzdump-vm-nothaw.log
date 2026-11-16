@@ -1,0 +1,13 @@
+2026-11-04 02:00:03 INFO: Starting Backup of VM 101 (qemu)
+2026-11-04 02:00:03 INFO: Backup started at 2026-11-04 02:00:03
+2026-11-04 02:00:03 INFO: status = running
+2026-11-04 02:00:03 INFO: VM Name: db01
+2026-11-04 02:00:03 INFO: include disk 'scsi0' 'local-lvm:vm-101-disk-0' 32G
+2026-11-04 02:00:03 INFO: backup mode: snapshot
+2026-11-04 02:00:03 INFO: ionice priority: 7
+2026-11-04 02:00:03 INFO: creating Restow archive 'vm/101/2026-11-04T01:00:03Z'
+2026-11-04 02:00:04 INFO: issuing guest-agent 'fs-freeze' command
+2026-11-04 02:00:06 INFO: Restow run 6f1c, archive vm/101/2026-11-04T01:00:03Z
+2026-11-04 02:03:41 INFO: restore point 0b5c committed
+2026-11-04 02:03:42 INFO: Finished Backup of VM 101 (00:03:39)
+2026-11-04 02:03:42 INFO: Backup finished at 2026-11-04 02:03:42

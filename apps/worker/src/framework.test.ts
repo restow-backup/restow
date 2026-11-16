@@ -300,7 +300,7 @@ describe("storage fallback through the real engines after a 'keep' switch", () =
     expect(retiredPrimary.deletes).toBe(deletesBeforeSwitch);
   });
 
-  it("restore, verify and a download archive all reconstruct a restore point that lives only on a 'previous' target, read-only", async () => {
+  it("restore, verify and a download archive all reconstruct a restore point that lives only on a 'previous' target, read-only [COPY-003]", async () => {
     const protectedObject: ProtectedObjectRef = {
       id: "7e8f9a0b-3c4d-5e6f-8a7b-1c2d3e4f5a6b",
       tenantId: FALLBACK_TENANT,

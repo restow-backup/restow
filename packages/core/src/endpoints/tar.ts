@@ -68,6 +68,24 @@ class ByteReader {
     return taken;
   }
 
+  /**
+   * Let go of a source not read to its end (a broken archive, a caller that stopped early):
+   * `return()` destroys a stream, so the process writing into it (`restic dump`) is not left
+   * blocked on a full pipe.
+   */
+  async release(): Promise<void> {
+    if (this.ended) {
+      return;
+    }
+    this.ended = true;
+    this.buffer = Buffer.alloc(0);
+    try {
+      await this.iterator.return?.();
+    } catch {
+      // the source is gone either way
+    }
+  }
+
   /** Read the source to its end and drop what is left (after the end-of-archive marker). */
   async drain(): Promise<void> {
     this.buffer = Buffer.alloc(0);
@@ -191,6 +209,16 @@ export async function* readTar(
   source: AsyncIterable<Buffer | Uint8Array>,
 ): AsyncGenerator<TarEntry> {
   const reader = new ByteReader(source);
+  try {
+    yield* entries(reader);
+  } finally {
+    // Read to its end this does nothing; after an error or an early stop it lets go of the
+    // source, so its writer ends instead of waiting on a pipe nobody reads.
+    await reader.release();
+  }
+}
+
+async function* entries(reader: ByteReader): AsyncGenerator<TarEntry> {
   let pax = new Map<string, string>();
   let longName: string | null = null;
   let longLink: string | null = null;

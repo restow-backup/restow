@@ -89,7 +89,7 @@ describe("DumpStore", () => {
     });
   });
 
-  it("prunes to the newest three and touches nothing else", async () => {
+  it("prunes to the newest three and touches nothing else [UPDATE-005]", async () => {
     for (const name of names) {
       await touch(name);
     }
@@ -103,7 +103,7 @@ describe("DumpStore", () => {
     expect(KEEP_DUMPS).toBe(3);
   });
 
-  it("does not delete a protected dump and does not count it", async () => {
+  it("does not delete a protected dump and does not count it [UPDATE-005]", async () => {
     for (const name of names) {
       await touch(name);
     }

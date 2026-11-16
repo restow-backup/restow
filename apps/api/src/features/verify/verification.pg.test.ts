@@ -57,7 +57,8 @@ vi.mock("../jobs/queue.js", async (importOriginal) => {
 });
 
 const DATABASE = "restow_api_verification_test";
-const NOW = new Date("2026-09-23T12:00:00.000Z");
+// Within 48 hours of the newest backups (day 21): their age does not count against them yet.
+const NOW = new Date("2026-09-22T23:00:00.000Z");
 const day = (n: number, hour = 2) => new Date(Date.UTC(2026, 8, n, hour));
 
 /** Reads come from a documentation address (RFC 5737). */
@@ -251,7 +252,7 @@ describe.skipIf(!testDatabaseAdminUrl)("verification per snapshot against Postgr
     items.find((item) => item.object.id === id);
 
   describe("an object backed up again after a green check", () => {
-    it("is unverified in the readiness overview, with the older check as history", async () => {
+    it("is unverified in the readiness overview, with the older check as history [READY-001]", async () => {
       const overview = await readinessOverview(db, f.tenantId, NOW);
 
       expect(byObject(overview.objects, f.ada)).toMatchObject({
@@ -312,14 +313,14 @@ describe.skipIf(!testDatabaseAdminUrl)("verification per snapshot against Postgr
       });
     });
 
-    it("is unverified in /api/v1/status", async () => {
+    it("is unverified in /api/v1/status [READY-002]", async () => {
       const summary = await loadTenantSummary(db, f.tenantId, NOW);
       expect(summary.recoveryReadiness).toBe("red");
       expect(summary.readiness).toMatchObject({ unverified: 1, green: 1, red: 1, noBackup: 2 });
       expect(summary.lastVerifyAt).toBe(day(22, 4).toISOString());
     });
 
-    it("is unverified in the integration verify API", async () => {
+    it("is unverified in the integration verify API [READY-001]", async () => {
       const report = await latestVerification(db, f.tenantId, { limit: 100 }, NOW);
       expect(verifyLatestSchema.parse(report)).toEqual(report);
       const ada = report.items.find((item) => item.protectedObjectId === f.ada);
@@ -539,7 +540,7 @@ describe.skipIf(!testDatabaseAdminUrl)("verification per snapshot against Postgr
     }
     const removedReports = new Map<string, string>();
 
-    it("rates the kept backup by whether it restores, not by its age, and never as overdue", async () => {
+    it("rates the kept backup by whether it restores, not by its age, and never as overdue [READY-010]", async () => {
       const old = await removed("fiona", [
         { code: "snapshot_outdated", severity: "red", ageHours: 216 },
       ]);

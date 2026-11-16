@@ -6,6 +6,7 @@ import type { TenantContext } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import type { ReportLanguage } from "../../reports/format.js";
 import { renderStatsReport } from "../../reports/stats-report.js";
+import { effectiveBrand, pdfBrandOf } from "../branding/service.js";
 import { aggregateTenant, type TenantAggregate } from "./aggregate.js";
 import { buildStats } from "./build.js";
 import { collectTenantFacts } from "./collect.js";
@@ -230,9 +231,14 @@ export async function generateReport(
   actor: StatsActor,
 ): Promise<PdfReport> {
   const { stats, tenants: covered } = await loadStats(deps, scope, query);
+  // The provider's branding (or the tenant's own, Service Provider), as on the report mails.
+  const brand = pdfBrandOf(
+    await effectiveBrand(deps.providerDb, scope.kind === "tenant" ? scope.tenant.id : null),
+  );
   const pdf = await renderStatsReport({
     stats,
     language,
+    brand,
     subject:
       scope.kind === "tenant"
         ? { kind: "tenant", name: scope.tenant.name }

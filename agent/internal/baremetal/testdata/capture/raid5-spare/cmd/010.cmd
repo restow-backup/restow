@@ -1,0 +1,3 @@
+sfdisk
+--json
+/dev/sdd

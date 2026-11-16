@@ -23,40 +23,49 @@ import { spawn } from "node:child_process";
  * restic talks HTTP to it, exactly as an agent does.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { Readable } from "node:stream";
 import { serve } from "@hono/node-server";
 import {
+  LocalStorageBackend,
   openEndpointPassword,
   ResticError,
   resticBinary,
   resticCheck,
+  resticCopy,
   resticForget,
+  resticInitCopy,
   resticPrune,
   resticSnapshots,
   restoreTestSamples,
   singleKeyring,
   withRepository,
+  withRepositoryPair,
 } from "@restow/core";
 import {
   acquireEndpointRepositoryLock,
   auditLog,
   endpointDownloads,
+  endpointLayouts,
   endpointReports,
   endpointRepositoryLocks,
   endpointRuns,
   endpoints,
+  endpointTasks,
+  storageLockKey,
+  storageTargets,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readZip } from "../../../../../packages/core/src/restore/testing/zip-reader.js";
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -119,9 +128,11 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     args: string[],
     who: Agent = agent,
     env: Record<string, string> = {},
+    cwd?: string,
   ): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve, reject) => {
       const child = spawn(resticBinary(), args, {
+        cwd,
         env: {
           PATH: process.env.PATH ?? "",
           HOME: work,
@@ -163,6 +174,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     readiness = await import("./readiness.js");
@@ -231,6 +243,51 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     if (work) await rm(work, { recursive: true, force: true });
   });
 
+  it("enrolls under the tenant's storage lock, so no change of the primary splits the new repository", async () => {
+    // A promotion, "keep" or "move" holds this lock while it switches the primary.
+    const client = await fixture.db.$client.connect();
+    let answered = false;
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        storageLockKey(fixture.tenantId),
+      ]);
+      const created = await service.createEnrollmentToken(
+        shared.db,
+        fixture.tenantId,
+        { profile: "server", os: "linux" },
+        actor(),
+        { url: "https://restow.test.example", configured: true },
+      );
+      const pending = fetch(`http://127.0.0.1:${port}/agent/v1/enroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: created.token,
+          hostname: "web-locked",
+          os: "linux",
+          arch: "amd64",
+          agentVersion: "0.1.0",
+          osVersion: "test",
+        }),
+      }).then((response) => {
+        answered = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      // Waiting for the switch: no endpoint, no repository yet.
+      expect(answered).toBe(false);
+      expect(
+        await fixture.db.select().from(endpoints).where(eq(endpoints.hostname, "web-locked")),
+      ).toHaveLength(0);
+      await client.query("COMMIT");
+      const response = await pending;
+      expect(response.status).toBe(201);
+    } finally {
+      client.release();
+    }
+  });
+
   it("backs up with the agent's credentials, also incrementally", async () => {
     const first = await restic(["backup", source]);
     expect(first.code, first.out).toBe(0);
@@ -243,7 +300,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     expect(snapshots).toHaveLength(2);
   }, 120_000);
 
-  it("refuses everything that would delete a backup", async () => {
+  it("refuses everything that would delete a backup [RETAIN-013]", async () => {
     const before = await resticSnapshotIds();
     expect(before).toHaveLength(2);
     const packsBefore = await treeHashes(join(fixture.storageDir, "endpoints", agent.endpointId));
@@ -268,7 +325,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     expect(lockless(packsAfter)).toEqual(lockless(packsBefore));
   }, 120_000);
 
-  it("refuses a raw delete, an overwrite, a new config and a new repository", async () => {
+  it("refuses a raw delete, an overwrite, a new config and a new repository [RETAIN-013]", async () => {
     const tree = await treeHashes(join(fixture.storageDir, "endpoints", agent.endpointId));
     const snapshotFile = Object.keys(tree).find((name) => name.startsWith("snapshots/")) as string;
     const dataFile = Object.keys(tree).find((name) => name.startsWith("data/")) as string;
@@ -323,7 +380,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     expect(result.code).not.toBe(0);
   }, 60_000);
 
-  it("restores into a new folder byte for byte", async () => {
+  it("restores into a new folder byte for byte [RESTORE-011]", async () => {
     const target = join(work, "restored");
     const result = await restic(["restore", "latest", "--target", target]);
     expect(result.code, result.out).toBe(0);
@@ -967,6 +1024,436 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
       const snapshots = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
       expect(snapshots.items.every((snapshot) => snapshot.flags.length === 0)).toBe(true);
     }, 120_000);
+  });
+
+  describe("the agent's state file and LUKS key files in a snapshot (docs/BAREMETAL.md 5.4)", () => {
+    let machine: Agent;
+    let snapshotId = "";
+    const restorer = () => ({ ...actor(), role: "restore" as const });
+    const admin = (confirm: () => void = () => undefined) => ({
+      ...actor(),
+      role: "admin" as const,
+      confirmRecentSignIn: confirm,
+    });
+    const refused = (status: number, reason: string) => ({
+      status,
+      type: "urn:restow:problem:endpoint-restore-path-locked",
+      extensions: expect.objectContaining({ reason }),
+    });
+
+    async function readAll(stream: Readable): Promise<Buffer> {
+      const chunks: Buffer[] = [];
+      for await (const chunk of Readable.from(stream)) chunks.push(chunk as Buffer);
+      return Buffer.concat(chunks);
+    }
+
+    beforeAll(async () => {
+      const created = await service.createEnrollmentToken(
+        shared.db,
+        fixture.tenantId,
+        { profile: "server", os: "linux" },
+        actor(),
+        { url: "https://restow.test.example", configured: true },
+      );
+      const response = await fetch(`http://127.0.0.1:${port}/agent/v1/enroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: created.token,
+          hostname: "db-01",
+          os: "linux",
+          arch: "amd64",
+          agentVersion: "0.4.12",
+          osVersion: "test",
+        }),
+      });
+      expect(response.status).toBe(201);
+      const body = (await response.json()) as {
+        endpointId: string;
+        agentSecret: string;
+        repository: { password: string };
+      };
+      machine = {
+        endpointId: body.endpointId,
+        agentSecret: body.agentSecret,
+        repositoryPassword: body.repository.password,
+      };
+      // A snapshot as an agent before 0.5.0 made it: with its state file, and a key file that
+      // crypttab names. Relative paths from a root folder put them at /etc in the snapshot.
+      const root = join(work, "machine-root");
+      await mkdir(join(root, "etc", "restow-agent"), { recursive: true });
+      await mkdir(join(root, "etc", "luks-keys"), { recursive: true });
+      await writeFile(join(root, "etc", "hosts"), "127.0.0.1 localhost\n");
+      await writeFile(join(root, "etc", "restow-agent", "state.json"), '{"agentSecret":"x"}');
+      await writeFile(join(root, "etc", "restow-agent", ".state-123.tmp"), "{}");
+      await writeFile(join(root, "etc", "luks-keys", "root.key"), "key material");
+      const backed = await restic(["backup", "etc"], machine, {}, root);
+      expect(backed.code, backed.out).toBe(0);
+      const listed = await restic(["snapshots", "--json"], machine);
+      snapshotId = (JSON.parse(listed.out.split("\n")[0] ?? "[]") as { id: string }[])[0]?.id ?? "";
+      expect(snapshotId).toMatch(/^[0-9a-f]{64}$/);
+      // The layout of that backup names the key file.
+      const layout = JSON.parse(
+        await readFile(
+          new URL(
+            "../../../../../agent/internal/baremetal/testdata/manifests/example-debian12-uefi-luks-lvm.json",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ) as { luks: { keyFile: string | null }[] };
+      const volume = layout.luks[0];
+      if (volume) volume.keyFile = "/etc/luks-keys/root.key";
+      const [stored] = await fixture.db
+        .insert(endpointLayouts)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId: machine.endpointId,
+          sha256: "c".repeat(64),
+          format: "restow-layout-v1",
+          schemaVersion: 1,
+          platform: "linux",
+          manifest: layout as unknown as Record<string, unknown>,
+          summary: {},
+          verdict: "supported",
+          layoutFingerprint: "f",
+        })
+        .returning();
+      await fixture.db.insert(endpointRuns).values({
+        tenantId: fixture.tenantId,
+        endpointId: machine.endpointId,
+        kind: "backup",
+        status: "succeeded",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        snapshotId,
+        layoutId: stored?.id ?? null,
+      });
+    }, 120_000);
+
+    const browse = (path: string, reader: Parameters<Service["browseSnapshot"]>[4]) =>
+      service
+        .browseSnapshot(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { snapshotId, path, limit: 100 },
+          reader,
+        )
+        .then((listing) => listing.entries.map((entry) => entry.name));
+
+    it("hides the state file from everybody and key files from the restore role", async () => {
+      expect(await browse("/etc/restow-agent", restorer())).toEqual([]);
+      expect(await browse("/etc/restow-agent", admin())).toEqual([]);
+      expect(await browse("/etc/luks-keys", restorer())).toEqual([]);
+      expect(await browse("/etc/luks-keys", admin())).toEqual(["root.key"]);
+      expect(await browse("/etc", restorer())).toEqual(["luks-keys", "restow-agent", "hosts"]);
+    }, 60_000);
+
+    it("refuses the state file and, to the restore role, a key file as a selection", async () => {
+      const prepare = (paths: string[], reader: Parameters<Service["prepareDownload"]>[4]) =>
+        service.prepareDownload(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { snapshotId, paths },
+          reader,
+        );
+      for (const reader of [restorer(), admin()]) {
+        await expect(prepare(["/etc/restow-agent/state.json"], reader)).rejects.toMatchObject(
+          refused(422, "agent_state"),
+        );
+        await expect(prepare(["/etc/restow-agent/.state-123.tmp"], reader)).rejects.toMatchObject(
+          refused(422, "agent_state"),
+        );
+      }
+      await expect(prepare(["/etc/luks-keys/root.key"], restorer())).rejects.toMatchObject(
+        refused(403, "key_file"),
+      );
+      // An admin needs a recent sign-in for a selection that is or holds a key file.
+      const stale = () => {
+        throw Object.assign(new Error("sign in again"), { status: 403 });
+      };
+      await expect(prepare(["/etc/luks-keys/root.key"], admin(stale))).rejects.toThrow(
+        /sign in again/,
+      );
+      await expect(prepare(["/etc"], admin(stale))).rejects.toThrow(/sign in again/);
+      await expect(prepare(["/etc/hosts"], admin(stale))).resolves.toMatchObject({ items: 1 });
+    }, 60_000);
+
+    it("packs a folder without the state file, and without key files for the restore role", async () => {
+      const zipOf = async (reader: Parameters<Service["prepareDownload"]>[4]) => {
+        const prepared = await service.prepareDownload(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { snapshotId, paths: ["/etc"] },
+          reader,
+        );
+        const download = await service.openDownload(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          prepared.id,
+          reader,
+        );
+        return readZip(await readAll(download.stream))
+          .filter((entry) => !entry.isDirectory)
+          .map((entry) => entry.name)
+          .sort();
+      };
+      expect(await zipOf(restorer())).toEqual(["etc/hosts"]);
+      const revealedBefore = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "endpoint.repository.secret_file_revealed"));
+      expect(await zipOf(admin())).toEqual(["etc/hosts", "etc/luks-keys/root.key"]);
+      const revealed = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "endpoint.repository.secret_file_revealed"));
+      expect(revealed).toHaveLength(revealedBefore.length + 1);
+      expect(revealed.at(-1)?.details).toMatchObject({
+        via: "download",
+        keyFiles: ["/etc/luks-keys/root.key"],
+      });
+    }, 120_000);
+
+    it("restores a folder onto the machine, but no state file and no key file for the restore role", async () => {
+      const restore = (paths: string[], reader: Parameters<Service["createTask"]>[4]) =>
+        service.createTask(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { kind: "restore", snapshotId, paths },
+          reader,
+        );
+      await expect(restore(["/etc/restow-agent/state.json"], admin())).rejects.toMatchObject(
+        refused(422, "agent_state"),
+      );
+      await expect(restore(["/etc/luks-keys/root.key"], restorer())).rejects.toMatchObject(
+        refused(403, "key_file"),
+      );
+      await expect(restore(["/etc"], restorer())).resolves.toMatchObject({ alreadyQueued: false });
+      await restore(["/etc/luks-keys/root.key"], admin());
+      const [revealed] = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "endpoint.repository.secret_file_revealed"),
+            eq(auditLog.target, machine.endpointId),
+          ),
+        )
+        .orderBy(desc(auditLog.createdAt))
+        .limit(1);
+      expect(revealed?.details).toMatchObject({
+        via: "restore",
+        paths: ["/etc/luks-keys/root.key"],
+      });
+    }, 60_000);
+  });
+
+  describe("restoring from a copy target once the primary lost the repository", () => {
+    it("restores through the agent's own credential from the repository copy, says so on the run and in the audit log, and takes no backup into the copy [COPY-002]", async () => {
+      const { forgetTenantChunkStore } = await import("../pve/store.js");
+      const forget = () => {
+        repository.forgetTenantStorage(fixture.tenantId);
+        forgetTenantChunkStore(fixture.tenantId);
+      };
+      const backup = await restic(["backup", source]);
+      expect(backup.code, backup.out).toBe(0);
+      const ids = await resticSnapshotIds();
+      const access = await maintenanceAccess();
+      // The newest snapshot's id on the primary, as the runs recorded it.
+      const recorded = (await withRepository(access, (session) => resticSnapshots(session)))[0]
+        ?.id as string;
+
+      // What the worker's copy pass keeps on a copy target (docs/STORAGE.md, "restic
+      // repositories on copies"): the same prefix and password, filled with `restic copy`.
+      const copyDir = join(work, "copy-target");
+      await fixture.db.insert(storageTargets).values({
+        tenantId: fixture.tenantId,
+        name: "Offsite",
+        kind: "local",
+        role: "copy",
+        config: { basePath: copyDir },
+      });
+      const copyAccess = {
+        ...access,
+        storage: new LocalStorageBackend(copyDir),
+        repositoryKey: `${agent.endpointId}.copy`,
+      };
+      await withRepositoryPair(
+        { ...access, storage: new LocalStorageBackend(fixture.storageDir) },
+        copyAccess,
+        async (session) => {
+          await resticInitCopy(session);
+          await resticCopy(session, ids);
+        },
+      );
+      const onCopy = await withRepository(copyAccess, (session) =>
+        resticSnapshots(session, { noLock: true }),
+      );
+      const copyId = onCopy.find((snapshot) => snapshot.original === recorded)?.id as string;
+      expect(copyId).toMatch(/^[0-9a-f]{64}$/);
+      expect(copyId).not.toBe(recorded);
+
+      // The primary loses the repository.
+      const lost = join(work, "lost-repository");
+      await rename(join(fixture.storageDir, "endpoints", agent.endpointId), lost);
+      forget();
+      try {
+        // The restore names the snapshot by the id the runs recorded on the primary.
+        const { task } = await service.createTask(
+          shared.db,
+          fixture.tenantId,
+          agent.endpointId,
+          { kind: "restore", snapshotId: recorded, paths: ["/"] },
+          actor(),
+        );
+        const [taskRow] = await fixture.db
+          .select()
+          .from(endpointTasks)
+          .where(eq(endpointTasks.id, task.id));
+        // The machine is told the id under which the copy holds it, and which target it reads.
+        expect(taskRow?.params).toMatchObject({
+          snapshotId: copyId,
+          readFrom: { targetName: "Offsite", role: "copy" },
+        });
+
+        const call = (path: string, body: unknown) =>
+          fetch(`http://127.0.0.1:${port}/agent/v1${path}`, {
+            method: "POST",
+            headers: {
+              ...basic(agent.endpointId, agent.agentSecret),
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+          });
+        const start = await call("/runs", {
+          kind: "restore",
+          taskId: task.id,
+          startedAt: new Date().toISOString(),
+        });
+        expect(start.status).toBe(201);
+        const { runId } = (await start.json()) as { runId: string };
+
+        // The agent's own restore command, with its own credential, against its own URL.
+        const target = join(work, "restored-from-copy");
+        const restored = await restic([
+          "restore",
+          "--json",
+          "--target",
+          target,
+          "--overwrite",
+          "never",
+          "--verify",
+          "--retry-lock",
+          "1m",
+          String(taskRow?.params.snapshotId),
+        ]);
+        expect(restored.code, restored.out).toBe(0);
+        expect(await treeHashes(join(target, source))).toEqual(await treeHashes(source));
+        // Its lock went into the copy and was released there; the primary got nothing.
+        expect(await readdir(join(copyDir, "endpoints", agent.endpointId, "locks"))).toEqual([]);
+        expect(
+          await readdir(join(fixture.storageDir, "endpoints", agent.endpointId)).catch(() => []),
+        ).toEqual([]);
+
+        // While it restores from the copy nothing but its lock is written there: an upload is
+        // refused at once (restic takes 403 as final), the copy stays as it was.
+        const upload = await rest(`/data/${"a".repeat(64)}`, {
+          method: "POST",
+          body: Buffer.from("no backup lands in a repository copy"),
+        });
+        expect(upload.status).toBe(403);
+
+        const finish = await call(`/runs/${runId}/finish`, {
+          status: "succeeded",
+          finishedAt: new Date().toISOString(),
+          errors: [],
+          logTail: "ok",
+        });
+        expect(finish.status).toBe(200);
+        const [run] = await fixture.db
+          .select()
+          .from(endpointRuns)
+          .where(eq(endpointRuns.id, runId));
+        expect(run).toMatchObject({ kind: "restore", status: "succeeded" });
+        expect(run?.stats?.readFrom).toMatchObject({ targetName: "Offsite", role: "copy" });
+        const audited = await fixture.db
+          .select()
+          .from(auditLog)
+          .where(eq(auditLog.target, agent.endpointId));
+        const requested = audited.filter(
+          (entry) =>
+            entry.action === "endpoint.restore.requested" &&
+            (entry.details as { taskId?: string } | null)?.taskId === task.id,
+        );
+        expect(requested).toHaveLength(1);
+        expect(requested[0]?.details).toMatchObject({
+          snapshotId: copyId,
+          readFrom: { targetName: "Offsite" },
+        });
+        const finished = audited.filter(
+          (entry) =>
+            entry.action === "endpoint.restore.finished" &&
+            (entry.details as { runId?: string } | null)?.runId === runId,
+        );
+        expect(finished[0]?.details).toMatchObject({ readFrom: { targetName: "Offsite" } });
+
+        // The copy's own id is taken as it is (the snapshot list shows it while the copy is read).
+        const listed = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
+        expect(listed.items.map((item) => item.id)).toContain(copyId);
+        const again = await service.createTask(
+          shared.db,
+          fixture.tenantId,
+          agent.endpointId,
+          { kind: "restore", snapshotId: copyId, paths: ["/"] },
+          actor(),
+        );
+        const [againRow] = await fixture.db
+          .select()
+          .from(endpointTasks)
+          .where(eq(endpointTasks.id, again.task.id));
+        expect(againRow?.params.snapshotId).toBe(copyId);
+        // A snapshot the copy does not hold is refused with the reason, not handed to the machine.
+        await expect(
+          service.createTask(
+            shared.db,
+            fixture.tenantId,
+            agent.endpointId,
+            { kind: "restore", snapshotId: "f".repeat(64), paths: ["/"] },
+            actor(),
+          ),
+        ).rejects.toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:storage-restore-point-not-on-copy",
+        });
+
+        // The restore has ended: the machine is on the primary again, as for every run that
+        // is no restore from a copy. A backup finds no repository there and fails; it never
+        // opens the copy, and the copy is unchanged.
+        expect((await rest("/config", { method: "HEAD" })).status).toBe(404);
+        await writeFile(join(source, "hello.txt"), "hello once more\n");
+        const refused = await restic(["backup", source]);
+        expect(refused.code).not.toBe(0);
+        expect(
+          await withRepository(copyAccess, (session) => resticSnapshots(session, { noLock: true })),
+        ).toHaveLength(onCopy.length);
+      } finally {
+        await rm(join(fixture.storageDir, "endpoints", agent.endpointId), {
+          recursive: true,
+          force: true,
+        });
+        await rename(lost, join(fixture.storageDir, "endpoints", agent.endpointId));
+        forget();
+      }
+      // The repository is on the primary again: backups go there as before.
+      const after = await restic(["backup", source]);
+      expect(after.code, after.out).toBe(0);
+    }, 180_000);
   });
 
   async function resticSnapshotIds(): Promise<string[]> {

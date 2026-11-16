@@ -26,11 +26,15 @@ case "$tool" in
     var=RESTIC
     base="https://github.com/restic/restic/releases/download/v$version"
     pattern="restic_${version}_%s_%s.bz2"
+    # restic ships Windows builds as .zip (holding restic_<v>_windows_<arch>.exe).
+    windows_pattern="restic_${version}_%s_%s.zip"
     ;;
   rest-server)
     var=REST_SERVER
     base="https://github.com/restic/rest-server/releases/download/v$version"
     pattern="rest-server_${version}_%s_%s.tar.gz"
+    # rest-server has .zip and .tar.gz for Windows; .tar.gz fits tools/fetch's tar.gz path.
+    windows_pattern="$pattern"
     ;;
   *) die "unknown tool $tool" ;;
 esac
@@ -53,11 +57,13 @@ printf '%s\n' "$status" | grep -q '^\[GNUPG:\] GOODSIG' || die "the signature of
 printf '%s\n' "$status" | grep -q "^\[GNUPG:\] VALIDSIG .* $EXPECTED_FPR\$" || die "SHA256SUMS is signed, but not by the restic release key $EXPECTED_FPR"
 
 echo "# $tool $version: SHA256SUMS signature verified against key $EXPECTED_FPR"
-for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64; do
   os="${target%_*}"
   arch="${target#*_}"
+  p="$pattern"
+  if [ "$os" = windows ]; then p="$windows_pattern"; fi
   # shellcheck disable=SC2059
-  file=$(printf "$pattern" "$os" "$arch")
+  file=$(printf "$p" "$os" "$arch")
   sum=$(awk -v f="$file" '$2 == f { print $1 }' "$work/SHA256SUMS")
   [ -n "$sum" ] || die "no checksum for $file"
   echo "${var}_SHA256_${target}=$sum"

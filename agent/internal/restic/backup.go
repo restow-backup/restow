@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Progress is a snapshot of a running backup or restore.
@@ -44,6 +45,37 @@ type BackupOptions struct {
 	// every file with content", so a zero is never passed on.
 	ExcludeLargerThanBytes int64
 	OnProgress             func(Progress)
+
+	// UseFSSnapshot: --use-fs-snapshot (Windows VSS). Set only on Windows.
+	UseFSSnapshot bool
+	// VSSTimeout: -o vss.timeout=<d>; 0 = restic's default (120 s).
+	VSSTimeout time.Duration
+	// VSSExcludeVolumes: -o vss.exclude-volumes=<a;b>, volumes restic is not
+	// to snapshot (removable media, FAT, exFAT).
+	VSSExcludeVolumes []string
+	// ExcludeCloudFiles: --exclude-cloud-files (online-only OneDrive files).
+	ExcludeCloudFiles bool
+	// CaseInsensitive: --iexclude-file instead of --exclude-file (Windows
+	// paths do not depend on case).
+	CaseInsensitive bool
+	// OnSnapshotFailed is called for each volume whose snapshot failed, as
+	// soon as restic reports it (the caller may stop the backup). Calls
+	// never overlap.
+	OnSnapshotFailed func(VolumeFailure)
+
+	// OneFileSystem: --one-file-system (whole machine, docs/BAREMETAL.md
+	// 5.5): file system boundaries are not crossed; every file system to
+	// back up is named as a source.
+	OneFileSystem bool
+	// GroupBy: --group-by <v> (whole machine: "host"); empty keeps restic's
+	// default (host,paths).
+	GroupBy string
+	// Exec, when set, runs restic through this argv prefix (the snapshot
+	// helper, 6.3): the command is Exec[0] with Exec[1:] + [restic binary] +
+	// restic's arguments.
+	Exec []string
+	// ExecNewMountNS starts the prefix in a new mount namespace (Linux).
+	ExecNewMountNS bool
 }
 
 // BackupResult is the outcome of a backup that produced a snapshot.
@@ -59,6 +91,9 @@ type BackupResult struct {
 	Partial bool
 	// Warnings are problems with the options themselves (skipped patterns).
 	Warnings []string
+	// Snapshot is what happened to the file system snapshot (Requested is
+	// false without UseFSSnapshot). Its entries are not counted in Errors.
+	Snapshot SnapshotOutcome
 }
 
 // backupArgs builds the command line of `restic backup`. filesFrom is the raw
@@ -74,7 +109,11 @@ func backupArgs(o BackupOptions, filesFrom, excludeFile string) []string {
 		args = append(args, "--tag", t)
 	}
 	if excludeFile != "" {
-		args = append(args, "--exclude-file", excludeFile)
+		if o.CaseInsensitive {
+			args = append(args, "--iexclude-file", excludeFile)
+		} else {
+			args = append(args, "--exclude-file", excludeFile)
+		}
 	}
 	if o.LimitUploadKiB > 0 {
 		args = append(args, "--limit-upload", strconv.Itoa(o.LimitUploadKiB))
@@ -83,12 +122,42 @@ func backupArgs(o BackupOptions, filesFrom, excludeFile string) []string {
 		// A plain number of bytes: restic 0.19 reads it without a unit suffix.
 		args = append(args, "--exclude-larger-than", strconv.FormatInt(o.ExcludeLargerThanBytes, 10))
 	}
+	if o.ExcludeCloudFiles {
+		args = append(args, "--exclude-cloud-files")
+	}
+	if o.OneFileSystem {
+		args = append(args, "--one-file-system")
+	}
+	if o.GroupBy != "" {
+		args = append(args, "--group-by", o.GroupBy)
+	}
+	if o.UseFSSnapshot {
+		// Options of the snapshot, not secrets: they may stand on the command line.
+		args = append(args, "--use-fs-snapshot")
+		if o.VSSTimeout > 0 {
+			args = append(args, "-o", "vss.timeout="+o.VSSTimeout.String())
+		}
+		var vols []string
+		for _, v := range o.VSSExcludeVolumes {
+			if v = NormalizeVolume(v); v != "" {
+				vols = append(vols, v)
+			}
+		}
+		if len(vols) > 0 {
+			args = append(args, "-o", "vss.exclude-volumes="+strings.Join(vols, ";"))
+		}
+	}
 	return args
 }
 
 // Backup runs `restic backup`. A returned *BackupResult with a nil error means
-// a snapshot was created; a nil result comes with an error (a *Error for
-// restic failures, context errors when cancelled).
+// a snapshot was created; otherwise the error is a *Error for restic
+// failures (its SnapshotOutcome says what happened to the snapshot) or the
+// context's error when cancelled, then with a result that carries Snapshot
+// (what restic reported about it before it was stopped) and, when restic had
+// saved its snapshot all the same (it finished before the interrupt took
+// effect), SnapshotID, Summary and Partial: that snapshot is in the
+// repository, and the caller has to account for it.
 func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, error) {
 	if len(o.Paths) == 0 {
 		return nil, errors.New("backup: no paths to back up")
@@ -105,6 +174,10 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 	for _, p := range o.Paths {
 		if p == "" || strings.ContainsRune(p, 0) {
 			return nil, fmt.Errorf("backup: invalid path %q", p)
+		}
+		if o.UseFSSnapshot || o.CaseInsensitive {
+			// Windows: one spelling of the drive letter (docs/WINDOWS-AGENT.md, 16.4).
+			p = UpperDrive(p)
 		}
 		raw.WriteString(p)
 		raw.WriteByte(0)
@@ -131,10 +204,22 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 	args := backupArgs(o, filesFrom, exFile)
 
 	var summary *BackupSummary
+	res.Snapshot.Requested = o.UseFSSnapshot
 	items := &itemErrors{r: r}
-	xr, err := r.exec(ctx, execSpec{Command: "backup", Args: args, OnStderrError: items.add, OnStdoutLine: func(line []byte) {
+	if o.UseFSSnapshot {
+		items.snapshot = func(item, message string) bool {
+			kind, ok := res.Snapshot.record(item, message)
+			if kind == snapFailed && o.OnSnapshotFailed != nil {
+				o.OnSnapshotFailed(res.Snapshot.FailedVolumes[len(res.Snapshot.FailedVolumes)-1])
+			}
+			return ok
+		}
+	}
+	sawProgress := false
+	xr, err := r.exec(ctx, execSpec{Command: "backup", Args: args, Prefix: o.Exec, NewMountNS: o.ExecNewMountNS, OnStderrError: items.add, OnStdoutLine: func(line []byte) {
 		switch peekType(line) {
 		case msgStatus:
+			sawProgress = true
 			if o.OnProgress == nil {
 				return
 			}
@@ -165,10 +250,15 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 	if err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
 	res.Errors, res.ErrorCount = items.kept, items.count
+	if ctx.Err() != nil {
+		// restic writes its summary only after the snapshot is saved.
+		if summary != nil && summary.SnapshotID != "" {
+			res.Summary, res.SnapshotID = *summary, summary.SnapshotID
+			res.Partial = xr.ExitCode == ExitIncomplete
+		}
+		return res, ctx.Err()
+	}
 	switch xr.ExitCode {
 	case 0, ExitIncomplete:
 		if summary == nil || summary.SnapshotID == "" {
@@ -180,6 +270,10 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 	default:
 		e := failure("backup", xr)
 		e.Items, e.ItemCount = items.kept, items.count
+		if o.UseFSSnapshot {
+			e.Snapshot = snapshotFaultOf(xr.ExitCode, sawProgress, xr.Fatal, xr.Stderr)
+		}
+		e.SnapshotOutcome = &res.Snapshot
 		return nil, e
 	}
 }

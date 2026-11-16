@@ -1,0 +1,419 @@
+//go:build !windows
+
+package pve
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+)
+
+// The restore task (docs/PVE.md, "Restore"; docs/PVE-PROTOCOL.md, "Task results"): a restore
+// into a new guest, or a restore check (restoreTest), which restores into the restore pool and
+// removes the guest again. It runs through the same PVE calls as a boot test (BootTester.PVE and
+// .Cmd), so both share one way of restoring and of removing what they restored.
+
+type restoreParams struct {
+	Volname       string `json:"volname"`
+	Kind          string `json:"kind"`
+	TargetVMID    int    `json:"targetVmid"`
+	TargetStorage string `json:"targetStorage"`
+	Pool          string `json:"pool"`
+	Start         bool   `json:"start"`
+	// RestoreTest deletes the guest again after a successful restore.
+	RestoreTest bool `json:"restoreTest"`
+	// AvoidVMIDs are VMIDs a restore without targetVmid must not take (servers from 0.5.0).
+	AvoidVMIDs []int `json:"avoidVmids"`
+	// DataBytes is what the restore writes (a VM's stored, non-zero data; optional, else the
+	// check of the target storage counts the full disks on a thin storage as well).
+	DataBytes uint64 `json:"dataBytes"`
+}
+
+// restoreState is what a restore task knows once PVE runs its restore (kept with the task in
+// inflight.json, so the service can wait for it again after a restart).
+type restoreState struct {
+	VMID          int      `json:"vmid"`
+	UPID          string   `json:"upid"`
+	OmittedMounts []string `json:"omittedMounts,omitempty"`
+	// SkippedLxc are the raw lxc.* lines of the backup, which PVE restores only for root@pam;
+	// CustomIDMap: among them a custom lxc.idmap.
+	SkippedLxc  []string `json:"skippedLxc,omitempty"`
+	CustomIDMap bool     `json:"customIdmap,omitempty"`
+	// OnbootCleared: the container started with its node; the restored copy does not (onboot=0).
+	OnbootCleared bool `json:"onbootCleared,omitempty"`
+	// SourceVMID is the original guest's VMID (the name of a check's guest).
+	SourceVMID int `json:"sourceVmid,omitempty"`
+	// MadeUnprivileged: the container was privileged; it is restored unprivileged.
+	MadeUnprivileged bool `json:"madeUnprivileged,omitempty"`
+	// Root: restored as root through qmrestore; KeptDevices are the host devices the copy has,
+	// as the original (a restore into a new guest).
+	Root        bool     `json:"root,omitempty"`
+	KeptDevices []string `json:"keptDevices,omitempty"`
+	// StaticIPs are the static addresses in the configuration: a container's interfaces (netN
+	// ip=, ip6=), a VM's cloud-init interfaces (ipconfigN ip=, ip6=).
+	StaticIPs []string `json:"staticIps,omitempty"`
+}
+
+func (s *Service) restoreTask(ctx context.Context, t Task) (map[string]any, error) {
+	var p restoreParams
+	if err := json.Unmarshal(t.Params, &p); err != nil || p.Volname == "" || p.TargetStorage == "" {
+		return nil, errors.New("invalid restore task")
+	}
+	if !s.State.RestoresAllowed() {
+		if p.RestoreTest {
+			return skippedCheck(s, p, "restores_off", "Restores are switched off on this node (restow-pve config --allow-restores)."), nil
+		}
+		return nil, errors.New("restores are switched off on this node")
+	}
+	if p.Pool == "" || p.RestoreTest {
+		// A check's guest lives in the restore pool, where its removal is allowed and proven.
+		p.Pool = BootTestPool
+	}
+	b := s.bootTester()
+	_, source, _ := ParseVolname(p.Volname)
+	sp := restoreSpec{Kind: p.Kind, SourceVMID: source, Storage: p.TargetStorage, Pool: p.Pool, VMID: p.TargetVMID,
+		Archive: s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/"), Avoid: vmidSet(p.AvoidVMIDs)}
+	if p.RestoreTest {
+		sp.Purpose = PurposeRestoreCheck
+	}
+	var omitted, rootKeys, staticIPs []string
+	var lxc lxcOptions
+	onboot, madeUnprivileged := false, false
+	rp, err := b.Resolve(ctx, p.Volname)
+	if err != nil {
+		return nil, fmt.Errorf("restore point: %w", err)
+	}
+	if p.RestoreTest {
+		// A check the target storage cannot take says nothing about the restore point: it is
+		// skipped before a VMID is taken or anything restored.
+		if reason, msg := s.checkTargetStorage(ctx, p, rp); reason != "" {
+			return skippedCheck(s, p, reason, msg), nil
+		}
+	}
+	if p.Kind == "vm" {
+		// PCI or USB passthrough, a device mapping, virtiofs, host ports, raw arguments: PVE
+		// restores those only for root@pam, so the node restores such a VM as root.
+		conf := parseConfigText(rp.GuestConfig)
+		if rootKeys = rootOnlyVMKeys(conf); len(rootKeys) > 0 {
+			sp.Root = true
+			s.Logf("restore of %s: %s, which PVE restores only for root@pam: restoring as root", p.Volname, strings.Join(rootKeys, ", "))
+		}
+		staticIPs = vmStaticIPs(conf)
+	}
+	if p.Kind == "ct" {
+		// PVE restores raw lxc.* keys only for root@pam; the token's restore skips them.
+		lxc = rawLxcOptions(rp.GuestConfig)
+		if len(lxc.Lines) > 0 {
+			s.Logf("restore of %s: PVE restores raw LXC options only for root@pam; add them as root: %s", p.Volname, strings.Join(lxc.Lines, " | "))
+		}
+		conf := parseConfigText(rp.GuestConfig)
+		staticIPs = containerStaticIPs(conf)
+		onboot = conf["onboot"] == "1"
+		madeUnprivileged = conf["unprivileged"] != "1"
+		// Every container restore names its rootfs and volume mount points and leaves the bind
+		// and device mount points out (RestoreMounts): PVE restores those only for root@pam.
+		mounts, left, err := RestoreMounts(conf, p.TargetStorage, b.mountSizing(ctx, p.TargetStorage, rp))
+		if err != nil {
+			return nil, err
+		}
+		omitted = left
+		if len(omitted) > 0 {
+			s.Logf("restore of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, " | "))
+		}
+		sp.Params = map[string]string{}
+		if p.RestoreTest {
+			sp.Params["hostname"] = tempName(PurposeRestoreCheck, source)
+		}
+		for k, v := range mounts {
+			sp.Params[k] = v
+		}
+	}
+	if s.isCancelled(t.ID) {
+		// Cancelled in Restow before PVE was asked: nothing is restored.
+		return nil, ErrCancelled
+	}
+	vmid, upid, err := b.startRestore(ctx, sp)
+	if err == nil && s.startedTask(t.ID, upid, vmid) {
+		// Cancelled while the restore was asked for: its task is stopped at once.
+		s.stopRestoreTask(ctx, t.ID, upid)
+	}
+	if err != nil {
+		if p.RestoreTest && vmid > 0 {
+			// Only a guest proven ours goes (a restore the refused call started all the same).
+			cctx, cancel := cleanupContext(ctx)
+			defer cancel()
+			b.removeTemp(cctx, p.Kind, vmid)
+		}
+		return nil, err
+	}
+	st := restoreState{VMID: vmid, UPID: upid, OmittedMounts: omitted, SkippedLxc: lxc.Lines, CustomIDMap: lxc.IDMap,
+		OnbootCleared: onboot, SourceVMID: source, MadeUnprivileged: madeUnprivileged, Root: sp.Root,
+		StaticIPs: staticIPs}
+	if !p.RestoreTest {
+		st.KeptDevices = hostDeviceKeys(rootKeys)
+	}
+	s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: vmid,
+		StartedAt: time.Now().UTC().Format(time.RFC3339), Restore: &st})
+	return s.finishRestore(ctx, t.ID, p, st)
+}
+
+// stopRestoreTask stops the restore task of a restore or restore check cancelled in Restow: as
+// the node's token, or as root for a task of root@pam (a VM restored as root), which the token
+// may not stop. The wait for the task then reports how it ended.
+func (s *Service) stopRestoreTask(ctx context.Context, taskID, upid string) {
+	if upid == "" || strings.HasPrefix(upid, cliUPIDPrefix) {
+		return // qmrestore ended already
+	}
+	s.Logf("task %s was cancelled in Restow: stopping %s", taskID, upid)
+	if err := s.bootTester().stopPVETask(ctx, upid); err != nil {
+		s.Logf("stopping %s: %v", upid, err)
+	}
+}
+
+// skippedCheck is the result of a restore check the node did not run (docs/PVE-PROTOCOL.md, "A
+// restore check the node skips"): not a result about the restore point.
+func skippedCheck(s *Service, p restoreParams, reason, msg string) map[string]any {
+	s.Logf("restore check of %s skipped: %s", p.Volname, msg)
+	return map[string]any{"skipped": map[string]any{"reason": reason, "message": msg}}
+}
+
+// checkTargetStorage checks the target storage of a restore check as the boot test checks its
+// own: there and active on this node, holding guests of the kind (images for a VM, rootdir for
+// a container), with the space the restore takes of it (thin or thick). It returns the reason
+// and the message of a skip, or "".
+func (s *Service) checkTargetStorage(ctx context.Context, p restoreParams, rp *RestorePoint) (string, string) {
+	b := s.bootTester()
+	name := p.TargetStorage
+	data, disks := p.DataBytes, uint64(0)
+	if p.Kind == "ct" {
+		disks = containerVolumeBytes(parseConfigText(rp.GuestConfig))
+		if data == 0 {
+			data = rp.ByteSize
+		}
+	} else {
+		for _, d := range rp.Devices {
+			disks += d.Size
+		}
+		if disks == 0 {
+			disks = rp.ByteSize
+		}
+	}
+	f := b.fitStorage(ctx, name, p.Kind, data, disks)
+	guests := "VMs"
+	if p.Kind == "ct" {
+		guests = "containers"
+	}
+	switch f.Problem {
+	case "missing":
+		return "no_storage", fmt.Sprintf("The target storage %s does not exist on node %s.", name, s.State.NodeName)
+	case "inactive":
+		return "storage_inactive", fmt.Sprintf("The target storage %s is not active on node %s.", name, s.State.NodeName)
+	case "content":
+		return "storage_content", fmt.Sprintf("The target storage %s holds no %s (content %s).", name, guests, f.Want)
+	case "space":
+		return "storage_space", fmt.Sprintf("The target storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, f.Avail>>20, f.Need>>20, f.Basis)
+	}
+	return "", ""
+}
+
+// finishRestore waits for the restore task and ends the restore. A check removes its guest on
+// every way out (also when the restore failed or the wait ended) and says whether that worked:
+// `deleted` only once the guest's configuration is gone, else `deleted: false` with
+// `leftoverVmid`.
+func (s *Service) finishRestore(ctx context.Context, taskID string, p restoreParams, st restoreState) (result map[string]any, err error) {
+	b := s.bootTester()
+	vmid, upid := st.VMID, st.UPID
+	result = map[string]any{"vmid": vmid, "upid": upid}
+	if len(st.OmittedMounts) > 0 {
+		result["omittedMounts"] = st.OmittedMounts
+	}
+	if st.OnbootCleared {
+		result["onbootCleared"] = true
+	}
+	if st.MadeUnprivileged {
+		result["madeUnprivileged"] = true
+	}
+	if st.Root {
+		result["restoredAsRoot"] = true
+	}
+	if len(st.KeptDevices) > 0 {
+		// Restored with the host devices the original uses: check them before starting.
+		result["keptDevices"] = st.KeptDevices
+	}
+	if len(st.OmittedMounts) > 0 && !p.RestoreTest {
+		// The copy runs without them until they are put back (as root); a bind mount point
+		// put back shares the original's live data, and on another node its host path may
+		// not exist.
+		result["remountCommands"] = remountCommands(vmid, st.OmittedMounts)
+	}
+	if p.RestoreTest {
+		defer func() {
+			if ctx.Err() != nil && s.inflight(taskID) != nil {
+				// The service stops: the check is waited for again after the restart, which
+				// removes the guest then (its marker keeps it known meanwhile).
+				return
+			}
+			cctx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if b.removeTemp(cctx, p.Kind, vmid) {
+				result["deleted"] = true
+			} else {
+				result["deleted"] = false
+				result["leftoverVmid"] = vmid
+				s.Logf("restore check: the temporary guest %d could not be removed", vmid)
+			}
+		}()
+	}
+	exit, err := b.waitRestore(ctx, upid)
+	if err != nil {
+		return result, err
+	}
+	if exit != "OK" {
+		tail := b.taskLog(ctx, upid, 200)
+		if !TaskWarnings(exit) {
+			msg := fmt.Sprintf("restore ended with %q: %s", exit, lastLines(tail, 8))
+			if st.CustomIDMap {
+				msg += "; " + idmapHint
+			}
+			return result, errors.New(msg)
+		}
+		// The restore ran to its end and warned beside it: a restore with warnings, once the
+		// guest is there (its configuration can be read).
+		result["warnings"] = WarningLines(tail, 10)
+	}
+	addLxcResult(result, st)
+	var conf map[string]any
+	var cerr error
+	if p.RestoreTest || exit != "OK" {
+		conf, cerr = b.PVE.GuestConfig(ctx, s.State.NodeName, p.Kind, vmid)
+	}
+	if p.RestoreTest {
+		if cerr == nil {
+			b.recordCreated(vmid, conf)
+			result["disks"] = len(GuestDisks(p.Kind, conf))
+		}
+		if err := b.markTemp(ctx, PurposeRestoreCheck, p.Kind, vmid, st.SourceVMID); err != nil {
+			s.Logf("restore check: marking the temporary guest %d: %v", vmid, err)
+		}
+	}
+	if cerr != nil {
+		return result, fmt.Errorf("the restored guest has no readable configuration: %w", cerr)
+	}
+	if p.Start && !p.RestoreTest {
+		s.startRestored(ctx, p, st, result)
+	}
+	return result, nil
+}
+
+// startRestored starts a restored guest as root when the task asks for it and the copy may
+// run: not without the mount points the restore left out, not with the original's host
+// devices, and not with a static IP of its configuration (a container's ip=, a VM's cloud-init
+// ipconfigN) while the original runs. An address set inside the guest is not seen. The restore itself
+// succeeded either way; the result says whether the guest started (`started`, `startError`) or
+// why it was not started (`startSkipped`, `startSkippedMessage`).
+func (s *Service) startRestored(ctx context.Context, p restoreParams, st restoreState, result map[string]any) {
+	b := s.bootTester()
+	skip := func(reason, msg string) {
+		result["started"], result["startSkipped"], result["startSkippedMessage"] = false, reason, msg
+		s.Logf("restore of %s: the guest %d is not started: %s", p.Volname, st.VMID, msg)
+	}
+	switch {
+	case len(st.OmittedMounts) > 0:
+		skip("omitted_mounts", "the restore left mount points out ("+mountKeys(st.OmittedMounts)+"); put them back, then start it")
+		return
+	case len(st.KeptDevices) > 0:
+		skip("host_devices", "restored with host devices "+strings.Join(st.KeptDevices, ", ")+" that the original also uses; check them before starting")
+		return
+	case len(st.StaticIPs) > 0 && st.SourceVMID > 0:
+		running, known := b.guestRunning(ctx, st.SourceVMID)
+		if running || !known {
+			what, setting := "CT", "the IP"
+			if p.Kind == "vm" {
+				what, setting = "VM", "the IP (cloud-init ipconfig)"
+			}
+			msg := fmt.Sprintf("the original %s %d runs with %s; change %s, then start it", what, st.SourceVMID, strings.Join(st.StaticIPs, ", "), setting)
+			if !known {
+				msg = fmt.Sprintf("the original %s %d may run with %s (its state is unknown); change %s, then start it", what, st.SourceVMID, strings.Join(st.StaticIPs, ", "), setting)
+			}
+			skip("static_ip", msg)
+			return
+		}
+	}
+	if err := b.startGuest(ctx, p.Kind, st.VMID); err != nil {
+		result["started"], result["startError"] = false, err.Error()
+		s.Logf("restore of %s: the guest %d did not start: %v", p.Volname, st.VMID, err)
+		return
+	}
+	result["started"] = true
+}
+
+// mountKeys are the keys of left-out mount point lines ("mp0, mp2").
+func mountKeys(lines []string) string {
+	var keys []string
+	for _, l := range lines {
+		k, _, _ := strings.Cut(l, ":")
+		keys = append(keys, k)
+	}
+	return strings.Join(keys, ", ")
+}
+
+// containerStaticIPs are the static addresses of a container's interfaces (netN: ip=, ip6=).
+func containerStaticIPs(conf map[string]string) []string {
+	return staticAddresses(conf, netKeyRE)
+}
+
+var ipconfigKeyRE = regexp.MustCompile(`^ipconfig\d+$`)
+
+// vmStaticIPs are the static addresses a VM's cloud-init gives its interfaces (ipconfigN: ip=,
+// ip6=; "ip=10.0.0.5/24,gw=10.0.0.1"). A restored copy gets new MAC addresses, so cloud-init
+// applies them to the copy as well.
+func vmStaticIPs(conf map[string]string) []string {
+	return staticAddresses(conf, ipconfigKeyRE)
+}
+
+// staticAddresses are the addresses of the ip= and ip6= options of the keys that match (not
+// dhcp, auto or manual), without their prefix length.
+func staticAddresses(conf map[string]string, keyRE *regexp.Regexp) []string {
+	var out []string
+	keys := make([]string, 0, len(conf))
+	for k := range conf {
+		if keyRE.MatchString(k) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		for _, opt := range strings.Split(conf[k], ",") {
+			key, v, ok := strings.Cut(strings.TrimSpace(opt), "=")
+			if !ok || (key != "ip" && key != "ip6") {
+				continue
+			}
+			switch v {
+			case "", "dhcp", "auto", "manual":
+				continue
+			}
+			addr, _, _ := strings.Cut(v, "/")
+			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+// idmapHint explains a container restore that failed with a custom lxc.idmap in its backup.
+const idmapHint = "the backup has a custom lxc.idmap, which PVE restores only for root@pam: the restore uses the default map, so files owned by ids outside it cannot be unpacked"
+
+// addLxcResult names the raw LXC options the restore skipped.
+func addLxcResult(result map[string]any, st restoreState) {
+	if len(st.SkippedLxc) == 0 {
+		return
+	}
+	result["skippedLxc"] = st.SkippedLxc
+	if st.CustomIDMap {
+		result["customIdmap"] = true
+	}
+}

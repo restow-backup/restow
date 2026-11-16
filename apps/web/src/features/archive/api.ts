@@ -53,7 +53,7 @@ export interface ArchiveSearchParams {
   offset?: number;
 }
 
-function toQueryString(params: ArchiveSearchParams): string {
+function toQueryString(params: object): string {
   const usp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
@@ -66,6 +66,36 @@ function toQueryString(params: ArchiveSearchParams): string {
 
 export function searchArchive(params: ArchiveSearchParams): Promise<ArchiveSearchResponse> {
   return apiFetch<ArchiveSearchResponse>(`/archive/search${toQueryString(params)}`);
+}
+
+/**
+ * A mailbox's archived mail that arrived after its newest backup (GET /archive/gap): the
+ * restore explorer's source "From the archive" (#48). Every listing is audited.
+ */
+/** One message of the gap: a search result, and whether the newest backup holds it already. */
+export interface ArchiveGapItem extends ArchiveSearchResult {
+  /** The newest backup holds a mail with the same Message-ID: putting it back makes a second copy. */
+  inBackup: boolean;
+}
+
+export interface ArchiveGap {
+  objectId: string;
+  /** Start of the newest completed backup the gap is measured from; null without a backup. */
+  since: string | null;
+  snapshotId: string | null;
+  items: ArchiveGapItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Messages per page of the explorer's source "From the archive". */
+export const ARCHIVE_GAP_PAGE = 50;
+
+export function fetchArchiveGap(objectId: string, offset = 0): Promise<ArchiveGap> {
+  return apiFetch<ArchiveGap>(
+    `/archive/gap${toQueryString({ object: objectId, limit: ARCHIVE_GAP_PAGE, offset })}`,
+  );
 }
 
 export interface ArchiveItem {
@@ -113,17 +143,26 @@ export interface ChainBreak extends ChainEntryRef {
 }
 
 /** Why a stored message could not be compared: not recorded, different bytes, or not readable. */
-export type ArchiveContentProblem = "not_recorded" | "mismatch" | "unreadable";
+/** `missing`, `damaged`, `mismatch`: proven broken; `unreadable`: storage did not answer. */
+export type ArchiveContentProblem =
+  | "not_recorded"
+  | "mismatch"
+  | "missing"
+  | "damaged"
+  | "unreadable";
 
 /**
  * The archive check (GET /archive/chain/verify, apps/api/src/features/archive/verify.ts):
  * links, daily anchors and an optional content sample, each with what it covered.
  */
 export interface ChainVerification {
-  ok: boolean;
+  /** null: nothing failed, but sampled content could not be read; the check must run again. */
+  ok: boolean | null;
   checkedAt: string;
-  /** Entries whose links were recomputed: the whole chain. */
+  /** Entries whose links were recomputed: the whole chain, tombstones of deleted items included. */
   checked: number;
+  /** Entries deleted after their retention whose tombstone keeps the link (not a break). */
+  deleted?: { count: number; lastDeletedAt: string | null };
   brokenAt: ChainBreak | null;
   anchors: {
     checked: number;
@@ -136,6 +175,8 @@ export interface ChainVerification {
     requested: number;
     checked: number;
     notRecorded: number;
+    /** Sampled messages storage did not deliver (outage, timeout): not checked. */
+    inconclusive?: number;
     failures: {
       itemId: string;
       subject: string | null;
@@ -220,8 +261,11 @@ export interface MailboxWayStatus extends CaptureCounts {
   /** Why streams poll (a failure code), with how many streams name it. */
   pollReasons: Record<string, number>;
   /** The one-time takeover of the mail already in the mailboxes. */
-  backfill: { total: number; completed: number };
+  /** Stalled: not done 48 hours after activation, or its newest job failed. */
+  backfill: { total: number; completed: number; stalled: number };
   capturedLate7d: number;
+  /** Open capture gaps: streams incomplete for them, and the gaps in all. */
+  gaps: { streams: number; open: number };
 }
 
 export interface SmtpWayStatus extends CaptureCounts {
@@ -261,6 +305,10 @@ export interface CaptureMailbox {
   mode: "notifications" | "poll" | null;
   activatedAt: string | null;
   backfillCompletedAt: string | null;
+  /** The takeover of the existing mail is stalled (see `backfill.stalled`). */
+  backfillStalled: boolean;
+  /** Open capture gaps: folders or messages this stream could not take in. */
+  gaps: number;
   lastCaptureAt: string | null;
   lastSuccessAt: string | null;
   nextDueAt: string | null;
@@ -349,6 +397,8 @@ export const archiveKeys = {
     ["tenant", tenantId, "archive", "item", id] as const,
   preview: (tenantId: string | null, id: string) =>
     ["tenant", tenantId, "archive", "item", id, "preview"] as const,
+  gap: (tenantId: string | null, objectId: string, offset: number) =>
+    ["tenant", tenantId, "archive", "gap", objectId, offset] as const,
   chain: (tenantId: string | null) => ["tenant", tenantId, "archive", "chain"] as const,
   retention: (tenantId: string | null) => ["tenant", tenantId, "archive", "retention"] as const,
   capture: (tenantId: string | null) => ["tenant", tenantId, "archive", "capture"] as const,

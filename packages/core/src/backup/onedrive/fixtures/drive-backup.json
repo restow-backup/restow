@@ -72,7 +72,7 @@
         "file": {
           "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "hashes": {
-            "quickXorHash": "q3hash1="
+            "quickXorHash": "cZgBCMbwBjfQoQxuq0MIAAAAAAA="
           }
         },
         "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=q3&tempauth=OK1",
@@ -202,7 +202,7 @@
         "file": {
           "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "hashes": {
-            "quickXorHash": "q3hash1="
+            "quickXorHash": "cZgBCMbwBjfQoQxuq0MIAAAAAAA="
           }
         },
         "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=q3&tempauth=OK2",
@@ -319,7 +319,7 @@
         "file": {
           "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "hashes": {
-            "quickXorHash": "q3hash1="
+            "quickXorHash": "cZgBCMbwBjfQoQxuq0MIAAAAAAA="
           }
         },
         "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=q3&tempauth=OK3",

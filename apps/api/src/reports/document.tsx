@@ -1,4 +1,4 @@
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { DEFAULT_PRODUCT_NAME } from "@restow/i18n";
 import type { ReactNode } from "react";
 import { pdfText } from "./text.js";
@@ -114,6 +114,22 @@ export function ReportPage(props: ReportPageProps) {
   );
 }
 
+/**
+ * The brand of a report (0.5.0, docs/NOTIFICATIONS.md "Branding"): the logo replaces the
+ * wordmark, the accent colours the header rule, the name goes into the footer.
+ */
+export interface ReportBrand {
+  readonly name: string;
+  readonly logo?: {
+    readonly data: Buffer;
+    readonly format: "png" | "jpg";
+    readonly width: number;
+    readonly height: number;
+  };
+  /** `#rrggbb`, validated when it was saved. */
+  readonly accent?: string | null;
+}
+
 export interface ReportHeaderProps {
   /** The product name above the title; the default name is set as the wordmark. */
   readonly product: string;
@@ -121,6 +137,22 @@ export interface ReportHeaderProps {
   readonly subtitle?: string;
   /** Lines of context under the subtitle: period, comparison, generation time. */
   readonly meta?: readonly string[];
+  /** The brand; absent keeps the product's wordmark. */
+  readonly brand?: ReportBrand | null;
+}
+
+/** The size a logo is printed at: at most 160 × 48 points, its aspect ratio kept. */
+export function reportLogoSize(width: number, height: number): { width: number; height: number } {
+  if (width <= 0 || height <= 0) {
+    return { width: 160, height: 48 };
+  }
+  const scale = Math.min(160 / width, 48 / height);
+  return { width: width * scale, height: height * scale };
+}
+
+function accentOf(brand: ReportBrand | null | undefined): string | null {
+  const accent = brand?.accent;
+  return accent && /^#[0-9a-f]{6}$/.test(accent) ? accent : null;
 }
 
 /**
@@ -140,9 +172,26 @@ function ReportProduct(props: { readonly name: string }) {
 }
 
 export function ReportHeader(props: ReportHeaderProps) {
+  const accent = accentOf(props.brand);
+  const logo = props.brand?.logo;
   return (
-    <View style={styles.header}>
-      <ReportProduct name={props.product} />
+    <View
+      style={
+        accent
+          ? [styles.header, { borderBottomColor: accent, borderBottomWidth: 2 }]
+          : styles.header
+      }
+    >
+      {logo ? (
+        <Image
+          src={{ data: logo.data, format: logo.format }}
+          style={{ ...reportLogoSize(logo.width, logo.height), marginBottom: space(2) }}
+        />
+      ) : props.brand ? (
+        <Text style={styles.product}>{pdfText(props.brand.name)}</Text>
+      ) : (
+        <ReportProduct name={props.product} />
+      )}
       <Text style={styles.title}>{pdfText(props.title)}</Text>
       {props.subtitle ? <Text style={styles.subtitle}>{pdfText(props.subtitle)}</Text> : null}
       {(props.meta ?? []).map((line) => (

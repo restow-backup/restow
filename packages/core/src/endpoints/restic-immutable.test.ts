@@ -93,7 +93,7 @@ describe.skipIf(!resticAvailable())("restic on an immutable repository", () => {
     }
   });
 
-  it("keeps a locked snapshot through forget and prune, and the repository stays intact", async () => {
+  it("keeps a locked snapshot through forget and prune, and the repository stays intact [RETAIN-005]", async () => {
     await withRepository(access, async (session) => {
       const before = (await resticSnapshots(session)).map((snapshot) => snapshot.id);
       expect(before).toHaveLength(3);

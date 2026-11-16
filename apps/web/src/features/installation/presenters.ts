@@ -1,4 +1,5 @@
 import type { InstallationSectionSpec } from "@/lib/extensions";
+import { isModuleShown } from "@/lib/modules";
 import type { NavLockContext } from "@/lib/navigation";
 
 /**
@@ -33,16 +34,36 @@ export interface SectionState {
   spec: InstallationSectionSpec;
   /** The section's lock holds it closed (an edition below the one that unlocks it). */
   locked: boolean;
+  /**
+   * The section belongs to modules of the installation that are all off (lib/modules.ts): it is
+   * left out of the sub-navigation, and says so when it is opened by its address.
+   */
+  hidden: boolean;
 }
 
-/** The sections in order, each marked locked or not; the same decision the menu makes for its entries. */
+/**
+ * The sections in order, each marked locked or not (the same decision the menu makes for its
+ * entries) and hidden or not (its module is off).
+ */
 export function sectionStates(
   specs: readonly InstallationSectionSpec[],
   context: NavLockContext,
 ): SectionState[] {
   return [...specs]
     .sort((a, b) => a.order - b.order)
-    .map((spec) => ({ spec, locked: spec.lock ? spec.lock.isLocked(context) : false }));
+    .map((spec) => ({
+      spec,
+      locked: spec.lock ? spec.lock.isLocked(context) : false,
+      hidden: !isModuleShown(spec.modules, context.modules),
+    }));
+}
+
+/** The sections the sub-navigation lists: every one that is not hidden, and the open one. */
+export function listedSections<T extends { spec: { id: string }; hidden: boolean }>(
+  states: readonly T[],
+  activeId: string,
+): T[] {
+  return states.filter((state) => !state.hidden || state.spec.id === activeId);
 }
 
 /**

@@ -3,15 +3,19 @@
  * The licenses of the Go modules compiled into the restic release binary that Restow
  * redistributes: in every server image (/usr/local/bin/restic and /srv/agent/...) and
  * to every endpoint with the agent. restic itself is BSD-2-Clause; its binary is
- * statically linked and carries 79 third-party Go modules (restic 0.19.1) under
+ * statically linked and carries 82 third-party Go modules (restic 0.19.1; 79 or 80 per
+ * target, the Windows binary has three of its own and lacks two of Linux and macOS) under
  * Apache-2.0, MIT, BSD and, for github.com/hashicorp/golang-lru/v2, MPL-2.0. Their
  * license texts and NOTICE files are vendored, reviewed, under licenses/restic-deps/
  * (one folder per module plus modules.json), so scripts/third-party-notices.mjs can
  * print them offline into THIRD_PARTY_NOTICES.md and agent/THIRD_PARTY_NOTICES.txt.
  *
  *   node scripts/restic-licenses.mjs vendor <restic binary>...
- *       Maintainer, once per restic pin (agent/tools.env). Reads the module list from the
- *       binaries' Go build information (every target must list the same modules), fetches
+ *       Maintainer, once per restic pin (agent/tools.env), with the restic binary of every
+ *       target (agent/dist/<target>/restic, restic.exe for Windows). Reads the module lists from the binaries' Go build
+ *       information and vendors their union; a module that only some targets contain gets
+ *       `targets` in modules.json (without it, every target has it). A module that two
+ *       binaries carry at different versions or hashes stops it. Fetches
  *       each module at that exact version through the Go module proxy (`go mod download`,
  *       checked against the Go checksum database and against the hash in the binary) and
  *       copies its LICENSE, COPYING and NOTICE files to licenses/restic-deps/. Needs Go on
@@ -20,8 +24,9 @@
  *       REVIEWED with the identifier you checked. Review the diff before committing it.
  *
  *   node scripts/restic-licenses.mjs check <restic binary>...
- *       CI. The modules in each binary's build information are exactly the vendored ones,
- *       at the same versions and hashes, and the vendored restic version is the pinned one.
+ *       CI. Every module in each binary's build information is vendored at the same version
+ *       and hash, every vendored module listed for the binary's target is in it, and the
+ *       vendored restic version is the pinned one.
  *       Reads the binaries directly; needs neither Go nor network.
  */
 import { execFileSync } from "node:child_process";
@@ -172,6 +177,47 @@ export function moduleLicense(label, texts, reviewed = REVIEWED) {
   return ids.join(" AND ");
 }
 
+/** Pure: the target of a binary from its build settings ("windows-amd64"). */
+export function targetOf(info) {
+  return `${info.settings.GOOS ?? "?"}-${info.settings.GOARCH ?? "?"}`;
+}
+
+/** Pure: whether a vendored module is compiled into the binary of target (no `targets`: all). */
+export function moduleOnTarget(module, target) {
+  return !Array.isArray(module.targets) || module.targets.includes(target);
+}
+
+/**
+ * Pure: the union of the modules of several restic binaries, each with the targets
+ * that contain it (`targets` only when not every binary does), sorted by path. A
+ * module that two binaries carry at different versions or hashes is an error.
+ */
+export function unionOfModules(infos) {
+  const all = infos.map(({ info }) => targetOf(info));
+  const byPath = new Map();
+  for (const { file, info } of infos) {
+    for (const dep of info.deps) {
+      const known = byPath.get(dep.path);
+      if (!known) {
+        byPath.set(dep.path, { dep, file, targets: [targetOf(info)] });
+      } else if (known.dep.version !== dep.version || known.dep.sum !== dep.sum) {
+        throw new Error(
+          `${dep.path} is ${known.dep.version} ${known.dep.sum} in ${known.file} but ${dep.version} ${dep.sum} in ${file}; the notices assume one version per module`,
+        );
+      } else if (!known.targets.includes(targetOf(info))) {
+        known.targets.push(targetOf(info));
+      }
+    }
+  }
+  return [...byPath.values()]
+    .sort((a, b) => (a.dep.path < b.dep.path ? -1 : a.dep.path > b.dep.path ? 1 : 0))
+    .map(({ dep, targets }) =>
+      all.every((target) => targets.includes(target))
+        ? { dep }
+        : { dep, targets: [...targets].sort() },
+    );
+}
+
 /**
  * Pure: the problems between the vendored manifest and the build information of
  * restic binaries; empty when they agree.
@@ -185,7 +231,7 @@ export function compareWithBinaries(manifest, infos, pinnedVersion) {
   }
   const vendored = new Map(manifest.modules.map((module) => [module.path, module]));
   for (const { file, info } of infos) {
-    const target = `${info.settings.GOOS ?? "?"}-${info.settings.GOARCH ?? "?"}`;
+    const target = targetOf(info);
     if (info.path !== "github.com/restic/restic/cmd/restic") {
       problems.push(`${file} is not a restic binary (main package ${info.path || "unknown"})`);
       continue;
@@ -204,9 +250,9 @@ export function compareWithBinaries(manifest, infos, pinnedVersion) {
         );
       }
     }
-    for (const path of vendored.keys()) {
-      if (!seen.has(path)) {
-        problems.push(`${path} is vendored but not in ${file} (${target})`);
+    for (const [path, module] of vendored) {
+      if (!seen.has(path) && moduleOnTarget(module, target)) {
+        problems.push(`${path} is vendored for ${target} but not in ${file}`);
       }
     }
   }
@@ -288,18 +334,12 @@ function downloadModules(specs, cacheDir) {
 
 function vendor(binaries) {
   if (binaries.length === 0) {
-    throw new Error("name the restic binaries of every target (agent/dist/*/restic)");
+    throw new Error("name the restic binaries of every target (agent/dist/*/restic*)");
   }
   const infos = binaries.map((file) => ({ file, info: readBuildInfo(readFileSync(file)) }));
-  const first = infos[0].info.deps.map((dep) => `${dep.path}@${dep.version}@${dep.sum}`).join("\n");
-  for (const { file, info } of infos) {
-    if (info.deps.map((dep) => `${dep.path}@${dep.version}@${dep.sum}`).join("\n") !== first) {
-      throw new Error(
-        `${file} lists other modules than ${infos[0].file}; the notices assume one list for every target`,
-      );
-    }
-  }
-  const deps = infos[0].info.deps;
+  const union = unionOfModules(infos);
+  const deps = union.map(({ dep }) => dep);
+  const targetsOf = new Map(union.map(({ dep, targets }) => [dep.path, targets]));
   const cacheDir = join(ROOT, "agent/.cache/restic-licenses");
   rmSync(cacheDir, { recursive: true, force: true });
   mkdirSync(cacheDir, { recursive: true });
@@ -341,6 +381,7 @@ function vendor(binaries) {
       path: dep.path,
       version: dep.version,
       sum: dep.sum,
+      ...(targetsOf.get(dep.path) ? { targets: targetsOf.get(dep.path) } : {}),
       license: moduleLicense(label, texts),
       source: origin.URL ?? "",
       ref: origin.Ref ?? "",
@@ -351,7 +392,7 @@ function vendor(binaries) {
   }
   const manifest = {
     $comment:
-      "The Go modules compiled into the restic release binary (all four targets list the same), with the license texts and NOTICE files of each module at that exact version, fetched through the Go module proxy and checked against the hash in the binary. Written by `node scripts/restic-licenses.mjs vendor`, licenses reviewed by hand; scripts/third-party-notices.mjs prints them, scripts/ci/check-licenses.mjs checks them against license-policy.json.",
+      "The Go modules compiled into the restic release binaries (a module with `targets` is only in the binaries of those targets, every other module is in all of them), with the license texts and NOTICE files of each module at that exact version, fetched through the Go module proxy and checked against the hash in the binary. Written by `node scripts/restic-licenses.mjs vendor`, licenses reviewed by hand; scripts/third-party-notices.mjs prints them, scripts/ci/check-licenses.mjs checks them against license-policy.json.",
     restic: pinnedResticVersion(),
     modules,
   };

@@ -36,6 +36,7 @@ import {
   type NewFileShare,
   type RoleLogin,
   secrets,
+  settings,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { eq } from "drizzle-orm";
@@ -132,6 +133,16 @@ export class FakeRunner implements RunnerClient {
   async removeCache(shareId: string): Promise<void> {
     this.cachesRemoved.push(shareId);
   }
+}
+
+/**
+ * Lets backups through the api keep only 64 MiB free on the storage target instead of the 20 GiB
+ * minimum of the space rule (#99): the free space of the machine the tests run on is no part of
+ * them (the rule is tested in apps/api run-size/run-size.pg.test.ts). The guard still runs.
+ */
+export async function keepLittleFree(owner: Database): Promise<void> {
+  const runSpaceRule = { percent: 0, minBytes: 64 * 1024 ** 2, maxBytes: 64 * 1024 ** 2 };
+  await owner.update(settings).set({ runSpaceRule });
 }
 
 export interface ShareFixture {

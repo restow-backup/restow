@@ -116,6 +116,7 @@
     "folders": "Ordner",
     "mailData": "Maildaten",
     "failedMessages": "Nicht exportiert",
+    "incompleteMessages": "Ohne alle Anhänge",
     "noReport": "Für diesen Export liegt kein Bericht vor. Wie viele E-Mails die Datei enthält, ist daher nicht bekannt.",
     "checksum": "SHA-256-Prüfsumme der Datei",
     "copyChecksum": "Prüfsumme kopieren",
@@ -132,6 +133,10 @@
     "calendar": "{count, plural, one {# Kalendereintrag wurde ausgelassen.} other {# Kalendereinträge wurden ausgelassen.}}",
     "contacts": "{count, plural, one {# Kontakt wurde ausgelassen.} other {# Kontakte wurden ausgelassen.}}",
     "other": "{count, plural, one {# weiteres Element, das keine E-Mail ist, wurde ausgelassen.} other {# weitere Elemente, die keine E-Mails sind, wurden ausgelassen.}}"
+  },
+  "incomplete": {
+    "title": "E-Mails ohne alle Anhänge",
+    "description": "Diese E-Mails sind in der Datei, aber ohne Anhänge, die nicht in der Sicherung sind: Microsoft hat sie nicht herausgegeben, oder es sind Link- oder Elementanhänge, die die Sicherung nicht aufnimmt. MANIFEST.csv führt sie mit dem Status „incomplete“. Der Grund stammt vom Export."
   },
   "failures": {
     "title": "E-Mails, die nicht exportiert werden konnten",

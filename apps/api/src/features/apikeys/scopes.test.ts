@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { API_SCOPES, hasScope, isApiScope, normalizeScopes } from "./scopes.js";
+import {
+  API_SCOPES,
+  hasScope,
+  isApiScope,
+  normalizeScopes,
+  PROVIDER_ONLY_SCOPES,
+} from "./scopes.js";
 
 describe("API scopes", () => {
   it("are exactly the documented set", () => {
     expect([...API_SCOPES].sort()).toEqual(
       [
         "archive:read",
+        "billing:read",
         "items:read",
         "jobs:read",
         "restore:write",
@@ -16,6 +23,10 @@ describe("API scopes", () => {
         "webhooks:manage",
       ].sort(),
     );
+  });
+
+  it("keep the billing figures to provider keys", () => {
+    expect(PROVIDER_ONLY_SCOPES).toEqual(["billing:read"]);
   });
 
   it("recognise known scopes only", () => {

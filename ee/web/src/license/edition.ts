@@ -61,6 +61,9 @@ const FEATURE_EDITION: Readonly<Record<GatedFeature, LicensedEdition>> = {
   "providerTeam.tenantScope": "service_provider",
   "archive.mailboxCapture": "business",
   "archive.smtpCapture": "business",
+  "branding.provider": "business",
+  "branding.tenant": "service_provider",
+  "reports.customer": "service_provider",
 };
 
 /**

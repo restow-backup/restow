@@ -24,12 +24,19 @@ export interface WorkerExtensionContext {
  *   archive.mailboxCapture  continuous archive capture from the mailbox, Graph and
  *                           IMAP (./archive-capture); off = the capture service idles
  *   archive.smtpCapture     archive capture by SMTP (journaling, forwarded copies)
+ *   branding.provider       the provider's branding on chat webhooks (0.5.0)
+ *   branding.tenant         a tenant's own branding on its chat webhooks (0.5.0)
  *
  * Without a registered gate every feature is off, so the core alone runs exactly its own
  * work. The core never learns why a gate opens (in the full build, ee/ decides by the
  * installed license).
  */
-export const WORKER_GATED_FEATURES = ["archive.mailboxCapture", "archive.smtpCapture"] as const;
+export const WORKER_GATED_FEATURES = [
+  "archive.mailboxCapture",
+  "archive.smtpCapture",
+  "branding.provider",
+  "branding.tenant",
+] as const;
 
 export type WorkerGatedFeature = (typeof WORKER_GATED_FEATURES)[number];
 

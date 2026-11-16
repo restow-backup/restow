@@ -30,6 +30,7 @@ import {
   policyValueProblem,
   type ResolvedAgentPolicy,
   resolveOnTop,
+  type SnapshotOnFailure,
   startValue,
 } from "../agent-policy.js";
 
@@ -85,6 +86,8 @@ export function usePolicyValueText() {
           : t("policy.bandwidthKbps.value", { kbps: value as number });
       case "onlyOnAcPower":
         return value ? t("policy.onlyOnAcPower.on") : t("policy.onlyOnAcPower.off");
+      case "snapshotOnFailure":
+        return t(`policy.snapshotOnFailure.modes.${value as SnapshotOnFailure}`);
       default:
         return t("policy.retries.value", { count: value as number });
     }
@@ -436,6 +439,30 @@ function ValueEditor<K extends AgentPolicyKey>({
           />
           <Label htmlFor={`${idPrefix}-ac`}>{t("policy.onlyOnAcPower.on")}</Label>
         </div>
+      );
+    case "snapshotOnFailure":
+      return (
+        <RadioGroup
+          value={value as SnapshotOnFailure}
+          onValueChange={(next) => {
+            if (next === "continue" || next === "fail") set(next);
+          }}
+          disabled={disabled}
+          aria-label={t("policy.snapshotOnFailure.title")}
+          className="grid gap-2"
+        >
+          {(["continue", "fail"] as const).map((mode) => (
+            <div key={mode} className="flex items-start gap-2">
+              <RadioGroupItem value={mode} id={`${idPrefix}-snapshot-${mode}`} className="mt-0.5" />
+              <Label htmlFor={`${idPrefix}-snapshot-${mode}`} className="grid gap-0.5 font-normal">
+                <span className="text-sm">{t(`policy.snapshotOnFailure.modes.${mode}`)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t(`policy.snapshotOnFailure.hints.${mode}`)}
+                </span>
+              </Label>
+            </div>
+          ))}
+        </RadioGroup>
       );
     default:
       return (

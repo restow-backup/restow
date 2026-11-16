@@ -15,11 +15,11 @@ import * as providerTeam from "@/features/provider-team";
 import * as pve from "@/features/pve";
 import * as redirects from "@/features/redirects";
 import * as reports from "@/features/reports";
+import * as resources from "@/features/resources";
 import * as restore from "@/features/restore";
 import * as retention from "@/features/retention";
 import * as schedules from "@/features/schedules";
 import * as settings from "@/features/settings";
-import * as soon from "@/features/soon";
 import * as sources from "@/features/sources";
 import * as stats from "@/features/stats";
 import * as storage from "@/features/storage";
@@ -51,7 +51,6 @@ const features = [
   verify,
   reports,
   stats,
-  soon,
   restore,
   archive,
   mailExports,
@@ -68,6 +67,7 @@ const features = [
   storage,
   integrations,
   installation,
+  resources,
   providerTeam,
   settings,
   redirects,

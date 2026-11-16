@@ -243,10 +243,11 @@ function buildSrcDoc(html: string): string {
 /**
  * Shown instead of a body when the preview cannot show one. Rights-protected
  * (Microsoft Purview) and S/MIME-encrypted mail get the fuller explanation
- * (opening the EML needs the recipient's own rights or certificate, but
- * restoring the item into a mailbox always works, since the recipient's own
- * client applies their rights there); an oversized or unsupported-format
- * message just says so.
+ * (opening the EML needs the recipient's own rights or certificate;
+ * restoring the item into a mailbox works up to the size of one MIME import,
+ * since the recipient's own client applies their rights there, and a larger
+ * one can only be downloaded); an oversized or unsupported-format message
+ * just says so.
  */
 function UnavailableNotice({ reason }: { reason: PreviewUnavailableReason }) {
   const { t } = useTranslation("restore");

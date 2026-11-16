@@ -4,7 +4,9 @@
  *
  * Once a UTC day is over, every tenant whose archive grew that day gets an
  * `archive_anchor` row: the chain hash of the last entry appended that day
- * and the number of entries the chain had by then, counted from its start.
+ * and the number of entries the chain had by then, counted from its start
+ * (tombstones of items deleted after their retention included, so a deletion
+ * never shifts the positions anchors name).
  * The archive check (apps/api features/archive/verify.ts) compares the chain
  * against these seals, which is what exposes entries cut off the end of the
  * chain: every remaining link still verifies, but the chain no longer
@@ -18,13 +20,14 @@
  */
 import {
   archiveAnchor,
+  archiveChainTombstones,
   archiveItems,
   type Database,
   type NewArchiveAnchor,
   safeErrorMessage,
   tenants,
 } from "@restow/db";
-import { and, asc, count, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { type AnchorLogger, dayAfter, startOfUtcDay } from "./audit-anchor.js";
 
 export interface ArchiveAnchorDeps {
@@ -74,36 +77,40 @@ export async function anchorArchiveChain(
       .limit(1);
     const since = latest ? dayAfter(latest.date) : null;
 
-    const day = sql<string>`to_char(${archiveItems.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
-    const days = await tx
-      .select({ day })
-      .from(archiveItems)
-      .where(
-        and(
-          eq(archiveItems.tenantId, tenantId),
-          since ? gte(archiveItems.createdAt, since) : undefined,
-          lt(archiveItems.createdAt, before),
-        ),
-      )
-      .groupBy(day)
-      .orderBy(day);
+    // The chain is the items plus the tombstones of items deleted after their retention
+    // (archive_chain_tombstones): a deletion keeps the positions, so anchors count both.
+    const days = await tx.execute<{ day: string }>(sql`
+      select day from (
+        select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') as day
+          from ${archiveItems}
+         where tenant_id = ${tenantId}::uuid
+           ${since ? sql`and created_at >= ${since.toISOString()}::timestamptz` : sql``}
+           and created_at < ${before.toISOString()}::timestamptz
+        union
+        select to_char(item_created_at at time zone 'UTC', 'YYYY-MM-DD')
+          from ${archiveChainTombstones}
+         where tenant_id = ${tenantId}::uuid
+           ${since ? sql`and item_created_at >= ${since.toISOString()}::timestamptz` : sql``}
+           and item_created_at < ${before.toISOString()}::timestamptz
+      ) days
+      order by day`);
 
     const anchors: NewArchiveAnchor[] = [];
-    for (const { day: anchorDate } of days) {
-      const end = dayAfter(anchorDate);
-      const ofChainUntilEnd = and(
-        eq(archiveItems.tenantId, tenantId),
-        lt(archiveItems.createdAt, end),
-      );
-      const [total] = await tx.select({ value: count() }).from(archiveItems).where(ofChainUntilEnd);
-      const [last] = await tx
-        .select({ chainHash: archiveItems.chainHash })
-        .from(archiveItems)
-        .where(ofChainUntilEnd)
-        .orderBy(desc(archiveItems.createdAt), desc(archiveItems.id))
-        .limit(1);
-      if (last && total) {
-        anchors.push({ tenantId, anchorDate, lastHash: last.chainHash, count: total.value });
+    for (const { day: anchorDate } of days.rows) {
+      const end = dayAfter(anchorDate).toISOString();
+      const result = await tx.execute<{ count: number; chain_hash: string | null }>(sql`
+        with chain as (
+          select chain_hash, created_at, id from ${archiveItems}
+           where tenant_id = ${tenantId}::uuid and created_at < ${end}::timestamptz
+          union all
+          select chain_hash, item_created_at, item_id from ${archiveChainTombstones}
+           where tenant_id = ${tenantId}::uuid and item_created_at < ${end}::timestamptz
+        )
+        select (select count(*)::int from chain) as count,
+               (select chain_hash from chain order by created_at desc, id desc limit 1) as chain_hash`);
+      const row = result.rows[0];
+      if (row?.chain_hash && row.count > 0) {
+        anchors.push({ tenantId, anchorDate, lastHash: row.chain_hash, count: row.count });
       }
     }
     if (anchors.length > 0) {

@@ -1,6 +1,14 @@
 import { type DumpStore, dumpFileName, KEEP_DUMPS } from "./dumps.js";
-import { type CapturedEnv, type EnvFile, EnvFileError, postgresSettings } from "./env-file.js";
-import { fullBuildRepositories, type ImageVariant } from "./image-variant.js";
+import {
+  type CapturedEnv,
+  type EnvFile,
+  EnvFileError,
+  envValueOf,
+  LAB_IMAGE_KEY,
+  postgresSettings,
+} from "./env-file.js";
+import { formatBytes, removeOldImages } from "./image-cleanup.js";
+import { fullBuildRepositories, type ImageVariant, labImageRepositoryOf } from "./image-variant.js";
 import type { Logger } from "./logger.js";
 import { type ApiClient, type Clock, type DockerOps, OpsError, type TimerHandle } from "./ops.js";
 import type { Preflight } from "./preflight.js";
@@ -46,6 +54,13 @@ import { emptyRunContext, type RunContext, type StatusStore } from "./store.js";
  */
 
 const APP_SERVICES = ["api", "worker", "scheduler", "caddy"] as const;
+/** The recovery lab (profile recovery-lab); naming it starts it whatever profiles are active. */
+const LAB_SERVICE = "recovery-lab";
+const PULLING_CODE = {
+  app: "step.fetch.pulling",
+  web: "step.fetch.pulling_web",
+  lab: "step.fetch.pulling_lab",
+} as const;
 const WORKER_SERVICES = ["worker", "scheduler"] as const;
 
 export const HEALTH_POLL_MS = 2000;
@@ -126,6 +141,9 @@ const LOG_TEXT: Record<UpdateMessageCode, (p: Params) => string> = {
   "step.fetch.pulling_web": (p) => `Pulling ${p.image} (version ${p.version}).`,
   "step.fetch.web_not_published": (p) =>
     `The release publishes no web image digest (${p.image}); the current web image stays.`,
+  "step.fetch.pulling_lab": (p) => `Pulling ${p.image} (version ${p.version}).`,
+  "step.fetch.lab_not_published": (p) =>
+    `The release publishes no recovery lab image digest (${p.image}); the lab keeps its image.`,
   "step.fetch.verifying_signatures": (p) =>
     `Verifying the release signature of ${p.image} (signer ${p.signer}).`,
   "step.fetch.verifying_digests": () => "Verifying the image digests.",
@@ -144,6 +162,7 @@ const LOG_TEXT: Record<UpdateMessageCode, (p: Params) => string> = {
   "step.health.waiting_for_api": (p) => `Waiting for the api to report version ${p.version}.`,
   "step.health.starting_workers": () => "Starting worker and scheduler.",
   "step.health.starting_edge": () => "Starting the web edge.",
+  "step.health.starting_lab": (p) => `Starting the recovery lab with ${p.image}.`,
   "step.health.verifying_services": () => "Verifying that api, worker, scheduler and edge run.",
   "step.finish.cleaning": () => "Removing old dumps and downloaded sources.",
   "rollback.checking_migrations": () => "Checking whether database migrations ran.",
@@ -184,6 +203,11 @@ export interface EngineConfig {
   imageVariant?: ImageVariant;
   imageRepository: string;
   webImageRepository: string;
+  /**
+   * Where the recovery lab's image comes from (one repository for both builds). Default:
+   * the application repository with `-lab` in place of its build suffix.
+   */
+  labImageRepository?: string;
   healthTimeoutSeconds: number;
   /** Image mode installs only images the release workflow signed (signature.ts). Default true. */
   verifySignatures?: boolean;
@@ -220,6 +244,11 @@ interface Exec {
   images: { app: string; web: string };
   /** The release ships a web image (false: the current one stays). */
   webChanges: boolean;
+  /**
+   * The recovery lab's target image; null when .env sets no RESTOW_LAB_IMAGE (no lab, or
+   * one built locally), in source mode, or when the release publishes no lab digest.
+   */
+  lab: string | null;
   /** `docker compose up` for the api was attempted: the new api may have started and migrated. */
   apiUpAttempted: boolean;
 }
@@ -530,6 +559,7 @@ export class UpdateEngine {
       target,
       images: { app: "", web: "" },
       webChanges: true,
+      lab: null,
       apiUpAttempted: false,
     };
     this.execution = this.execute(exec).finally(() => {
@@ -554,6 +584,11 @@ export class UpdateEngine {
 
   private async executeSteps(exec: Exec): Promise<void> {
     await this.runSteps(exec);
+    const finished = this.deps.store.state;
+    if (finished.phase === "succeeded" && finished.run && !this.shuttingDown) {
+      // Only now, with the run recorded as succeeded; it stays succeeded whatever happens here.
+      await this.removeOldImages(finished.run, finished.runContext);
+    }
     const state = this.deps.store.state;
     if (state.phase === "succeeded" && state.run && this.deps.selfUpdater && !this.shuttingDown) {
       // After the run is recorded as succeeded: whatever happens here, it stays succeeded.
@@ -666,6 +701,15 @@ export class UpdateEngine {
             app: `${repositories.app}:${exec.target}`,
             web: `${repositories.web}:${exec.target}`,
           };
+    // The recovery lab moves along only where .env names its image (docs/UPDATING.md).
+    const labImage = envValueOf(envText, LAB_IMAGE_KEY);
+    if (labImage) {
+      if (run.mode === "source") {
+        this.log(run, `A source update builds no recovery lab image; the lab keeps ${labImage}.`);
+      } else {
+        exec.lab = `${this.labRepository()}:${exec.target}`;
+      }
+    }
 
     await this.note({ code: "step.prepare.verifying_compose" });
     let previous: Awaited<ReturnType<DockerOps["configImages"]>>;
@@ -725,6 +769,12 @@ export class UpdateEngine {
     return fullBuildRepositories({ app: config.imageRepository, web: config.webImageRepository });
   }
 
+  /** The recovery lab's repository: the same for both builds, so also for a build switch. */
+  private labRepository(): string {
+    const { config } = this.deps;
+    return config.labImageRepository ?? labImageRepositoryOf(config.imageRepository);
+  }
+
   /** Where a run's images come from: the build's own repositories, or the full build's for a switch. */
   private repositoriesOf(run: Run): { app: string; web: string } | null {
     const { config } = this.deps;
@@ -738,8 +788,8 @@ export class UpdateEngine {
    * is replaced on the way:
    *
    *   1. the release must publish the digest of the application image (a release
-   *      without one is refused), and the web image changes only when the release
-   *      publishes its digest as well;
+   *      without one is refused), and the web image (and the recovery lab's, where
+   *      .env names one) changes only when the release publishes its digest as well;
    *   2. each image is verified in the registry, by that digest, against the
    *      release workflow's keyless signature for exactly this tag (signature.ts);
    *   3. the tag is pulled and the local image must carry that digest, so what the
@@ -777,7 +827,24 @@ export class UpdateEngine {
       run.images = { app: exec.images.app, web: context.previousImages?.web ?? null };
     }
 
-    const checks: { kind: "app" | "web"; repository: string; image: string; digest: string }[] = [
+    const labDigest = exec.lab ? context.digests.lab : undefined;
+    if (exec.lab && !labDigest) {
+      // Like the edge: the lab keeps the image it has; an unverifiable one is never pulled.
+      detail.lab = "not_published";
+      await this.note({
+        code: "step.fetch.lab_not_published",
+        params: { version: exec.target },
+        details: { image: exec.lab },
+      });
+      exec.lab = null;
+    }
+
+    const checks: {
+      kind: "app" | "web" | "lab";
+      repository: string;
+      image: string;
+      digest: string;
+    }[] = [
       {
         kind: "app",
         repository: repositories.app,
@@ -791,6 +858,14 @@ export class UpdateEngine {
         repository: repositories.web,
         image: exec.images.web,
         digest: webDigest,
+      });
+    }
+    if (exec.lab && labDigest) {
+      checks.push({
+        kind: "lab",
+        repository: this.labRepository(),
+        image: exec.lab,
+        digest: labDigest,
       });
     }
 
@@ -838,7 +913,7 @@ export class UpdateEngine {
 
     for (const check of checks) {
       await this.note({
-        code: check.kind === "app" ? "step.fetch.pulling" : "step.fetch.pulling_web",
+        code: PULLING_CODE[check.kind],
         params: { version: exec.target },
         details: { image: check.image },
       });
@@ -847,8 +922,8 @@ export class UpdateEngine {
       } catch (error) {
         throw new StepFailure("fetch.pull_failed", "fetch", this.detail(error));
       }
-      if (check.kind === "web") {
-        detail.web = check.image;
+      if (check.kind !== "app") {
+        detail[check.kind] = check.image;
       }
     }
 
@@ -1034,7 +1109,11 @@ export class UpdateEngine {
     // Remember the exact previous lines before touching the file, and persist them.
     let captured: CapturedEnv;
     try {
-      captured = await envFile.capture(["RESTOW_IMAGE", "RESTOW_WEB_IMAGE"]);
+      captured = await envFile.capture([
+        "RESTOW_IMAGE",
+        "RESTOW_WEB_IMAGE",
+        ...(exec.lab ? [LAB_IMAGE_KEY] : []),
+      ]);
     } catch (error) {
       throw new StepFailure("start.failed", "start", this.detail(error));
     }
@@ -1044,6 +1123,9 @@ export class UpdateEngine {
     const assignments: Record<string, string> = { RESTOW_IMAGE: exec.images.app };
     if (exec.webChanges) {
       assignments.RESTOW_WEB_IMAGE = exec.images.web;
+    }
+    if (exec.lab) {
+      assignments[LAB_IMAGE_KEY] = exec.lab;
     }
     try {
       await envFile.apply(assignments);
@@ -1087,6 +1169,18 @@ export class UpdateEngine {
       await ops.composeUp(["caddy"]);
     } catch (error) {
       throw new StepFailure("start.failed", "health", this.detail(error));
+    }
+    if (exec.lab) {
+      // Recreated on the image the release signed. The lab is optional: when it does not
+      // start, the application still runs the new version, so the run goes on and says so.
+      await this.note({ code: "step.health.starting_lab", details: { image: exec.lab } });
+      try {
+        await ops.composeUp([LAB_SERVICE]);
+      } catch (error) {
+        const line = `The recovery lab did not start with ${exec.lab}: ${this.detail(error)} Start it with: docker compose --profile recovery-lab up -d recovery-lab`;
+        this.deps.logger.warn(line);
+        this.log(this.run(), line);
+      }
     }
 
     await this.note({ code: "step.health.verifying_services" });
@@ -1230,6 +1324,67 @@ export class UpdateEngine {
     this.deps.preflight.invalidate();
   }
 
+  /**
+   * After a succeeded run: remove the images of releases older than the previous one
+   * (image-cleanup.ts). Never throws; the result goes into the run's log and the detail
+   * of its finish step, and into the history entry of the run.
+   */
+  private async removeOldImages(run: Run, context: RunContext | null): Promise<void> {
+    const { config, ops, logger, redactor, store } = this.deps;
+    let line: string;
+    try {
+      const result = await removeOldImages(
+        { ops, logger, redactor },
+        {
+          imageRepository: config.imageRepository,
+          webImageRepository: config.webImageRepository,
+          currentVersion: run.targetVersion,
+          previousVersion: run.fromVersion,
+          keep: [
+            run.images.app,
+            run.images.web,
+            context?.previousImages?.app ?? null,
+            context?.previousImages?.web ?? null,
+          ],
+          // A run scheduled meanwhile (or a shutdown) ends the cleanup before the next image.
+          proceed: () => {
+            const phase = store.state.phase;
+            return !this.shuttingDown && phase !== "scheduled" && phase !== "running";
+          },
+        },
+      );
+      line =
+        result.removed > 0
+          ? `Removed ${result.removed} image${result.removed === 1 ? "" : "s"} of earlier releases (${formatBytes(result.bytes)}); the images of ${run.targetVersion} and of the previous version stay.`
+          : "No images of earlier releases to remove; the images of this and of the previous version stay.";
+      if (result.failed > 0) {
+        line += ` ${result.failed} could not be removed (see the updater's log).`;
+      }
+      const finish = run.steps.find((step) => step.id === "finish");
+      if (finish) {
+        finish.detail = {
+          ...finish.detail,
+          oldImagesRemoved: result.removed,
+          oldImagesBytes: result.bytes,
+          oldImagesFailed: result.failed,
+        };
+      }
+    } catch (error) {
+      line = `The images of earlier releases could not be removed: ${this.detail(error)}`;
+    }
+    try {
+      logger.info(line);
+      this.log(run, line);
+      // The history entry gets the numbers too, while it is still the newest one.
+      if (store.state.history[0]?.id === run.id) {
+        store.recordHistory(run);
+      }
+      await store.save();
+    } catch (error) {
+      logger.warn(`The image cleanup could not be recorded: ${(error as Error).message}`);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Failure handling
   // ---------------------------------------------------------------------------
@@ -1327,6 +1482,10 @@ export class UpdateEngine {
         params: { version: run.fromVersion ?? "unknown" },
       });
       await ops.composeUp(APP_SERVICES);
+      if (context.previousEnv?.[LAB_IMAGE_KEY]) {
+        // The run moved the lab as well: it goes back to the image it had.
+        await ops.composeUp([LAB_SERVICE]);
+      }
       await this.note({ code: "rollback.waiting_for_api" });
       await this.waitForApi(run.fromVersion, failure.step);
       await this.waitForServices(failure.step);

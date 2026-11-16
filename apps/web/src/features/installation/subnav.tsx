@@ -2,6 +2,9 @@ import { useTranslation } from "react-i18next";
 
 import { SectionNav, type SectionNavItem } from "@/components/layout/section-nav";
 
+import { useAvailableUpdate } from "@/features/updates/available";
+import { UPDATES_SECTION } from "@/features/updates/settings-link";
+
 import { installationSectionPath } from "./paths";
 import type { SectionState } from "./presenters";
 
@@ -19,12 +22,18 @@ export function InstallationSubNav({
   activeId: string;
 }) {
   const { t } = useTranslation();
+  // A newer release puts a dot on "Updates" (provider administrators only, like this page).
+  const update = useAvailableUpdate();
   const items = states.map(
     ({ spec, locked }): SectionNavItem => ({
       id: spec.id,
       label: t(spec.labelKey),
       icon: spec.icon,
       to: installationSectionPath(spec.id),
+      updateLabel:
+        spec.id === UPDATES_SECTION && update
+          ? t("shell.updateTo", { version: update.latest })
+          : undefined,
       locked:
         locked && spec.lock
           ? { to: spec.lock.to, search: spec.lock.search, hint: t(spec.lock.hintKey) }

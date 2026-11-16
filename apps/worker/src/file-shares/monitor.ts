@@ -33,6 +33,7 @@ import { withTenantTx } from "../handlers/framework.js";
 import { raiseEvents } from "../reporting.js";
 import { type FileShareDeps, loadFileShareSettings, reportableMessage } from "./common.js";
 import { endRun, processFinish } from "./finish.js";
+import { holdFileShareRun } from "./hold.js";
 
 const MINUTE = 60_000;
 export const STARTING_LIMIT_MS = 5 * MINUTE;
@@ -266,7 +267,23 @@ export async function fileShareMonitor(deps: FileShareDeps): Promise<FileShareMo
     .select()
     .from(fileShareRuns)
     .where(inArray(fileShareRuns.status, ["starting", "running"]));
+  // Restore mode: a run started (or queued) before its hold point is from the restored dump.
+  const holdBefore = (await deps.holdRunsBefore?.()) ?? null;
   for (const run of open) {
+    if (holdBefore && (run.startedAt ?? run.queuedAt).getTime() < holdBefore.getTime()) {
+      try {
+        await stop(deps, run.id);
+        if (await holdFileShareRun(deps, run)) {
+          summary.cancelled++;
+        }
+      } catch (error) {
+        deps.runtime.logger.warn("a file share run from before the restore could not be held", {
+          runId: run.id,
+          errorMessage: reportableMessage(error),
+        });
+      }
+      continue;
+    }
     try {
       await watchRun(deps, run, now, summary);
     } catch (error) {

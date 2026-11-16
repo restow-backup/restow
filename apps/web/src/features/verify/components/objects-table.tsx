@@ -29,11 +29,12 @@ import { countsOfSummary, StateChips } from "@/features/verify/components/state-
 import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
 import { verifyReportTo } from "@/features/verify/paths";
 import {
-  EMPTY_REASON,
+  EMPTY_REASONS,
   isEmptyUnconfirmed,
   objectAddress,
   objectLabel,
   objectName,
+  objectService,
   type ReadinessRow,
   readinessRows,
   reasonMessage,
@@ -72,6 +73,7 @@ function ObjectCell({
   object,
   inJob,
   emptyConfirmation,
+  emptyBySource,
   format,
 }: {
   object: VerifyObject;
@@ -79,16 +81,26 @@ function ObjectCell({
   inJob: boolean;
   /** Set while the object counts as confirmed empty. */
   emptyConfirmation?: ObjectReadiness["emptyConfirmation"];
+  /** Empty by Microsoft 365 and by the backup (0.5.0): no confirmation needed. */
+  emptyBySource?: boolean;
   format: VerifyFormat;
 }) {
   const { t } = format;
   const label = objectLabel(object, t);
   const address = objectAddress(object);
+  // The service is named, not only shown as an icon: a person's mailbox and OneDrive share the
+  // person's name (0.5.0). A label that is the kind already names it.
+  const service = objectService(object, t);
   return (
     <div className="flex min-w-0 items-start gap-2">
       <ObjectKindIcon kind={object.kind} className="mt-0.5" />
       <div className="min-w-0" title={t("table.technicalId", { id: object.externalId })}>
-        <p className="truncate font-medium">{label}</p>
+        <p className="truncate font-medium" data-slot="object-label">
+          {service ? (
+            <span className="font-normal text-muted-foreground">{`${service} · `}</span>
+          ) : null}
+          <span>{label}</span>
+        </p>
         {address ? <p className="truncate text-xs text-muted-foreground">{address}</p> : null}
         {inJob ? null : (
           // Nothing backs it up (no enabled backup job covers it): rated by whether its newest
@@ -123,6 +135,16 @@ function ObjectCell({
               who: emptyConfirmation.confirmedBy,
               date: format.dateTime(emptyConfirmation.confirmedAt) ?? "",
             })}
+          </StatusBadge>
+        ) : emptyBySource ? (
+          // Grey as well: Microsoft 365 says it is empty, nobody needs to decide anything.
+          <StatusBadge
+            tone="muted"
+            className="mt-1"
+            title={t("table.emptyBySourceHint")}
+            data-slot="empty-by-source"
+          >
+            {t("table.emptyBySource")}
           </StatusBadge>
         ) : null}
       </div>
@@ -191,10 +213,11 @@ function ResultCell({
       ? report.reasons.filter((entry) => !FRESHNESS_REASONS.has(entry.code))
       : report.reasons;
   const firstReason = shownReasons[0];
-  if (firstReason?.code === EMPTY_REASON) {
-    // Nothing to restore: no "0 of 0 verified", one quiet line with what the backup holds.
+  if (firstReason && EMPTY_REASONS.has(firstReason.code)) {
+    // Nothing to restore: no "0 of 0 verified", one quiet line with what the backup holds (and,
+    // empty by Microsoft 365 as well, that no confirmation is needed).
     const stats = item.contentStats;
-    const text = t("reason.snapshot_empty", {
+    const text = t(`reason.${firstReason.code}`, {
       count: stats?.items ?? firstReason.count ?? 0,
     });
     return (
@@ -255,7 +278,7 @@ function ActionsCell({
           {t("actions.confirmEmpty")}
         </Button>
       ) : null}
-      {empty && item.state === "empty" ? (
+      {empty && item.state === "empty" && item.emptyConfirmation ? (
         <Button
           variant="ghost"
           size="sm"
@@ -619,6 +642,7 @@ function ObjectRow({
             object={item.object}
             inJob={item.inJob !== false}
             emptyConfirmation={item.emptyConfirmation}
+            emptyBySource={item.emptyBySource === true}
             format={format}
           />
         </div>

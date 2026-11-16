@@ -66,7 +66,12 @@ function isIconElement(node: React.ReactNode): boolean {
 function withSpinner(children: React.ReactNode): React.ReactNode[] {
   const items = React.Children.toArray(children);
   const spinner = (
-    <Loader2Icon key="spinner" data-slot="spinner" aria-hidden="true" className="animate-spin" />
+    <Loader2Icon
+      key="spinner"
+      data-slot="spinner"
+      aria-hidden="true"
+      className="motion-safe:animate-spin"
+    />
   );
   return isIconElement(items[0]) ? [spinner, ...items.slice(1)] : [spinner, ...items];
 }

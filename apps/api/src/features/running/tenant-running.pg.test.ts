@@ -31,7 +31,9 @@ import {
   pveClusters,
   pveGuests,
   pveJobs,
+  pveNodes,
   pveRuns,
+  pveTasks,
   sources,
   tenants,
   twoFactor,
@@ -507,4 +509,136 @@ describe.skipIf(!testDatabaseAdminUrl)("what runs right now in every tenant", ()
     expect(cut?.truncated).toBe(true);
     expect(cut?.pve.some((run) => run.guest.name === "guest0")).toBe(false);
   }, 60_000);
+
+  it("carries every running guest of a busy tenant in the live channel, not only the listed ones", async () => {
+    const tenantId = await createTenant("Busy");
+    const cluster = one(
+      await owner
+        .insert(pveClusters)
+        .values({ tenantId, name: "busy", fingerprint: randomUUID(), storageId: "restow" })
+        .returning(),
+    ).id;
+    const count = 60;
+    const guestRows = await owner
+      .insert(pveGuests)
+      .values(
+        Array.from({ length: count }, (_, index) => ({
+          tenantId,
+          clusterId: cluster,
+          vmid: 2000 + index,
+          kind: "vm" as const,
+          name: `busy${index}`,
+        })),
+      )
+      .returning({ id: pveGuests.id });
+    await owner.insert(pveRuns).values(
+      guestRows.map((row, index) => ({
+        tenantId,
+        clusterId: cluster,
+        guestId: row.id,
+        kind: "backup" as const,
+        status: "running" as const,
+        startedAt: ago(count - index),
+      })),
+    );
+    const shared = await import("../../db.js");
+    const { databaseSources } = await import("../history/live.js");
+    // A job's detail panel follows its whole round there, the oldest guests too.
+    const live = await databaseSources(shared.db, tenantId, ago(60)).pveRuns();
+    expect(live).toHaveLength(count);
+    expect(live.some((run) => run.guest.name === "busy0")).toBe(true);
+    // The start page still lists the newest 50 and says that more go on.
+    const body = (await (
+      await call("/api/v1/tenant-running", ownerCookie)
+    ).json()) as AllTenantsRunningDto;
+    const listed = body.tenants.find((entry) => entry.tenantId === tenantId);
+    expect(listed?.pve).toHaveLength(50);
+    expect(listed?.truncated).toBe(true);
+  }, 60_000);
+
+  it("names the job whose task started a run, also for a guest of a job over all guests", async () => {
+    const tenantId = await createTenant("Rounds");
+    const cluster = one(
+      await owner
+        .insert(pveClusters)
+        .values({ tenantId, name: "lab", fingerprint: randomUUID(), storageId: "restow" })
+        .returning(),
+    ).id;
+    const node = one(
+      await owner
+        .insert(pveNodes)
+        .values({ tenantId, clusterId: cluster, name: "pve1", secretHash: "x" })
+        .returning(),
+    ).id;
+    const monthly = one(
+      await owner
+        .insert(pveJobs)
+        .values({ tenantId, name: "VMs & containers monthly", scopeAll: true })
+        .returning(),
+    ).id;
+    const nightly = one(
+      await owner
+        .insert(pveJobs)
+        .values({ tenantId, name: "Nightly", scopeAll: false })
+        .returning(),
+    ).id;
+    const [inAll, inNightly] = await owner
+      .insert(pveGuests)
+      .values([
+        // In no job of its own: the job over all guests covers it.
+        { tenantId, clusterId: cluster, vmid: 300, kind: "ct" as const, name: "files" },
+        {
+          tenantId,
+          clusterId: cluster,
+          vmid: 301,
+          kind: "vm" as const,
+          name: "web",
+          jobId: nightly,
+        },
+      ])
+      .returning({ id: pveGuests.id });
+    const task = one(
+      await owner
+        .insert(pveTasks)
+        .values({
+          tenantId,
+          nodeId: node,
+          guestId: inAll?.id,
+          kind: "backup",
+          status: "delivered",
+          params: { vmid: 300, mode: "snapshot", verifyRead: false, jobId: monthly },
+        })
+        .returning(),
+    ).id;
+    await owner.insert(pveRuns).values([
+      {
+        tenantId,
+        clusterId: cluster,
+        guestId: inAll?.id as string,
+        taskId: task,
+        kind: "backup" as const,
+        status: "running" as const,
+        startedAt: ago(2),
+      },
+      // "Back up now" of a guest in a job: its task names no job.
+      {
+        tenantId,
+        clusterId: cluster,
+        guestId: inNightly?.id as string,
+        kind: "backup" as const,
+        status: "running" as const,
+        startedAt: ago(1),
+      },
+    ]);
+    const shared = await import("../../db.js");
+    const { withTenantTx } = await import("../../lib/tenant-context.js");
+    const { pveRunningRuns } = await import("./read.js");
+    const runs = await withTenantTx(shared.db, tenantId, (tx) => pveRunningRuns(tx, tenantId));
+    const byGuest = new Map(runs.map((run) => [run.guest.name, run]));
+    expect(byGuest.get("files")).toMatchObject({
+      jobId: monthly,
+      jobName: "VMs & containers monthly",
+    });
+    expect(byGuest.get("web")).toMatchObject({ jobId: null, jobName: "Nightly" });
+  });
 });

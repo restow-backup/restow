@@ -65,6 +65,30 @@ export interface JobRetention {
 }
 
 /** What a machine job tells the agent to back up and how; a field left out keeps what the machine has. */
+/** A database of the SQL settings; `instance` only when the name of one instance is meant. */
+export interface SqlDatabaseRef {
+  instance?: string;
+  name: string;
+}
+
+/** The SQL Server settings of a machine job (`alongside`: copy-only fulls only). */
+export interface JobSqlSettings {
+  enabled: boolean;
+  mode: "alongside";
+  instances: "all" | string[];
+  databases: "all" | SqlDatabaseRef[];
+  exclude: SqlDatabaseRef[];
+  stagingDir?: string;
+  /** When the server checks the newest backup of each database (1 = Monday ... 7 = Sunday). */
+  verify?: {
+    enabled: boolean;
+    weekday: number;
+    time: string;
+    maxGiB: number;
+    physicalOnly: boolean;
+  };
+}
+
 export interface JobEndpointSettings {
   paths?: string[];
   /** Exclude patterns, exactly as sent to the agent. */
@@ -85,11 +109,21 @@ export interface JobEndpointSettings {
   bandwidthWindows?: BandwidthWindow[];
   retention?: JobRetention;
   /**
+   * The native SQL Server backup of Windows members (preview, docs/BAREMETAL-WINDOWS.md 5.1.3);
+   * absent or `enabled: false` = off. Other systems ignore it.
+   */
+  sql?: JobSqlSettings;
+  /**
    * The job's level of the agent policy (docs/AGENT.md, "Richtlinien"): backup window, catching
    * up missed backups, AC power, retries; a key left out inherits from the tenant and the
    * installation. Machine jobs only, not per member.
    */
   policy?: Partial<Pick<AgentPolicyValues, JobPolicyKey>>;
+  /**
+   * Back up every local file system of a Linux machine with its disk layout (preview,
+   * docs/BAREMETAL.md 5.1). Machine jobs only, not per member; the folders stay for older agents.
+   */
+  wholeMachine?: boolean;
   // --- File share jobs (docs/FILESHARES.md 7.5) ---
   /** "Skip temporary and system files" (default on). */
   presets?: { systemFiles?: boolean };
@@ -298,7 +332,21 @@ export interface JobMember {
   } | null;
   restoreCheck: { state: MemberRestoreState; checkedAt: string | null };
   nextRunAt: string | null;
+  /**
+   * Machines of a whole machine job: why it backs up its folders instead, or what it should know;
+   * null when there is nothing to add. Absent for other members and from older servers.
+   */
+  wholeMachineNote?: WholeMachineNote | null;
 }
+
+/** What a job page says next to a machine of a whole machine job. */
+export type WholeMachineNote =
+  | "container"
+  | "windows"
+  | "darwin_later"
+  | "agent_too_old"
+  | "arm64_restore_later"
+  | "bios_needs_csm";
 
 export interface JobMembers {
   mode: JobScopeMode;
@@ -323,6 +371,45 @@ export interface MachineFacts {
   /** `lxc`, `docker`, `kvm`, `vmware`, ...; empty when unknown. */
   technology: string;
   desktop: boolean;
+  /** Windows only (agent 0.5.0): version, roles, SQL Server instances, BitLocker. */
+  windows?: WindowsFacts;
+}
+
+/** A SQL Server instance as the registry and the service configuration of a Windows machine name it. */
+export interface WindowsSqlInstance {
+  name: string;
+  id: string;
+  version: string;
+  edition: string;
+  serviceName: string;
+  serviceAccount: string;
+  clustered: boolean;
+  strictEncryption: boolean;
+}
+
+/** What a Windows agent reports about its system (docs/BAREMETAL-WINDOWS.md 6.1). */
+export interface WindowsFacts {
+  productName: string;
+  editionId: string;
+  productType: "workstation" | "server" | "domain_controller" | "unknown";
+  installationType: string;
+  build: number;
+  ubr: number;
+  displayVersion: string;
+  domainMember: boolean;
+  domain: string;
+  roles: {
+    domainController: boolean;
+    dfsr: boolean;
+    exchange: boolean;
+    hyperV: boolean;
+    sqlServer: boolean;
+  };
+  sqlInstances: WindowsSqlInstance[];
+  bitlocker: {
+    state: "ok" | "unavailable" | "error";
+    volumes: { mount: string; protection: "on" | "off" | "unknown"; conversion: string }[];
+  };
 }
 
 /** Why enrollment gave a machine added as a client the server profile (#59). */
@@ -380,6 +467,12 @@ export interface JobDefaults {
   retentionPolicies: RetentionPolicyChoice[];
   /** Machine jobs: what a machine keeps its repository with unless the job says otherwise. */
   endpointRetention: JobRetention;
+  /**
+   * Machine jobs: whether "Whole machine" is offered (the installation's preview switch), the
+   * exclusions it starts from and the optional ones for container images. Absent for other kinds
+   * and from older servers.
+   */
+  wholeMachine?: { available: boolean; excludes: string[]; containerImageExcludes: string[] };
 }
 
 export interface JobRun {

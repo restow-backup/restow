@@ -30,7 +30,7 @@ function inputs(over: Partial<SpaceInputs> = {}): SpaceInputs {
 }
 
 describe("estimateUpdateSpace", () => {
-  it("adds the last dump plus a quarter, the images, the migrations and the margin on one disk", () => {
+  it("adds the last dump plus a quarter, the images, the migrations and the margin on one disk [UPDATE-009]", () => {
     const space = estimateUpdateSpace(
       inputs({
         lastDumpBytes: 1 * GIB,
@@ -150,7 +150,7 @@ describe("the preflight with the estimate", () => {
     await h.cleanup();
   });
 
-  it("refuses an update whose dump, images and migrations do not fit", async () => {
+  it("refuses an update whose dump, images and migrations do not fit [UPDATE-009]", async () => {
     await h.dumps.ensureDirectory();
     const dump = dumpFileName(new Date("2026-09-01T10:00:00Z"), "0.0.9", "0.1.0");
     await fs.writeFile(h.dumps.pathOf(dump), Buffer.alloc(2048));

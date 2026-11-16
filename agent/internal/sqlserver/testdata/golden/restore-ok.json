@@ -1,0 +1,34 @@
+{
+  "errors": null,
+  "ops": [
+    "inventory",
+    "filelist:Sales_restored_20261105",
+    "restore:Sales_restored_20261105"
+  ],
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "Sales_restored_20261105",
+    "fetched": true,
+    "sha256Match": true,
+    "restored": true,
+    "moves": [
+      {
+        "logicalName": "Sales",
+        "physicalName": "Q:\\Data\\Sales_restored_20261105_c79dd7ba_1.mdf"
+      },
+      {
+        "logicalName": "Sales_log",
+        "physicalName": "L:\\Log\\Sales_restored_20261105_c79dd7ba_2.ldf"
+      }
+    ],
+    "checkdb": {
+      "ran": true,
+      "physicalOnly": false,
+      "errors": [],
+      "durationMs": 40000
+    },
+    "durationMs": 1000
+  },
+  "status": "succeeded"
+}

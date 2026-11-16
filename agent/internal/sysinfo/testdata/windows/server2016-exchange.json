@@ -1,0 +1,28 @@
+{
+  "description": "Windows Server 2016 Standard with Exchange Server in KVM, domain member, WMI query timed out",
+  "registry": {
+    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion": {
+      "ProductName": "Windows Server 2016 Standard",
+      "EditionID": "ServerStandard",
+      "CurrentBuildNumber": "14393",
+      "UBR": 7428,
+      "ReleaseId": "1607",
+      "InstallationType": "Server"
+    },
+    "SYSTEM\\CurrentControlSet\\Control\\ProductOptions": {
+      "ProductType": "ServerNT"
+    },
+    "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters": {
+      "Domain": "mail.example"
+    },
+    "HARDWARE\\DESCRIPTION\\System\\BIOS": {
+      "SystemManufacturer": "QEMU",
+      "SystemProductName": "Standard PC (Q35 + ICH9, 2009)",
+      "BaseBoardManufacturer": ""
+    }
+  },
+  "services": {
+    "MSExchangeIS": "LocalSystem"
+  },
+  "wmiError": "the WMI query did not finish within 30 s"
+}

@@ -2,6 +2,7 @@ import { Link, type LinkProps, useParams, useSearch } from "@tanstack/react-rout
 import { Lock, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { ModuleHiddenHint } from "@/components/layout/module-hidden-hint";
 import { PageHeader } from "@/components/page-header";
 import { RequireRole } from "@/components/require-role";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,7 +13,7 @@ import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 import { DEFAULT_SECTION_ID } from "./paths";
-import { parseInstallationSearch, sectionStates } from "./presenters";
+import { listedSections, parseInstallationSearch, sectionStates } from "./presenters";
 import { useWordingScope } from "./scope";
 import { installationSections } from "./sections";
 import { InstallationSubNav } from "./subnav";
@@ -28,7 +29,9 @@ const MOVED_SECTIONS: Readonly<Record<string, string>> = { mounts: "default-stor
  * all tenants (or of the one organisation), one section per address
  * (`/installation/<section>`), with the sections in a sub-navigation beside
  * the content (a select above it on a phone). The title names the section, so
- * the breadcrumbs read "Installation > Settings > Server". Only provider
+ * the breadcrumbs read "Installation > Settings > Server". A section of a
+ * module of the installation that is off is left out of the sub-navigation
+ * and still opens by its address (lib/modules.ts). Only provider
  * admins open it; a role that may look but not change sees the forms read-only
  * with a sentence on what is needed (installation/access.tsx).
  */
@@ -66,8 +69,10 @@ export function InstallationPage() {
           </Alert>
         ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-8">
-            <InstallationSubNav states={states} activeId={spec.id} />
+            <InstallationSubNav states={listedSections(states, spec.id)} activeId={spec.id} />
             <div className="min-w-0" data-slot="installation-section" data-section={spec.id}>
+              {/* Opened by its address although its module is off: say so, change nothing. */}
+              <ModuleHiddenHint modules={spec.modules} className="mb-4" />
               {locked ? (
                 <LockedSection spec={spec} />
               ) : (

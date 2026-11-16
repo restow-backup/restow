@@ -6,20 +6,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import "@/features/archive/i18n";
 import { installationSectionPath } from "@/features/installation/paths";
 
-import { useJournalScope, useJournalSetup } from "./hooks";
+import { useJournalHost, useJournalScope } from "./hooks";
 
 /**
  * The journal host on the tenant page (Archive settings): the name Exchange Online
  * delivers to. It belongs to the installation, so it is shown to read with where
  * it is set; the tenant's own journal address, its rotation and the guide stay on
  * the Archive page. Rendered only where the journal receiver exists (Business and
- * up) and for the administrator of the tenant.
+ * up) and for the administrator of the tenant. It reads the host alone: the tenant's
+ * journal address is issued only where journaling is set up (the Archive page, the job
+ * editor), because an issued address brings the menu entry "Archive".
  */
 export function JournalHostNote() {
   const { t } = useTranslation("archive");
   const { enabled, canManage, licensed } = useJournalScope();
-  const setup = useJournalSetup();
-  if (!enabled || !canManage || !licensed || !setup.data) {
+  const host = useJournalHost();
+  if (!enabled || !canManage || !licensed || !host.data) {
     return null;
   }
   return (
@@ -33,7 +35,7 @@ export function JournalHostNote() {
       </CardHeader>
       <CardContent className="space-y-1">
         <p className="break-all font-mono text-sm">
-          {setup.data.hostname ?? t("journal.hostNote.none")}
+          {host.data.hostname ?? t("journal.hostNote.none")}
         </p>
         <SetInInstallation
           to={installationSectionPath("journal")}

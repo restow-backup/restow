@@ -1,0 +1,6 @@
+{"type":"progress","step":"backup","percent":5}
+{"type":"progress","step":"backup","percent":10}
+{"type":"sqlmessage","step":"backup","number":3202,"class":16,"state":1,"message":"Write on \"C:\\ProgramData\\Restow\\data\\staging\\sql\\SQLEXPRESS\\Sales~8de4e0ea\\full-20261105T020011Z.bak\" failed: 112(There is not enough space on the disk.)"}
+{"type":"sqlmessage","step":"backup","number":3013,"class":16,"state":1,"message":"BACKUP DATABASE is terminating abnormally."}
+{"type":"error","problem":{"code":"sql_backup_failed","step":"backup","number":3202,"message":"Write on \"C:\\ProgramData\\Restow\\data\\staging\\sql\\SQLEXPRESS\\Sales~8de4e0ea\\full-20261105T020011Z.bak\" failed: 112(There is not enough space on the disk.) (3202) BACKUP DATABASE is terminating abnormally. (3013)"}}
+#exit 2

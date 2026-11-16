@@ -30,6 +30,7 @@ import type { MailTransport, SmtpSecurity } from "@/lib/api";
 import type { CredentialKind, GraphMailApp, InstallationSettings } from "../api";
 import {
   fieldMessageKey,
+  MAX_ALLOWED_SENDERS,
   type MailFormValues,
   mailFormContext,
   mayKeepGraphCredential,
@@ -319,6 +320,26 @@ function SmtpFields({ form, settings }: { form: MailForm; settings: Installation
           aria-invalid={errors.smtp?.from !== undefined}
           aria-describedby={messageId("settings-smtp-from")}
           {...form.register("smtp.from")}
+        />
+      </Field>
+
+      <Field
+        id="settings-smtp-allowed-senders"
+        label={t("mail.allowedSenders.label")}
+        hint={t("mail.allowedSenders.hint", { max: MAX_ALLOWED_SENDERS })}
+        error={message(errors.smtp?.allowedSenders)}
+        className="sm:col-span-2"
+      >
+        <Textarea
+          id="settings-smtp-allowed-senders"
+          rows={3}
+          spellCheck={false}
+          className="font-mono"
+          placeholder={t("mail.allowedSenders.placeholder")}
+          aria-invalid={errors.smtp?.allowedSenders !== undefined}
+          aria-describedby={messageId("settings-smtp-allowed-senders")}
+          data-slot="allowed-senders"
+          {...form.register("smtp.allowedSenders")}
         />
       </Field>
     </div>

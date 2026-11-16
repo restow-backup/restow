@@ -53,6 +53,13 @@ export const webhooks = pgTable(
     events: text("events").array().notNull().default(sql`'{}'::text[]`),
     active: boolean("active").notNull().default(true),
     format: webhookFormatEnum("format").notNull().default("restow"),
+    // Health (0.5.0): the failure episode the worker records after each attempt. A webhook that
+    // fails permanently, or three attempts in a row over at least 15 minutes, raises
+    // `notification.delivery_failed` once (`failure_alerted_at`); the next delivery resets it.
+    failingSince: timestamp("failing_since", { withTimezone: true }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    failureAlertedAt: timestamp("failure_alerted_at", { withTimezone: true }),
+    lastFailure: text("last_failure"),
     ...timestamps(),
   },
   (t) => [index("webhooks_tenant_idx").on(t.tenantId)],

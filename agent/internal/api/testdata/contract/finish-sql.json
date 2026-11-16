@@ -1,0 +1,71 @@
+{
+  "status": "partial",
+  "finishedAt": "2026-11-05T02:04:00Z",
+  "snapshotId": "18eb0f31e91b9c0452a42c9fcf31d37b771774327c9370af2b19bd2d64b4ea1e",
+  "stats": {
+    "filesNew": 1,
+    "filesChanged": 0,
+    "filesUnmodified": 0,
+    "dataAdded": 512000000,
+    "totalFilesProcessed": 1,
+    "totalBytesProcessed": 734265344
+  },
+  "errors": [
+    {
+      "code": "sql_staging_too_small",
+      "message": "Archive was not backed up: its backup needs about 40 GiB in the staging folder and E:\\ has 12 GiB free. Free space there or set another staging folder in the backup job."
+    }
+  ],
+  "logTail": "2026-11-05T02:00:03Z INFO SQL Server instance SQLEXPRESS: 2 databases selected.",
+  "sql": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "name": "Sales",
+        "familyGuid": "6f1e8a52-3c1d-4a8e-9b0e-2b7d9f1c0a11",
+        "databaseGuid": "0d9c2e7a-5b44-4f61-8a2e-7c3b1d9e4f22",
+        "recoveryModel": "FULL",
+        "outcome": "backed_up",
+        "backup": {
+          "kind": "full",
+          "copyOnly": true,
+          "compressed": false,
+          "checksum": true,
+          "pathInSnapshot": "/C/ProgramData/Restow/data/staging/sql/SQLEXPRESS/Sales~8de4e0ea/full-20261105T020011Z.bak",
+          "sha256": "d1eaf3a515cec69d9d87a01baf2dcb0f23ed1d11eba77aa652c69bd95a78e607",
+          "bytes": 734265344,
+          "firstLsn": "37000000012800001",
+          "lastLsn": "37000000014400001",
+          "databaseBackupLsn": "36000000011200037",
+          "checkpointLsn": "37000000012800001",
+          "firstRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "lastRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "beginsLogChain": false,
+          "hasBulkLoggedData": false,
+          "backupStart": "2026-11-05T02:00:11Z",
+          "backupFinish": "2026-11-05T02:01:40Z",
+          "fileList": [
+            { "logicalName": "Sales", "type": "D", "fileGroup": "PRIMARY", "fileId": 1, "sizeBytes": 1073741824, "physicalName": "Q:\\Data\\Sales.mdf" },
+            { "logicalName": "Sales_log", "type": "L", "fileGroup": "", "fileId": 2, "sizeBytes": 268435456, "physicalName": "L:\\Log\\Sales_log.ldf" }
+          ]
+        }
+      },
+      {
+        "name": "Archive",
+        "familyGuid": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "databaseGuid": "3f2e1d0c-9b8a-4766-a554-433221100fed",
+        "recoveryModel": "SIMPLE",
+        "outcome": "skipped",
+        "code": "sql_staging_too_small",
+        "message": "Archive was not backed up: its backup needs about 40 GiB in the staging folder and E:\\ has 12 GiB free. Free space there or set another staging folder in the backup job."
+      }
+    ]
+  },
+  "notices": [
+    {
+      "code": "sql_log_growing",
+      "subjects": ["Sales"],
+      "message": "Sales uses the FULL recovery model, but no tool has backed up its transaction log in the last 24 hours: the log keeps growing. Back the log up with your existing tool, or switch the database to SIMPLE if you need no point-in-time restore."
+    }
+  ]
+}

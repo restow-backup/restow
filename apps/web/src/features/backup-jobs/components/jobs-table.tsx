@@ -44,7 +44,13 @@ import {
   useJobActivity,
 } from "./job-run-controls.js";
 import { JOB_NAME_ATTRIBUTE } from "./job-sheet.js";
-import { isPveRow, type JobsListRow, type PveListRow, pveJobState } from "./pve-rows.js";
+import {
+  isPveRow,
+  type JobsListRow,
+  type PveListRow,
+  pveJobState,
+  usePveScheduleText,
+} from "./pve-rows.js";
 
 export interface JobsTableProps {
   kind: JobKind;
@@ -171,20 +177,13 @@ function ScheduleText({ row }: { row: JobsListRow }) {
   if (!isPveRow(row)) {
     return <>{describeJobSchedule(row.schedule, { t, tSchedules, language })}</>;
   }
-  if (row.rowType === "manual") {
-    return <span className="text-muted-foreground">{t("list.pve.manualSchedule")}</span>;
-  }
-  const schedule = row.job.schedule;
+  return <PveScheduleText row={row} />;
+}
+
+function PveScheduleText({ row }: { row: PveListRow }) {
+  const text = usePveScheduleText(row);
   return (
-    <>
-      {!schedule
-        ? t("list.pve.noSchedule")
-        : schedule.kind === "daily"
-          ? t("auto.schedule.daily", { time: schedule.timeOfDay ?? "" })
-          : t("auto.schedule.intervalHours", {
-              hours: Math.round((schedule.intervalMinutes ?? 0) / 60),
-            })}
-    </>
+    <span className={row.rowType === "manual" ? "text-muted-foreground" : undefined}>{text}</span>
   );
 }
 

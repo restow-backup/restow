@@ -178,7 +178,9 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
       name: "backup.succeeded",
       group: "jobs",
       level: "info",
+      critical: false,
     });
+    expect(dto.events.find((event) => event.name === "verify.red")?.critical).toBe(true);
     expect(dto.channels.map((channel) => [channel.kind, channel.id])).toEqual([
       ["bell", "bell"],
       ["webhook", discord],
@@ -205,11 +207,17 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
       name: "source.app_secret_expiring",
       group: "jobs",
       level: "warning",
+      critical: false,
     });
     expect(tenantView.map((event) => event.name)).not.toContain("installation.app_secret_expiring");
     const providerView = (await matrix(true)).events;
     expect(providerView.find((event) => event.name === "installation.app_secret_expiring")).toEqual(
-      { name: "installation.app_secret_expiring", group: "system", level: "warning" },
+      {
+        name: "installation.app_secret_expiring",
+        group: "system",
+        level: "warning",
+        critical: false,
+      },
     );
   });
 
@@ -350,6 +358,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
 
   it("hides from the bell what its column has off, and shows it again when switched on", async () => {
     await owner.insert(notifications).values([
+      { tenantId, level: "warning", event: "verify.yellow", message: "yellow" },
       { tenantId, level: "error", event: "verify.red", message: "red" },
       { tenantId, level: "error", event: "backup.failed", message: "failed" },
       { tenantId, level: "info", event: "report.ready", message: "report" },
@@ -363,20 +372,56 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
       "backup.failed",
       "report.ready",
       "verify.red",
+      "verify.yellow",
     ]);
     await call("PUT", "/reports/matrix", {
       body: { channels: [{ kind: "bell", events: ["backup.failed"] }] },
     });
+    // The critical events stay in the bell (0.5.0): verify.red cannot be switched off.
     const filtered = await bell();
     expect(filtered.items.map((item) => item.event).sort()).toEqual([
       "backup.failed",
       "report.ready",
+      "verify.red",
     ]);
-    expect(filtered.unread).toBe(2);
+    expect(filtered.unread).toBe(3);
     const history = (await (await call("GET", "/notifications/history")).json()) as {
       items: { event: string }[];
     };
-    expect(history.items.map((item) => item.event)).not.toContain("verify.red");
-    expect((await matrix()).channels[0]).toMatchObject({ custom: true, events: ["backup.failed"] });
+    expect(history.items.map((item) => item.event)).not.toContain("verify.yellow");
+    const column = (await matrix()).channels[0];
+    expect(column).toMatchObject({ custom: true });
+    expect(column?.events).toContain("backup.failed");
+    expect(column?.events).toContain("verify.red");
+    expect(column?.events).not.toContain("verify.yellow");
+    expect(column?.kind === "bell" ? column.locked : []).toContain("backup.suspicious");
+  });
+
+  it("saves a recipient's digest modes and summary reports, and shows a webhook's health (0.5.0)", async () => {
+    const response = await call("PUT", "/reports/matrix", {
+      body: {
+        channels: [
+          {
+            kind: "email",
+            id: recipient,
+            events: ["backup.failed"],
+            delivery: { warning: "daily", info: "hourly" },
+            reports: { daily: true, weekly: false },
+          },
+        ],
+      },
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const dto = (await response.json()) as NotificationMatrixDto;
+    const column = dto.channels.find((channel) => channel.id === recipient);
+    expect(column).toMatchObject({
+      kind: "email",
+      delivery: { error: "immediate", warning: "daily", info: "hourly" },
+      reports: { daily: true, weekly: false, monthly: false },
+      weeklyReport: false,
+      failure: null,
+    });
+    const hook = dto.channels.find((channel) => channel.kind === "webhook");
+    expect(hook).toMatchObject({ health: { status: "ok", consecutiveFailures: 0 } });
   });
 });

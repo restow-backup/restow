@@ -26,6 +26,7 @@ import {
   type TenantKeyring,
 } from "@restow/core";
 import {
+  archiveCaptureGaps,
   archiveCaptureStreams,
   archiveItems,
   backupJobMembers,
@@ -41,6 +42,7 @@ import {
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { FakeMailboxGraph as DistFakeMailboxGraph } from "../../../../packages/core/dist/graph/testing/fake-mailbox.js";
 import { FakeMailboxGraph } from "../../../../packages/core/src/graph/testing/fake-mailbox.js";
 import type { WorkerFeatureGate } from "../extensions.js";
 import { archiveHandler, configureArchiveHandler } from "../handlers/archive.js";
@@ -53,7 +55,7 @@ import {
   notificationTarget,
   SubscriptionBatcher,
 } from "./graph.js";
-import { ArchiveCaptureService } from "./service.js";
+import { ArchiveCaptureService, PENDING_MAX_ATTEMPTS } from "./service.js";
 import type { CaptureWay } from "./ways.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -211,6 +213,21 @@ describe.skipIf(!adminUrl)("graph capture way (Postgres)", () => {
     await instance.settle();
   }
 
+  /**
+   * Let `ms` pass for what waits on the database clock: pending refs waiting out their delay
+   * and the spacing of counted gap attempts (./streams.ts, ./gaps.ts).
+   */
+  async function elapse(ms: number): Promise<void> {
+    const shift = sql`${ms} * interval '1 millisecond'`;
+    await db.execute(
+      sql`update archive_capture_pending set last_attempt_at = last_attempt_at - ${shift}`,
+    );
+    await db.execute(
+      sql`update archive_capture_gaps set last_attempt_at = last_attempt_at - ${shift},
+                 last_seen_at = last_seen_at - ${shift}`,
+    );
+  }
+
   async function stream() {
     const [row] = await db
       .select()
@@ -292,6 +309,177 @@ describe.skipIf(!adminUrl)("graph capture way (Postgres)", () => {
     const after = await streamState();
     expect(after.lastCatchUpAt).not.toBe(before.lastCatchUpAt);
     expect(after.forceCatchUp).toBeUndefined();
+  });
+
+  it("keeps mail whose MIME export failed pending until it is archived, records one without MIME as a gap", async () => {
+    // The built core's fake: its GraphError is the class the worker's (built) capture knows,
+    // so a 500 is a failed export, as in production.
+    const built = new DistFakeMailboxGraph();
+    const user = fake.mailboxes.keys().next().value as string;
+    built.addMailbox(user, FOLDERS, []);
+    fake = built as unknown as FakeMailboxGraph;
+    const { instance } = service(way());
+    await pass(instance);
+    const later = new Date(Date.now() + 2 * hour).toISOString();
+    built.addMessage(user, { id: "flaky", folderId: "inbox", receivedDateTime: later });
+    built.addMessage(user, {
+      id: "huge",
+      folderId: "inbox",
+      receivedDateTime: later,
+      tooLarge: true,
+    });
+    built.failNext("/messages/flaky/$value", 500, 500);
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'flaky'),
+             (${tenantId}, ${objectId}, 'graph_sync', 'huge')
+    `);
+    const pendingRefs = async () =>
+      (
+        await db.execute<{ ref: string }>(
+          sql`select external_ref as ref from archive_capture_pending order by 1`,
+        )
+      ).rows.map((row) => row.ref);
+    await pass(instance);
+    // Two 500s: not "too large", not dropped; it stays pending. The huge one is a gap.
+    expect(await pendingRefs()).toEqual(["flaky"]);
+    await elapse(hour);
+    await pass(instance);
+    expect(await pendingRefs()).toEqual(["flaky"]);
+    await elapse(hour);
+    await pass(instance);
+    expect(await pendingRefs()).toEqual([]);
+    expect(await itemRefs()).toContain("flaky");
+    const gaps = await db.select().from(archiveCaptureGaps).orderBy(archiveCaptureGaps.ref);
+    expect(
+      gaps.map((gap) => [gap.ref, gap.reason, gap.openedAt !== null, gap.resolvedAt !== null]),
+    ).toEqual([
+      ["flaky", "export_failed", false, true],
+      ["huge", "too_large", true, false],
+    ]);
+  });
+
+  it("never lets an announced mail that keeps failing block the pass; a gap after five attempts", async () => {
+    const { instance } = service(way());
+    await pass(instance);
+    const user = fake.mailboxes.keys().next().value as string;
+    // An item the app may not read (403 ErrorAccessDenied), in no folder the catch-up lists.
+    fake.addMessage(user, { id: "denied-1", folderId: "hidden", accessDenied: true });
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'denied-1')
+    `);
+    const pendingRow = async () =>
+      (
+        await db.execute<{ attempts: number; last_error: string | null }>(
+          sql`select attempts, last_error from archive_capture_pending where external_ref = 'denied-1'`,
+        )
+      ).rows[0];
+    for (let attempt = 1; attempt < PENDING_MAX_ATTEMPTS; attempt++) {
+      const before = await streamState();
+      await elapse(hour);
+      await pass(instance);
+      const row = await stream();
+      // The pass succeeds and runs its catch-up although nothing of the batch was handled.
+      expect(row?.failure).toBeNull();
+      expect((await streamState()).lastCatchUpAt).not.toBe(before.lastCatchUpAt);
+      expect(await pendingRow()).toMatchObject({ attempts: attempt });
+      expect((await pendingRow())?.last_error).toContain("403");
+    }
+    // A newer announced mail is not crowded out by the one that keeps failing.
+    fake.addMessage(user, {
+      id: "notified-2",
+      folderId: "hidden",
+      receivedDateTime: new Date(Date.now() + 2 * hour).toISOString(),
+    });
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'notified-2')
+    `);
+    await elapse(hour);
+    await pass(instance);
+    expect(await itemRefs()).toContain("notified-2");
+    // The fifth failure drops it from pending as an open capture gap.
+    expect(await pendingRow()).toBeUndefined();
+    const gaps = await db
+      .select()
+      .from(archiveCaptureGaps)
+      .where(eq(archiveCaptureGaps.ref, "denied-1"));
+    expect(gaps.map((gap) => [gap.reason, gap.openedAt !== null])).toEqual([
+      ["fetch_failed", true],
+    ]);
+    expect((await stream())?.failure).toBeNull();
+  });
+
+  it("captures a message whose export fails for half an hour, also when passes run back to back", async () => {
+    const built = new DistFakeMailboxGraph();
+    const user = fake.mailboxes.keys().next().value as string;
+    built.addMailbox(user, FOLDERS, []);
+    fake = built as unknown as FakeMailboxGraph;
+    const { instance } = service(way());
+    await pass(instance);
+    built.addMessage(user, {
+      id: "backlog",
+      folderId: "inbox",
+      receivedDateTime: new Date(Date.now() + 2 * hour).toISOString(),
+    });
+    // Exchange answers 500 on $value during a backlog after an outage: three fetches fail.
+    built.failNext("/messages/backlog/$value", 500, 500, 500);
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'backlog')
+    `);
+    const minute = 60_000;
+    // Passes every minute (a busy mailbox): the ref waits out its delay between fetches.
+    for (let n = 0; n < 90; n++) {
+      await pass(instance);
+      await elapse(minute);
+    }
+    expect(await itemRefs()).toContain("backlog");
+    const gaps = await db
+      .select()
+      .from(archiveCaptureGaps)
+      .where(eq(archiveCaptureGaps.ref, "backlog"));
+    expect(gaps.map((gap) => [gap.openedAt !== null, gap.resolvedAt !== null])).toEqual([
+      [false, true],
+    ]);
+    const due = (await stream())?.nextDueAt?.getTime() ?? 0;
+    expect(due).toBeGreaterThan(Date.now());
+  });
+
+  it("asks a day later for a message whose export failed for hours, until it is archived", async () => {
+    const built = new DistFakeMailboxGraph();
+    const user = fake.mailboxes.keys().next().value as string;
+    built.addMailbox(user, FOLDERS, []);
+    fake = built as unknown as FakeMailboxGraph;
+    const { instance } = service(way());
+    await pass(instance);
+    built.addMessage(user, {
+      id: "outage",
+      folderId: "inbox",
+      receivedDateTime: new Date(Date.now() + 2 * hour).toISOString(),
+    });
+    // Three fetches an hour apart fail (an outage of a few hours), the fourth would work.
+    built.failNext("/messages/outage/$value", 500, 500, 500);
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'outage')
+    `);
+    for (let n = 0; n < 4; n++) {
+      await pass(instance);
+      await elapse(hour);
+    }
+    const gapOf = async () =>
+      (await db.select().from(archiveCaptureGaps).where(eq(archiveCaptureGaps.ref, "outage")))[0];
+    // Given up as an open gap after three failures at least an hour apart.
+    expect(await gapOf()).toMatchObject({ reason: "export_failed", resolvedAt: null });
+    expect((await gapOf())?.openedAt).not.toBeNull();
+    expect(await itemRefs()).not.toContain("outage");
+    // The next day it is asked for again: the export works by then.
+    await elapse(25 * hour);
+    await pass(instance);
+    expect(await itemRefs()).toContain("outage");
+    expect((await gapOf())?.resolvedAt).not.toBeNull();
   });
 
   it("polls without a public HTTPS URL and says why; a subscription is removed then", async () => {

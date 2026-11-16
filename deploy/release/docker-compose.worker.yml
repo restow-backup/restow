@@ -1,0 +1,35 @@
+# Restow worker node: a host that adds workers to an existing installation
+# (docs/SIZING.md, "Several hosts: worker nodes"). install.sh --join writes .env next to this
+# file from the installation's answer to its one-time join token: the node's own database
+# logins (TLS to the main host's PostgreSQL), the master key and the storage settings.
+#
+# Only the worker runs here, and with the profile "standby" a scheduler on stand-by (the
+# scheduler elects one leader across hosts). No api, no web edge, no database, no mounter and no
+# updater: those stay on the main host. Directory storage targets must exist at the same path on
+# this host; install.sh binds them in docker-compose.override.yml.
+#
+#   docker compose -f docker-compose.worker.yml up -d                      # the worker
+#   docker compose -f docker-compose.worker.yml --profile standby up -d    # and a standby scheduler
+
+name: restow-node
+
+x-restow-node: &restow-node
+  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (the image of the main host's release)}
+  env_file:
+    - .env
+  volumes:
+    - ./db-ca.crt:/etc/restow/db-ca.crt:ro # the main host's database CA (sslmode=verify-full)
+  restart: unless-stopped
+
+services:
+  worker:
+    <<: *restow-node
+    stop_grace_period: 60s # running jobs checkpoint; keep
+    environment:
+      ROLE: worker
+
+  scheduler:
+    <<: *restow-node
+    profiles: ["standby"]
+    environment:
+      ROLE: scheduler

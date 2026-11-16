@@ -1,5 +1,6 @@
 import {
   pveGuestBackable,
+  pveGuestCounted,
   pveGuestExcluded,
   pveJobOfGuest,
   pveRestorePointRating,
@@ -11,6 +12,7 @@ import {
   type PveVerifyResult,
   pveGuests,
   pveJobs,
+  pveNodes,
   pveRuns,
   pveSnapshots,
   pveTasks,
@@ -75,14 +77,54 @@ export interface GuestReadinessRowDto {
   inJob: boolean;
   /** A restore check of the newest restore point waits for the worker's next PVE pass. */
   checkRequested: boolean;
+  /** When that check was due (it waits since); null without one. */
+  checkRequestedAt: string | null;
+  /**
+   * The check has been due for longer than {@link PVE_CHECK_OVERDUE_MS} and has not run: the
+   * worker's pass did not get to it (held up, or no worker), or a run of the guest that shows
+   * no sign of going on any more holds it back (`checkBlockedBy`). Time spent waiting behind a
+   * run that is going (`checkWaitsFor`) does not count: that is the expected order.
+   */
+  checkOverdue: boolean;
+  /**
+   * A run of the guest still recorded as running but without a sign of life for
+   * {@link PVE_RUN_SILENT_MS} (no progress report, not listed by its node): it keeps the waiting
+   * check back (the worker checks no guest while one of its runs goes); the oldest such run,
+   * else null.
+   */
+  checkBlockedBy: { kind: string; since: string } | null;
+  /**
+   * A run of the guest that is going (a backup that reports progress, a boot test that started
+   * lately): the waiting check follows it, nothing is wrong; the oldest such run, else null.
+   * Null when `checkBlockedBy` is set.
+   */
+  checkWaitsFor: { kind: string; since: string } | null;
   /** What the restore check of the newest restore point found (the real error, when red). */
   verifyErrors: string[];
   /**
    * Why the restore check of the newest restore point could not run, when the worker gave up
    * (yellow, `basis` verify): what restic said, e.g. who holds the repository's lock; else null.
    */
-  verifyNotChecked: { reason: "locked" | "interrupted"; detail: string } | null;
+  verifyNotChecked: { reason: "locked" | "interrupted" | "error"; detail: string } | null;
 }
+
+/**
+ * A restore check that has been due this long without running waits longer than expected (a
+ * pass every five minutes checks up to 20 restore points): the row says so, with the reason
+ * when one is known.
+ */
+export const PVE_CHECK_OVERDUE_MS = 30 * 60 * 1000;
+
+/**
+ * A running run whose last sign of life is older than this is not taken to be going any more:
+ * its start, a backup's last progress report (every few seconds while it reads), or a fresh
+ * heartbeat of its node that lists it. Longer than a restore or boot test usually takes; a run
+ * nothing will close holds the guest's checks back (see `checkBlockedBy`).
+ */
+export const PVE_RUN_SILENT_MS = 2 * 60 * 60 * 1000;
+
+/** A node's list of the backups it works on counts while it is this fresh (as the worker's). */
+const ACTIVE_RUNS_FRESH_MS = 15 * 60 * 1000;
 
 /** The tenant's guests in figures (zeros for a tenant without Proxmox VE). */
 export interface GuestCountsDto {
@@ -151,6 +193,70 @@ function latest(a: Date | null, b: Date | null): Date | null {
   if (!a) return b;
   if (!b) return a;
   return a > b ? a : b;
+}
+
+/**
+ * Whether a running run shows a sign of life within {@link PVE_RUN_SILENT_MS}: it started
+ * lately, a backup reported progress lately, or its node lists it in a fresh heartbeat.
+ */
+function runIsLive(
+  run: {
+    id: string;
+    kind: string;
+    startedAt: Date;
+    progress: { at: string } | null;
+    nodeFacts: { activeRuns?: string[]; activeRunsAt?: string } | null;
+  },
+  now: Date,
+): boolean {
+  const since = now.getTime() - PVE_RUN_SILENT_MS;
+  if (run.startedAt.getTime() > since) {
+    return true;
+  }
+  const progressAt = run.progress ? Date.parse(run.progress.at) : Number.NaN;
+  if (Number.isFinite(progressAt) && progressAt > since) {
+    return true;
+  }
+  const listedAt = run.nodeFacts?.activeRunsAt
+    ? Date.parse(run.nodeFacts.activeRunsAt)
+    : Number.NaN;
+  return (
+    run.kind === "backup" &&
+    Number.isFinite(listedAt) &&
+    now.getTime() - listedAt < ACTIVE_RUNS_FRESH_MS &&
+    (run.nodeFacts?.activeRuns ?? []).includes(run.id)
+  );
+}
+
+/**
+ * How the waiting check of a guest's newest restore point stands: overdue after
+ * {@link PVE_CHECK_OVERDUE_MS}, held back by a run without a sign of life (named), or waiting
+ * behind a run that is going (named, and that wait is not counted: the check follows the run).
+ */
+export function checkWait(
+  requestedAt: Date | null,
+  silent: { kind: string; since: string } | null,
+  live: { kind: string; since: string } | null,
+  now: Date,
+): Pick<GuestReadinessRowDto, "checkOverdue" | "checkBlockedBy" | "checkWaitsFor"> {
+  if (requestedAt === null) {
+    return { checkOverdue: false, checkBlockedBy: null, checkWaitsFor: null };
+  }
+  if (silent) {
+    return {
+      checkOverdue: now.getTime() - requestedAt.getTime() > PVE_CHECK_OVERDUE_MS,
+      checkBlockedBy: silent,
+      checkWaitsFor: null,
+    };
+  }
+  // Behind a run that is going, only the wait before it started counts: a check that was due
+  // for long before that run began was not got to either.
+  const waitedUntil = live ? Math.min(Date.parse(live.since), now.getTime()) : now.getTime();
+  return {
+    checkOverdue: waitedUntil - requestedAt.getTime() > PVE_CHECK_OVERDUE_MS,
+    checkBlockedBy: null,
+    checkWaitsFor: live,
+  };
 }
 
 /** Everything the overviews need about the tenant's guests, in its pinned transaction. */
@@ -222,19 +328,32 @@ export async function loadGuestProtection(
     .orderBy(pveRuns.guestId, desc(pveRuns.startedAt), desc(pveRuns.id));
   const lastRunBy = new Map(lastRuns.map((row) => [row.guestId, row]));
 
-  // A first backup already under way is being worked on, not neglected.
+  // A first backup already under way is being worked on, not neglected. Any running run holds
+  // a waiting restore check back: one that is going (`liveRunBy`, the oldest of each guest) is
+  // the expected wait, one without a sign of life (`silentRunBy`) is named as the reason.
   const busy = new Set<string>();
+  const liveRunBy = new Map<string, { kind: string; since: string }>();
+  const silentRunBy = new Map<string, { kind: string; since: string }>();
   for (const row of await tx
-    .select({ guestId: pveRuns.guestId })
+    .select({
+      id: pveRuns.id,
+      guestId: pveRuns.guestId,
+      kind: pveRuns.kind,
+      startedAt: pveRuns.startedAt,
+      progress: pveRuns.progress,
+      nodeFacts: pveNodes.facts,
+    })
     .from(pveRuns)
-    .where(
-      and(
-        eq(pveRuns.tenantId, tenantId),
-        eq(pveRuns.kind, "backup"),
-        eq(pveRuns.status, "running"),
-      ),
-    )) {
-    busy.add(row.guestId);
+    .leftJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
+    .where(and(eq(pveRuns.tenantId, tenantId), eq(pveRuns.status, "running")))
+    .orderBy(asc(pveRuns.startedAt))) {
+    if (row.kind === "backup") {
+      busy.add(row.guestId);
+    }
+    const into = runIsLive(row, now) ? liveRunBy : silentRunBy;
+    if (!into.has(row.guestId)) {
+      into.set(row.guestId, { kind: row.kind, since: row.startedAt.toISOString() });
+    }
   }
   for (const row of await tx
     .select({ guestId: pveTasks.guestId })
@@ -259,7 +378,8 @@ export async function loadGuestProtection(
 
   for (const guest of guests) {
     const excluded = pveGuestBackable(guest) && pveGuestExcluded(guest);
-    const backable = pveGuestBackable(guest) && !excluded;
+    // A guest to protect: not excluded, and no restored copy or temporary guest in no job.
+    const backable = pveGuestCounted(guest);
     const job = pveJobOfGuest(guest, jobs);
     const inJob = job !== null;
     const snapshot = newestBy.get(guest.id) ?? null;
@@ -316,6 +436,13 @@ export async function loadGuestProtection(
     const readiness = rating.readiness;
     const state = objectStateOf(readiness, snapshot !== null);
     const checkedAt = readiness && rating.checkedAt ? new Date(rating.checkedAt) : null;
+    const requestedAt = snapshot?.verifyRequestedAt ?? null;
+    const check = checkWait(
+      requestedAt,
+      silentRunBy.get(guest.id) ?? null,
+      liveRunBy.get(guest.id) ?? null,
+      now,
+    );
     const overdue =
       state === "no_backup"
         ? isFirstBackupOverdue(protectedSince, now) && !busy.has(guest.id)
@@ -342,7 +469,9 @@ export async function loadGuestProtection(
       latestBackupAt: snapshot?.backupAt.toISOString() ?? null,
       latestSnapshotId: snapshot?.id ?? null,
       inJob,
-      checkRequested: snapshot?.verifyRequestedAt != null,
+      checkRequested: requestedAt !== null,
+      checkRequestedAt: requestedAt?.toISOString() ?? null,
+      ...check,
       verifyErrors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
       verifyNotChecked: verify?.notChecked?.gaveUpAt
         ? {

@@ -1,10 +1,10 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Building2, Plus, RefreshCw, Search } from "lucide-react";
+import { Building2, Plus, Search } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
-import { DisabledReason } from "@/components/kit";
+import { DisabledReason, RefreshButton } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -153,19 +153,14 @@ export function TenantsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title={t("list.title")} description={t("list.subtitle")}>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => {
+        <RefreshButton
+          label={t("common:actions.refresh")}
+          fetching={refreshing}
+          onRefresh={() => {
             void list.refetch();
             void usage.refetch();
           }}
-          disabled={refreshing}
-          aria-label={t("common:actions.refresh")}
-          title={t("common:actions.refresh")}
-        >
-          <RefreshCw className={refreshing ? "animate-spin" : undefined} />
-        </Button>
+        />
         <DisabledReason reason={createBlockedReason}>
           <Button onClick={() => setCreateOpen(true)} disabled={!canCreate || list.isPending}>
             <Plus />

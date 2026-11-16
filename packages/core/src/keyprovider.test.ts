@@ -12,7 +12,7 @@ describe("EnvKeyProvider", () => {
     expect(back.material.equals(dek.material)).toBe(true);
   });
 
-  it("fails to unwrap a DEK produced under a different KEK", async () => {
+  it("fails to unwrap a DEK produced under a different KEK [CRYPT-003]", async () => {
     const a = new EnvKeyProvider(randomBytes(32));
     const b = new EnvKeyProvider(randomBytes(32));
     const wrapped = await a.wrapDek(generateDek());

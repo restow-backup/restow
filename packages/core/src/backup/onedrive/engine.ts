@@ -36,6 +36,7 @@ import type { FailureCause } from "../../failures/types.js";
 import type { GraphClient } from "../../graph/client.js";
 import { getUserDrive } from "../../graph/resources/drive.js";
 import { DriveBackupRun, type RunSettings } from "./run.js";
+import { probeDriveSource } from "./source.js";
 import {
   ENGINE_NAME,
   planRun,
@@ -180,6 +181,8 @@ export class OneDriveBackupEngine<Db = unknown> implements BackupEngine<Db> {
       protectedObject,
     );
     const resume = readCursor(await ctx.cursor.load(), driveId);
+    // How much the drive holds by Graph's own count, before the walk (verify/source.ts).
+    const sourceProbe = await probeDriveSource(ctx, client, driveId, logger.child({ driveId }));
 
     // The context's Db parameter is opaque to core; the writer only uses the seams.
     const context = ctx as unknown as JobContext;
@@ -220,6 +223,7 @@ export class OneDriveBackupEngine<Db = unknown> implements BackupEngine<Db> {
       logger: logger.child({ driveId }),
       resumed,
       resumedDeletions: resumed ? readCheckpointDeletions(writer.state, driveId) : [],
+      sourceProbe,
     });
     if (!previous) {
       // A first backup (#47). Graph says how many items a drive holds only by

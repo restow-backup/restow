@@ -4,7 +4,13 @@ import { ExternalLink, ShieldCheck, X } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { DetailFact, DetailSection, LogBlock as KitLogBlock, RelativeTime } from "@/components/kit";
+import {
+  DetailFact,
+  DetailSection,
+  LogBlock as KitLogBlock,
+  NativeSelect,
+  RelativeTime,
+} from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -32,10 +38,13 @@ import {
   verifyGuest,
 } from "./api.js";
 import { activityHint, BackupProgress } from "./backup-progress.js";
-import { GuestActionButton, GuestState, type SelfBackupGuard, shortDate } from "./guest-cells.js";
+import { NEW_DATA_POINTS, newDataPoints, shortDate } from "./backup-size.js";
+import { GuestActionButton, GuestState, type SelfBackupGuard } from "./guest-cells.js";
 import { PVE_NAMESPACE } from "./i18n.js";
+import { notCheckedSuffix } from "./not-checked.js";
 import { guestTo } from "./paths.js";
-import { runStatusKey, runTone } from "./run-status.js";
+import { RestoreFindings } from "./restore-findings.js";
+import { runStatusLabel, runTone } from "./run-status.js";
 import { RestowServerNote } from "./self-backup.js";
 
 /**
@@ -64,33 +73,14 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
   return (
     <ol className="space-y-3" data-slot="pve-sheet-runs">
       {runs.map((run) => {
-        const warnings = run.warnings ?? [];
-        // A finished boot test says how it ended (its outcome), as on the guest page: a test
-        // that ran to "red" is not "Succeeded".
-        const bootTest =
-          run.kind === "boot_test" && run.status !== "running" && run.stats?.bootTest;
-        const variant = bootTest
-          ? runTone(run)
-          : run.status === "failed"
-            ? "destructive"
-            : run.status === "running"
-              ? "info"
-              : run.status === "cancelled"
-                ? "muted"
-                : warnings.length > 0
-                  ? "warning"
-                  : "outline";
+        // The same tone and label as on the guest page: a boot test says how it ended, a
+        // restore with something to report beside its success is amber, never green.
+        const status = runStatusLabel(run);
         return (
           <li key={run.id} className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{t(`guest.kind.${run.kind}`)}</span>
-              <Badge variant={variant}>
-                {bootTest
-                  ? t(runStatusKey(run))
-                  : run.status === "succeeded" && warnings.length > 0
-                    ? t("guests.succeededWithWarnings")
-                    : t(`guest.${run.status}`)}
-              </Badge>
+              <Badge variant={runTone(run)}>{t(status.key, status.values)}</Badge>
               <span className="text-muted-foreground tabular-nums">
                 {formatDateTime(run.startedAt, language)}
               </span>
@@ -103,9 +93,11 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
                 name={t("sheet.lastError")}
               />
             ) : null}
-            {warnings.length > 0 ? (
+            {run.kind === "restore" || run.kind === "restore_test" ? (
+              <RestoreFindings run={run} />
+            ) : (run.warnings ?? []).length > 0 ? (
               <LogBlock
-                text={warnings.join("\n")}
+                text={(run.warnings ?? []).join("\n")}
                 tone="warning"
                 label={t("sheet.copyWarnings")}
                 name={t("sheet.warnings")}
@@ -119,40 +111,38 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
 }
 
 /** How many restore points the "new data per backup" bars show, newest last. */
-export const SHEET_BARS = 30;
+export const SHEET_BARS = NEW_DATA_POINTS;
 
 /**
  * What each backup added to the repository (#58), as small bars, oldest left: the first
  * backup is the full one, the others what changed. From the guest's restore points, which
- * the panel loads anyway; points that did not record it are left out.
+ * the panel loads anyway; points that did not record it are left out. The guest's page shows
+ * the same points as a chart with axes and a table.
  */
 export function AddedBars({ points }: { points: readonly PveRestorePoint[] }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
-  const bars = [...points]
-    .filter((point) => point.added !== null && point.added !== undefined)
-    .sort((a, b) => a.sequence - b.sequence)
-    .slice(-SHEET_BARS);
+  const bars = newDataPoints(points, SHEET_BARS);
   if (bars.length < 2) {
     return null;
   }
-  const max = Math.max(...bars.map((point) => point.added ?? 0), 1);
+  const max = Math.max(...bars.map((point) => point.added), 1);
   return (
     <figure className="space-y-1" data-slot="pve-sheet-added">
       <figcaption className="text-xs text-muted-foreground">{t("sheet.addedChart")}</figcaption>
       <ol className="flex h-16 items-end gap-px rounded-md border bg-muted/30 p-1">
         {bars.map((point) => {
-          const date = shortDate(point.backupAt, language);
-          const size = formatBytes(point.added ?? 0, language);
+          const date = shortDate(point.at, language);
+          const size = formatBytes(point.added, language);
           const label =
-            point.backupType === "first"
+            point.type === "first"
               ? t("sheet.addedFirst", { date, size })
               : t("sheet.addedBar", { date, size });
           return (
             <li key={point.id} title={label} className="flex h-full min-w-0 flex-1 items-end">
               <span
                 className="block w-full rounded-t-sm bg-info/70"
-                style={{ height: `${Math.max(4, ((point.added ?? 0) / max) * 100)}%` }}
+                style={{ height: `${Math.max(4, (point.added / max) * 100)}%` }}
               />
               <span className="sr-only">{label}</span>
             </li>
@@ -346,9 +336,7 @@ export function GuestSheet({
                         ? t("readiness.result.red")
                         : verify?.state === "yellow" && verify.notChecked
                           ? t(
-                              verify.notChecked.reason === "locked"
-                                ? "readiness.result.notCheckedLocked"
-                                : "readiness.result.notCheckedInterrupted",
+                              `readiness.result.notChecked${notCheckedSuffix(verify.notChecked.reason)}`,
                             )
                           : verify?.state
                             ? t("sheet.verifyPostponed")
@@ -367,9 +355,7 @@ export function GuestSheet({
                     // Tried again shortly; the result above (if any) still stands.
                     <Fact label={t("sheet.next")}>
                       <span data-slot="pve-sheet-verify-postponed">
-                        {verify.notChecked.reason === "locked"
-                          ? t("guest.verifyPostponedLocked")
-                          : t("guest.verifyPostponedInterrupted")}
+                        {t(`guest.verifyPostponed${notCheckedSuffix(verify.notChecked.reason)}`)}
                       </span>
                     </Fact>
                   ) : verify?.requested ? (
@@ -439,8 +425,7 @@ export function GuestSheet({
               </Section>
 
               <Section title={t("guests.job")} slot="pve-sheet-job">
-                <select
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                <NativeSelect
                   aria-label={t("guests.job")}
                   value={guest.jobId ?? ""}
                   disabled={
@@ -454,7 +439,7 @@ export function GuestSheet({
                       {job.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
                 {guest.excludedAt ? (
                   <p className="mt-1 text-xs text-muted-foreground" data-slot="pve-sheet-excluded">
                     {t("exclusion.title")}

@@ -86,6 +86,8 @@ export const tenantContactInputSchema = z.object({
   email: z.string().trim().min(1).max(320).email().optional(),
   phone: z.string().trim().min(1).max(64).optional(),
   isPrimary: z.boolean().default(false),
+  /** Receives the customer monthly report (0.5.0, Service Provider); needs an e-mail address. */
+  monthlyReport: z.boolean().optional(),
 });
 export type TenantContactInput = z.infer<typeof tenantContactInputSchema>;
 
@@ -99,7 +101,10 @@ export const replaceTenantContactsSchema = z
       return contacts.length === 0 ? primaries === 0 : primaries === 1;
     },
     { message: "onePrimaryContact" },
-  );
+  )
+  .refine((contacts) => contacts.every((contact) => !contact.monthlyReport || contact.email), {
+    message: "monthlyReportNeedsEmail",
+  });
 export type ReplaceTenantContactsInput = z.infer<typeof replaceTenantContactsSchema>;
 
 // --- Notification recipients -----------------------------------------------------
@@ -123,7 +128,16 @@ export const notificationRecipientInputSchema = z.object({
   categories: z.array(notificationCategorySchema).max(4).default([]),
   events: z
     .array(z.string().refine(isRecipientEntry, { message: "Unknown event." }))
-    .max(REPORT_EVENTS.length + 1)
+    .max(REPORT_EVENTS.length + 3)
+    .optional(),
+  /** How the recipient wants each severity (0.5.0): at once, or in an hourly or daily digest. */
+  delivery: z
+    .object({
+      error: z.enum(["immediate", "hourly", "daily"]).optional(),
+      warning: z.enum(["immediate", "hourly", "daily"]).optional(),
+      info: z.enum(["immediate", "hourly", "daily"]).optional(),
+    })
+    .strict()
     .optional(),
 });
 export type NotificationRecipientInput = z.infer<typeof notificationRecipientInputSchema>;

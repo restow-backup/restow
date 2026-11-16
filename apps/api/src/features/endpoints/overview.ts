@@ -1,8 +1,10 @@
-import { endpoints } from "@restow/db";
+import { endpoints, loadRecoveryLab, type RecoveryLabState } from "@restow/db";
 import { and, asc, eq } from "drizzle-orm";
+import { providerDb } from "../../db.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { jobsOfEndpoints } from "../backup-jobs/membership.js";
 import { isFirstBackupOverdue, type RatedObject } from "../verify/summary.js";
+import { type BaremetalState, baremetalStateOf } from "./baremetal.js";
 import { loadEndpointReadiness } from "./readiness.js";
 
 /**
@@ -30,8 +32,15 @@ export interface EndpointReadinessRowDto {
   overdue: boolean;
   latestBackupAt: string | null;
   latestSnapshotId: string | null;
+  /** The newest backup recorded no sample files: no restore test of it is possible. */
+  noSamples: boolean;
   /** The machine belongs to a backup job; false: nothing backs it up. */
   inJob: boolean;
+  /**
+   * The bare metal rating (docs/BAREMETAL.md 12.4), apart from the files' readiness; null for a
+   * machine its job does not back up as a whole.
+   */
+  baremetal: BaremetalState | null;
 }
 
 export async function loadEndpointOverview(
@@ -57,11 +66,20 @@ export async function loadEndpointOverview(
   );
   const rows: EndpointReadinessRowDto[] = [];
   const rated: RatedObject[] = [];
+  // The lab is read once, and only when some machine is backed up as a whole.
+  let lab: RecoveryLabState | null | undefined;
   for (const endpoint of list) {
     const found = readiness.get(endpoint.id);
     if (!found) {
       continue;
     }
+    if (lab === undefined && endpoint.config.wholeMachine === true) {
+      lab = await loadRecoveryLab(providerDb);
+    }
+    const baremetal =
+      endpoint.config.wholeMachine === true
+        ? await baremetalStateOf(tx, endpoint, lab ?? null, now)
+        : null;
     const overdue =
       found.state === "no_backup" ? isFirstBackupOverdue(endpoint.createdAt, now) : found.overdue;
     rows.push({
@@ -79,7 +97,9 @@ export async function loadEndpointOverview(
       overdue,
       latestBackupAt: found.latestBackupAt?.toISOString() ?? null,
       latestSnapshotId: found.latestSnapshotId,
+      noSamples: found.noSamples,
       inJob: jobs.has(endpoint.id),
+      baremetal,
     });
     rated.push({
       state: found.state,

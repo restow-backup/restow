@@ -29,6 +29,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { isModuleShown } from "@/lib/modules";
 import { groupNavItems, navGroupLabelKey, type PlacedNavItem } from "@/lib/navigation";
 import { canAccess, hasFeature, sessionScope, useSession } from "@/lib/session";
 import { TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
@@ -59,7 +60,7 @@ export function ShellBreadcrumbs({ className }: { className?: string }) {
   const entry = useShellEntry();
   const pageTitle = usePageTitle();
   const session = useSession();
-  const navItems = useNavItems();
+  const navItems = useNavItems({ includeNotOffered: true });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
   const scopeKind = scopeKindOf({
@@ -101,9 +102,20 @@ export function ShellBreadcrumbs({ className }: { className?: string }) {
     pageTitle,
   });
 
+  // The group's menu offers what the sidebar offers: no entry of a module of the installation
+  // that is off (lib/modules.ts), except the one the page itself belongs to.
+  const activeEntryId = entry?.item.id ?? null;
   const groups = React.useMemo(
-    () => groupNavItems(navItems, session.role, canAccess, session),
-    [navItems, session],
+    () =>
+      groupNavItems(
+        navItems.filter(
+          (item) => item.id === activeEntryId || isModuleShown(item.modules, session.modules),
+        ),
+        session.role,
+        canAccess,
+        session,
+      ),
+    [navItems, session, activeEntryId],
   );
 
   if (trail.length === 0) {
