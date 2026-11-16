@@ -1,4 +1,5 @@
 export * from "./agent-policy.js";
+export * from "./baremetal/index.js";
 export * from "./config.js";
 export * from "./consistency.js";
 export * from "./data-folders.js";
@@ -23,4 +24,5 @@ export * from "./sql/index.js";
 export * from "./staleness.js";
 export * from "./tar.js";
 export * from "./tokens.js";
+export * from "./whole-machine.js";
 export * from "./zip.js";

@@ -648,7 +648,9 @@
         "fetch": {
           "pulling": "Downloading the image of version {version}",
           "pulling_web": "Downloading the web image of version {version}",
+          "pulling_lab": "Downloading the recovery lab image of version {version}",
           "web_not_published": "The release has no web image; the current one stays",
+          "lab_not_published": "The release has no recovery lab image; the lab keeps its own",
           "verifying_signatures": "Verifying the signature of the release",
           "verifying_digests": "Verifying the downloaded images",
           "requesting_token": "Asking for the access token",
@@ -673,6 +675,7 @@
           "waiting_for_api": "Waiting for version {version} to answer",
           "starting_workers": "Starting the worker and the scheduler",
           "starting_edge": "Starting the web server",
+          "starting_lab": "Starting the recovery lab",
           "verifying_services": "Checking that all services run"
         },
         "finish": {

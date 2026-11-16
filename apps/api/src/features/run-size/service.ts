@@ -32,6 +32,7 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { endpointHistoryScope } from "./scope.js";
 
 /**
  * The backups the size and space guard held, and its settings (#99, docs/STORAGE.md "Unusually
@@ -620,6 +621,9 @@ async function reconsiderHolds(
           hold.objectKind,
           hold.objectId,
           settings.historyRuns,
+          hold.objectKind === "endpoint"
+            ? await endpointHistoryScope(tx, hold.objectId)
+            : undefined,
         );
         const limit = runSizeLimit(settings, history).limitBytes;
         resolution = limit === null || hold.bytes <= limit ? "settings_changed" : null;

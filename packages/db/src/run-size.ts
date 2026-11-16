@@ -66,6 +66,17 @@ export interface RunSizeObject {
 }
 
 /**
+ * Which of a machine's runs make its history (docs/BAREMETAL.md 5): a machine backed up as a whole
+ * is compared with its earlier whole machine runs (those that recorded a layout), a machine backed
+ * up by its paths with its path runs. Switching a machine to the whole machine (or back) starts
+ * its history anew: the first whole machine run adds every file of the system once, which says
+ * nothing unusual about it, and is a first run (exempt unless `firstRunBytes` sets a limit).
+ */
+export interface RunSizeHistoryScope {
+  readonly wholeMachine: boolean;
+}
+
+/**
  * Bytes the object's newest successful backup runs added, newest first (its history for the
  * median), from the start of its current repository on: a new repository (a reset, a new chain,
  * a repository that was gone and was created again) starts empty, its first run adds everything
@@ -80,6 +91,8 @@ export async function runSizeHistory(
   kind: RunSizeObjectKind,
   objectId: string,
   limit: number,
+  /** A machine's runs of one kind only ({@link RunSizeHistoryScope}); absent: all of them. */
+  scope?: RunSizeHistoryScope,
 ): Promise<number[]> {
   const restarted = sql`COALESCE((SELECT max(x.created_at) FROM run_size_runs x
     WHERE x.object_kind = ${kind} AND x.object_id = ${objectId}::uuid
@@ -92,6 +105,7 @@ export async function runSizeHistory(
           WHERE r.endpoint_id = ${objectId}::uuid AND r.kind = 'backup'
             AND r.status IN ('succeeded', 'partial') AND r.finished_at IS NOT NULL
             AND r.started_at >= ${restarted}
+            ${scope ? sql`AND (r.layout_id IS NOT NULL) = ${scope.wholeMachine}` : sql``}
           ORDER BY r.finished_at DESC LIMIT ${limit}`;
       case "file_share":
         return sql`SELECT COALESCE((r.stats->>'dataAddedPacked')::numeric, (r.stats->>'dataAdded')::numeric) AS bytes
@@ -300,6 +314,11 @@ export interface RunSizeGuardDeps {
    * the caller reads it on the installation pool ({@link loadInstallationSpaceRule}).
    */
   readonly installationSpaceRule?: () => Promise<RunSpaceOverride | null>;
+  /**
+   * Which earlier runs the run is compared with (a machine: whole machine or paths,
+   * {@link RunSizeHistoryScope}); absent: every successful run of the object.
+   */
+  readonly historyScope?: (tx: RunSizeTx) => Promise<RunSizeHistoryScope | undefined>;
   readonly now?: () => Date;
   readonly log?: (level: "info" | "warn", message: string, fields: Record<string, unknown>) => void;
 }
@@ -593,7 +612,13 @@ export class RunSizeGuard {
         // The object's (or tenant's) size check is off; the target's space rule still applies.
         lifts = { ...lifts, size: true };
       }
-      const history = await runSizeHistory(tx, kind, objectId, settings.historyRuns);
+      const history = await runSizeHistory(
+        tx,
+        kind,
+        objectId,
+        settings.historyRuns,
+        await this.deps.historyScope?.(tx),
+      );
       return {
         phase: "watching" as const,
         settings,

@@ -122,6 +122,14 @@ export const EVENT_GROUPS: Record<
     "boot_test.failed",
     "boot_test.unproven",
     "boot_test.skipped",
+    // Bare metal recovery (docs/BAREMETAL.md 12.6): security events of a recovery code or rebind.
+    "endpoint.recovery.started",
+    "endpoint.recovery_code.rejected",
+    "endpoint.rebound",
+    "endpoint.recovery.failed",
+    "baremetal.red",
+    "baremetal.recovered",
+    "baremetal.overdue",
   ],
   storage: [
     "scrub.corrupt",

@@ -181,7 +181,8 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 			if ae.Detail != "" {
 				fmt.Fprintf(stderr, "Reason given: %s\n", redact.Redact(ae.Detail))
 			}
-			fmt.Fprintln(stderr, "Enrollment tokens are valid for 24 hours and can be used once. Create a new server or client in the Restow UI (Endpoints) and run the install command again.")
+			fmt.Fprintln(stderr, "Enrollment tokens are valid for 24 hours, reconnect tokens for 1 hour unless a longer time was chosen; each can be used once. "+
+				"Create a new server or client in the Restow UI (Endpoints), or a new reconnect token on the machine's page, and run the install command again.")
 			return exitTokenRefused
 		}
 		if isAPI && ae.Status == 407 {
@@ -231,9 +232,19 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 			"Fix the problem (permissions, disk space), create a new token and run the command again.\n", st.EndpointID, layout.StateFile(), err)
 		return exitError
 	}
-	eventlog.Info(eventlog.IDEnrolled, fmt.Sprintf("This computer was enrolled at %s as endpoint %s.", st.ServerURL, st.EndpointID))
-	fmt.Fprintf(stdout, "Enrolled as endpoint %s (%s profile) on %s.\nCredentials are stored in %s ("+credentialProtection+").\n",
-		st.EndpointID, st.Profile, st.ServerURL, layout.StateFile())
+	if resp.Rebound {
+		// A reconnect token (server 0.5.0): the instance gave an existing
+		// machine a new agent secret instead of creating one.
+		eventlog.Info(eventlog.IDEnrolled, fmt.Sprintf("This computer was reconnected at %s as the existing endpoint %s.", st.ServerURL, st.EndpointID))
+		fmt.Fprintf(stdout, "Reconnected as the existing machine %s; its backups, settings and history are kept. "+
+			"The previous installation of this machine no longer has access.\n", st.EndpointID)
+		fmt.Fprintf(stdout, "Instance: %s (%s profile). Credentials are stored in %s ("+credentialProtection+").\n",
+			st.ServerURL, st.Profile, layout.StateFile())
+	} else {
+		eventlog.Info(eventlog.IDEnrolled, fmt.Sprintf("This computer was enrolled at %s as endpoint %s.", st.ServerURL, st.EndpointID))
+		fmt.Fprintf(stdout, "Enrolled as endpoint %s (%s profile) on %s.\nCredentials are stored in %s ("+credentialProtection+").\n",
+			st.EndpointID, st.Profile, st.ServerURL, layout.StateFile())
+	}
 	fmt.Fprintf(stdout, "Hooks from the Restow server: %s (change on this machine with: restow-agent hooks off|scripts|any).\n", describeHooks(hooksMode, layout))
 	if *force {
 		fmt.Fprintln(stdout, "If the agent service is running, restart it to use the new enrollment: restow-agent service restart")

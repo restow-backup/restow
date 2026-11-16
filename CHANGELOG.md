@@ -67,6 +67,8 @@ private repository.
   rule applies) and a storage target (its card; `/api/v1/run-size/targets`), audited
   `backup.space_rule_changed` (`settings.run_space_rule`, `storage_targets.space_rule`,
   migration 0097). A run that begins a new repository is a first run, and the history starts with it.
+  A machine backed up as a whole is compared with its whole machine runs only, so its first whole
+  machine backup after the switch is a first run as well.
   What the guard knows of a run (bytes stored, "continue once" used) survives an api restart and
   a retry (`run_size_runs`, migration 0096); a database error is a 503 restic retries, never a
   refusal. A hold for space ends by itself once the target has room, or when its space rule is
@@ -614,6 +616,310 @@ private repository.
 - `GET /api/v1/navigation` tells the web which menu entries the active tenant offers beyond roles
   and the installation's features; today `offers.archive` (always false for someone who is not an
   administrator of the tenant).
+- Whole machine backups (preview, Linux): a backup job switch backs up every local file system,
+  every btrfs subvolume and every local fstab entry, with its disk layout. The agent records the
+  layout (partition tables, RAID, LUKS metadata without secrets, LVM, file systems and their
+  features, mounts and fstab, firmware and Secure Boot state, boot loader, initramfs generator and
+  its keyboard layout, driver chain of the boot disks) as a layout manifest inside the snapshot and
+  reports it; backups run with `--one-file-system` and `--group-by host`. The server checks the
+  manifest (`restow-layout-v1`, the same schema and canonical encoding in Go and TypeScript, held
+  to the agent's own test data), keeps it once per machine and content in the new table
+  `endpoint_layouts` (migration 0100, Row Level Security like the other tenant tables) and links
+  the run to it (`endpoint_runs.layout_id`); a refused manifest leaves the run as reported with the
+  hint `layout_rejected`. The machine's page shows a card "Bare-metal restore (preview)" with the
+  captured layout (disks with their partitions, the storage stack, firmware, boot loader,
+  distribution, encryption), its assessment with what is not supported, and how much to leave free
+  in a volume group without room for snapshots; a run says "Layout captured". The job lists why a
+  member backs up its folders instead (container, Windows, macOS later, agent before 0.5.0) or what
+  it should know (BIOS boot needs CSM, arm64 restore later). The switch is hidden and refused
+  (409 `baremetal-preview-off`) unless `RESTOW_BAREMETAL_PREVIEW=true`; restoring a machine comes
+  with later releases.
+- File system snapshots on Linux: LVM (thick and thin) and btrfs snapshots under the policy 'When
+  the file system snapshot fails'; snapshot paths stay the real paths. Thin pools above 80 % get
+  no snapshot, and a backup stops its snapshot before a pool runs full. A volume group without free
+  space is read live without a warning on every run. The machine's settings offer "File system
+  snapshot (LVM, btrfs)" (on, off or the default: on for a whole machine backup, off otherwise);
+  `GET /agent/v1/config` sends it as `fsSnapshot`, and a run's consistency names LVM, btrfs or
+  both. A backup of folders reads the file systems and btrfs subvolumes mounted below them from
+  their own snapshots, or live when they have none, and lists those in its consistency. The agent
+  never kills `lvcreate`, `lvchange` or `lvremove`: a cancelled run, a stop of the service or an
+  update lets them finish, at their time limit they get SIGTERM, and a snapshot that a failed
+  `lvcreate` left behind is removed at once.
+- The worker's endpoint monitor removes layouts no run points at any more, keeping each machine's
+  newest.
+- Layout check after every whole machine backup (preview, Linux): the server validates the
+  layout, plans the restore with the agent's own planner (sandboxed, without the server's
+  environment), computes restore sizes, and checks that the snapshot holds the layout, every
+  mounted file system and fstab entry and the boot chain (kernels, initramfs, boot loader, fstab,
+  crypttab and LVM device entries). The finish of a run with a layout queues the new worker job
+  `endpoint-baremetal-check` at once, the scheduler catches up a snapshot without one; it reads
+  the snapshot under the shared repository lock (`restic ls` once, `restic dump` for at most 80
+  small files) and writes a report of the new kind `baremetal_check` (migration 0101) with the
+  checks L1 to L8, each with its findings and evidence, the restore sizes per mount point, the
+  minimum disk and file system sizes, the planner's answers for the same hardware, the smallest
+  possible disks and another disk controller, and the boot chain fingerprint. Red only with proof;
+  a repository read that proves nothing is retried, a planner that cannot answer makes the check
+  incomplete; a snapshot retention has forgotten gets a report without a rating and is not
+  queued again. Hard links are recognised with bounded memory (past one million files a size is
+  an upper bound, never too small). The machine's card shows the check report and the minimum
+  sizes; its state is "Layout checked" (or "Restore check failed"), never green, until a later
+  version adds the boot probe that proves a restored machine starts.
+- `restow-agent baremetal plan --manifest <file|-> [--facts <file|->] --target
+  <same|minimal|other-controller|file> [--choices file] [--snapshot id] --json`: the restore
+  planner of the agent (`restow-plan-v1`): disk mapping with intact parts kept, sizes in bytes and
+  sectors, partitions, RAID, LUKS, LVM (LVM RAID LVs sized by all their images and created with
+  their type and image count on the physical volumes the plan chose; a RAID LV whose geometry is
+  unknown blocks the plan), file systems with their features, the driver check against
+  the backed-up kernel's module lists and the Secure Boot check against the target's keys, as an
+  ordered list of steps; nothing is executed. It starts no program, reads only its arguments and
+  on Linux limits itself (512 MiB data, 30 s CPU). The worker runs it from `/usr/local/lib/restow/restow-agent`
+  (`RESTOW_PLANNER_BIN`) with only `PATH` and `LC_ALL`, in an empty folder, under `prlimit`, for
+  at most 45 seconds and 4 MiB of output.
+- Recovery codes (preview, Linux): a one-time code for one machine, bound to this instance's
+  address, valid 4 hours (up to 48), audited, approved by an admin after it is redeemed,
+  read-only access to that machine's backups for a bare-metal restore. An admin issues it after a
+  recent sign-in (`POST /api/v1/endpoints/:id/recovery-codes`): 25 symbols without look-alikes,
+  shown once with the address to type and the instance check value (the first 80 bits of the
+  SHA-256 of the instance's TLS public key, `RESTOW_PUBLIC_TLS_SPKI` behind a load balancer). The
+  recovery ISO sends only a proof bound to the address it actually reaches, and the server keeps
+  only the hash of that proof; a session secret made in the ISO is known to the server as its
+  hash, and both sides show a six-digit match number before the admin releases the session.
+  The ISO's API (`/agent/v1/recovery/*`) exchanges the code, waits for the release, hands out the
+  repository credentials once (and once more within five minutes), takes progress, a redacted
+  log of at most 2 MiB, events, the end of its repository access and the result; it reads
+  through its own restic route `/agent/recovery/restic/:sessionId` as the read-only principal
+  (120,000 requests per 10 minutes), which ends within five seconds of a cancel or the release.
+  Codes and sessions run out on their own: unredeemed, not released within 30 minutes, or silent
+  30 minutes past their expiry. At most three codes per machine are open; every transition is
+  audited once. Failed exchanges count per address in their own limit (20 in 10 minutes), apart
+  from the agents'. Migrations 0101 and 0102. The code dialog and the bare metal wizard stay hidden
+  until a release ships a verified recovery ISO (`GET /api/v1/recovery-iso`); until then issuing a
+  code is refused with `baremetal-not-available` (`iso_unverified`).
+- Rebind a restored machine: a separate, short-lived token that gives an existing machine a new
+  agent secret and keeps its backups and history; revoked machines stay revoked unless chosen.
+  The machine's page has "Reconnect machine…" in its danger zone (an own dialog with the warning
+  that the token gives lasting access and the previous installation loses its connection; valid 1
+  hour, up to 24). The token works with the existing install command (`POST /agent/v1/enroll`
+  answers `rebound: true`) and from the recovery ISO after a successful restore; the operating
+  system must match, pending uninstall orders end, and the first good backup afterwards is the
+  new baseline of the ransomware signals. Pending tokens list rebind tokens as "Reconnect".
+- Recovery ISO (preview): a signed, reproducible Debian 13 live image
+  (`restow-recovery_<v>_amd64.iso`, GPL-3.0-or-later build recipe in `integrations/recovery`)
+  that boots with UEFI Secure Boot and legacy BIOS and restores a Linux machine from Restow onto
+  new disks: GPT and MBR, mdadm, LVM including thin, LUKS, ext4, XFS, btrfs, separate /boot and
+  EFI system partition, smaller and larger disks, 4Kn; intact data disks can be kept; the boot
+  chain, drivers and Secure Boot state are checked before anything is erased; initramfs and boot
+  loader are set up again with the restored system's own tools in an isolated environment (own
+  namespaces, a `/dev` with only the target devices, the restored tree and all its mounts
+  `nodev` and `nosuid` so that device nodes from the backup cannot be opened, a reduced capability
+  set and a seccomp filter that also refuses the device-mapper commands that change mappings, the
+  md commands that change arrays, NVMe passthrough, freezing, thawing and shutting down a file
+  system (`FIFREEZE`, `FITHAW`, `FS_IOC_SHUTDOWN`), sockets other than Unix, IPv4, IPv6 and
+  netlink (AF_VSOCK is not network-namespaced and reaches the hypervisor of a VM), io_uring,
+  `open_tree_attr` and system calls newer than its table; `CAP_SYS_ADMIN` only for the boot loader
+  and LVM tools on device-mapper volumes, and only while no device-mapper device outside the target
+  disks that could hold a key is open: the kernel reads the table of any mapping to such a program,
+  and the table of a LUKS1 or plain dm-crypt volume carries its key. The ISO names such a volume
+  (for example an old disk opened in the shell) before anything is erased and offers a shell to
+  close it; one opened while such a program runs stops the recovery with
+  `foreign_mapping_open`). The ISO mounts the target file systems `nodev` and `nosuid` for the
+  recovery and never opens a file of the restored system that is not a regular file. After every
+  program of the restored system it thaws the target file systems: one the program left frozen
+  fails the step before the ISO writes again (a write to a frozen file system waits for good and
+  cannot be killed), and a program that does not end after `SIGKILL` fails its step after a grace
+  period instead of leaving the recovery hung.
+  Such programs also lose `CAP_SYSLOG` and the other capabilities that act on the whole machine
+  (`CAP_SYS_RESOURCE`, `CAP_SYS_NICE`, `CAP_IPC_LOCK`, `CAP_SYS_TTY_CONFIG`, the audit and MAC
+  capabilities and a few more), and the filter refuses `syslog(2)`: with it a program could
+  raise the console log level and have the kernel print text it chose, escape sequences included,
+  on the operator's console (a serial BMC console passes them on unchanged). Unattended answers
+  from a medium (`restow.answers=media`) are read only when exactly one device carries the label
+  `RESTOWANS` and it is a removable or USB medium other than the ISO's; a file system of the
+  restored system with that label is no longer taken for the operator's medium, the medium's
+  disk is never a target, and the console names the medium and the instance before anything is
+  typed. The planner refuses a layout that labels a file system, swap area, LUKS volume or md
+  array `RESTOWANS`. Switching remote access from the one-time password to the administrator's
+  keys now also ends the SSH sessions already open with the password (and what they started),
+  not only the listening `sshd`, and is not reported until none is left.
+  Resuming a started recovery now reads the marker on the target's root file system before the
+  ISO writes anything there: before, the ISO wrote its own marker right after mounting the root
+  and then checked that one, so the check always passed and any disk carrying the backed-up
+  machine's disk GUID (its own disks, for example) was restored over in place without the erase
+  confirmation, keeping files that are not in the snapshot and reporting success. Without a
+  marker of a started recovery of the chosen snapshot the run now stops at the mount of the root
+  before restoring anything and explains that after a new start that declines the offer the ISO
+  asks what to do with each disk, and that a disk chosen as a target is erased after the
+  confirmation; the offer names the chosen snapshot and says the marker decides.
+  The disks that are erased are the disks that were confirmed: the ISO reads the hardware a
+  second time after the last dialog (and after the shell it may offer) and stops when any device
+  differs from what was shown (another identity or size behind a name, a disk that came or went,
+  new content on a disk); it then keeps every mapped disk open, so that its name is not given
+  to another disk meanwhile, and before every step checks again that each name still leads to
+  the confirmed disk. Before, the disks were read once and addressed by their kernel name from
+  then on, so a disk that was pulled, plugged or enumerated again between the confirmation and
+  the erase could have been erased in place of the confirmed one. The scan of the disks no longer
+  writes to any of them (it wrote the first and last MiB back to every disk without a known
+  signature, before any confirmation and also to disks the plan never uses); the write probe now
+  runs after the confirmation, on the disks to erase only. A disk identity confirms a disk only
+  when it names that disk alone: when two disks report the same serial number (USB bridges,
+  clones), each is known by its bus path instead, answers that name the shared identity in
+  `diskMapping` or `confirmErase` are refused with the identities that name each disk, a disk
+  without any identity cannot be confirmed for erasing, and the automatic mapping no longer
+  picks one of two disks by an identity both report. The 30 second countdown of an unattended
+  run from a medium now ends with any single key (it needed a whole line before) and with
+  Ctrl+C; Ctrl+C before the first step now really ends the run, and "Nothing was erased" is
+  printed only when that is true (before, Ctrl+C during the countdown printed it and the erase
+  went on). A `snapshotId` in the answers must match exactly one snapshot the code may restore;
+  otherwise the run fails before anything is planned (before, the snapshot of the code was
+  restored in its place without a word). A recovery that was interrupted after partitioning and
+  before the first file can be started again: the ISO asks what becomes of the half-written disk
+  and erases it after the usual confirmation (before, the plan tried to keep the disk, could not
+  run, and no dialog led to the erase). A resumed recovery continues on the disks that carry the
+  identities of the backup, whichever disk was chosen in the first run and however many free
+  disks are attached (before, it mapped the disks anew and failed, or could pick another disk),
+  and it keeps data disks that the first run kept out of the restore: the marker records what
+  was done with each disk. Resuming with a kept LUKS volume is not possible yet; the run then
+  stops when opening it and writes nothing.
+  The plan: before the partition table of a disk is removed, the signatures on every partition
+  the disk has now are wiped, and `sfdisk` wipes the areas of the new partitions
+  (`--wipe-partitions always`); before, a file system, LUKS header or md superblock that began
+  beyond the first 16 MiB of the old disk survived and could show again in a new partition at
+  the same place. A bind mount of a folder (`mount --bind /srv/data /var/www/data`) is no longer
+  planned as a second mount of the whole file system at the bind target (the manifest records
+  the mounted root of each mount in `mounts[].root`; for older manifests the `bind` option in
+  fstab decides). A swap file now counts for the minimum size of its file system, so a smaller
+  or minimal target no longer fails at the swap file after the whole restore. The disk signature
+  of an MBR disk is compared without its `0x`, so an old MBR disk that is still attached is
+  found as an identity conflict before anything is erased. A manifest whose partition table
+  cannot exist (overlapping partitions, one behind the end of the disk, a logical partition
+  without an extended one and the like) is refused by the plan with the reason instead of
+  failing at `sfdisk` after the erase.
+  The result is honest: the server no longer takes the recovery ISO's word for a successful
+  bare metal recovery. A finish that reports `succeeded` is stored as such only when the
+  `restow-verify-v1` report it carries bears that out: it parses, none of its checks failed, all
+  ten checks are there, and it names a whole machine backup of the machine. Otherwise the
+  recovery is stored as failed with the reason (`success_report_missing`,
+  `success_checks_failed`, `success_checks_missing` or `success_snapshot_unknown`, shown on the
+  recovery page and kept in the audit entry), the alert "recovery failed" is raised, the answer
+  to the ISO says `status: failed` with `reported` and `reason`, and rebinding from the ISO stays
+  locked. The ISO follows that answer: its console and its result line say failed with the
+  reason in the operator's language, and it does not offer to connect the machine again. A
+  recovery session that has ended (succeeded, failed or cancelled) takes nothing more from the
+  ISO: progress, log, event, release and finish answer 409 `recovery-state-conflict`. Before, the
+  session secret could rewrite the progress of a finished session and write audit entries until
+  the code expired. The first refused call of a session is audited once
+  (`endpoint.recovery.report_refused`), later ones are not; the ISO sends nothing after the end
+  and shows no error about it. The credentials of a recovery session now carry the layout of the
+  code's snapshot also when the machine has made more than 50 newer backups since the code was
+  issued; before, `layoutSha256` was empty and the restore stopped with a manifest mismatch.
+  When the backup a code was issued for no longer exists with a layout, the credentials request
+  answers 409 `baremetal-not-available` (`snapshot_unknown`) instead of handing out the
+  repository password, and counts no fetch; the ISO says so in its own words and asks for a new
+  code. The checks after the restore prove more: restore errors beyond the hundred that restic
+  lists by path stop the run like missing system files, because a file without a known path may
+  be one (before, a full disk in `/home` could hide errors in `/usr` behind a warning); an
+  initramfs of the default kernel that was not rebuilt fails the check (it was a warning), a
+  unified kernel image is checked instead of passed over, and the image must hold `cryptsetup`,
+  `mdadm` and `lvm` when the storage under `/` needs them; a UEFI machine without any boot
+  entry and without the fallback path fails, as does a boot entry whose loader is not on the EFI
+  system partition (a loader the backup has no check value for is a warning); a crypttab entry
+  with a random key counts as plain dm-crypt whatever its options say and must name exactly the
+  planned partition. What a check could not look at is a warning, never a silent pass. Two
+  reported problems have codes of their own instead of "a step failed": `disks_changed` (the
+  disks are not the confirmed ones any more) and `snapshot_id_unmatched` (the `snapshotId` of
+  the answers matches no single snapshot).
+  The console says what it is about to do: the snapshot that will overwrite the disks is shown
+  with its time and the state of its check before the plan and again before the erase, with a
+  warning when the check did not pass (before, a single snapshot was taken without a word).
+  The erase confirmation lists every disk with path, model, size and identity right above the
+  erase word, and every disk is confirmed by the last four characters of its identity, also one
+  without a recognised signature; the German prompt names `ERASE` beside `LÖSCHEN`. The question
+  about shrinking shows the proposal (which volume, from which size to which) with the volume
+  group and the target disk, and Enter means no (it meant yes, and the proposal was not shown).
+  The Secure Boot question no longer reads as if the ISO switched Secure Boot off: it asks
+  whether the findings of the boot chain shall be warnings only and says that the operator must
+  switch Secure Boot off in the firmware setup, as do the warning in the plan and the hint
+  afterwards. Steps, check results and findings appear in the language of the console (the plan's
+  reasons and the report for the server stay English), German texts address the operator
+  formally throughout, and a second operating system in dual boot is no longer called by its
+  vendor's name. The layout capture no longer leaves out a mounted file system whose type udev
+  has not recorded (a file system made a moment ago, or a system without udev): it reads the
+  type from the device, and says so when it cannot. On the recovery page the checks of a
+  recovery are green only when the server stored it as succeeded, and the check of a snapshot's
+  layout (stage 1) is never green: it shows that a restore can work, not that one did. The
+  planner no longer asks more of a target disk than a small btrfs had: its metadata reserve is
+  1 GiB per device but at most a fifth of the device, so a btrfs of 1 GiB plans onto a disk of
+  the same size again.
+  Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
+  `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
+  only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in
+  `integrations/recovery/firmware.md`). The image is built from one snapshot.debian.org time with
+  every package pinned in `packages.lock`, twice on two runner images; only when both builds are
+  equal does the release list it in `agent-SHA256SUMS` (`recovery/restow-recovery_<v>_amd64.iso`),
+  and the maintainer rebuilds it before signing (`scripts/release/sign-agent.sh --iso`). The
+  source code of every package is a release attachment (`restow-recovery_<v>_sources.tar`, in
+  parts when large, and `restow-recovery_<v>_sources.txt`). On the ISO, `restow-agent recover`
+  asks for the address and the code, waits for the release of the session, plans, shows every
+  command before it erases, restores, sets the boot chain up again and reports a verification of
+  ten checks (`restow-verify-v1`) and its warnings; `--answers` runs it unattended. With the
+  preview on, the code dialog and the bare metal wizard appear once a release carries the ISO.
+- The bare metal wizard: the whole machine snapshots with their check and whether their layout
+  is the newest one's (the newest that passed is chosen first), the full hardware guide of the
+  chosen backup (firmware mode and CSM, Secure Boot and the CA the firmware must trust, disks with
+  their minimum sizes, memory, the disk controllers the backed-up kernel has drivers for, what may
+  and may not change, hardware RAID, the keyboard layout of the passphrase at boot, TPM bindings,
+  old disks), where the ISO comes from with the GPL sources and firmware licences, and afterwards
+  the ISO's hints (MOK enrolment with the password of the recovery console, network names, boot
+  disk, degraded RAID, kernels not adapted, TPM). The live view shows the verification check by
+  check, with findings and evidence as text, and the finish warnings by code. The machine list
+  marks a machine "Being restored", its page says so on top. `GET /api/v1/endpoints/:id/baremetal`
+  adds `snapshots`, `hardware`, `hardwareByLayout` and `activeRecovery`; the machine list and page
+  add `recovery`; `GET /api/v1/endpoints/capabilities` says whether bare metal is on.
+- Recovery end-to-end tests in QEMU/KVM: E1 (Debian 12, BIOS, RAID1) and E2 (Ubuntu 24.04, UEFI
+  Secure Boot, LUKS2 and LVM) on every pull request that touches the restore, E1b and E3 to E10
+  every night and before each release (`scripts/recovery-e2e`, `.github/workflows/recovery-nightly.yml`).
+- The boot probe of bare metal (M5, docs/BAREMETAL.md 12.3, 12.4): a machine is "green" only when
+  the recovery lab restored its newest whole machine backup onto other hardware and the restored
+  system started, at most 8 days ago, for the same layout and boot chain. The lab is an optional
+  image, `restow-lab` (Debian's QEMU, OVMF, SeaBIOS and virt-firmware; compose profile
+  `recovery-lab`, `install.sh --with-recovery-lab`), on a main host with KVM; without it a machine
+  stays "Layout checked" and its card says why (no lab, no KVM). The lab runs the same recovery a
+  person runs: the worker plans the probe (at once for a new layout or boot chain, weekly, six hours
+  after a probe that proved nothing, or "Probe now"), hands the lab a one-time code bound to the
+  instance through its lab API (port 8095 on the compose network, `RESTOW_LAB_TOKEN`) and never a
+  repository credential; the ISO in the lab's VM exchanges the code, restores through the reader
+  route (the session keeps retention away) and reports its verification; its VM reaches only the
+  instance's TLS edge through the lab's CONNECT proxy. Once the ISO released its access the lab
+  cuts the VM's network for good: `recover` then writes its finish to the serial console as a
+  block with length and SHA-256 (`RESTOW-PROBE-FINISH-BEGIN` ... `-END`), the lab checks it and
+  hands it in with the result together with the end of the restore console, and the worker
+  stores it by the API's rules (one schema, one redaction, a success the verification report does
+  not bear out is stored as failed), only for a session that is still finishing, audited
+  `endpoint.recovery.finished` with the lab as actor. Probe hardware differs from the source
+  (the other disk controller, serial numbers, the other network card), firmware as backed up with
+  Secure Boot against the current revocation list (DBX); disks are encrypted with a key only the
+  lab holds. Data file systems are created empty, and above `RESTOW_LAB_MAX_RESTORE_GIB` (64) the
+  largest folders under /var/lib, /srv and /home stay empty, never the package or systemd
+  databases. For diagnostics only, `RESTOW_LAB_SCREEN_DIR` (off by default) keeps a picture of
+  the VGA screen of a probe whose start ran out of time. `restow-agent recover` gains a probe mode (answers `probe` only from fw_cfg in QEMU):
+  the restored copy logs to the serial console and reports `RESTOW-PROBE-OK`. A probe is red only
+  with evidence (a fixed failure pattern of the boot, a failed verification, a problem of the
+  backup); anything else is repeated. New report kind `boot_probe` and recovery kind `probe`
+  (migration 0104). New alarms `baremetal.red` (once per episode), `baremetal.recovered` and
+  `baremetal.overdue`, `job.failed` with queue `endpoint_baremetal_check` or `endpoint_boot_probe`
+  for every red report, failure codes `endpoint.baremetal_check_failed` and
+  `endpoint.boot_probe_failed`. `POST /api/v1/endpoints/:id/baremetal/probe` plans a probe;
+  `GET /api/v1/endpoints/:id/baremetal` adds `probe`; `GET /api/v1/verify/latest` adds
+  `baremetal`, the bare metal state of every machine backed up as a whole, counted apart from
+  its files. Recovery end-to-end tests P1 (green) and P2 (red, the emergency target) on every
+  pull request that touches the restore or the lab, P3 (size limit, NVMe source) every night.
+  The opt-in updater moves the lab along where `.env` names its image (`RESTOW_LAB_IMAGE`): it
+  verifies the lab image of the target version like the other images (the release workflow's
+  signature by the new `restow-lab:` digest line of the release notes, then the pulled digest),
+  pulls it before anything is stopped, writes the line with the other two, recreates the
+  `recovery-lab` service after the web edge and puts the previous line back on a rollback
+  (docs/UPDATING.md, "The recovery lab"; `RESTOW_UPDATER_LAB_IMAGE_REPOSITORY` for a mirror).
+  An installation without the lab is untouched.
 - Write-once (WORM) storage (docs/STORAGE.md, "Write-once storage"): a repository that takes new
   files but refuses to delete, overwrite or rename existing ones, such as an NFS share of a NAS
   with a WORM lock (EPERM, "Operation not permitted"). Every test of a repository (adding it,
@@ -677,6 +983,52 @@ private repository.
   small `work_mem` and `maintenance_work_mem`, two autovacuum workers), and api, worker and
   scheduler open smaller pools, 48 connections in all instead of the default 90
   (deploy/demo/README.md, "Resource limits").
+- The agent no longer backs up its own state file (`/etc/restow-agent/state.json`) with the agent
+  secret and the repository password, on any system; the restore dialog hides it in older
+  snapshots, and LUKS key files are no longer downloadable for the restore role. The browser hides
+  the state file from everybody and the key files that a machine's layout names from restore
+  operators; selecting one is refused (422 or 403 `endpoint-restore-path-locked`), a folder ZIP
+  leaves them out, and an administrator gets a key file only after a recent sign-in, audited as
+  `endpoint.repository.secret_file_revealed`.
+- With `RESTOW_BAREMETAL_PREVIEW` on, the machine list and the enroll dialog no longer say there is
+  no bare-metal restore: Linux machines can be restored as a whole on new hardware (preview);
+  there are still no disk images.
+- The recovery ISO now comes from the instance itself: the worker fetches the ISO of the
+  installation's own release from the GitHub release once per installation and release (queue
+  `endpoint-recovery-iso`, every six hours, resumable, at most 2 GiB, honouring `HTTPS_PROXY` and
+  `NO_PROXY`), checks the signature of the release's `SHA256SUMS` itself with the release key of
+  the image (the same SSHSIG check as the agent, no new trust root) and the ISO's SHA-256, keeps it
+  in the data volume (`RESTOW_RECOVERY_ISO_STORE_DIR`, default `/data/recovery-iso`) and offers it
+  to tenant administrators at `GET /api/v1/recovery-iso/file/<file>`; the GitHub release stays the
+  fallback link. `GET /api/v1/recovery-iso` adds `rebuild`, `githubUrl`, `sumsUrl`,
+  `signatureUrl` and `local` (not fetched, fetching with bytes, verified, failed with a reason,
+  disabled), and the bare metal wizard shows that state in English and German. `verified` now
+  means the server checked the signature itself; before, a `.sig` file next to the checksums was
+  enough. The download needs the rest of the ISO plus 1 GiB free in the store and keeps that
+  reserve while it runs; short of it, or on a full disk, it removes its partial file and reports
+  `store_full` without retrying until the next pass. One pass works at a time (a lock file in the
+  store), and a pass ends itself half an hour before the queue's eight-hour expiry so the retry
+  continues the partial file instead of writing it at the same time. Installations without
+  internet access drop the ISO into `<store>/import/` or `RESTOW_RECOVERY_ISO_DIR`; the same check
+  applies, an unreachable release page is then no problem and no reason to retry, and the wizard
+  says the copy was put there rather than fetched. `RESTOW_RECOVERY_ISO_FETCH=false` turns the
+  download off. `GET /install/recovery/<v>/<file>` (10 downloads per address and hour) serves the
+  same selection. The check commands name the arguments of `verify-agent-signature.sh` in their
+  right order and the checksum file the ISO is listed in.
+- Rebuilds of the recovery ISO: a tag `recovery-v<v>.<n>` (`.github/workflows/recovery-rebuild.yml`)
+  rebuilds only the ISO of the published release `<v>` against a newer Debian snapshot (security
+  updates), with the agent of that release, twice and through every end-to-end case, and publishes
+  `restow-recovery_<v>.<n>_amd64.iso` with `recovery-SHA256SUMS`, which the maintainer signs with
+  the release key (`scripts/release/sign-agent.sh recovery-v<v>.<n> --iso <rebuilt ISO>`). The
+  list binds the rebuild to the release (`release/agent-SHA256SUMS` with the SHA-256 of the
+  release's signed checksums); installations of `<v>` take the newest rebuild that verifies and
+  never one for another release. `integrations/recovery/build.sh` and `sources.sh` take
+  `--rebuild <n>`.
+- The explanations of `snapshot_failed` and `snapshot_unavailable` no longer speak of the shadow
+  copy only: they name it, LVM and btrfs, and the steps cover Windows and Linux.
+- The agent's systemd unit allows mount namespaces (`RestrictNamespaces=mnt`) so the snapshot
+  helper can build the LVM and btrfs snapshot tree in a private one; every other namespace type
+  stays blocked.
 - Machines: "Delete every backup" of a revoked machine (Remove from Restow, mode `delete`) is now
   delayed and owner-only. The backups are deleted seven days after the request, not at once; the
   machine stays listed as revoked until then, and its page and File restore show "Backups will be
@@ -2386,9 +2738,27 @@ private repository.
   A check that waits behind a run that is going (a long backup, a boot test) stays "Check
   queued" and names that run on hover.
 
+### Security
+
+- Repository pruning waits while a recovery runs; redeeming a code, trying a dead code and
+  rebinding a machine alert the tenant admins. Retention and the removal of a machine's backups
+  check for a running recovery session before and after they take the repository's lock, and a
+  session is released only under the shared lock, so neither order prunes beneath a restore; a
+  session that waits for its release holds nothing. Removing a machine (or scheduling the deletion
+  of its backups) is refused while a recovery session reads it, and its unredeemed codes are
+  revoked; the deletion that starts seven days later waits for a running session as well. The new alerts
+  `endpoint.recovery.started`, `endpoint.recovery_code.rejected`, `endpoint.rebound` and
+  `endpoint.recovery.failed` are errors of the group "Recoverability" and go to the bell and to
+  every rule that lists them. Recovery codes, rebind tokens and the 64-digit hex values of a
+  session are removed from every stored log and failure text.
+- The download of the recovery ISO takes over a stale lock of its store atomically: the old lock is
+  renamed aside and dropped only when it is still the stale one, so two passes that both find it
+  stale never both write the partial file, and a pass checks that the lock is still its own before
+  every write and stops without writing once it is not.
+
 ### Upgrade Notes
 
-Twenty-two database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Thirty database migrations (0073 to 0102) run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -2435,11 +2805,27 @@ the notifications and branding of 0.5.0 (see below). 0092 creates the new tables
 Windows machines and adds values to the enums of endpoint run, task and report kinds; both tables
 are new and empty. 0093 creates the new table `repository_copies` (Row Level Security), which is
 empty until the first copy pass, and 0094 adds the defaulted column `settings.modules`; neither
-rewrites a table. The first directory sync after the
+rewrites a table. 0095 to 0098 are those of the size and space guard (see Added). 0099 creates
+the table `endpoint_layouts` and adds the empty column
+`endpoint_runs.layout_id`; 0100 adds the value `baremetal_check` to the report kinds of machines;
+0101 creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the empty columns
+`endpoint_id`, `purpose` and `unrevoke` (false) to `endpoint_enrollment_tokens` and
+`endpoint_runs.activity_baseline` (false); 0102 adds `endpoint_recoveries.log_in_key_block`
+(false); 0103 adds the values `boot_probe` (report kinds) and `probe` (recovery kinds) and the
+empty column `settings.recovery_lab`. None of them rewrites a table. The recovery lab is not
+started by an update: turn it on with `install.sh --with-recovery-lab` on a new installation, or
+on an existing one with `RESTOW_LAB_TOKEN` (at least 32 characters), `RESTOW_LAB_IMAGE` and
+`RESTOW_LAB_KVM_GID` in `.env` and `docker compose --profile recovery-lab up -d`; from then on
+the opt-in updater moves the lab's image with every update (docs/UPDATING.md, "The recovery
+lab"). The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
-incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
-fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+incomplete. Whole machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the
+api. Agents before 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the
+release key keeps the fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`. Once the
+release carries a recovery ISO, the worker downloads it (under 900 MiB, leaving at least 1 GiB
+free) into the data volume once, in the background, and again only for a newer rebuild; set
+`RESTOW_RECOVERY_ISO_FETCH=false` to keep it from doing so.
 
 Migration 0091 (0.5.0 notifications and branding) creates the tables `report_events`,
 `provider_notification_recipients`, `provider_report_rules`, `provider_branding`,
@@ -2478,6 +2864,18 @@ docs/UPDATING.md ("Rollback") says how to keep that version from deleting.
   online-only cloud files are left out, junctions inside a backed-up folder are backed up as
   links, no system state or registry, no bare-metal restore for Windows, and further data
   drives are not reported as data folders yet.
+- Bare metal (preview): Windows bare metal comes later; no change of the storage stack (BIOS to
+  UEFI is a 0.5.x candidate); no Wi-Fi, VLAN or bonding in the recovery ISO; TPM2 and FIDO2
+  bindings must be enrolled again; raw logical volumes (the VM disks of a Proxmox VE host) are
+  not backed up; amd64 only. The recovery ISO never restores onto SAN LUNs (Fibre Channel,
+  iSCSI) or removable disks yet, an unattended run (`--answers`) cannot keep an encrypted volume
+  (the old passphrase is asked on the console only), and the details of an error (the message
+  of a failed command or request) are shown in English on a German console. The first
+  `packages.lock` of the recovery ISO is written by the CI
+  job `recovery-iso` (input `update-lock`) and committed by hand; until then the ISO is not
+  built, and it counts as reproducible only once two CI builds were equal. The ISO download of the
+  instance does not support a proxy that is itself reached over https (`HTTPS_PROXY=https://…`),
+  and the rebuild workflow and the signing of a rebuild have not run against a real release yet.
 
 ## [0.4.12] - 2026-11-04
 

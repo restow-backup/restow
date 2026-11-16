@@ -1,4 +1,4 @@
-import { docsTroubleshootingUrl, mailfiles } from "@restow/core";
+import { docsTroubleshootingUrl, mailfiles, recoveryIsoStoreDir } from "@restow/core";
 import { type DbPoolSizes, dbPoolSizesFromEnv } from "@restow/db";
 import { configureProductName, normalizeProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import { trustedProxyEntries } from "./lib/forwarded.js";
@@ -141,6 +141,33 @@ export interface Config {
   exports: ExportConfig;
   preview: PreviewConfig;
   pve: PveConfig;
+  /**
+   * `RESTOW_BAREMETAL_PREVIEW`: whole machine backups of Linux machines (docs/BAREMETAL.md 22).
+   * Off by default while the boot probe is not done: the job switch is hidden and refused, and
+   * `GET /agent/v1/config` sends no `wholeMachine`. File system snapshots (`fsSnapshot`) work
+   * either way.
+   */
+  baremetalPreview: boolean;
+  /**
+   * `RESTOW_PUBLIC_TLS_SPKI`: the SHA-256 (64 hex digits) of the public key of the certificate the
+   * recovery ISO sees at the public address, for an installation behind a load balancer with
+   * another certificate (docs/BAREMETAL.md 9.2). Unset: the server measures its own address when
+   * it issues a recovery code. Anything that is not 64 hex digits counts as unset.
+   */
+  publicTlsSpki?: string | null;
+  /**
+   * `RESTOW_RECOVERY_ISO_DIR`: a folder with the recovery ISO for installations without internet
+   * access (docs/BAREMETAL.md 8.5). The ISO is offered from the instance only when the file's
+   * SHA-256 equals the line of the signed `SHA256SUMS` of its release; unset, the wizard links the
+   * GitHub release.
+   */
+  recoveryIsoDir?: string | null;
+  /**
+   * `RESTOW_RECOVERY_ISO_STORE_DIR`: where the worker keeps the downloaded recovery ISO and its
+   * state (docs/BAREMETAL.md 26.13); default `/data/recovery-iso` in the data volume the api and
+   * the worker share. `<store>/import/` is a drop folder like `RESTOW_RECOVERY_ISO_DIR`.
+   */
+  recoveryIsoStoreDir?: string | null;
 }
 
 /**
@@ -307,6 +334,12 @@ function bool(env: Env, name: string): boolean {
   return (str(env, name) ?? "").toLowerCase() === "true";
 }
 
+/** A SHA-256 in hex (64 digits, lower case), else null. */
+function spkiHash(value: string | undefined): string | null {
+  const trimmed = value?.trim().toLowerCase().replace(/:/g, "");
+  return trimmed && /^[0-9a-f]{64}$/.test(trimmed) ? trimmed : null;
+}
+
 function toOperatingMode(value: string | undefined): OperatingMode | undefined {
   return value === "local" || value === "public" ? value : undefined;
 }
@@ -415,6 +448,10 @@ export function loadConfig(env: Env = process.env): Config {
       blockMapCacheBytes:
         positiveInt(env, "PVE_BLOCK_MAP_CACHE_MB", DEFAULT_PVE_BLOCK_MAP_CACHE_MB) * 1024 * 1024,
     },
+    baremetalPreview: bool(env, "RESTOW_BAREMETAL_PREVIEW"),
+    publicTlsSpki: spkiHash(str(env, "RESTOW_PUBLIC_TLS_SPKI")),
+    recoveryIsoDir: str(env, "RESTOW_RECOVERY_ISO_DIR") ?? null,
+    recoveryIsoStoreDir: recoveryIsoStoreDir(env),
   };
 }
 

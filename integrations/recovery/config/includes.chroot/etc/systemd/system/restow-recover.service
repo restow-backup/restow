@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The recovery program on the first console (or on the serial console that the
+# kernel parameter restow.console= names, which it reads itself). There is no
+# login without a password; a shell is a menu entry of the program.
+[Unit]
+Description=Restow recovery
+After=systemd-networkd.service systemd-udev-settle.service
+Wants=systemd-networkd.service
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/restow-recovery/restow-agent recover --console /dev/tty1
+Restart=on-failure
+RestartSec=2
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

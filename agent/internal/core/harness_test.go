@@ -44,6 +44,7 @@ backup)
   prev=""
   for a in "$@"; do
     if [ "$prev" = "--exclude-file" ] || [ "$prev" = "--iexclude-file" ]; then cat "$a" >> "$FAKE_DIR/excludes.txt"; fi
+    if [ "$prev" = "--files-from-raw" ]; then tr '\000' '\n' < "$a" > "$FAKE_DIR/paths.txt"; fi
     prev="$a"
   done
   if [ -n "$FAKE_BACKUP_SLEEP" ]; then

@@ -204,6 +204,22 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: Simulator (Chunk-Speicher im Arbeitsspeicher oder in einem Verzeichnis, Job test in ci.yml; kein Objektspeicher)
 - Stand: belegt
 
+### READY-014
+- Aussage: Bare Metal ist nur grün, wenn Stufe 1 der neuesten Sicherung des ganzen Rechners bestanden ist und eine bestandene Startprobe mit denselben Fingerabdrücken von Layout und Startkette höchstens 8 Tage alt ist. Danach ist der Rechner überfällig, eine Startprobe mit Befund macht ihn rot, und eine geänderte Startkette fällt auf „Layout geprüft“ zurück.
+- Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 12.4)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: packages/core/src/endpoints/baremetal/readiness.test.ts, packages/core/src/endpoints/baremetal/probe.test.ts, apps/api/src/features/endpoints/baremetal.pg.test.ts, apps/api/src/routes/v1/mapping.test.ts, apps/web/src/features/endpoints/components/baremetal-card.test.tsx
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; die Bewertungsregel zusätzlich als Einheitentest)
+- Stand: belegt
+
+### READY-015
+- Aussage: Ohne Wiederherstellungslabor mit KVM wird kein Rechner grün: Er bleibt bei „Layout geprüft“, und die Karte nennt den Grund (kein Labor, kein KVM).
+- Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 12.4)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: packages/core/src/endpoints/baremetal/readiness.test.ts, packages/core/src/endpoints/baremetal/probe.test.ts, apps/api/src/features/endpoints/baremetal.pg.test.ts, apps/web/src/features/endpoints/components/baremetal-card.test.tsx
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; die Bewertungsregel zusätzlich als Einheitentest)
+- Stand: belegt
+
 ## Wiederherstellungsprüfung (VERIFY)
 
 ### VERIFY-001
@@ -272,6 +288,15 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Tests: apps/worker/src/endpoints/endpoints.pg.test.ts, agent/internal/core/core_test.go, agent/integration/agent_test.go
 - Belegt gegen: echtes System (restic und PostgreSQL 16, Jobs test und agent in ci.yml; der Rechner selbst ist ein Linux-Prozess, kein macOS und kein Windows)
 - Stand: belegt
+
+### VERIFY-009
+- Aussage: Rechner: Eine Startprobe ist nur grün, wenn die Wiederherstellung des ISO mit einem Prüfbericht ohne Fehler endete und das wiederhergestellte System auf der seriellen Konsole `RESTOW-PROBE-OK` meldet. Rot ist sie nur mit Beleg (ein festes Fehlermuster beim Start, eine fehlgeschlagene Prüfung nach der Wiederherstellung, ein Problem der Sicherung); alles andere (das Labor, ein Zeitlimit ohne Muster) beweist nichts und wird wiederholt. Jedes Ergebnis wird einmal und nur für eine Startprobe angenommen, die das Labor übernommen hat.
+- Fundstelle: docs/BAREMETAL.md (Abschnitt 12.3)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: packages/core/src/endpoints/baremetal/probe.test.ts, apps/worker/src/endpoints/boot-probe.pg.test.ts, scripts/recovery-e2e/run.test.mjs, .github/workflows/ci.yml
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; der Start echter Sicherungen im Labor unter QEMU/KVM in den Fällen P1 und P2 des Jobs recovery-e2e in ci.yml, P3 nachts; die Bewertungsregel zusätzlich als Einheitentest)
+- Stand: belegt
+- Hinweis: recovery-e2e läuft nur, wenn sich ISO-, Agent- oder Laborpfade ändern und das ISO gebaut wird (das Paketverzeichnis des ISO hat Einträge); bis dahin belegen P1 und P2 nichts.
 
 ## Speicherprüfung (SCRUB)
 
@@ -704,6 +729,14 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Stand: belegt
 - Hinweis: Für diesen Fall gibt es keinen Alarm: Der Aufbewahrungsbericht des Rechners sagt „Retention could not free space: target full“, eine Benachrichtigung wird nicht ausgelöst. Der Alarm kommt erst mit der fehlgeschlagenen Sicherung (FAULT-012) oder, für lokale Platten, mit `installation.disk_low` (ALERT-006).
 
+### RETAIN-016
+- Aussage: Solange eine Startprobe des Labors das Repository eines Rechners liest, laufen dort weder Aufbewahrung noch das Löschen der Sicherungen; eine Startprobe, die ihre Zeit überschreitet, endet ohne Alarm.
+- Fundstelle: docs/BAREMETAL.md (Abschnitte 9.7 und 12.3)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/worker/src/endpoints/boot-probe.pg.test.ts
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
+- Stand: belegt
+
 ## Verschlüsselung, Schlüssel und Mandantentrennung (CRYPT)
 
 ### CRYPT-001
@@ -746,7 +779,13 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
 - Stand: belegt
 
-## Kopien der Repositories (COPY)
+### CRYPT-006
+- Aussage: Das Wiederherstellungslabor bekommt für eine Startprobe einen Einmal-Code, der an die Adresse der Installation gebunden ist, und nie das Passwort oder die Zugangsdaten eines Repositorys; gespeichert wird nur der Hash des Code-Nachweises. Eine Startprobe wird genau einmal übernommen, auch wenn zwei Labore gleichzeitig fragen. Das Labor selbst hat weder Datenbankzugang noch Hauptschlüssel: Sein Image enthält vom Server nur die Dateien des Labors, sein Compose-Dienst bekommt nur sein Token.
+- Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 25.C7), licenses/restow-lab-NOTICES.md
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/worker/src/endpoints/boot-probe.pg.test.ts, apps/worker/src/lab/lab.test.ts, scripts/docker/lab-image.test.mjs
+- Belegt gegen: beides (PostgreSQL 16 und die Dateien des Images und der Compose-Dienste, Jobs test und docker in ci.yml)
+- Stand: belegt
 
 ### COPY-001
 - Aussage: Die Speicherprüfung bringt ein Kopie-Ziel auf den Stand des primären: fehlende Schlüssel, Manifeste und Packs werden kopiert. Nach einer Sicherung liegt das Manifest auch auf den Kopien.
@@ -919,6 +958,14 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: echtes System (der Release-Stack in Docker im Smoke-Check 1, smoke.yml jede Nacht und release.yml vor jedem Release; PostgreSQL 16 im Job test in ci.yml)
 - Stand: belegt
 - Hinweis: Der Schritt „upgrade path“ des Smoke-Checks braucht die Images des vorherigen Release (`--previous-image`). Die nächtliche smoke.yml übergibt sie nicht; dort wird der Schritt als nicht gelaufen gemeldet. Er läuft nur im Release.
+
+### UPDATE-018
+- Aussage: Läuft das Wiederherstellungslabor (`RESTOW_LAB_IMAGE` in `.env`), bewegt der opt-in Updater sein Image auf das Labor-Image der Zielversion: Signatur und Digest werden wie bei den anderen Images geprüft, bevor etwas heruntergeladen wird; ein ungültiges Labor-Image beendet den Lauf unverändert. Bei einem Rückfall ohne gelaufene Migration steht die alte Zeile Byte für Byte wieder in `.env` und das Labor läuft wieder mit ihr. Eine Installation ohne Labor bleibt unberührt.
+- Fundstelle: docs/UPDATING.md (Abschnitt „The recovery lab“), docs/BAREMETAL.md (Abschnitt 26.15), CHANGELOG.md (Upgrade Notes)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/api/src/updater/engine-lab.test.ts, apps/api/src/updater/config.test.ts, apps/api/src/features/updates/feed.test.ts, deploy/install/test.sh
+- Belegt gegen: Simulator (simulierte Docker-Engine und simulierte Signaturprüfung, Job test in ci.yml; der Nachweis gegen einen echten Docker-Daemon, scripts/updater-e2e/run.mjs, läuft in keinem Workflow und kennt das Labor nicht)
+- Stand: belegt
 
 ## Lizenzschlüssel und Editionen (LICENSE)
 
@@ -1118,6 +1165,14 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Fundstelle: docs/STORAGE.md (Abschnitt „Unusually large runs“), docs/PVE.md (Abschnitt „Jobs, backups, retention“, „Unusually large backups“), CHANGELOG.md (0.5.0, #99)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: apps/api/src/features/pve/vm-size-guard.pg.test.ts
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
+- Stand: belegt
+
+### ALERT-012
+- Aussage: Ein roter Bericht von Stufe 1 oder der Startprobe löst `baremetal.red` einmal je Episode aus und jedes Mal `job.failed`; besteht der Rechner danach wieder, folgt `baremetal.recovered`. Ist die bestandene Startprobe älter als 8 Tage, kommt `baremetal.overdue` einmal.
+- Fundstelle: docs/BAREMETAL.md (Abschnitt 12.6), packages/i18n/resources/en/reports.json (`events.baremetal`, `eventHints.baremetal`)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/worker/src/endpoints/boot-probe.pg.test.ts
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
 - Stand: belegt
 

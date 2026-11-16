@@ -1,0 +1,7 @@
+DEVNAME=/dev/nvme0n1p1
+UUID=1829-3A4B
+BLOCK_SIZE=512
+SEC_TYPE=msdos
+VERSION=FAT32
+TYPE=vfat
+USAGE=filesystem

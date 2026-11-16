@@ -648,7 +648,9 @@
         "fetch": {
           "pulling": "Das Image von Version {version} wird heruntergeladen",
           "pulling_web": "Das Web-Image von Version {version} wird heruntergeladen",
+          "pulling_lab": "Das Image des Wiederherstellungslabors von Version {version} wird heruntergeladen",
           "web_not_published": "Das Release hat kein Web-Image; das aktuelle bleibt",
+          "lab_not_published": "Das Release hat kein Image des Wiederherstellungslabors; das Labor behält seines",
           "verifying_signatures": "Signatur des Releases wird geprüft",
           "verifying_digests": "Heruntergeladene Images werden geprüft",
           "requesting_token": "Zugriffstoken wird angefordert",
@@ -673,6 +675,7 @@
           "waiting_for_api": "Warten auf die Antwort von Version {version}",
           "starting_workers": "Worker und Scheduler werden gestartet",
           "starting_edge": "Webserver wird gestartet",
+          "starting_lab": "Wiederherstellungslabor wird gestartet",
           "verifying_services": "Es wird geprüft, ob alle Dienste laufen"
         },
         "finish": {

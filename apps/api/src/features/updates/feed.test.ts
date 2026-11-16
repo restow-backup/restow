@@ -187,6 +187,16 @@ describe("published image digests", () => {
       expect(digestsOf(`restow-web-community: ${D4}\nrestow: ${D1}`)).toEqual({ app: D1 });
     });
 
+    it("reads the recovery lab's line for both builds: one lab image serves both [UPDATE-018]", () => {
+      const D5 = `sha256:${"e".repeat(64)}`;
+      const withLab = `${notes}\nrestow-lab: ${D5}`;
+      expect(digestsOf(withLab)).toEqual({ app: D1, web: D2, lab: D5 });
+      expect(digestsOf(withLab, "community")).toEqual({ app: D3, web: D4, lab: D5 });
+      expect(toRelease({ tag_name: "v0.2.0", body: withLab })?.digests.lab).toBe(D5);
+      // Not a prefix match: a line for another image is no lab digest.
+      expect(digestsOf(`restow-labs: ${D5}\nrestow-lab-community: ${D5}`)).toEqual({});
+    });
+
     it("parses the Community digests onto the release and through the feed", async () => {
       const entry = { tag_name: "v0.2.0", body: notes };
       expect(toRelease(entry, "community")?.digests).toEqual({ app: D3, web: D4 });

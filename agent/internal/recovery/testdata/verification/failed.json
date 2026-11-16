@@ -1,0 +1,103 @@
+{
+  "format": "restow-verify-v1",
+  "result": "failed",
+  "snapshotId": "4f2a9c1d00000000000000000000000000000000000000000000000000000000",
+  "planSha256": "9b1eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "startedAt": "2026-11-05T09:12:00Z",
+  "finishedAt": "2026-11-05T10:40:13Z",
+  "restoreErrors": 2,
+  "checks": [
+    {
+      "id": "restic_verify",
+      "result": "warning",
+      "findings": [
+        {
+          "code": "restore_file_errors",
+          "ref": "",
+          "message": "2 files could not be restored",
+          "params": {}
+        }
+      ],
+      "evidence": {
+        "errors": 2
+      }
+    },
+    {
+      "id": "storage_stack",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "fstab",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "crypttab",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "initramfs",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "boot_entries",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "boot_config",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "identity_conflicts",
+      "result": "failed",
+      "findings": [
+        {
+          "code": "old_disk_present",
+          "ref": "/dev/sdc",
+          "message": "/dev/sdc carries fs f3000000-0000-4000-8000-000000000001 of this system",
+          "params": {
+            "model": "Old SSD",
+            "identity": "wwn.5000c500a1b2c3d4"
+          }
+        }
+      ],
+      "evidence": {
+        "others": 1
+      }
+    },
+    {
+      "id": "mount_points",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    },
+    {
+      "id": "secure_boot",
+      "result": "ok",
+      "findings": [],
+      "evidence": {}
+    }
+  ],
+  "hints": [
+    {
+      "code": "old_disk_present",
+      "params": {
+        "model": "Old SSD",
+        "identity": "wwn.5000c500a1b2c3d4"
+      }
+    }
+  ],
+  "fixups": [],
+  "notAdaptedKernels": []
+}

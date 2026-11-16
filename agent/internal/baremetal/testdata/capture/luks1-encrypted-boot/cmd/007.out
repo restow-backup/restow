@@ -1,0 +1,25 @@
+LUKS header information for /dev/sda2
+
+Version:       	1
+Cipher name:   	aes
+Cipher mode:   	xts-plain64
+Hash spec:     	sha256
+Payload offset:	4096
+MK bits:       	512
+MK digest:     	SECRETMKDIGEST 0a 1b 2c 3d 4e 5f 60 71 82 93 a4 b5 c6 d7 e8 f9
+MK salt:       	SECRETMKSALT 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff 00
+MK iterations: 	123456
+UUID:          	3f2a1b0c-9d8e-4f7a-8b6c-5d4e3f2a1b0c
+
+Key Slot 0: ENABLED
+	Iterations:         	2000000
+	Salt:               	SECRETSLOTSALT a1 b2 c3 d4 e5 f6 07 18 29 3a 4b 5c 6d 7e 8f 90
+	Key material offset:	8
+	AF stripes:            	4000
+Key Slot 1: DISABLED
+Key Slot 2: DISABLED
+Key Slot 3: DISABLED
+Key Slot 4: DISABLED
+Key Slot 5: DISABLED
+Key Slot 6: DISABLED
+Key Slot 7: DISABLED

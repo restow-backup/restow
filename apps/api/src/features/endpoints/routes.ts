@@ -3,6 +3,7 @@ import { endpointPrefix } from "@restow/core";
 import { endpoints } from "@restow/db";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
 import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
@@ -29,23 +30,43 @@ import {
   updateTenantAgentPolicy,
 } from "./agent-policy.js";
 import type { EndpointActor } from "./audit.js";
+import { getBaremetalState, getLayout, requestBootProbe } from "./baremetal.js";
 import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { createRebindToken } from "./rebind.js";
+import {
+  approveRecovery,
+  cancelRecovery,
+  extendRecoveryCode,
+  getRecovery,
+  issueRecoveryCode,
+  listRecoveries,
+  revokeRecoveryCode,
+  setRecoverySshKeys,
+} from "./recovery-codes.js";
 import { cancelRemoval, listRemovals, removeEndpoint } from "./removal.js";
 import {
   agentPolicyLevelSchema,
   agentUpdatesSchema,
   browseQuerySchema,
   createDownloadSchema,
+  createRebindTokenSchema,
   createTaskSchema,
   createTokenSchema,
   downloadParamSchema,
   endpointIdParamSchema,
+  extendRecoveryCodeSchema,
+  issueRecoveryCodeSchema,
+  layoutParamSchema,
   listEndpointsQuerySchema,
   listRunsQuerySchema,
   listTokensQuerySchema,
   MAX_DOWNLOAD_BODY_BYTES,
+  recoveryCodeParamSchema,
+  recoveryLogQuerySchema,
+  recoveryParamSchema,
+  recoverySshKeysSchema,
   removeEndpointSchema,
   runParamSchema,
   snapshotImmutabilityParamSchema,
@@ -75,6 +96,7 @@ import {
   revealRepositoryPassword,
   revokeEndpoint,
   revokeEnrollmentToken,
+  type SnapshotReader,
   setAgentUpdates,
   updateEndpoint,
 } from "./service.js";
@@ -100,6 +122,8 @@ import {
  * up now included, stays with the admins.
  *
  *   GET    /?profile=                           servers and clients with status and readiness
+ *   GET    /capabilities                        what this installation offers for machines: bare metal
+ *                                               (RESTOW_BAREMETAL_PREVIEW), for the texts of the list
  *   GET    /tokens?state=valid|all              enrollment tokens: the valid ones (default), or every state
  *   POST   /tokens                              create a one-time token; shown once, with the commands
  *   DELETE /tokens/:tokenId                     revoke an unused token
@@ -135,6 +159,26 @@ import {
  *   GET    /:id/browse?snapshotId=&path=&cursor=  one page of a folder of a snapshot
  *   POST   /:id/downloads                       check selected files and folders, prepare a ZIP (paths in the body)
  *   GET    /:id/downloads/:downloadId           start the prepared ZIP: streamed, audited first, once
+ *   GET    /:id/baremetal                       bare metal (preview): state, the newest layout's summary
+ *                                               and verdict, the snapshot hint (restore operators too)
+ *   GET    /:id/baremetal/layouts/:layoutId     one layout with its full manifest (serial numbers; admins)
+ *   POST   /:id/baremetal/probe                 plan a boot probe of the newest whole machine backup
+ *                                               in the lab now (docs/BAREMETAL.md 12.3; admins)
+ *   POST   /:id/recovery-codes                  issue a recovery code for the ISO, shown once (bare metal,
+ *                                               docs/BAREMETAL.md 9.2; admins, recent sign-in)
+ *   POST   /:id/recovery-codes/:codeId/revoke   revoke a code nobody redeemed (admins)
+ *   POST   /:id/recovery-codes/:codeId/extend   extend a code and its session, at most 48 hours after
+ *                                               it was issued (admins, recent sign-in)
+ *   GET    /:id/recoveries                      the machine's codes and sessions (admins)
+ *   GET    /:id/recoveries/:recoveryId?logAfter=&logLimit=  one with match code, hardware, progress,
+ *                                               SSH host keys, verification and a page of its log
+ *   POST   /:id/recoveries/:recoveryId/approve  release a session after its exchange (admins, recent sign-in)
+ *   POST   /:id/recoveries/:recoveryId/cancel   reject a waiting session or end a running one (admins)
+ *   PUT    /:id/recoveries/:recoveryId/ssh-keys public SSH keys for the ISO's remote access (admins,
+ *                                               recent sign-in)
+ *   POST   /:id/rebind-token                    a token that gives the machine a new agent secret, shown
+ *                                               once with the install commands (docs/BAREMETAL.md 11;
+ *                                               admins, recent sign-in)
  *   GET    /:id/sql                             SQL Server (W2a): instances, sign-in with the login
  *                                               script, databases with rating, backup and check
  *   GET    /:id/sql/databases/:databaseId/backups  the backups of one database
@@ -143,6 +187,11 @@ import {
  *   POST   /:id/sql/inventory                   "Check sign-in": the agent connects once and reports
  *   GET    /:id/sql/backups/:backupId/restore-script  the restore script for another machine (audited)
  *   POST   /:id/sql/databases/:databaseId/tde-confirm  the TDE certificate is backed up elsewhere (audited)
+ *
+ * The agent's state file (agent secret, repository password) is hidden from browsing and never
+ * handed out; the LUKS key files a machine's layout names are hidden from restore operators and
+ * handed to an admin only after a recent sign-in, audited (docs/BAREMETAL.md 5.4, service.ts
+ * `checkSelection`).
  *
  * Setting or changing a hook (it runs as root on the machine) and showing the
  * repository password (it opens every backup of the machine without Restow)
@@ -199,12 +248,25 @@ function actorOf(c: Context<TenantEnv>): EndpointActor {
   return { label: user.email, userId: user.id, ip: clientIp(c) };
 }
 
+/** The actor of a read of backed-up files, with what it may read of a snapshot's secrets. */
+function readerOf(c: Context<TenantEnv>): SnapshotReader {
+  return {
+    ...actorOf(c),
+    role: mayConfigure(c) ? "admin" : "restore",
+    confirmRecentSignIn: () => assertRecentSignIn(c.get("auth").session),
+  };
+}
+
 endpointsRoutes.get("/", restorer, async (c) => {
   const query = parseOrProblem(listEndpointsQuerySchema, c.req.query());
   return c.json(await listEndpoints(db, c.get("tenantId"), query));
 });
 
 // Static paths first, so "tokens" is never read as an endpoint id.
+endpointsRoutes.get("/capabilities", restorer, (c) =>
+  c.json({ baremetalPreview: appConfig.baremetalPreview }),
+);
+
 endpointsRoutes.get("/tokens", admin, async (c) => {
   const query = parseOrProblem(listTokensQuerySchema, c.req.query());
   return c.json(await listEnrollmentTokens(db, c.get("tenantId"), query));
@@ -350,7 +412,7 @@ endpointsRoutes.post("/:id/tasks", restorer, async (c) => {
       extensions: { requiredRole: "tenant_admin", role: c.get("role") },
     });
   }
-  const result = await createTask(db, c.get("tenantId"), id, input, actorOf(c));
+  const result = await createTask(db, c.get("tenantId"), id, input, readerOf(c));
   return c.json(result, result.alreadyQueued ? 200 : 202);
 });
 
@@ -425,8 +487,117 @@ endpointsRoutes.get("/:id/browse", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const query = parseOrProblem(browseQuerySchema, c.req.query());
   return c.json(
-    await browseSnapshot(db, c.get("tenantId"), id, query, actorOf(c), c.req.raw.signal),
+    await browseSnapshot(db, c.get("tenantId"), id, query, readerOf(c), c.req.raw.signal),
   );
+});
+
+endpointsRoutes.get("/:id/baremetal", restorer, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await getBaremetalState(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.post("/:id/baremetal/probe", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await requestBootProbe(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+endpointsRoutes.get("/:id/baremetal/layouts/:layoutId", admin, async (c) => {
+  const { id, layoutId } = parseOrProblem(layoutParamSchema, c.req.param());
+  return c.json(await getLayout(db, c.get("tenantId"), id, layoutId));
+});
+
+// Bare metal recovery (docs/BAREMETAL.md 9, 11). A busy repository (approve, 503) asks the web
+// app to come back in half a minute.
+function retryAfterOnBusy(c: Context, error: unknown): never {
+  if (error instanceof ProblemError && error.type === ENDPOINT_PROBLEMS.repositoryLocked) {
+    c.header("retry-after", "30");
+  }
+  throw error;
+}
+
+endpointsRoutes.post("/:id/recovery-codes", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, issueRecoveryCodeSchema);
+  // The code reads every backup of the machine: a sign-in from the last minutes.
+  assertRecentSignIn(c.get("auth").session);
+  const issued = await issueRecoveryCode(
+    db,
+    c.get("tenantId"),
+    id,
+    input,
+    actorOf(c),
+    await instanceUrl(c),
+  );
+  // The response carries the code: nothing may keep a copy.
+  c.header("cache-control", "no-store");
+  return c.json(issued, 201);
+});
+
+endpointsRoutes.post("/:id/recovery-codes/:codeId/revoke", admin, async (c) => {
+  const { id, codeId } = parseOrProblem(recoveryCodeParamSchema, c.req.param());
+  return c.json(await revokeRecoveryCode(db, c.get("tenantId"), id, codeId, actorOf(c)));
+});
+
+endpointsRoutes.post("/:id/recovery-codes/:codeId/extend", admin, async (c) => {
+  const { id, codeId } = parseOrProblem(recoveryCodeParamSchema, c.req.param());
+  const { validityHours } = await parseJsonBody(c.req, extendRecoveryCodeSchema);
+  assertRecentSignIn(c.get("auth").session);
+  return c.json(
+    await extendRecoveryCode(db, c.get("tenantId"), id, codeId, validityHours, actorOf(c)),
+  );
+});
+
+endpointsRoutes.get("/:id/recoveries", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await listRecoveries(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.get("/:id/recoveries/:recoveryId", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  const page = parseOrProblem(recoveryLogQuerySchema, c.req.query());
+  c.header("cache-control", "no-store");
+  return c.json(await getRecovery(db, c.get("tenantId"), id, recoveryId, page));
+});
+
+endpointsRoutes.post("/:id/recoveries/:recoveryId/approve", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  // Releasing hands the ISO the repository password: a sign-in from the last minutes.
+  assertRecentSignIn(c.get("auth").session);
+  try {
+    return c.json(await approveRecovery(db, c.get("tenantId"), id, recoveryId, actorOf(c)));
+  } catch (error) {
+    return retryAfterOnBusy(c, error);
+  }
+});
+
+endpointsRoutes.post("/:id/recoveries/:recoveryId/cancel", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  return c.json(await cancelRecovery(db, c.get("tenantId"), id, recoveryId, actorOf(c)));
+});
+
+endpointsRoutes.put("/:id/recoveries/:recoveryId/ssh-keys", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  const { keys } = await parseJsonBody(c.req, recoverySshKeysSchema);
+  assertRecentSignIn(c.get("auth").session);
+  return c.json(await setRecoverySshKeys(db, c.get("tenantId"), id, recoveryId, keys, actorOf(c)));
+});
+
+endpointsRoutes.post("/:id/rebind-token", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, createRebindTokenSchema);
+  // The token gives lasting access like an installed agent: a sign-in from the last minutes.
+  assertRecentSignIn(c.get("auth").session);
+  const created = await createRebindToken(
+    db,
+    c.get("tenantId"),
+    id,
+    input,
+    actorOf(c),
+    await instanceUrl(c),
+  );
+  // The response carries the token: nothing may keep a copy.
+  c.header("cache-control", "no-store");
+  return c.json(created, 201);
 });
 
 /**
@@ -463,7 +634,7 @@ endpointsRoutes.post("/:id/downloads", restorer, async (c) => {
     c.get("tenantId"),
     id,
     input,
-    actorOf(c),
+    readerOf(c),
     c.req.raw.signal,
   );
   c.header("cache-control", "no-store");
@@ -481,7 +652,7 @@ endpointsRoutes.get("/:id/downloads/:downloadId", restorerForDownload, async (c)
     c.get("tenantId"),
     id,
     downloadId,
-    actorOf(c),
+    readerOf(c),
     c.req.raw.signal,
   );
   const fileName = download.fileName.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 120) || "files.zip";

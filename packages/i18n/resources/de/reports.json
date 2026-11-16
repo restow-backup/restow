@@ -456,6 +456,11 @@
       "unproven": "Startprüfung ohne Nachweis",
       "skipped": "Kein Ergebnis der Startprüfung"
     },
+    "baremetal": {
+      "red": "Bare-Metal-Prüfung nicht bestanden",
+      "recovered": "Bare-Metal-Prüfung wieder bestanden",
+      "overdue": "Startprobe überfällig"
+    },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
       "repaired": "Speicherschaden behoben"
@@ -465,6 +470,14 @@
       "suspicious_snapshot": "Verdächtiger Snapshot eines Servers oder Clients",
       "storage_quota": "Speicherbudget von Servern und Clients",
       "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt",
+      "recovery": {
+        "started": "Wiederherstellungscode eines Rechners eingelöst",
+        "failed": "Bare-Metal-Wiederherstellung fehlgeschlagen"
+      },
+      "recovery_code": {
+        "rejected": "Toter Wiederherstellungscode versucht"
+      },
+      "rebound": "Rechner mit neuem Agent-Secret wieder angebunden",
       "sql_red": "Die Prüfung einer SQL-Server-Sicherung hat Schäden gefunden",
       "sql_recovered": "Eine SQL-Server-Sicherung wurde wieder ohne Fehler geprüft",
       "sql_overdue": "Eine SQL-Server-Sicherung wurde seit mehr als 8 Tagen nicht geprüft",
@@ -531,6 +544,11 @@
       "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert.",
       "skipped": "Der Job eines Gastes sieht Startprüfungen vor, aber länger, als sein Zeitplan erlaubt (zwei Tage bei Prüfung nach jeder Sicherung, acht Tage bei wöchentlicher), wurde jede Startprüfung übersprungen oder konnte nicht durchgeführt werden. Die Meldung nennt den letzten Grund."
     },
+    "baremetal": {
+      "red": "Die neueste Sicherung des ganzen Rechners eines Servers oder Clients ließe sich nicht auf neuer Hardware wiederherstellen: Stufe 1 der Bare-Metal-Prüfung oder die Startprobe im Wiederherstellungslabor hat ein Problem der Sicherung gefunden. Einmal je Episode.",
+      "recovered": "Ein Server oder Client, dessen Bare-Metal-Prüfung rot war, besteht sie wieder.",
+      "overdue": "Die letzte bestandene Startprobe einer Sicherung des ganzen Rechners ist älter als 8 Tage; der Rechner gilt damit nicht mehr als nachweislich startfähig."
+    },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
       "repaired": "Beschädigte Pack-Dateien wurden aus einer intakten Kopie wiederhergestellt."
@@ -540,6 +558,14 @@
       "suspicious_snapshot": "Ein Snapshot ist aufgetaucht, den kein Sicherungslauf gemeldet hat, oder einer, der in der Zukunft datiert ist. Die Aufbewahrung behält ihn; der Rechner könnte kompromittiert sein.",
       "storage_quota": "Die Sicherungsdaten eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
       "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor.",
+      "recovery": {
+        "started": "Das Recovery-ISO hat einen Wiederherstellungscode eines Rechners eingelöst. Die Sitzung wartet darauf, dass ein Administrator sie freigibt, oder liest die Sicherungen des Rechners, wenn der Code ohne Freigabe der Sitzung ausgestellt wurde. Hat hier niemand eine Wiederherstellung begonnen, lehnen Sie die Sitzung sofort ab oder beenden Sie sie.",
+        "failed": "Eine Bare-Metal-Wiederherstellung ist fehlgeschlagen: Das Recovery-ISO hat es so gemeldet, niemand hat die Sitzung innerhalb von 30 Minuten freigegeben, oder das ISO meldet sich nach Ablauf des Codes nicht mehr."
+      },
+      "recovery_code": {
+        "rejected": "Jemand hat einen Wiederherstellungscode versucht, der abgelaufen, schon eingelöst oder widerrufen war. Das ist ein Zeichen, dass der Code weitergegeben oder gestohlen wurde."
+      },
+      "rebound": "Ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret bekommen, nach einer Wiederherstellung oder Neuinstallation. Seine bisherige Installation hat keinen Zugang mehr; hat ihn hier niemand wieder angebunden, sperren Sie den Rechner.",
       "sql_red": "Die Prüfung hat die neueste Sicherung einer Datenbank aus den Sicherungsdaten zurückgeholt, und DBCC CHECKDB, die Wiederherstellung oder die Prüfsumme hat Schäden gefunden.",
       "sql_recovered": "Eine Datenbank, deren letzte Prüfung Schäden fand, wurde wieder ohne Fehler geprüft.",
       "sql_overdue": "Seit mehr als 8 Tagen kam keine Prüfung einer gesicherten Datenbank ohne Fehler zum Ergebnis.",
@@ -759,6 +785,11 @@
       "unproven": "Startprüfung ohne Nachweis: {object}",
       "skipped": "Kein Ergebnis der Startprüfung: {object}"
     },
+    "baremetal": {
+      "red": "Bare-Metal-Prüfung nicht bestanden: {object}",
+      "recovered": "Bare-Metal-Prüfung wieder bestanden: {object}",
+      "overdue": "Startprobe überfällig: {object}"
+    },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
       "repaired": "Speicherschaden behoben"
@@ -768,6 +799,14 @@
       "suspicious_snapshot": "Verdächtiger Snapshot: {object}",
       "storage_quota": "Speicherbudget: {object}",
       "repository_locked": "Sicherungsdaten gesperrt: {object}",
+      "recovery": {
+        "started": "Wiederherstellungscode eingelöst: {object}",
+        "failed": "Wiederherstellung fehlgeschlagen: {object}"
+      },
+      "recovery_code": {
+        "rejected": "Toter Wiederherstellungscode versucht: {object}"
+      },
+      "rebound": "Rechner wieder angebunden: {object}",
       "sql_red": "SQL-Server-Prüfung hat Schäden gefunden: {object}",
       "sql_recovered": "SQL-Server-Prüfung wieder ohne Fehler: {object}",
       "sql_overdue": "SQL-Server-Prüfung überfällig: {object}",

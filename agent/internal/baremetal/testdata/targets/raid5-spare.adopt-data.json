@@ -1,0 +1,237 @@
+{
+  "disks": [
+    {
+      "driverChain": [
+        "nvme",
+        "pcieport"
+      ],
+      "driverModaliases": [
+        "pci:v0000144Dd0000A80Asv0000144Dsd0000A801bc01sc08i02",
+        "pci:v00008086d0000A33Csv00008086sd00007270bc06sc04i00"
+      ],
+      "eui64": null,
+      "id": "t0",
+      "identity": "serial.NEWSYS-1",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "Samsung SSD 980 PRO 1TB",
+      "nguid": null,
+      "nsid": 1,
+      "path": "/dev/nvme0n1",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "NEWSYS",
+      "signatures": [],
+      "sizeBytes": 256060514304,
+      "transport": "nvme",
+      "wwn": null,
+      "zoned": "none"
+    },
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t1",
+      "identity": "wwn.50014ee2b5c6d7ea",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sda",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "WD-WCC4ESDA",
+      "signatures": [
+        {
+          "kind": "disk_guid",
+          "uuid": "9394A5B6-C7D8-49EA-FB0C-1D2E3F405160"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 1,
+          "uuid": "a8200000-0000-4000-8000-000000000000"
+        },
+        {
+          "kind": "md",
+          "partNumber": 1,
+          "uuid": "c8000000:00004000:80000000:00000127"
+        },
+        {
+          "kind": "pv",
+          "uuid": "pvraid-0000"
+        },
+        {
+          "kind": "fs",
+          "type": "xfs",
+          "uuid": "a8000000-0000-4000-8000-0000000000d1"
+        }
+      ],
+      "sizeBytes": 4000787030016,
+      "transport": "sata",
+      "wwn": "0x50014ee2b5c6d7ea",
+      "zoned": "none"
+    },
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t2",
+      "identity": "wwn.50014ee2b5c6d7eb",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sdb",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "WD-WCC4ESDB",
+      "signatures": [
+        {
+          "kind": "disk_guid",
+          "uuid": "9394A5B6-C7D8-49EA-FB0C-1D2E3F405161"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 1,
+          "uuid": "a8200000-0000-4000-8000-000000000001"
+        },
+        {
+          "kind": "md",
+          "partNumber": 1,
+          "uuid": "c8000000:00004000:80000000:00000127"
+        }
+      ],
+      "sizeBytes": 4000787030016,
+      "transport": "sata",
+      "wwn": "0x50014ee2b5c6d7eb",
+      "zoned": "none"
+    },
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t3",
+      "identity": "wwn.50014ee2b5c6d7ec",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sdc",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "WD-WCC4ESDC",
+      "signatures": [
+        {
+          "kind": "disk_guid",
+          "uuid": "9394A5B6-C7D8-49EA-FB0C-1D2E3F405162"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 1,
+          "uuid": "a8200000-0000-4000-8000-000000000002"
+        },
+        {
+          "kind": "md",
+          "partNumber": 1,
+          "uuid": "c8000000:00004000:80000000:00000127"
+        }
+      ],
+      "sizeBytes": 4000787030016,
+      "transport": "sata",
+      "wwn": "0x50014ee2b5c6d7ec",
+      "zoned": "none"
+    },
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t4",
+      "identity": "wwn.50014ee2b5c6d7ed",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sdd",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "WD-WCC4ESDD",
+      "signatures": [
+        {
+          "kind": "disk_guid",
+          "uuid": "9394A5B6-C7D8-49EA-FB0C-1D2E3F405163"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 1,
+          "uuid": "a8200000-0000-4000-8000-000000000003"
+        },
+        {
+          "kind": "md",
+          "partNumber": 1,
+          "uuid": "c8000000:00004000:80000000:00000127"
+        }
+      ],
+      "sizeBytes": 4000787030016,
+      "transport": "sata",
+      "wwn": "0x50014ee2b5c6d7ed",
+      "zoned": "none"
+    }
+  ],
+  "firmware": {
+    "db": [
+      {
+        "sha256": "aba475c8f0db845aedd55a8060b42f6a1d9997c9a40bebbfc00812e46b58a573",
+        "subject": "CN=Microsoft Corporation UEFI CA 2011,O=Restow Test"
+      },
+      {
+        "sha256": "dbb14a8ee716836045327b288efe274d7c24f9d24964ac6041db36973cd4115c",
+        "subject": "CN=Microsoft Windows Production PCA 2011,O=Restow Test"
+      }
+    ],
+    "dbx": null,
+    "mode": "uefi",
+    "mokList": [],
+    "sbatLevel": [
+      "sbat,1,2024010900",
+      "shim,4",
+      "grub,3",
+      "grub.debian,4"
+    ],
+    "secureBoot": false,
+    "setupMode": false
+  },
+  "format": "restow-plan-target-v1",
+  "kind": "hardware",
+  "nics": [],
+  "others": [],
+  "ramBytes": 0
+}

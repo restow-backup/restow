@@ -106,3 +106,95 @@ export function restoreTargetIssue(os: string, value: string): RestoreTargetIssu
   if (CONTROL.test(value)) return "control_characters";
   return os === "windows" ? windowsIssue(value) : unixIssue(value);
 }
+
+// ---------------------------------------------------------------------------
+// Files a restore does not hand out (docs/BAREMETAL.md 5.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * The agent's state file (with the agent secret and the repository password) and the temporary
+ * files of its atomic save, in the form a snapshot names them: Linux (and the Proxmox VE agent),
+ * macOS in its link, `/private` and Data volume forms, Windows under its drive letter. From 0.5.0
+ * no agent backs them up; older snapshots still hold them. `*` stands for any part of one name.
+ */
+export const AGENT_STATE_SNAPSHOT_PATTERNS = [
+  "/etc/restow-agent/state.json",
+  "/etc/restow-agent/.state-*.tmp",
+  "/etc/restow-pve/state.json",
+  "/etc/restow-pve/.state.json.*",
+  "/private/etc/restow-agent/state.json",
+  "/private/etc/restow-agent/.state-*.tmp",
+  "/System/Volumes/Data/private/etc/restow-agent/state.json",
+  "/System/Volumes/Data/private/etc/restow-agent/.state-*.tmp",
+  "/C/ProgramData/Restow/state/state.json",
+  "/C/ProgramData/Restow/state/.state-*.tmp",
+] as const;
+
+function patternRegex(pattern: string): RegExp {
+  const body = pattern
+    .split("*")
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[^/]*");
+  // Compared without case: macOS and Windows file systems ignore it, and a differently cased
+  // copy of the file on Linux is no file anybody needs either.
+  return new RegExp(`^${body}$`, "i");
+}
+
+const AGENT_STATE_REGEXES = AGENT_STATE_SNAPSHOT_PATTERNS.map(patternRegex);
+
+/** A snapshot path in plain form: one leading slash, no empty, "." or trailing segment. */
+export function plainSnapshotPath(path: string): string {
+  const parts: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(segment);
+  }
+  return `/${parts.join("/")}`;
+}
+
+/** Whether a snapshot path is the agent's state file or one of its temporary copies. */
+export function isAgentStatePath(path: string): boolean {
+  const plain = plainSnapshotPath(path);
+  return AGENT_STATE_REGEXES.some((regex) => regex.test(plain));
+}
+
+export type RestoreSelectionIssue = "agent_state" | "key_file";
+
+/**
+ * Why a selected path may not be handed out, or null. The agent's state file is locked for
+ * everybody (a machine reset with an old secret would clash with its copy). The LUKS key files of
+ * the machine's layout (`keyFiles`, @restow/core `keyFilesOf`) are locked for the restore role;
+ * an admin may have them after a recent sign-in, audited, and gets null here.
+ */
+export function restoreSelectionIssue(
+  path: string,
+  access: { role: "admin" | "restore"; keyFiles: readonly string[] },
+): RestoreSelectionIssue | null {
+  if (isAgentStatePath(path)) {
+    return "agent_state";
+  }
+  if (access.role === "restore" && isKeyFilePath(path, access.keyFiles)) {
+    return "key_file";
+  }
+  return null;
+}
+
+/** Whether a snapshot path is one of the key files. */
+export function isKeyFilePath(path: string, keyFiles: readonly string[]): boolean {
+  const plain = plainSnapshotPath(path);
+  return keyFiles.some((file) => plainSnapshotPath(file) === plain);
+}
+
+/** Whether selecting `dir` (a folder, or the file itself) takes along any of `lockedPaths`. */
+export function selectionCovers(dir: string, lockedPaths: readonly string[]): boolean {
+  const base = plainSnapshotPath(dir);
+  const prefix = base === "/" ? "/" : `${base}/`;
+  return lockedPaths.some((locked) => {
+    const plain = plainSnapshotPath(locked);
+    return plain === base || plain.startsWith(prefix);
+  });
+}

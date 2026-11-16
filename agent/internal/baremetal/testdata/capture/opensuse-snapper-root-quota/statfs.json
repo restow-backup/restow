@@ -1,0 +1,26 @@
+{
+  "/": {
+    "files": 3276800,
+    "filesFree": 2964800
+  },
+  "/.snapshots": {
+    "files": 3276800,
+    "filesFree": 2964800
+  },
+  "/home": {
+    "files": 3276800,
+    "filesFree": 2964800
+  },
+  "/opt": {
+    "files": 3276800,
+    "filesFree": 2964800
+  },
+  "/root": {
+    "files": 3276800,
+    "filesFree": 2964800
+  },
+  "/var": {
+    "files": 3276800,
+    "filesFree": 2964800
+  }
+}

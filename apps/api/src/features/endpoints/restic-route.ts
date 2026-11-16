@@ -18,6 +18,7 @@ import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { admitUpload } from "../run-size/guards.js";
 import { runSizeGuards } from "../run-size/instance.js";
+import { endpointHistoryScope } from "../run-size/scope.js";
 import { type RepositorySource, readFromIn, sourceOfTarget } from "../storage/repository-source.js";
 import {
   type AgentContext,
@@ -297,6 +298,8 @@ resticRoutes.all("/:endpointId/*", async (c) => {
         objectId: endpointId,
         runId: backup.id,
         storage,
+        // A whole machine backup is compared with the machine's whole machine runs only.
+        historyScope: (tx) => endpointHistoryScope(tx, endpointId),
       })
     : null;
   return handleResticRequest(c.req.raw, {

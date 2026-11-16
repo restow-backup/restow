@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -105,6 +106,14 @@ export default defineConfig({
     rolldownOptions: {
       output: { codeSplitting: { groups: VENDOR_GROUPS } },
     },
+  },
+  test: {
+    // No persistent transform cache for the tests. It keeps a test module as
+    // it was transformed, and the guards that read the app's sources with
+    // import.meta.glob (green-is-proof, the i18n and token guards) then never
+    // see a file added after the cache was written: they passed locally while
+    // CI, with a fresh checkout, failed. A guard must read the tree as it is.
+    fsModuleCache: false,
   },
   server: {
     port: 5173,

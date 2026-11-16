@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams, useSearch } from "@tanstack/react-rou
 import { RequireRole } from "@/components/require-role";
 import { explorerAt } from "@/features/restore/navigation";
 
+import { BaremetalWizardPage } from "./components/baremetal-wizard.js";
 import { EndpointDetailPage } from "./endpoint-detail-page.js";
 import { EndpointsPage } from "./endpoints-page.js";
 import { FileRestorePage } from "./file-restore-page.js";
@@ -95,6 +96,19 @@ export function FileRestoreRoute() {
   return (
     <RequireRole roles={FILE_RESTORE_ROLES}>
       <FileRestorePage machineId={machine ?? null} containerId={container ?? null} />
+    </RequireRole>
+  );
+}
+
+/** The bare metal restore wizard of one machine; not found unless a restore is available. */
+export function BaremetalWizardRoute() {
+  const { endpointId } = useParams({ strict: false }) as { endpointId?: string };
+  if (!endpointId) {
+    return null;
+  }
+  return (
+    <RequireRole roles={ENDPOINT_ROLES}>
+      <BaremetalWizardPage key={endpointId} endpointId={endpointId} />
     </RequireRole>
   );
 }

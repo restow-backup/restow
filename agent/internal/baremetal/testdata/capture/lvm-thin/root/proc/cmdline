@@ -1,0 +1,1 @@
+root=/dev/mapper/vg0-root ro quiet

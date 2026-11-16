@@ -96,6 +96,8 @@ export interface RunSummary {
   /** A stop was asked for (0.4.2): "Cancelling" while running; who asked. Missing on older servers. */
   cancelRequestedAt?: string | null;
   cancelledBy?: string | null;
+  /** The layout a whole machine backup recorded (0.5.0); null otherwise, missing on older servers. */
+  layoutId?: string | null;
 }
 
 export interface EndpointSummary {
@@ -135,6 +137,11 @@ export interface EndpointSummary {
    * null when nobody. Absent on servers from before 0.2.1.
    */
   assignedTo?: EndpointAssignee | null;
+  /**
+   * A bare metal recovery session that runs for the machine (pending approval, active, finishing):
+   * the list and the page say "Being restored". Absent on servers before 0.5.0.
+   */
+  recovery?: { status: RecoveryStatus; phase: RecoveryPhase | null } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -304,6 +311,18 @@ export interface EndpointConfig {
   bandwidthWindows?: BandwidthWindow[];
   onlyOnAcPower: boolean;
   useVss: boolean;
+  /**
+   * File system snapshots of a Linux machine (LVM, btrfs), as the machine stores it; null: the
+   * default (on for a whole machine backup, off otherwise). Missing on older servers.
+   */
+  fsSnapshot?: "auto" | "off" | null;
+  /** The machine's job backs it up as a whole (preview). Missing on older servers. */
+  wholeMachine?: boolean;
+  /**
+   * What the agent gets: `wholeMachine` only while the installation has the preview on (and for
+   * a Linux machine). The default of `fsSnapshot` follows this. Missing on older servers.
+   */
+  wholeMachineActive?: boolean;
 }
 
 export interface Retention {
@@ -483,6 +502,11 @@ export interface EnrollmentToken {
   expiresAt: string;
   state: TokenState;
   usedByEndpointId: string | null;
+  /** `rebind` gives the existing machine `endpointId` a new agent secret (docs/BAREMETAL.md 11). */
+  kind?: "enroll" | "rebind";
+  purpose?: RebindPurpose | "mac_setup" | null;
+  endpointId?: string | null;
+  endpointName?: string | null;
 }
 
 export type TokenWarning = "insecure_transport" | "instance_url_not_configured";
@@ -588,6 +612,8 @@ export interface UpdateEndpointInput {
     onlyOnAcPower?: boolean;
     /** Windows machines only: back up from a shadow copy (VSS). */
     useVss?: boolean;
+    /** Linux machines only: file system snapshots (LVM, btrfs); null returns to the default. */
+    fsSnapshot?: "auto" | "off" | null;
   };
   settings?: {
     retention?: Retention;
@@ -651,6 +677,554 @@ export const LIMITS = {
 
 type TenantKey = string | null;
 
+// --- Bare metal (preview, docs/BAREMETAL.md 14.3) -----------------------------------
+
+export type BaremetalState =
+  | "not_enabled"
+  | "not_possible"
+  | "no_layout"
+  | "unverified"
+  | "layout_checked"
+  | "green"
+  | "overdue"
+  | "red";
+export type BaremetalNotPossible =
+  | "container"
+  | "windows"
+  | "darwin_later"
+  | "arm64_later"
+  | "agent_too_old"
+  | "unsupported";
+
+/** The checks of the layout check, stage 1 of the restore check (docs/BAREMETAL.md 12.1). */
+export const BAREMETAL_CHECK_IDS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"] as const;
+export type BaremetalCheckId = (typeof BAREMETAL_CHECK_IDS)[number];
+export type BaremetalCheckStatus = "ok" | "warning" | "failed" | "skipped";
+
+export interface BaremetalCheckFinding {
+  code: string;
+  severity: "failed" | "warning" | "info";
+  ref: string | null;
+  params: Record<string, unknown>;
+}
+
+export interface BaremetalLayoutCheck {
+  id: BaremetalCheckId;
+  status: BaremetalCheckStatus;
+  findings: BaremetalCheckFinding[];
+  /** What the check looked at: structured fields only, shown as text. */
+  evidence: Record<string, unknown>;
+}
+
+/** One run of the restore planner as the report keeps it. */
+export interface BaremetalPlannerRun {
+  ok: boolean | null;
+  problems?: { code: string; ref: string | null; params: Record<string, unknown> }[];
+  warnings?: { code: string; ref: string | null; params: Record<string, unknown> }[];
+  /** The storage drivers the planner looked for (reports since 0.5.0). */
+  storage?: { module: string; found: boolean; builtin: boolean }[];
+  incomplete?: string;
+  refused?: string;
+}
+
+export interface BaremetalMinimumSizes {
+  disks: { disk: string; kname: string; sizeBytes: number; minBytes: number }[];
+  filesystems: {
+    fs: string;
+    mount: string | null;
+    type: string;
+    restoreBytes: number;
+    minBytes: number;
+  }[];
+}
+
+/** The newest layout check of the newest layout's restore point. */
+export interface BaremetalCheck {
+  reportId: string;
+  checkedAt: string;
+  snapshotId: string | null;
+  readiness: "green" | "red" | "yellow";
+  incomplete: string | null;
+  checks: BaremetalLayoutCheck[];
+  restoreSizes: Record<string, { bytes: number; files: number; inodes: number }>;
+  minimumSizes: BaremetalMinimumSizes | null;
+  planner: {
+    same?: BaremetalPlannerRun;
+    minimal?: BaremetalPlannerRun;
+    otherController?: BaremetalPlannerRun;
+  } | null;
+  bootChainFingerprint: string | null;
+}
+export type LayoutVerdict = "supported" | "supported_with_warnings" | "unsupported";
+
+export interface LayoutUnsupported {
+  code: string;
+  ref: string | null;
+  message: string;
+  severity: "unsupported" | "warning";
+}
+
+export type PartitionContent =
+  | "esp"
+  | "bios_boot"
+  | "filesystem"
+  | "luks"
+  | "md"
+  | "pv"
+  | "swap"
+  | "plain"
+  | "empty"
+  | "other";
+
+export interface LayoutStackNode {
+  kind: "disk" | "partition" | "md" | "luks" | "plain" | "vg" | "lv" | "fs" | "subvolume" | "swap";
+  id: string;
+  label: string;
+  sizeBytes: number | null;
+  children: LayoutStackNode[];
+}
+
+/** What the server keeps of a layout for the machine's page (@restow/core `LayoutSummary`). */
+export interface LayoutSummary {
+  platform: "linux";
+  os: {
+    prettyName: string | null;
+    id: string;
+    versionId: string | null;
+    arch: string;
+    kernel: string;
+  };
+  firmware: { mode: "uefi" | "bios"; secureBoot: boolean | null };
+  bootloader: { kind: string; platform: string | null; shim: boolean };
+  initramfs: { generator: string | null; keymap: string | null };
+  disks: {
+    id: string;
+    kname: string;
+    model: string | null;
+    sizeBytes: number;
+    transport: string | null;
+    logicalSectorSize: number;
+    tableType: "gpt" | "dos" | null;
+    partitions: {
+      number: number;
+      startBytes: number;
+      sizeBytes: number;
+      content: PartitionContent;
+      label: string | null;
+    }[];
+  }[];
+  stack: LayoutStackNode[];
+  mounts: { target: string; type: string }[];
+  encryption: { luks: number; plainCrypt: number; tokenTypes: string[] };
+  vgs: { name: string; sizeBytes: number; freeBytes: number }[];
+  counts: { subvolumes: number; lvs: number };
+}
+
+/** Why no boot probe proves the boot yet (docs/BAREMETAL.md 12.4), when the state is `layout_checked`. */
+export type BaremetalProbeReason =
+  | "no_lab"
+  | "no_kvm"
+  | "planned"
+  | "running"
+  | "incomplete"
+  | "not_systemd"
+  | "too_large"
+  | "no_disks";
+
+/** The newest boot probe report for the fingerprints of the newest layout check (12.3). */
+export interface BaremetalProbeReport {
+  reportId: string;
+  checkedAt: string;
+  snapshotId: string | null;
+  /** null: the probe proved nothing (the lab, a time limit) and is repeated. */
+  readiness: "green" | "red" | null;
+  cause: {
+    kind?: string;
+    reason?: string;
+    pattern?: string;
+    line?: string;
+    codes?: string[];
+    checks?: string[];
+    kernel?: string;
+  } | null;
+  notPossible: string | null;
+  firmware: string | null;
+  controllers: string[];
+  kvm: boolean | null;
+  emptyFilesystems: string[];
+  emptyDirs: string[];
+  restoreBytes: number | null;
+  /** The end of the serial console of the restored system (at most 4 KiB). */
+  serialTail: string;
+}
+
+export interface BaremetalProbe {
+  lab: { present: boolean; kvm: boolean };
+  pending: "planned" | "running" | null;
+  reason: BaremetalProbeReason | null;
+  latest: BaremetalProbeReport | null;
+}
+
+export interface Baremetal {
+  /** Whole machine backups are switched on for this installation. */
+  preview: boolean;
+  /** The machine's job backs it up as a whole. */
+  enabled: boolean;
+  state: BaremetalState;
+  /** `incomplete`: the layout check ran but could not finish. */
+  stateDetail: "incomplete" | null;
+  notPossible: BaremetalNotPossible | null;
+  latest: {
+    layoutId: string;
+    runId: string;
+    snapshotId: string | null;
+    capturedAt: string;
+    sha256: string;
+    fingerprint: string;
+    verdict: LayoutVerdict;
+    unsupported: LayoutUnsupported[];
+    summary: LayoutSummary;
+  } | null;
+  /** The volume group has no room for snapshots: what to leave free. */
+  snapshotHint: {
+    vg: string;
+    sizeBytes: number;
+    freeBytes: number;
+    suggestedFreeBytes: number;
+    mounts: string[];
+  } | null;
+  check: BaremetalCheck | null;
+  /** The boot probe (servers since M5); null until the layout check of the newest backup passed. */
+  probe?: BaremetalProbe | null;
+  /** The whole machine snapshots, newest first (servers since M4). */
+  snapshots?: BaremetalSnapshot[];
+  /** What replacement hardware needs for the newest layout. */
+  hardware?: ReplacementHardware | null;
+  /** The same per layout id of the listed snapshots. */
+  hardwareByLayout?: Record<string, ReplacementHardware>;
+  /** The running recovery session, if there is one. */
+  activeRecovery?: { id: string; status: RecoveryStatus; phase: RecoveryPhase | null } | null;
+}
+
+/** A whole machine snapshot the wizard offers. */
+export interface BaremetalSnapshot {
+  snapshotId: string;
+  time: string;
+  layoutId: string;
+  layoutSha256: string;
+  sameLayoutAsNewest: boolean;
+  check: "passed" | "failed" | "incomplete" | "none";
+  verdict: LayoutVerdict;
+}
+
+/** What replacement hardware needs (@restow/core `replacementHardware`). */
+export interface ReplacementHardware {
+  firmwareMode: "uefi" | "bios";
+  secureBoot: boolean | null;
+  requiredCAs: string[];
+  disks: {
+    id: string;
+    kname: string;
+    sizeBytes: number;
+    minBytes: number | null;
+    transport: string | null;
+    logicalSectorSize: number;
+    model: string | null;
+  }[];
+  ramMinBytes: number;
+  ramRecommendedBytes: number;
+  keymap: {
+    layout: string | null;
+    variant: string | null;
+    inInitramfs: boolean;
+    grubCryptodisk: boolean;
+  };
+  luksVolumes: number;
+  tokenTypes: string[];
+  tpm: boolean;
+  storageDriversOtherController: { module: string; ok: boolean }[];
+  hardwareRaidHint: { disk: string; minBytes: number | null }[];
+  biosNeedsCsm: boolean;
+  nics: number;
+}
+
+// --- Bare metal recovery (docs/BAREMETAL.md 9, 11) ------------------------------------------
+
+/** How far the instance got with its own copy of the ISO (docs/BAREMETAL.md 26.13). */
+export const RECOVERY_ISO_LOCAL_STATUSES = [
+  "not_fetched",
+  "fetching",
+  "verified",
+  "failed",
+  "disabled",
+] as const;
+export type RecoveryIsoLocalStatus = (typeof RECOVERY_ISO_LOCAL_STATUSES)[number];
+
+/** Why the instance's last pass failed (or, with `verified`, why a rebuild was skipped). */
+export const RECOVERY_ISO_FETCH_PROBLEMS = [
+  "no_signed_release",
+  "no_key",
+  "signature_invalid",
+  "no_iso_line",
+  "wrong_release",
+  "not_published",
+  "network",
+  "http_status",
+  "too_large",
+  "truncated",
+  "hash_mismatch",
+  "store_not_writable",
+  "store_full",
+] as const;
+export type RecoveryIsoFetchProblem = (typeof RECOVERY_ISO_FETCH_PROBLEMS)[number];
+
+export interface RecoveryIsoLocal {
+  status: RecoveryIsoLocalStatus;
+  problem: RecoveryIsoFetchProblem | null;
+  detail: string | null;
+  bytesDone: number | null;
+  bytesTotal: number | null;
+  /** "store": fetched by the instance; "import": put into a drop folder by an operator. */
+  origin: "store" | "import" | null;
+  /** The drop folder on the server for installations without internet access. */
+  importDir: string | null;
+  updatedAt: string | null;
+}
+
+/** The recovery ISO this installation offers (GET /api/v1/recovery-iso). */
+export interface RecoveryIso {
+  version: string | null;
+  /** null: the ISO of the release itself; n: a rebuild with newer security updates. */
+  rebuild?: number | null;
+  fileName: string | null;
+  url: string | null;
+  /** Where the download comes from: this instance (its verified copy) or the GitHub release. */
+  source?: "instance" | "github" | null;
+  sha256: string | null;
+  /** Known for the copy on this instance only. */
+  sizeBytes?: number | null;
+  releaseKeyFingerprint: string | null;
+  releaseUrl?: string | null;
+  /** The ISO on the project's release page, the fallback when this instance has no copy. */
+  githubUrl?: string | null;
+  /** The signed checksums and their signature on the release page, for the commands. */
+  sumsUrl?: string | null;
+  signatureUrl?: string | null;
+  /** The source bundle of the GPL packages in the image (release attachments). */
+  sourcesUrl?: string | null;
+  firmwareLicensesUrl?: string | null;
+  /** Only a verified ISO lets codes be issued; until then the dialog and the wizard stay hidden. */
+  verified: boolean;
+  local?: RecoveryIsoLocal;
+  commands: { linux: string[]; macos: string[]; windows: string[] };
+}
+
+/**
+ * The address the download button opens. The copy on this instance sits behind the login and is a
+ * plain navigation, which cannot carry the tenant header: the tenant travels as `?tenant=`.
+ */
+export function recoveryIsoDownloadUrl(iso: RecoveryIso, tenantId: string | null): string | null {
+  if (!iso.url) return null;
+  if (iso.source !== "instance" || !tenantId) return iso.url;
+  const separator = iso.url.includes("?") ? "&" : "?";
+  return `${iso.url}${separator}tenant=${encodeURIComponent(tenantId)}`;
+}
+
+export const RECOVERY_STATUSES = [
+  "issued",
+  "pending_approval",
+  "active",
+  "finishing",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+  "revoked",
+] as const;
+export type RecoveryStatus = (typeof RECOVERY_STATUSES)[number];
+
+export const RECOVERY_PHASES = [
+  "connected",
+  "waiting_approval",
+  "planning",
+  "confirmed",
+  "partitioning",
+  "restoring",
+  "configuring",
+  "verifying",
+  "done",
+] as const;
+export type RecoveryPhase = (typeof RECOVERY_PHASES)[number];
+
+export interface RecoveryHardwareSummary {
+  firmware: "uefi" | "bios";
+  secureBoot: boolean | null;
+  ramBytes: number;
+  disks: number;
+  diskBytes: number;
+  nics: number;
+}
+
+/** A recovery code and the session it became; never the code or a hash. */
+export interface Recovery {
+  id: string;
+  kind: "code";
+  status: RecoveryStatus;
+  issuedAt: string;
+  expiresAt: string;
+  createdBy: { id: string; name: string } | null;
+  requireApproval: boolean;
+  snapshotId: string | null;
+  instanceOrigin: string | null;
+  spkiCheck: string | null;
+  usedAt: string | null;
+  usedIp: string | null;
+  matchCode: string | null;
+  recoveryVersion: string | null;
+  approvedAt: string | null;
+  approvedBy: { id: string; name: string } | null;
+  credentialsIssuedAt: string | null;
+  releasedAt: string | null;
+  finishedAt: string | null;
+  cancelRequestedAt: string | null;
+  phase: RecoveryPhase | null;
+  hardwareSummary: RecoveryHardwareSummary | null;
+}
+
+/** What the ISO reported: shown as reported by the ISO. */
+export interface RecoveryDetail extends Recovery {
+  hardware: {
+    firmware: "uefi" | "bios";
+    secureBoot: boolean | null;
+    ramBytes: number;
+    disks: {
+      sizeBytes: number;
+      logicalSectorSize: number;
+      model: string;
+      serial: string;
+      wwn: string;
+      transport: string;
+    }[];
+    nics: { mac: string; driver: string; link: boolean }[];
+  } | null;
+  progress: {
+    phase: RecoveryPhase;
+    step: number;
+    stepsTotal: number;
+    bytesDone: number;
+    totalBytes: number;
+    filesDone: number;
+    totalFiles: number;
+    message: string;
+    updatedAt: string;
+  } | null;
+  sshKeys: string[];
+  sshHostKeys: { type: string; fingerprint: string }[];
+  /** The ISO's verification report (`restow-verify-v1`), null when there is none or it is not one. */
+  verification: RecoveryVerification | null;
+  warnings: { code: string; message: string }[];
+  log: { items: { id: string; at: string; lines: string[] }[]; next: string | null };
+}
+
+export type RecoveryCheckResult = "ok" | "warning" | "failed";
+
+/** The ten checks after a restore (docs/BAREMETAL.md 10.17), in the order they are shown. */
+export const RECOVERY_CHECK_IDS = [
+  "restic_verify",
+  "storage_stack",
+  "fstab",
+  "crypttab",
+  "initramfs",
+  "boot_entries",
+  "boot_config",
+  "identity_conflicts",
+  "mount_points",
+  "secure_boot",
+] as const;
+
+/**
+ * Warning codes of a finish that the server itself sets (@restow/core
+ * `SERVER_FINISH_WARNING_CODES`): the ISO reported a success its verification report does not bear
+ * out, so the recovery is stored as failed. Their message is no text of the ISO: it lists the
+ * checks concerned, by id.
+ */
+export const RECOVERY_SERVER_WARNING_CODES = [
+  "success_checks_failed",
+  "success_checks_missing",
+  "success_report_missing",
+  "success_snapshot_unknown",
+] as const;
+
+/** The verification report of the ISO (@restow/core `RecoveryVerification`). */
+export interface RecoveryVerification {
+  format: "restow-verify-v1";
+  result: RecoveryCheckResult;
+  snapshotId: string;
+  planSha256: string;
+  startedAt: string;
+  finishedAt: string;
+  restoreErrors: number;
+  checks: {
+    id: string;
+    result: RecoveryCheckResult;
+    findings: {
+      code: string;
+      ref: string | null;
+      message: string;
+      params: Record<string, string>;
+    }[];
+    evidence: Record<string, string | number | boolean>;
+  }[];
+  hints: { code: string; params: Record<string, string> }[];
+  fixups: { path: string; rule: string; backup: string | null }[];
+  notAdaptedKernels: string[];
+}
+
+/** The answer to issuing a code: the code is shown once, never stored. */
+export interface IssuedRecoveryCode {
+  id: string;
+  code: string;
+  expiresAt: string;
+  instanceOrigin: string;
+  instanceOriginConfigured: boolean;
+  spkiCheck: string | null;
+  snapshotId: string;
+  requireApproval: boolean;
+  iso: { version: string | null; url: string | null; sha256: string | null; verified: boolean };
+}
+
+export interface IssueRecoveryCodeInput {
+  snapshotId?: string;
+  validityHours?: number;
+  requireApproval?: boolean;
+}
+
+export type RebindPurpose = "reinstall" | "baremetal";
+
+export interface CreateRebindTokenInput {
+  purpose: RebindPurpose;
+  validityHours?: number;
+  unrevoke?: boolean;
+}
+
+export interface CreatedRebindToken extends CreatedToken {
+  kind: "rebind";
+  purpose: RebindPurpose;
+  endpointId: string;
+  unrevoke: boolean;
+}
+
+/** The reasons a machine gets no recovery code (409 baremetal-not-available). */
+export const RECOVERY_UNAVAILABLE_REASONS = [
+  "not_linux",
+  "removed",
+  "no_layout",
+  "unsupported",
+  "iso_unverified",
+  "preview_off",
+  "snapshot_unknown",
+] as const;
+
 export const endpointKeys = {
   all: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints"] as const,
   lists: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "list"] as const,
@@ -673,6 +1247,14 @@ export const endpointKeys = {
   agentUpdates: (tenantId: TenantKey) =>
     ["tenant", tenantId, "endpoints", "agent-updates"] as const,
   removals: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "removals"] as const,
+  baremetal: (tenantId: TenantKey, endpointId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "baremetal"] as const,
+  recoveries: (tenantId: TenantKey, endpointId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "recoveries"] as const,
+  recovery: (tenantId: TenantKey, endpointId: string, recoveryId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "recoveries", recoveryId] as const,
+  recoveryIso: (tenantId: TenantKey) => ["tenant", tenantId, "recovery-iso"] as const,
+  capabilities: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "capabilities"] as const,
   /** Below the detail, so refreshing the machine refreshes its SQL part. */
   sql: (tenantId: TenantKey, endpointId: string) =>
     ["tenant", tenantId, "endpoints", "detail", endpointId, "sql"] as const,
@@ -834,6 +1416,18 @@ export async function fetchRuns(endpointId: string, limit: number): Promise<RunS
   return body.items;
 }
 
+/** The bare metal card of a machine (restore role and up). */
+export function fetchBaremetal(endpointId: string): Promise<Baremetal> {
+  return apiFetch<Baremetal>(`${BASE}/${id(endpointId)}/baremetal`);
+}
+
+/** "Probe now": a boot probe of the newest whole machine backup, at once (admins). */
+export function requestBootProbe(
+  endpointId: string,
+): Promise<{ id: string; state: "planned" | "running" }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/baremetal/probe`, { method: "POST" });
+}
+
 export function fetchRun(endpointId: string, runId: string): Promise<RunDetail> {
   return apiFetch<RunDetail>(`${BASE}/${id(endpointId)}/runs/${id(runId)}`);
 }
@@ -889,6 +1483,48 @@ export function setAgentUpdates(paused: boolean, resumeMachines = false): Promis
 export function resumeMachineUpdates(endpointId: string): Promise<AgentUpdates> {
   return apiFetch<AgentUpdates>(`${BASE}/agent-updates/machines/${id(endpointId)}`, {
     method: "DELETE",
+  });
+}
+
+/** What the installation offers for machines (GET /api/v1/endpoints/capabilities). */
+export interface EndpointCapabilities {
+  /** Whole machine backups and bare metal recovery (preview, RESTOW_BAREMETAL_PREVIEW). */
+  baremetalPreview: boolean;
+}
+
+export function fetchEndpointCapabilities(): Promise<EndpointCapabilities> {
+  return apiFetch<EndpointCapabilities>(`${BASE}/capabilities`);
+}
+
+export function fetchRecoveryIso(): Promise<RecoveryIso> {
+  return apiFetch<RecoveryIso>("/recovery-iso");
+}
+
+export async function fetchRecoveries(endpointId: string): Promise<Recovery[]> {
+  return (await apiFetch<{ items: Recovery[] }>(`${BASE}/${id(endpointId)}/recoveries`)).items;
+}
+
+export function fetchRecovery(endpointId: string, recoveryId: string): Promise<RecoveryDetail> {
+  return apiFetch<RecoveryDetail>(
+    `${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}${queryString({ logLimit: 500 })}`,
+  );
+}
+
+/** The answer carries the code in clear, once: keep it in memory only. */
+export function issueRecoveryCode(
+  endpointId: string,
+  input: IssueRecoveryCodeInput,
+): Promise<IssuedRecoveryCode> {
+  return apiFetch<IssuedRecoveryCode>(`${BASE}/${id(endpointId)}/recovery-codes`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function revokeRecoveryCode(endpointId: string, codeId: string): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recovery-codes/${id(codeId)}/revoke`, {
+    method: "POST",
+    body: {},
   });
 }
 
@@ -1028,6 +1664,53 @@ export function confirmSqlTde(
   return apiFetch(`${BASE}/${id(endpointId)}/sql/databases/${id(databaseId)}/tde-confirm`, {
     method: "POST",
     body: {},
+  });
+}
+
+export function extendRecoveryCode(
+  endpointId: string,
+  codeId: string,
+  validityHours: number,
+): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recovery-codes/${id(codeId)}/extend`, {
+    method: "POST",
+    body: { validityHours },
+  });
+}
+
+export function approveRecovery(endpointId: string, recoveryId: string): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/approve`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+export function cancelRecovery(endpointId: string, recoveryId: string): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+export function setRecoverySshKeys(
+  endpointId: string,
+  recoveryId: string,
+  keys: string[],
+): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/ssh-keys`, {
+    method: "PUT",
+    body: { keys },
+  });
+}
+
+/** The answer carries the token in clear, once: keep it in memory only. */
+export function createRebindToken(
+  endpointId: string,
+  input: CreateRebindTokenInput,
+): Promise<CreatedRebindToken> {
+  return apiFetch<CreatedRebindToken>(`${BASE}/${id(endpointId)}/rebind-token`, {
+    method: "POST",
+    body: input,
   });
 }
 

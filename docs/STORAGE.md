@@ -566,7 +566,11 @@ to "hold", for the tenant or for one object (also straight from a notice).
   the blocks whose SHA-256 the base holds, and what it sends of unchanged data is stored only
   once, so such a run counts like the usual incrementals, not like a full. A disk added to a VM
   that keeps its other disks counts with what it adds: a large new disk raises a notice (or is
-  held in `hold` mode).
+  held in `hold` mode). A machine that its
+  job backs up as a whole (docs/BAREMETAL.md 5) is compared with its earlier whole machine runs
+  only (those that recorded a layout), a machine backed up by its paths with its path runs: the
+  first whole machine backup after the switch adds the whole system once and is a first run, not
+  ten times the usual path run (`apps/api/src/features/run-size/scope.ts`).
 - **Space.** Would the upload leave the target less free space than it keeps for everything else
   on it? See "The space rule" below. Only where the target reports its space (a directory, an NFS or SMB mount: `StorageBackend.freeSpace`). An S3
   bucket reports none: there the size rule alone applies, and the storage budgets of machines

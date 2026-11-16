@@ -3,9 +3,18 @@ import { describe, expect, it } from "vitest";
 import { i18n } from "@/i18n";
 import { findActiveNavItem, NAV_GROUPS } from "@/lib/navigation";
 
-import { detailRoute, fileRestoreRoute, inventoryRoute, navItems, routes } from "./index";
+import {
+  baremetalWizardRoute,
+  detailRoute,
+  fileRestoreRoute,
+  inventoryRoute,
+  navItems,
+  routes,
+} from "./index";
 import {
   areaOfKind,
+  BAREMETAL_WIZARD_PATTERN,
+  baremetalWizardTo,
   ENDPOINT_DETAIL_PATTERN,
   endpointDetailTo,
   inventorySearch,
@@ -28,7 +37,10 @@ describe("servers and endpoints section", () => {
   });
 
   it("has the inventory, one page per machine below it and file restore", () => {
-    expect(routes).toEqual([inventoryRoute, detailRoute, fileRestoreRoute]);
+    expect(routes).toEqual([inventoryRoute, detailRoute, baremetalWizardRoute, fileRestoreRoute]);
+    // The bare metal wizard of a machine (docs/BAREMETAL.md 14.6) sits below its page.
+    expect((baremetalWizardRoute.options as { path?: string }).path).toBe(BAREMETAL_WIZARD_PATTERN);
+    expect(String(baremetalWizardTo("m-1"))).toBe("/inventory/m-1/bare-metal");
     expect((detailRoute.options as { path?: string }).path).toBe(ENDPOINT_DETAIL_PATTERN);
     expect(navItems.map((item) => item.path)).not.toContain(ENDPOINT_DETAIL_PATTERN);
   });

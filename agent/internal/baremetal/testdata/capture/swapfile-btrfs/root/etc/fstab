@@ -1,0 +1,4 @@
+UUID=af000000-0000-4000-8000-000000000001 / btrfs subvol=root 0 0
+UUID=af000000-0000-4000-8000-000000000001 /swap btrfs subvol=swap 0 0
+UUID=6E7F-8091 /boot/efi vfat umask=0077 0 2
+/swap/swapfile none swap defaults 0 0

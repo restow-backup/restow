@@ -61,6 +61,59 @@ describe("checkWork", () => {
     assert.match(findings, /packages\/core\/src\/copy\.pm: is a copy of/);
   });
 
+  it("passes the GPL-3.0 recipe of the recovery ISO and refuses another licence text", () => {
+    const GPL =
+      "                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n...";
+    const gplWork = {
+      path: "integrations/recovery",
+      license: "GPL-3.0-or-later",
+      allowedReferences: ["docs/BAREMETAL.md"],
+    };
+    const files = {
+      "integrations/recovery/LICENSE": GPL,
+      "integrations/recovery/README.md": "# Restow recovery ISO\n",
+      "integrations/recovery/build.sh":
+        "#!/bin/sh\n# SPDX-License-Identifier: GPL-3.0-or-later\nset -eu\n",
+      "integrations/recovery/firmware.md":
+        "<!-- SPDX-License-Identifier: GPL-3.0-or-later -->\n# Firmware\n",
+      "docs/BAREMETAL.md": "see integrations/recovery/build.sh\n",
+    };
+    const clean = repo(files);
+    assert.deepEqual(checkWork(gplWork, clean.list, clean.read), []);
+
+    const agpl = repo({ ...files, "integrations/recovery/LICENSE": AGPL });
+    assert.match(
+      checkWork(gplWork, agpl.list, agpl.read).join("\n"),
+      /LICENSE: does not look like the full GPL-3\.0-or-later text/,
+    );
+    const version2 = repo({
+      ...files,
+      "integrations/recovery/LICENSE": "GNU GENERAL PUBLIC LICENSE\n Version 2, June 1991\n",
+    });
+    assert.match(
+      checkWork(gplWork, version2.list, version2.read).join("\n"),
+      /does not look like the full GPL-3\.0-or-later text/,
+    );
+    const header = repo({
+      ...files,
+      "integrations/recovery/build.sh": "#!/bin/sh\n# SPDX-License-Identifier: GPL-2.0-only\n",
+      "agent/internal/recovery/tools.go": "// see integrations/recovery\n",
+    });
+    const findings = checkWork(gplWork, header.list, header.read).join("\n");
+    assert.match(
+      findings,
+      /build\.sh: SPDX-License-Identifier GPL-2\.0-only, expected GPL-3\.0-or-later/,
+    );
+    assert.match(
+      findings,
+      /agent\/internal\/recovery\/tools\.go: refers to integrations\/recovery/,
+    );
+    assert.match(
+      checkWork({ ...gplWork, license: "GPL-2.0-only" }, clean.list, clean.read).join("\n"),
+      /no license text markers known for GPL-2\.0-only/,
+    );
+  });
+
   it("reports a missing folder", () => {
     assert.match(checkWork(work, [], () => Buffer.alloc(0))[0], /missing or empty/);
   });

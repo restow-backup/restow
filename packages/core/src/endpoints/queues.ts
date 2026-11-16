@@ -16,6 +16,13 @@ export const ENDPOINT_QUEUES = {
   monitor: "endpoint-monitor",
   /** A removed machine whose backups are due for deletion (@restow/db EndpointRemoval). */
   removal: "endpoint-removal",
+  /** Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot. */
+  baremetalCheck: "endpoint-baremetal-check",
+  /**
+   * The recovery ISO of the installation's release (docs/BAREMETAL.md 26.13): one job for the
+   * whole installation, no payload. Finds rebuilds, downloads and verifies the newest ISO.
+   */
+  recoveryIso: "endpoint-recovery-iso",
 } as const;
 
 export type EndpointQueue = (typeof ENDPOINT_QUEUES)[keyof typeof ENDPOINT_QUEUES];
@@ -77,6 +84,27 @@ export const ENDPOINT_QUEUE_SETTINGS: Readonly<Record<EndpointQueue, EndpointQue
     expireInHours: 12,
     retentionDays: 14,
   },
+  [ENDPOINT_QUEUES.baremetalCheck]: {
+    name: ENDPOINT_QUEUES.baremetalCheck,
+    policy: "stately",
+    retryLimit: 3,
+    retryDelay: 300,
+    retryBackoff: true,
+    expireInHours: 6,
+    retentionDays: 14,
+  },
+  // A slow line needs hours for 900 MiB; a cut-off transfer continues in the retry. A pass ends
+  // itself half an hour before the expiry (RECOVERY_ISO_PASS_TIME_LIMIT_MS), so an expired job's
+  // handler is never still writing when its retry starts, and holds a lock on the store.
+  [ENDPOINT_QUEUES.recoveryIso]: {
+    name: ENDPOINT_QUEUES.recoveryIso,
+    policy: "stately",
+    retryLimit: 3,
+    retryDelay: 600,
+    retryBackoff: true,
+    expireInHours: 8,
+    retentionDays: 7,
+  },
 };
 
 export interface EndpointJobPayload {
@@ -84,8 +112,13 @@ export interface EndpointJobPayload {
   endpointId: string;
   /** For `endpoint-check`: the share of the pack files to read, in percent. */
   subsetPercent?: number;
-  /** For `endpoint-verify`: test again although this snapshot was tested before. */
+  /**
+   * For `endpoint-verify`: test again although this snapshot was tested before; for
+   * `endpoint-baremetal-check`: check again although this snapshot has a report.
+   */
   force?: boolean;
+  /** For `endpoint-baremetal-check`: the run that recorded the layout (else the newest such run). */
+  runId?: string;
 }
 
 /** pg-boss singleton key: one queued and one active job per endpoint and kind. */
@@ -98,6 +131,8 @@ export const ENDPOINT_JOB_INTERVALS_MS = {
   retention: 24 * 60 * 60 * 1000,
   check: 7 * 24 * 60 * 60 * 1000,
   monitor: 5 * 60 * 1000,
+  /** A pass of the recovery ISO download: new rebuilds, a failed download again. */
+  recoveryIso: 6 * 60 * 60 * 1000,
 } as const;
 
 /** Default share of the repository the weekly check reads back. */

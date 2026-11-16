@@ -1,0 +1,20 @@
+{
+  "format": "restow-plan-facts-v1",
+  "kernels": [
+    {
+      "default": true,
+      "modulesAlias": "# Aliases extracted from modules themselves.\nalias pci:v*d*sv*sd*bc01sc08i02* nvme\nalias pci:v*d*sv*sd*bc01sc06i01* ahci\nalias virtio:d00000002v* virtio_blk\nalias virtio:d00000008v* virtio_scsi\nalias virtio:d00000001v* virtio_net\nalias pci:v00001AF4d*sv*sd*bc*sc*i* virtio_pci\nalias pci:v00001000d00000097sv*sd*bc*sc*i* mpt3sas\nalias pci:v00009005d0000028Fsv*sd*bc*sc*i* smartpqi\nalias pci:v00008086d00001533sv*sd*bc*sc*i* igb\nalias pci:v00008086d000015B8sv*sd*bc*sc*i* e1000e\nalias pci:v000010ECd00008168sv*sd*bc*sc*i* r8169\nalias scsi:t-0x00* sd_mod\n",
+      "modulesBuiltin": "kernel/drivers/scsi/scsi_mod.ko\nkernel/drivers/block/loop.ko\n",
+      "modulesBuiltinModinfo": "scsi_mod.file=drivers/scsi/scsi_mod\nloop.alias=devname:loop-control\n",
+      "version": "6.1.0-27-amd64"
+    }
+  ],
+  "mokFiles": [],
+  "restoreSizes": {
+    "/": {
+      "bytes": 100931731456,
+      "files": 280800,
+      "inodes": 312000
+    }
+  }
+}

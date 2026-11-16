@@ -12,7 +12,7 @@ import type {
   FailureParams,
   FailureTechnical,
 } from "../failures/types.js";
-import { INTERRUPTED_RUN_CODE, resticExitCodeOf, SNAPSHOT_CLEANUP_RUN_CODE } from "./run-errors.js";
+import { INTERRUPTED_RUN_CODE, NOTE_RUN_CODES, resticExitCodeOf } from "./run-errors.js";
 import { SQL_ERROR_CODES } from "./sql/schemas.js";
 
 export interface RunErrorInput {
@@ -37,6 +37,7 @@ const BY_CODE: Readonly<Record<string, FailureCode>> = {
   agent_stopped: "endpoint.agent_stopped",
   snapshot_failed: "endpoint.snapshot_failed",
   snapshot_unavailable: "endpoint.snapshot_unavailable",
+  layout_capture_failed: "endpoint.layout_capture_failed",
   // A backup path that exists but was not backed up (a locked drive, a mount point).
   source_unreadable: "endpoint.source_unreadable",
   source_is_mount_point: "endpoint.source_is_mount_point",
@@ -122,8 +123,9 @@ export function classifyRunError(error: RunErrorInput): FailureCause {
  * first one. `null` for a run without errors. `count` is how many errors were reported.
  */
 export function failureOfRun(errors: readonly RunErrorInput[]): FailureCause | null {
-  // A snapshot left behind is a note beside the outcome, never its explanation.
-  const candidates = errors.filter((error) => error.code !== SNAPSHOT_CLEANUP_RUN_CODE);
+  // A snapshot left behind or a layout the server did not keep is a note beside the outcome,
+  // never its explanation.
+  const candidates = errors.filter((error) => !NOTE_RUN_CODES.has(error.code ?? ""));
   if (candidates.length === 0) {
     return null;
   }
@@ -157,6 +159,29 @@ export function repositoryDamagedCause(message?: string | null): FailureCause {
     transient: false,
     params: {},
     technical: message ? { message: redactSensitiveText(message).slice(0, 500) } : {},
+  };
+}
+
+/** Stage 1 of the bare metal check rated a whole machine backup red (docs/BAREMETAL.md 12.6). */
+export function baremetalCheckFailedCause(failedChecks: readonly string[]): FailureCause {
+  return {
+    code: "endpoint.baremetal_check_failed",
+    transient: false,
+    params: {},
+    technical: failedChecks.length > 0 ? { checks: failedChecks.slice(0, 20).join(", ") } : {},
+  };
+}
+
+/** The boot probe rated a whole machine backup red (docs/BAREMETAL.md 12.3, 12.6). */
+export function bootProbeFailedCause(
+  kind: "boot_failed" | "recovery_failed" | "verification_failed",
+  evidence: string | null,
+): FailureCause {
+  return {
+    code: "endpoint.boot_probe_failed",
+    transient: false,
+    params: { reason: kind },
+    technical: evidence ? { evidence: redactSensitiveText(evidence).slice(0, 300) } : {},
   };
 }
 

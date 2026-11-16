@@ -1,0 +1,4 @@
+ID 256 gen 2344 parent 5 top level 5 parent_uuid -                                    uuid 6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f path <FS_TREE>/root
+ID 257 gen 2340 parent 5 top level 5 parent_uuid -                                    uuid 7d8e9f0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a path <FS_TREE>/home
+ID 258 gen 18 parent 256 top level 256 parent_uuid -                                  uuid 8e9f0a1b-2c3d-4e4f-9a5b-6c7d8e9f0a1b path <FS_TREE>/root/var/lib/machines
+ID 300 gen 2330 parent 256 top level 256 parent_uuid 6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f uuid 9f0a1b2c-3d4e-4f5a-8b6c-7d8e9f0a1b2c path <FS_TREE>/root/.snapshots/1/snapshot with space

@@ -474,6 +474,21 @@ describe("changing a job", () => {
   });
 });
 
+describe("switching whole machine on an existing machine job", () => {
+  it("sends the settings when only the switch changed, in both directions", () => {
+    const job = endpointJob();
+    const base = draftOfJob(job, [], defaults("endpoint"));
+    expect(updateInputOf(job, base)).toBeNull();
+    const on = { ...base, settings: { ...base.settings, wholeMachine: true } };
+    expect(updateInputOf(job, on)?.settings).toMatchObject({ wholeMachine: true });
+    const stored = endpointJob({ settings: { ...job.settings, wholeMachine: true } });
+    const storedDraft = draftOfJob(stored, [], defaults("endpoint"));
+    expect(updateInputOf(stored, storedDraft)).toBeNull();
+    const off = { ...storedDraft, settings: { ...storedDraft.settings, wholeMachine: false } };
+    expect(updateInputOf(stored, off)?.settings).not.toHaveProperty("wholeMachine");
+  });
+});
+
 describe("the overrides of one member", () => {
   const job = endpointJob();
 

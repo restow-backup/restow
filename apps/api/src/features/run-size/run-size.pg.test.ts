@@ -16,6 +16,7 @@ import {
   auditLog,
   createDb,
   type Database,
+  endpointLayouts,
   endpointRuns,
   endpoints,
   loadInstallationSpaceRule,
@@ -47,6 +48,7 @@ import {
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
 import { buildRunSizeRoutes } from "./routes.js";
+import { endpointHistoryScope } from "./scope.js";
 import {
   installationSpaceRuleView,
   RUN_SIZE_AUDIT_ACTIONS,
@@ -492,6 +494,90 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     // run as well (fewer than three runs since), not ten times the old incrementals.
     expect((await upload(guard(randomUUID()), GIB, 30)).stored).toBe(30 * GIB);
     expect(await holds()).toEqual([]);
+  });
+
+  it("compares a whole machine backup with the machine's whole machine runs only (bare metal, docs/BAREMETAL.md 5)", async () => {
+    // A machine with the usual path runs (2 GiB a day) whose job now backs it up as a whole.
+    const [row] = await owner
+      .insert(endpoints)
+      .values({
+        tenantId: contoso,
+        hostname: "dbserver01",
+        os: "linux",
+        arch: "amd64",
+        profile: "server",
+        secretHash: randomUUID(),
+        config: {
+          ...defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+          wholeMachine: true,
+        },
+      })
+      .returning();
+    const whole = row?.id ?? "";
+    const layout = async () => {
+      const [stored] = await owner
+        .insert(endpointLayouts)
+        .values({
+          tenantId: contoso,
+          endpointId: whole,
+          sha256: randomBytes(32).toString("hex"),
+          format: "restow-layout-v1",
+          schemaVersion: 1,
+          platform: "linux",
+          manifest: {},
+          summary: {},
+          verdict: "supported",
+          layoutFingerprint: "f",
+        })
+        .returning();
+      return stored?.id ?? null;
+    };
+    const ran = async (bytes: number, hoursAgo: number, layoutId: string | null = null) => {
+      const at = new Date(Date.now() - hoursAgo * 3_600_000);
+      await owner.insert(endpointRuns).values({
+        tenantId: contoso,
+        endpointId: whole,
+        kind: "backup",
+        status: "succeeded",
+        startedAt: at,
+        finishedAt: at,
+        createdAt: at,
+        layoutId,
+        stats: { dataAdded: bytes * 2, dataAddedPacked: bytes } as never,
+      });
+    };
+    for (const [index, bytes] of [2, 2, 3, 1, 2].entries()) {
+      await ran(bytes * GIB, 24 * (index + 2));
+    }
+    const wholeGuard = (preview: boolean) =>
+      new RunSizeGuard({
+        tenantId: contoso,
+        kind: "endpoint",
+        objectId: whole,
+        runId: randomUUID(),
+        transaction: ((fn: (tx: RunSizeTx) => Promise<unknown>) =>
+          withTenantTx(appDb, contoso, (tx) => fn(tx as RunSizeTx))) as never,
+        installationTimeZone: "Europe/Berlin",
+        installationSpaceRule: () => loadInstallationSpaceRule(providerPool),
+        historyScope: (tx) => endpointHistoryScope(tx, whole, preview),
+      });
+    // The first whole machine run adds the whole system once: a first run, not ten times the
+    // path runs.
+    expect((await upload(wholeGuard(true), GIB, 40)).stored).toBe(40 * GIB);
+    expect(await holds()).toEqual([]);
+    // Without the preview the agent backs up the paths: the path runs are the history.
+    expect((await upload(wholeGuard(false), GIB, 40)).admission).toMatchObject({ ok: false });
+    await owner.delete(runSizeHolds);
+    // Once there are whole machine runs, a whole machine run is compared with them.
+    for (const hoursAgo of [3, 2, 1]) {
+      await ran(4 * GIB, hoursAgo, await layout());
+    }
+    const result = await upload(wholeGuard(true), GIB, 60);
+    expect(result.stored).toBe(40 * GIB);
+    expect(result.admission).toMatchObject({ ok: false });
+    expect(await holds()).toEqual([
+      expect.objectContaining({ objectId: whole, limitBytes: 40 * GIB, historyRuns: 3 }),
+    ]);
   });
 
   it("ends a hold for space by itself once the target has room, and never refuses metadata (review 2)", async () => {

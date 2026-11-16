@@ -1,0 +1,5 @@
+DEVNAME=/dev/nvme0n1p3
+LABEL=Windows
+UUID=0123456789ABCDEF
+TYPE=ntfs
+USAGE=filesystem

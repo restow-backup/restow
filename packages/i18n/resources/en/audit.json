@@ -609,9 +609,33 @@
         "denied": "Machine tried to change its backups",
         "password": {
           "revealed": "Repository password shown"
-        }
+        },
+        "secret_file_revealed": "Key file of an encrypted volume handed out"
       },
       "update_requested": "Agent update requested",
+      "recovery_code": {
+        "created": "Recovery code issued",
+        "revoked": "Recovery code revoked",
+        "extended": "Recovery code extended",
+        "rejected": "Expired, used or revoked recovery code tried"
+      },
+      "recovery": {
+        "started": "Recovery code redeemed by the recovery ISO",
+        "approved": "Recovery session released",
+        "credentials_issued": "Repository access handed to the recovery ISO",
+        "remote_access_enabled": "Remote access to the recovery ISO switched on",
+        "keyfile_regenerated": "Key file of an encrypted volume made anew during the recovery",
+        "released": "Recovery ISO gave up its repository access",
+        "finished": "Recovery finished",
+        "report_refused": "Report of the recovery ISO to an ended session refused",
+        "expired": "Recovery code or session ran out of time",
+        "cancelled": "Recovery session rejected or ended"
+      },
+      "rebind_token": {
+        "created": "Rebind token created"
+      },
+      "rebound": "Machine rebound with a new agent secret",
+      "unrevoked": "Revoked machine brought back",
       "sql": {
         "inventory": {
           "requested": "SQL Server sign-in check requested"
@@ -629,6 +653,10 @@
         "verify": {
           "requested": "SQL Server check requested"
         }
+      },
+      "boot_probe": {
+        "requested": "Boot probe of the whole machine backup requested",
+        "started": "Boot probe: the recovery ISO of the lab redeemed its code"
       }
     },
     "backup_job": {

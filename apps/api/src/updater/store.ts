@@ -44,7 +44,10 @@ const capturedKeySchema = z.object({
  * what a rollback or the recovery after an updater restart needs.
  */
 export const runContextSchema = z.object({
-  /** `.env` before the update (RESTOW_IMAGE, RESTOW_WEB_IMAGE), for an exact rollback. */
+  /**
+   * `.env` before the update (RESTOW_IMAGE, RESTOW_WEB_IMAGE, and RESTOW_LAB_IMAGE when the run
+   * moves the recovery lab), for an exact rollback.
+   */
   previousEnv: z.record(z.string(), capturedKeySchema).nullable().default(null),
   previousImages: z
     .object({ app: z.string().nullable(), web: z.string().nullable() })

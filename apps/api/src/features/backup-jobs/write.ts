@@ -5,6 +5,7 @@ import {
   checkCopyRules,
   cleanAgentPolicySettings,
   cleanTargetFolder,
+  DEFAULT_WHOLE_MACHINE_EXCLUDES,
   endpointScheduleOf,
   nextRunAt as firstRunAt,
   JOB_POLICY_KEYS,
@@ -41,6 +42,7 @@ import {
   withPendingMarkers,
 } from "@restow/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import {
   type DbExecutor,
@@ -53,6 +55,7 @@ import { assertNotLocked, readGlobalAgentPolicy } from "../endpoints/agent-polic
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "../endpoints/audit.js";
 import { type BandwidthWindowsProblem, checkedBandwidthWindows } from "../endpoints/bandwidth.js";
 import { hookFingerprint } from "../endpoints/dto.js";
+import { ENDPOINT_PROBLEMS } from "../endpoints/problems.js";
 import { AGENT_TASK_TTL_MS } from "../endpoints/service.js";
 import { auditShare, FILE_SHARE_TENANT_AUDIT_ACTIONS } from "../file-shares/audit.js";
 import { FILE_SHARE_PROBLEMS } from "../file-shares/constants.js";
@@ -314,6 +317,7 @@ const ENDPOINT_SETTING_KEYS = [
   "retention",
   "sql",
   "policy",
+  "wholeMachine",
 ];
 
 /**
@@ -438,7 +442,43 @@ function checkedSettings(
       delete clean.policy;
     }
   }
+  // Stored only when on: a job without the switch stays as it was.
+  if (clean.wholeMachine !== true) {
+    delete clean.wholeMachine;
+  }
   return clean;
+}
+
+/**
+ * The exclusions of a whole machine job (docs/BAREMETAL.md 5.3): a request that switches it on, or
+ * saves it, without an `excludes` key gets the whole machine ones, as the job editor sends them.
+ * Otherwise the machines keep the exclusions of their profile, which leave out `/var/tmp`, `/tmp`,
+ * `/var/cache` and container data altogether, and a restored system lacks them. An `excludes`
+ * the request names (also an empty list) stays as it is.
+ */
+function withWholeMachineExcludes(settings: BackupJobSettings, given: unknown): BackupJobSettings {
+  if (settings.wholeMachine !== true) return settings;
+  if (given !== null && typeof given === "object" && "excludes" in given) return settings;
+  return { ...settings, excludes: [...DEFAULT_WHOLE_MACHINE_EXCLUDES] };
+}
+
+/**
+ * Whole machine backups are a preview (RESTOW_BAREMETAL_PREVIEW, docs/BAREMETAL.md 22): switching
+ * them on is refused while it is off (409). A job that has them keeps them; `GET /agent/v1/config`
+ * sends nothing of it while the preview is off.
+ */
+function assertWholeMachineAllowed(
+  next: BackupJobSettings,
+  before: BackupJobSettings | null,
+): void {
+  if (next.wholeMachine === true && before?.wholeMachine !== true && !config.baremetalPreview) {
+    throw new ProblemError(409, "Whole machine backups are not switched on", {
+      type: ENDPOINT_PROBLEMS.baremetalPreviewOff,
+      detail:
+        "Whole machine backups are a preview this installation has not switched on (RESTOW_BAREMETAL_PREVIEW).",
+      extensions: { errors: [{ path: "settings.wholeMachine", code: "preview_off" }] },
+    });
+  }
 }
 
 /**
@@ -1071,9 +1111,13 @@ export async function createBackupJob(
   const { now } = context;
   const kind = input.kind;
   const { schedule, verifySchedule } = checkedBase(kind, input, now);
-  let settings = checkedSettings(kind, input.settings, { requirePaths: true });
+  let settings = withWholeMachineExcludes(
+    checkedSettings(kind, input.settings, { requirePaths: true }),
+    input.settings,
+  );
   assertSqlVerifySlot(settings, schedule);
   await assertJobPolicyAllowed(settings, null);
+  assertWholeMachineAllowed(settings, null);
   if (kind !== "copy" && (input.sourceFileShareId || input.targetFileShareId)) {
     throw jobProblem(
       [input.sourceFileShareId ? "sourceFileShareId" : "targetFileShareId"],
@@ -1433,12 +1477,16 @@ export async function updateBackupJob(
     }
     let settings =
       patch.settings !== undefined
-        ? checkedSettings(kind, patch.settings, { requirePaths: true })
+        ? withWholeMachineExcludes(
+            checkedSettings(kind, patch.settings, { requirePaths: true }),
+            patch.settings,
+          )
         : (before.settings ?? {});
     if (kind === "endpoint" && (patch.settings !== undefined || scheduleGiven)) {
       assertSqlVerifySlot(settings, base.schedule);
     }
     await assertJobPolicyAllowed(settings, before.settings ?? null);
+    assertWholeMachineAllowed(settings, before.settings ?? null);
     let sourceFileShareId = before.sourceFileShareId;
     let targetFileShareId = before.targetFileShareId;
     if (kind !== "copy" && (patch.sourceFileShareId || patch.targetFileShareId)) {

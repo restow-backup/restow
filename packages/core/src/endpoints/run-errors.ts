@@ -20,6 +20,18 @@
  *   snapshot_cleanup_failed  a snapshot was not deleted after the run: a note, not a
  *                            reason for `partial`, and never the explanation of a run.
  *
+ * A whole machine backup (docs/BAREMETAL.md 5.6):
+ *
+ *   layout_capture_failed    the disk layout could not be recorded; the machine's mount points
+ *                            were backed up anyway and the run is partial.
+ *   layout_too_large         the layout is larger than the server takes (512 KiB): it is in the
+ *                            snapshot, but not on the server. Partial, never the explanation.
+ *   layout_rejected          set by the server when it refuses the layout the agent sent: a hint
+ *                            that leaves the status alone and is never the explanation.
+ *
+ * A machine for which no snapshot method exists (a partition, a full volume group) is no error at
+ * all: its file systems are listed in the run's consistency report as read live.
+ *
  * Backup paths that exist but cannot be backed up as configured (agent 0.5.0); each makes the
  * run partial, failed when no path is left:
  *
@@ -47,12 +59,25 @@ export const ENDPOINT_RUN_ERROR_CODES = [
   "snapshot_failed",
   "snapshot_unavailable",
   "snapshot_cleanup_failed",
+  "layout_capture_failed",
+  "layout_too_large",
+  "layout_rejected",
   "source_unreadable",
   "source_is_mount_point",
 ] as const;
 
 /** A note about a snapshot left behind: never the explanation of a run. */
 export const SNAPSHOT_CLEANUP_RUN_CODE = "snapshot_cleanup_failed";
+
+/** The server refused the layout the agent sent: a hint on the run (docs/BAREMETAL.md 4.3). */
+export const LAYOUT_REJECTED_RUN_CODE = "layout_rejected";
+
+/** Codes that are notes beside the outcome of a run and never its explanation. */
+export const NOTE_RUN_CODES: ReadonlySet<string> = new Set([
+  SNAPSHOT_CLEANUP_RUN_CODE,
+  LAYOUT_REJECTED_RUN_CODE,
+  "layout_too_large",
+]);
 
 export const INTERRUPTED_RUN_CODE = "interrupted";
 

@@ -1,0 +1,6 @@
+DEVNAME=/dev/nvme0n1p2
+UUID=8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e
+BLOCK_SIZE=4096
+VERSION=1.0
+TYPE=ext4
+USAGE=filesystem

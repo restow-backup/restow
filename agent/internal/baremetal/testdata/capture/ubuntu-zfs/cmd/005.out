@@ -1,0 +1,6 @@
+DEVNAME=/dev/sda2
+LABEL=bpool
+UUID=1234567890123456789
+VERSION=5000
+TYPE=zfs_member
+USAGE=filesystem

@@ -1,0 +1,4 @@
+UUID=f1000000-0000-4000-8000-000000000001 / btrfs subvol=root,compress=zstd:1 0 0
+UUID=f1000000-0000-4000-8000-0000000000b1 /boot ext4 defaults 1 2
+UUID=E5F6-0718 /boot/efi vfat umask=0077,shortname=winnt 0 2
+UUID=f1000000-0000-4000-8000-000000000001 /home btrfs subvol=home,compress=zstd:1 0 0

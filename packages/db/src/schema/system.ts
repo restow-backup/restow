@@ -128,8 +128,8 @@ export type StoredUpdateRelease = {
   /** Release notes as Markdown source, cut to a fixed length. */
   notes: string | null;
   notesTruncated: boolean;
-  /** Image digests the release published for its images. */
-  digests: { app?: string; web?: string };
+  /** Image digests the release published for its images (`lab`: the recovery lab's). */
+  digests: { app?: string; web?: string; lab?: string };
   /**
    * The release date its images carry (the `released:` line of the notes, 0.4.5), ISO-8601
    * UTC; null or absent for releases that publish none (and checks stored before 0.4.5).
@@ -317,6 +317,16 @@ export interface PricingSettings {
 }
 
 /** The installation default's write-once finding (@restow/core storage/write-once.ts). */
+/**
+ * What the worker knows of the recovery lab (docs/BAREMETAL.md 12.3): the last time it asked for a
+ * probe, its version and whether `/dev/kvm` works there. A lab without KVM runs no probe.
+ */
+export type RecoveryLabState = {
+  seenAt: string;
+  version: string;
+  kvm: boolean;
+};
+
 export type DefaultStorageWriteOnce = {
   /** `describeStorageLocation` of the location that was probed. */
   location: string;
@@ -410,6 +420,9 @@ export const settings = pgTable(
     // The modules of the installation the web interface hides (0.5.0, InstallationModules); `{}`
     // hides none, which is what every installation showed before modules existed.
     modules: jsonb("modules").$type<InstallationModules>().notNull().default({}),
+    // The recovery lab of the boot probe (docs/BAREMETAL.md 12.3), as it last asked the worker for
+    // work: when, its version and whether it has KVM. Null until a lab asked once.
+    recoveryLab: jsonb("recovery_lab").$type<RecoveryLabState>(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

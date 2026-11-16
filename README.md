@@ -43,6 +43,15 @@ Known Issues.
   application data (`/opt`, `/usr/local`, `/var/lib`, `/var/backups`) besides
   `/etc`, `/home` and `/srv` by default, and every machine can be assigned to a
   person of the directory. Included in the Community edition.
+- **Bare metal restore of Linux machines (preview):** a whole machine backup
+  records the disk layout, and the signed recovery ISO restores the machine
+  onto new disks (GPT or MBR, RAID, LVM, LUKS, ext4, XFS, btrfs, UEFI with
+  Secure Boot or BIOS), checks the boot chain and drivers before it erases
+  anything and reports a verification. The ISO is built reproducibly from a
+  separate GPL-3.0-or-later recipe in `integrations/recovery`; the release key
+  that signs agent and ISO has the fingerprint
+  `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o` (compare it here, not on
+  an instance). See [docs/BAREMETAL.md](docs/BAREMETAL.md).
 - **Proxmox VE (preview):** VMs and containers on Proxmox VE 8.4 and newer
   through the Backup Provider API. VM disks are read over NBD with dirty
   bitmaps, so after the first run only changed blocks are uploaded; containers
@@ -323,6 +332,9 @@ updater stays off unless you ask for it, see [docs/UPDATING.md](docs/UPDATING.md
 `--no-mounter` or `--without-mounter` (the mounter, which backs up file shares and
 mounts NFS network shares, starts by default for 0.3.0 and newer; these leave it off,
 `--with-mounter` is still accepted; see [docs/MOUNTS.md](docs/MOUNTS.md)),
+`--with-recovery-lab` (from 0.5.0: the recovery lab, which proves that a whole machine
+backup starts on other hardware by restoring it in a virtual machine; it needs KVM on the
+host, see [docs/BAREMETAL.md](docs/BAREMETAL.md) section 12.3),
 `--local` (an evaluation without a public domain: the edge serves
 `https://localhost` or an internal name such as `restow.internal` over HTTPS
 with a certificate from Caddy's own authority, browsers warn about it and

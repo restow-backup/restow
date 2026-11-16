@@ -9,6 +9,7 @@ import {
   type Database,
   type InstallationZoneInput,
   RunSizeGuard,
+  type RunSizeHistoryScope,
   type RunSizeTx,
 } from "@restow/db";
 import { withTenantTx } from "../../lib/tenant-context.js";
@@ -47,6 +48,8 @@ export class RunSizeGuards {
     objectId: string;
     runId: string;
     storage: StorageBackend;
+    /** Which earlier runs the run is compared with (a machine: whole machine or paths). */
+    historyScope?: (tx: RunSizeTx) => Promise<RunSizeHistoryScope | undefined>;
   }): RunSizeGuard {
     const key = `${input.kind}:${input.runId}`;
     const known = this.guards.get(key);
@@ -64,6 +67,7 @@ export class RunSizeGuards {
         : undefined,
       installationTimeZone: this.deps.installationTimeZone,
       installationSpaceRule: this.deps.installationSpaceRule,
+      historyScope: input.historyScope,
       log: this.deps.log,
     });
     this.guards.set(key, guard);

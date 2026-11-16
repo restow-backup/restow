@@ -106,6 +106,19 @@ export interface AgentConfig {
    */
   policy?: EndpointPolicy;
   /**
+   * Back up the whole machine (preview, docs/BAREMETAL.md 5): every local file system with the
+   * disk layout instead of `paths`. Written from a whole machine job to Linux machines that are
+   * no container; absent otherwise. `GET /agent/v1/config` sends it only while
+   * RESTOW_BAREMETAL_PREVIEW is on. An agent older than 0.5.0 ignores it and backs up `paths`.
+   */
+  wholeMachine?: boolean;
+  /**
+   * File system snapshots on Linux (LVM, btrfs; docs/BAREMETAL.md 6.1): the machine's own setting.
+   * Absent means the default, on for a whole machine backup and off otherwise; the agent gets the
+   * resolved value (Linux and macOS, never Windows, which has `useVss`).
+   */
+  fsSnapshot?: "auto" | "off";
+  /**
    * The native SQL Server backup (W2a, Windows only); present only when a backup job sets it. The
    * agent gets it without `verify` ({@link agentFacingConfig}).
    */
@@ -270,7 +283,8 @@ export function enrolledEndpointConfig(
  * hooks: an agent of an earlier release does not know the schedule `none` and falls back to the
  * default schedule of its profile (agent/internal/schedule `FromAPI`); without folders such a
  * run stops before restic or a hook starts (`no_paths`), so nothing is backed up and no command
- * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway.
+ * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway. Nor does
+ * such a machine back up as a whole.
  */
 export function agentFacingConfig<T extends AgentConfig>(
   config: T,
@@ -281,8 +295,9 @@ export function agentFacingConfig<T extends AgentConfig>(
   if (!isUnscheduled(config.schedule)) {
     return sql ? { ...rest, sql: agentSqlConfig(sql) } : config;
   }
-  // A machine in no job backs up nothing, its databases neither.
-  return { ...rest, paths: [], hooks: {} };
+  // A machine in no job backs up nothing, its databases neither, and not as a whole.
+  const { wholeMachine: _whole, ...unscheduled } = rest;
+  return { ...unscheduled, paths: [], hooks: {} } as unknown as Omit<T, "sql">;
 }
 
 /** Retention every endpoint starts with (docs/AGENT.md): daily 30, weekly 12, monthly 12. */

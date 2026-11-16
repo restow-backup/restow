@@ -1,0 +1,7 @@
+network:
+  ethernets:
+    eno1:
+      match:
+        macaddress: 00:25:90:ab:cd:ef
+      dhcp4: true
+  version: 2

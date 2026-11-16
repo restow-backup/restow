@@ -32,6 +32,13 @@ export const REPORT_EVENTS = [
   "endpoint.suspicious_snapshot",
   "endpoint.storage_quota",
   "endpoint.repository_locked",
+  "endpoint.recovery.started",
+  "endpoint.recovery_code.rejected",
+  "endpoint.rebound",
+  "endpoint.recovery.failed",
+  "baremetal.red",
+  "baremetal.recovered",
+  "baremetal.overdue",
   "endpoint.sql_red",
   "endpoint.sql_recovered",
   "endpoint.sql_overdue",
@@ -142,6 +149,21 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "endpoint.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of an endpoint's repository kept finding it locked.
   "endpoint.repository_locked": { group: "jobs", level: "warning" },
+  // Bare metal recovery (docs/BAREMETAL.md 12.6), security events the tenant's admins hear of at
+  // once: a recovery code was redeemed (a session waits for release or reads the backups), a code
+  // that is expired, used or revoked was tried (a sign of theft), a machine got a new agent secret
+  // through a rebind token (the previous installation lost its access).
+  "endpoint.recovery.started": { group: "recoverability", level: "error" },
+  "endpoint.recovery_code.rejected": { group: "recoverability", level: "error" },
+  "endpoint.rebound": { group: "recoverability", level: "error" },
+  // A bare metal recovery ended as failed: reported so by the ISO, not released within 30 minutes,
+  // or silent past its expiry.
+  "endpoint.recovery.failed": { group: "recoverability", level: "error" },
+  // Bare metal (docs/BAREMETAL.md 12.6): stage 1 or the boot probe rated a machine red (once per
+  // episode), a red one is no longer red, or its green boot probe is older than 8 days (once).
+  "baremetal.red": { group: "recoverability", level: "error" },
+  "baremetal.recovered": { group: "recoverability", level: "info" },
+  "baremetal.overdue": { group: "recoverability", level: "warning" },
   // The check of a SQL Server database restored from the repository found damage (CHECKDB, a
   // damaged backup, another SHA-256), a red database is green again, or no check of a backed-up
   // database was green for more than 8 days (W2a, docs/BAREMETAL-WINDOWS.md 5.1.7). Once each.

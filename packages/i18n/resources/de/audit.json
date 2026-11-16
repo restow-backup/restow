@@ -609,9 +609,33 @@
         "denied": "Rechner wollte seine Sicherungen ändern",
         "password": {
           "revealed": "Repository-Passwort angezeigt"
-        }
+        },
+        "secret_file_revealed": "Schlüsseldatei eines verschlüsselten Volumes herausgegeben"
       },
       "update_requested": "Aktualisierung des Agenten angefordert",
+      "recovery_code": {
+        "created": "Wiederherstellungscode ausgestellt",
+        "revoked": "Wiederherstellungscode widerrufen",
+        "extended": "Wiederherstellungscode verlängert",
+        "rejected": "Abgelaufener, eingelöster oder widerrufener Wiederherstellungscode versucht"
+      },
+      "recovery": {
+        "started": "Wiederherstellungscode vom Recovery-ISO eingelöst",
+        "approved": "Recovery-Sitzung freigegeben",
+        "credentials_issued": "Repository-Zugang an das Recovery-ISO übergeben",
+        "remote_access_enabled": "Fernzugang zum Recovery-ISO eingeschaltet",
+        "keyfile_regenerated": "Schlüsseldatei eines verschlüsselten Volumes bei der Wiederherstellung neu erzeugt",
+        "released": "Recovery-ISO hat seinen Repository-Zugang beendet",
+        "finished": "Wiederherstellung beendet",
+        "report_refused": "Meldung des Recovery-ISO an eine beendete Sitzung abgewiesen",
+        "expired": "Wiederherstellungscode oder Sitzung abgelaufen",
+        "cancelled": "Recovery-Sitzung abgelehnt oder beendet"
+      },
+      "rebind_token": {
+        "created": "Wiederanbindungs-Token erstellt"
+      },
+      "rebound": "Rechner mit neuem Agent-Secret wieder angebunden",
+      "unrevoked": "Gesperrter Rechner reaktiviert",
       "sql": {
         "inventory": {
           "requested": "Prüfung der SQL-Server-Anmeldung angefordert"
@@ -629,6 +653,10 @@
         "verify": {
           "requested": "SQL-Server-Prüfung angefordert"
         }
+      },
+      "boot_probe": {
+        "requested": "Startprobe der Ganz-Rechner-Sicherung angefordert",
+        "started": "Startprobe: Das Recovery-ISO des Labors hat seinen Code eingelöst"
       }
     },
     "backup_job": {

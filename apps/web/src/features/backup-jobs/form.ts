@@ -245,6 +245,13 @@ export interface SettingsDraft {
   keepMonthly: string;
   /** The job's level of the agent policy (machine jobs; never part of a member's overrides). */
   policy: NonNullable<JobEndpointSettings["policy"]>;
+  /** Back up whole machines (preview; machine jobs, never part of a member's overrides). */
+  wholeMachine: boolean;
+  /**
+   * The exclusions from before "Whole machine" replaced them, to put back on request; null when
+   * the switch has not replaced any in this editor.
+   */
+  previousExcludes: string[] | null;
   /** The native SQL Server backup of Windows members (preview; never part of a member's overrides). */
   sql: SqlDraft;
 }
@@ -369,6 +376,8 @@ export function settingsDraftOf(
     keepWeekly: String(own.keepWeekly),
     keepMonthly: String(own.keepMonthly),
     policy: { ...(s.policy ?? {}) },
+    wholeMachine: s.wholeMachine === true,
+    previousExcludes: null,
     sql: sqlDraftOf(s.sql),
   };
 }
@@ -577,9 +586,53 @@ export function settingsOfDraft(draft: SettingsDraft): JobEndpointSettings {
     ...(draft.retentionOwn ? { retention: retentionOf(draft) } : {}),
     // A job that sets nothing of the policy stores none.
     ...(Object.keys(draft.policy).length > 0 ? { policy: draft.policy } : {}),
+    // Only when on: a job without the switch stays as it was.
+    ...(draft.wholeMachine ? { wholeMachine: true } : {}),
     // Kept once the job has them: switching them off is `enabled: false`, not a missing key.
     ...(draft.sql.present || draft.sql.enabled ? { sql: sqlOfDraft(draft.sql) } : {}),
   };
+}
+
+// --- Whole machine (preview, docs/BAREMETAL.md 5.1, 5.3) ----------------------------------
+
+/** What the job's settings become when "Whole machine" is switched on or off. */
+export function withWholeMachine(
+  draft: Pick<SettingsDraft, "excludes" | "previousExcludes">,
+  on: boolean,
+  defaults: { excludes: readonly string[] },
+): Pick<SettingsDraft, "wholeMachine" | "excludes" | "previousExcludes"> {
+  if (!on) {
+    // The exclusions stay as they are; the previous ones can still be put back.
+    return {
+      wholeMachine: false,
+      excludes: draft.excludes,
+      previousExcludes: draft.previousExcludes,
+    };
+  }
+  // The profile's exclusions (node_modules, /var/lib/docker, ...) would leave a restored system
+  // without its services: the whole machine list replaces them, and the old list is kept.
+  return {
+    wholeMachine: true,
+    excludes: [...defaults.excludes],
+    previousExcludes: draft.previousExcludes ?? [...draft.excludes],
+  };
+}
+
+/** Whether all of `patterns` are in the exclusions. */
+export function excludesAll(excludes: readonly string[], patterns: readonly string[]): boolean {
+  return patterns.length > 0 && patterns.every((pattern) => excludes.includes(pattern));
+}
+
+/** The exclusions with `patterns` added (on) or taken out (off). */
+export function toggledExcludes(
+  excludes: readonly string[],
+  patterns: readonly string[],
+  on: boolean,
+): string[] {
+  if (on) {
+    return [...excludes, ...patterns.filter((pattern) => !excludes.includes(pattern))];
+  }
+  return excludes.filter((pattern) => !patterns.includes(pattern));
 }
 
 // --- The job draft -----------------------------------------------------------------------
@@ -923,6 +976,7 @@ function stableSettingsKey(settings: JobEndpointSettings): string {
     bandwidthWindows,
     retention,
     policy,
+    wholeMachine,
     sql,
   } = settings;
   return JSON.stringify({
@@ -939,6 +993,7 @@ function stableSettingsKey(settings: JobEndpointSettings): string {
     bandwidth: bandwidthKbps ?? null,
     windows: windowsKey(bandwidthWindows),
     retention: retention ?? null,
+    wholeMachine: wholeMachine === true,
   });
 }
 

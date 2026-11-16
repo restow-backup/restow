@@ -93,6 +93,8 @@ export interface RunSummaryDto {
   dataAdded: number | null;
   totalBytesProcessed: number | null;
   progress: EndpointRun["progress"];
+  /** The layout manifest a whole machine backup recorded (docs/BAREMETAL.md 4.3); null otherwise. */
+  layoutId: string | null;
   /** A stop was asked for in the UI (0.4.2): "Cancelling" while running, and who asked. */
   cancelRequestedAt: string | null;
   cancelledBy: string | null;
@@ -130,6 +132,11 @@ export interface EndpointSummaryDto {
    * null when it is assigned to nobody.
    */
   assignedTo: EndpointAssigneeDto | null;
+  /**
+   * A bare metal recovery session that runs for the machine (pending approval, active,
+   * finishing; docs/BAREMETAL.md 14.6): the list and the page say "Being restored".
+   */
+  recovery: { status: string; phase: string | null } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -238,6 +245,43 @@ export interface MachineDto {
   profileDetection: NonNullable<EndpointSettings["profileDetection"]> | null;
 }
 
+/** The configuration of a machine as its page shows it. */
+export type EndpointConfigDto = Omit<EndpointConfig, "fsSnapshot" | "wholeMachine"> & {
+  fsSnapshot: "auto" | "off" | null;
+  wholeMachine: boolean;
+  /**
+   * What the agent gets (`GET /agent/v1/config`): `wholeMachine` only while
+   * RESTOW_BAREMETAL_PREVIEW is on and for a Linux machine. The default of `fsSnapshot` follows
+   * this, not the stored switch.
+   */
+  wholeMachineActive: boolean;
+};
+
+/**
+ * Whether the agent backs up the whole machine: its job writes the switch, the preview is on and
+ * the machine runs Linux (docs/BAREMETAL.md 5.1, 26.2).
+ */
+export function wholeMachineSent(
+  stored: boolean | undefined,
+  os: string | undefined,
+  baremetalPreview: boolean | undefined,
+): boolean {
+  return stored === true && baremetalPreview === true && os === "linux";
+}
+
+/** The stored configuration in the form of {@link EndpointConfigDto}. */
+export function toConfigDto(
+  config: EndpointConfig,
+  agent: { os?: string; baremetalPreview?: boolean } = {},
+): EndpointConfigDto {
+  return {
+    ...config,
+    fsSnapshot: config.fsSnapshot ?? null,
+    wholeMachine: config.wholeMachine === true,
+    wholeMachineActive: wholeMachineSent(config.wholeMachine, agent.os, agent.baremetalPreview),
+  };
+}
+
 export interface EndpointDetailDto extends EndpointSummaryDto {
   /**
    * Removed from Restow while its backups are still stored (#65): they can be browsed and
@@ -261,7 +305,11 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
     state: "scheduled" | "held";
     heldBy: "legal_hold" | "suspicion" | null;
   } | null;
-  config: EndpointConfig;
+  /**
+   * The stored configuration, with `fsSnapshot` as the machine stores it (null: the default) and
+   * `wholeMachine` as its job writes it (docs/BAREMETAL.md 5.1, 6.1).
+   */
+  config: EndpointConfigDto;
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;
   machine: MachineDto;
@@ -364,6 +412,15 @@ export interface EnrollmentTokenDto {
   expiresAt: string;
   state: "valid" | "expired" | "used" | "revoked";
   usedByEndpointId: string | null;
+  /**
+   * `enroll` makes a new machine; `rebind` (0.5.0, docs/BAREMETAL.md 11) gives the existing
+   * machine `endpointId` a new agent secret, for `purpose`.
+   */
+  kind: "enroll" | "rebind";
+  purpose: "baremetal" | "reinstall" | "mac_setup" | null;
+  endpointId: string | null;
+  /** The display name or hostname of the machine a rebind token is for. */
+  endpointName: string | null;
 }
 
 export interface CreatedTokenDto extends EnrollmentTokenDto {
@@ -540,6 +597,7 @@ export function toRunSummary(run: EndpointRun, rated: RatedTests): RunSummaryDto
     progress: run.status === "running" ? run.progress : null,
     cancelRequestedAt: iso(run.cancelRequestedAt),
     cancelledBy: run.cancelledBy ?? null,
+    layoutId: run.layoutId ?? null,
   };
 }
 
@@ -656,6 +714,7 @@ export function toSummary(
   rated: RatedTests,
   job: { id: string; name: string } | null = null,
   assignedTo: EndpointAssigneeDto | null = null,
+  recovery: { status: string; phase: string | null } | null = null,
 ): EndpointSummaryDto {
   return {
     id: endpoint.id,
@@ -679,6 +738,7 @@ export function toSummary(
     attention: attentionOf(endpoint, latestRun, readiness, now, job !== null),
     job,
     assignedTo,
+    recovery: recovery ? { status: recovery.status, phase: recovery.phase } : null,
     createdAt: endpoint.createdAt.toISOString(),
     revokedAt: iso(endpoint.revokedAt),
   };

@@ -15,6 +15,10 @@
  * they, and snapshots dated in the future, are flagged and announced once
  * (`endpoint.suspicious_snapshot`).
  *
+ * While a bare metal recovery reads the repository (a session `active` or `finishing`), the job
+ * waits: it fails with `EndpointRecoveryActiveError` and pg-boss retries it (docs/BAREMETAL.md
+ * 9.7).
+ *
  * While the endpoint has an unresolved suspicious restore point, or a backup
  * the ransomware judgement has not seen yet, nothing is forgotten
  * (suspicion/holds.ts, docs/RANSOMWARE.md "Retention hold"); the run still
@@ -85,6 +89,7 @@ import {
   type EndpointJobDeps,
   openEndpointRepository,
   reportableMessage,
+  waitForRecovery,
   withMaintenanceLock,
   writeReport,
 } from "./common.js";
@@ -348,12 +353,17 @@ export async function endpointRetention(
     });
     return;
   }
+  // Never while a bare metal recovery reads the repository (docs/BAREMETAL.md 9.7): its restic runs
+  // without a lock. Asked before the lock and again once it is held, which with the shared lock
+  // the release takes closes both orders.
+  await waitForRecovery(deps, endpointId);
   // Never beside the check or a restore test of the same repository. restic's deletes through
   // the loopback carry this permit (storage/deletion-guard.ts).
   await withDeletionPermit({ pass: "endpoint_retention", tenantId }, () =>
-    withMaintenanceLock(deps, endpointId, "exclusive", () =>
-      retain(deps, payload, endpoint, access),
-    ),
+    withMaintenanceLock(deps, endpointId, "exclusive", async () => {
+      await waitForRecovery(deps, endpointId);
+      await retain(deps, payload, endpoint, access);
+    }),
   );
 }
 

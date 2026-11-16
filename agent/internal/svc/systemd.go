@@ -26,10 +26,11 @@ import (
 //   - Kernel modules cannot be loaded (CAP_SYS_MODULE dropped, module system
 //     calls fail with EPERM). ProtectKernelModules is not used because it also
 //     hides /usr/lib/modules, which a backup of / must be able to read.
-//   - RestrictNamespaces, LockPersonality, RestrictRealtime,
-//     SystemCallArchitectures=native, ProtectHostname: no namespaces, no
-//     execution domain changes, no realtime scheduling, no foreign syscall ABIs,
-//     no hostname changes.
+//   - RestrictNamespaces=mnt, LockPersonality, RestrictRealtime,
+//     SystemCallArchitectures=native, ProtectHostname: no namespaces but mount
+//     namespaces (the snapshot helper builds the LVM/btrfs snapshot tree in a
+//     private one, docs/BAREMETAL.md 6.3), no execution domain changes, no
+//     realtime scheduling, no foreign syscall ABIs, no hostname changes.
 //   - UMask=0077: files the agent or a hook creates are private unless the
 //     code sets a mode; restic restores keep the modes from the snapshot.
 //
@@ -66,7 +67,7 @@ ProtectHostname=yes
 CapabilityBoundingSet=~CAP_SYS_MODULE
 SystemCallFilter=~@module
 SystemCallErrorNumber=EPERM
-RestrictNamespaces=yes
+RestrictNamespaces=mnt
 RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native

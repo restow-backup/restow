@@ -6,6 +6,7 @@ import {
   Camera,
   Database,
   LayoutDashboard,
+  LifeBuoy,
   Play,
   Settings,
   ShieldCheck,
@@ -38,6 +39,7 @@ import { ApiError, errorMessageKey } from "@/lib/api";
 import type { EndpointDetail } from "./api.js";
 import { AttentionArea } from "./components/attention-area.js";
 import { BackupDeletionNotice } from "./components/backup-deletion-notice.js";
+import { BaremetalCard } from "./components/baremetal-card.js";
 import { stoppableBackup } from "./components/machine-cells.js";
 import { OverviewTab } from "./components/overview-tab.js";
 import { RunSheet } from "./components/run-sheet.js";
@@ -59,7 +61,13 @@ import {
   useRequestEndpointUpdate,
   useRestoreTest,
 } from "./hooks.js";
-import { ENDPOINT_TABS, type EndpointTab, fileRestoreTo, inventoryTo } from "./paths.js";
+import {
+  baremetalWizardTo,
+  ENDPOINT_TABS,
+  type EndpointTab,
+  fileRestoreTo,
+  inventoryTo,
+} from "./paths.js";
 import {
   endpointErrorKey,
   endpointHostLine,
@@ -365,6 +373,27 @@ export function EndpointDetailPage({
         ) : null}
       </div>
 
+      {detail.recovery ? (
+        <Alert variant="info" data-slot="recovery-banner">
+          <LifeBuoy />
+          <AlertDescription>
+            <p>
+              {t("detail.recoveryBanner", {
+                phase: detail.recovery.phase
+                  ? t(`recovery.phases.${detail.recovery.phase}`)
+                  : t(`recovery.status.${detail.recovery.status}`),
+              })}{" "}
+              <Link
+                to={baremetalWizardTo(detail.id)}
+                className="font-medium underline underline-offset-4"
+              >
+                {t("detail.recoveryBannerLink")}
+              </Link>
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {detail.status === "revoked" ? (
         <Alert variant="warning" data-slot="revoked-banner">
           <TriangleAlert />
@@ -399,8 +428,10 @@ export function EndpointDetailPage({
             );
           })}
         </TabsList>
-        <TabsContent value="overview" className="pt-2">
+        <TabsContent value="overview" className="space-y-4 pt-2">
           <OverviewTab detail={detail} onOpenRun={setOpenRun} />
+          {/* Bare metal (preview): shown with the preview on or once a layout was captured. */}
+          <BaremetalCard endpointId={detail.id} os={detail.os} />
         </TabsContent>
         <TabsContent value="snapshots" className="space-y-4 pt-2">
           <MachineNewDataChart endpointId={detail.id} />

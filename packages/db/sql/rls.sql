@@ -144,6 +144,13 @@ DECLARE
     'endpoint_downloads',
     'endpoint_repository_locks',
     'endpoint_snapshot_flags',
+    -- The layout manifests of whole machine backups (0.5.0, docs/BAREMETAL.md 14.2).
+    'endpoint_layouts',
+    -- Recovery codes and sessions of bare metal restores, and their logs (0.5.0, docs/BAREMETAL.md
+    -- 9, 14.2). The exchange looks a code up by its hash on the installation role (before a tenant
+    -- is pinned, like the agent's sign-in); everything after runs on the tenant role.
+    'endpoint_recoveries',
+    'endpoint_recovery_log',
     'endpoint_sql_databases',
     'endpoint_sql_backups',
     'backup_jobs',

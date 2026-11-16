@@ -54,6 +54,16 @@ const (
 	LegacyResticBinary = LegacyLibDir + "/restic"
 )
 
+// Paths of the recovery ISO (restow-agent recover, docs/BAREMETAL.md 10).
+const (
+	// RecoveryTargetRoot is where recover mounts the restored system.
+	RecoveryTargetRoot = "/mnt/restow-target"
+	// RecoveryRunDir holds recover's files on tmpfs (tmp, tls, log, media).
+	RecoveryRunDir = "/run/restow-recovery"
+	// RecoveryLibDir holds the agent, restic and the notices on the ISO.
+	RecoveryLibDir = "/usr/lib/restow-recovery"
+)
+
 // WindowsInstallDir is the install prefix on Windows in the normal case. The
 // real one comes from the known folder FOLDERID_ProgramFiles (paths_windows.go).
 const WindowsInstallDir = `C:\Program Files\Restow`
@@ -131,6 +141,19 @@ func (l Layout) CacheDir() string { return filepath.Join(l.DataDir, "cache") }
 
 // TmpDir holds temporary folders (verify_sample restores).
 func (l Layout) TmpDir() string { return filepath.Join(l.DataDir, "tmp") }
+
+// BaremetalDir holds the layout manifest and its raw files of the last
+// whole-machine backup (docs/BAREMETAL.md, 4.3). It lies in the root file
+// system (or /var), so it is in the same snapshot as the system it
+// describes.
+func (l Layout) BaremetalDir() string { return filepath.Join(l.DataDir, "baremetal") }
+
+// Folders of the snapshot helper on Linux (docs/BAREMETAL.md, 6.3); they
+// exist only inside its private mount namespace.
+const (
+	SnapTreeDir = "/run/restow-agent/snaptree"
+	BtrfsTopDir = "/run/restow-agent/btrfs"
+)
 
 // OutboxDir holds run reports that could not be delivered yet.
 func (l Layout) OutboxDir() string { return filepath.Join(l.DataDir, "outbox") }

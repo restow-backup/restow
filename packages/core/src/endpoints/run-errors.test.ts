@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isInterruptedOnly, resticExitCodeOf } from "./run-errors.js";
+import {
+  ENDPOINT_RUN_ERROR_CODES,
+  isInterruptedOnly,
+  NOTE_RUN_CODES,
+  resticExitCodeOf,
+} from "./run-errors.js";
 
 describe("run error codes", () => {
   it("knows a run that was only interrupted by an agent restart", () => {
@@ -16,5 +21,16 @@ describe("run error codes", () => {
     expect(resticExitCodeOf("restic_exit_130")).toBe(130);
     expect(resticExitCodeOf("read_error")).toBeNull();
     expect(resticExitCodeOf(undefined)).toBeNull();
+  });
+
+  it("knows the codes of a whole machine backup, and which ones are only notes", () => {
+    for (const code of ["layout_capture_failed", "layout_too_large", "layout_rejected"]) {
+      expect(ENDPOINT_RUN_ERROR_CODES).toContain(code);
+    }
+    expect([...NOTE_RUN_CODES].sort()).toEqual([
+      "layout_rejected",
+      "layout_too_large",
+      "snapshot_cleanup_failed",
+    ]);
   });
 });

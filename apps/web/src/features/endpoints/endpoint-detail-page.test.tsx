@@ -333,6 +333,18 @@ describe("EndpointDetailPage", () => {
     );
   });
 
+  it("says on top of the page that the machine is being restored, with a link to follow it", async () => {
+    fetchEndpoint.mockResolvedValue(detail({ recovery: { status: "active", phase: "restoring" } }));
+    await open();
+    const banner = document.querySelector('[data-slot="recovery-banner"]');
+    expect(banner?.textContent).toContain("being restored on bare metal: Restoring files");
+    expect(banner?.querySelector("a")?.getAttribute("href")).toBe(`/inventory/${ID}/bare-metal`);
+    page.unmount();
+    fetchEndpoint.mockResolvedValue(detail());
+    await open();
+    expect(document.querySelector('[data-slot="recovery-banner"]')).toBeNull();
+  });
+
   it("names the actual age in the explanation of a silent server", async () => {
     fetchEndpoint.mockResolvedValue(
       detail({
@@ -750,12 +762,21 @@ describe("EndpointDetailPage", () => {
     await page.click(page.byText("button", "Back up now"));
     await page.settle();
     expect(createTask).toHaveBeenCalledWith(ID, { kind: "backup_now" });
-    expect(toast.success).toHaveBeenCalledWith("Backup requested", expect.anything());
+    // The request has ended before the second click: the button is disabled while it runs, and a
+    // click on a slow runner landed on the disabled button.
+    await vi.waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Backup requested", expect.anything()),
+    );
+    await vi.waitFor(() =>
+      expect(page.byText<HTMLButtonElement>("button", "Back up now").disabled).toBe(false),
+    );
 
     createTask.mockResolvedValue({ alreadyQueued: true, task: {} });
     await page.click(page.byText("button", "Back up now"));
     await page.settle();
-    expect(toast.info).toHaveBeenCalledWith("A backup is already waiting for this machine.");
+    await vi.waitFor(() =>
+      expect(toast.info).toHaveBeenCalledWith("A backup is already waiting for this machine."),
+    );
   });
 
   it("explains a busy repository when the restore test cannot be queued", async () => {

@@ -297,6 +297,9 @@ export class FakeDockerOps implements DockerOps {
     if (service === "caddy") {
       return (await this.envValue("RESTOW_WEB_IMAGE", processEnv)) ?? "restow-web:local";
     }
+    if (service === "recovery-lab") {
+      return (await this.envValue("RESTOW_LAB_IMAGE", processEnv)) ?? "restow-lab:local";
+    }
     return (await this.envValue("RESTOW_IMAGE", processEnv)) ?? "restow:local";
   }
 
@@ -918,10 +921,11 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 }
 
 /** The digests the fake registry gives the published images of `version`. */
-export function releaseDigests(version: string): { app: string; web: string } {
+export function releaseDigests(version: string): { app: string; web: string; lab: string } {
   return {
     app: digestOf(`ghcr.io/restow-backup/restow:${version}`),
     web: digestOf(`ghcr.io/restow-backup/restow-web:${version}`),
+    lab: digestOf(`ghcr.io/restow-backup/restow-lab:${version}`),
   };
 }
 
@@ -933,7 +937,9 @@ export function releaseSigner(version: string): string {
 /** A valid image-mode schedule request for `version`. */
 export function scheduleRequest(
   version: string,
-  overrides: Partial<ScheduleRequest> & { digests?: { app?: string; web?: string } } = {},
+  overrides: Partial<ScheduleRequest> & {
+    digests?: { app?: string; web?: string; lab?: string };
+  } = {},
 ): ScheduleRequest {
   const { digests, ...rest } = overrides;
   const plain = version.replace(/^v/, "");
@@ -943,7 +949,7 @@ export function scheduleRequest(
       tag: `v${plain}`,
       url: `https://example.com/releases/v${plain}`,
       prerelease: false,
-      // What the fake registry gives these tags; a release publishes both by default.
+      // What the fake registry gives these tags; a release publishes all three by default.
       digests: digests ?? releaseDigests(plain),
     },
     mode: "image",

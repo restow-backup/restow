@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -97,6 +99,10 @@ export const endpointReportKindEnum = pgEnum("endpoint_report_kind", [
   "retention",
   // One database's backup restored from the repository and checked with DBCC CHECKDB (W2a).
   "sql_verify",
+  // Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot.
+  "baremetal_check",
+  // Bare metal stage 2 (docs/BAREMETAL.md 12.3): the snapshot restored and booted in the lab.
+  "boot_probe",
 ]);
 
 export type EndpointProfile = (typeof endpointProfileEnum.enumValues)[number];
@@ -166,6 +172,16 @@ export type EndpointConfig = {
    * wire form (`GET /agent/v1/config`, field `policy`).
    */
   policy?: EndpointConfigPolicy;
+  /**
+   * Back up the whole machine (preview, docs/BAREMETAL.md 5); written from a whole machine job to
+   * Linux machines that are no container, absent otherwise.
+   */
+  wholeMachine?: boolean;
+  /**
+   * File system snapshots on Linux (LVM, btrfs), set on the machine; absent means the default (on
+   * for a whole machine backup, off otherwise).
+   */
+  fsSnapshot?: "auto" | "off";
   /**
    * The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3): Windows only, written from
    * a backup job and absent when no job sets it. The agent gets it without `verify`, which only the
@@ -323,6 +339,12 @@ export type EndpointSettings = {
     /** What it runs in as the agent named it (`lxc`, `kvm`); empty when unknown. */
     technology: string;
   };
+  /**
+   * The machine was rebound (docs/BAREMETAL.md 11): its next good backup is the new baseline of
+   * the ransomware signals (`endpoint_runs.activity_baseline`); cleared by that backup. Server
+   * only, so it bumps no configuration version.
+   */
+  activityBaselinePending?: boolean;
 };
 
 /** The machine's local hook policy (set by root on the machine, never by the server). */
@@ -529,10 +551,28 @@ export const endpointEnrollmentTokens = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // A rebind token (0.5.0, docs/BAREMETAL.md 11): the existing machine it gives a new agent
+    // secret; null for an enrollment token, which creates a new machine.
+    endpointId: uuid("endpoint_id").references(() => endpoints.id, {
+      onDelete: "cascade",
+    }),
+    // What a rebind token is for: `baremetal` (after a restore), `reinstall`, `mac_setup` (M6).
+    purpose: text("purpose").$type<"baremetal" | "reinstall" | "mac_setup">(),
+    // A rebind token that may bring a revoked machine back (chosen when it was issued).
+    unrevoke: boolean("unrevoke").notNull().default(false),
   },
   (t) => [
     uniqueIndex("endpoint_enrollment_tokens_hash_uq").on(t.tokenHash),
     index("endpoint_enrollment_tokens_tenant_idx").on(t.tenantId, t.createdAt),
+    check(
+      "endpoint_enrollment_tokens_purpose_ck",
+      sql`${t.purpose} IS NULL OR ${t.purpose} IN ('baremetal', 'reinstall', 'mac_setup')`,
+    ),
+    // A rebind token gives lasting access like an installed agent: valid for at most a day.
+    check(
+      "endpoint_enrollment_tokens_rebind_24h",
+      sql`${t.endpointId} IS NULL OR ${t.expiresAt} <= ${t.createdAt} + interval '24 hours'`,
+    ),
   ],
 );
 
@@ -629,10 +669,17 @@ export const endpointRuns = pgTable(
     // label of who asked.
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     cancelledBy: text("cancelled_by"),
+    // The layout manifest a whole machine backup recorded (0.5.0, docs/BAREMETAL.md 4.3).
+    layoutId: uuid("layout_id").references(() => endpointLayouts.id, { onDelete: "set null" }),
+    // The first good backup after a rebind (0.5.0, docs/BAREMETAL.md 11): the new baseline of the
+    // ransomware signals, nothing before it is compared with what comes after (docs/RANSOMWARE.md).
+    activityBaseline: boolean("activity_baseline").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("endpoint_runs_endpoint_started_idx").on(t.endpointId, t.startedAt),
+    // The layouts still referenced by a run (the monitor keeps them, apps/worker monitor.ts).
+    index("endpoint_runs_layout_idx").on(t.layoutId).where(sql`${t.layoutId} IS NOT NULL`),
     // The runs an agent is told to stop with its heartbeat.
     index("endpoint_runs_cancelling_idx")
       .on(t.endpointId)
@@ -648,6 +695,190 @@ export const endpointRuns = pgTable(
         sql`${t.kind} = 'backup' AND ${t.status} IN ('succeeded', 'partial') AND ${t.snapshotId} IS NOT NULL AND ${t.finishedAt} IS NOT NULL`,
       ),
   ],
+);
+
+/**
+ * The layout manifest of a whole machine backup (preview, docs/BAREMETAL.md 4.3, 14.2), stored
+ * once per machine and content: the SHA-256 of its canonical encoding (@restow/core
+ * `canonicalLayoutJson`) is the same in the snapshot (`layout.json`) and here, and the runs that
+ * recorded it point at it (`endpoint_runs.layout_id`). `summary` is what the machine's page shows
+ * (@restow/core `LayoutSummary`); the full manifest carries serial numbers and is read by admins
+ * only. A layout no run points at and that is not the machine's newest is removed by the monitor.
+ */
+export const endpointLayouts = pgTable(
+  "endpoint_layouts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    endpointId: uuid("endpoint_id")
+      .notNull()
+      .references(() => endpoints.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    format: text("format").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    platform: text("platform").notNull(),
+    manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
+    summary: jsonb("summary").$type<Record<string, unknown>>().notNull(),
+    verdict: text("verdict").notNull(),
+    layoutFingerprint: text("layout_fingerprint").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("endpoint_layouts_endpoint_sha_uq").on(t.endpointId, t.sha256),
+    index("endpoint_layouts_endpoint_created_idx").on(t.endpointId, t.createdAt),
+    check("endpoint_layouts_platform_ck", sql`${t.platform} IN ('linux', 'darwin')`),
+  ],
+);
+
+/**
+ * A bare metal recovery (docs/BAREMETAL.md 9.9): a code was issued, exchanged by the ISO for a
+ * session, released by an admin, read the backups, ended.
+ *
+ *   issued -> pending_approval | active (exchange) | revoked | expired
+ *   pending_approval -> active (release) | cancelled (rejected) | failed (not released in time)
+ *   active -> finishing (the ISO gave up its repository access) | succeeded | failed | cancelled
+ *   finishing -> succeeded | failed | cancelled
+ */
+export const endpointRecoveryStatusEnum = pgEnum("endpoint_recovery_status", [
+  "issued",
+  "pending_approval",
+  "active",
+  "finishing",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+  "revoked",
+]);
+
+/**
+ * `code`: a recovery code for the ISO (M3). `probe`: a boot probe of the lab (M5, docs/BAREMETAL.md
+ * 12.3), which runs the same code exchange and session without an operator. macOS migrations come
+ * later.
+ */
+export const endpointRecoveryKindEnum = pgEnum("endpoint_recovery_kind", ["code", "probe"]);
+
+export type EndpointRecoveryStatus = (typeof endpointRecoveryStatusEnum.enumValues)[number];
+export type EndpointRecoveryKind = (typeof endpointRecoveryKindEnum.enumValues)[number];
+
+/** The hardware the ISO found (docs/BAREMETAL.md 9.3), as it reported it. */
+export type EndpointRecoveryHardware = {
+  firmware: "uefi" | "bios";
+  secureBoot: boolean | null;
+  ramBytes: number;
+  disks: {
+    sizeBytes: number;
+    logicalSectorSize: number;
+    model: string;
+    serial: string;
+    wwn: string;
+    transport: string;
+  }[];
+  nics: { mac: string; driver: string; link: boolean }[];
+};
+
+/** The last progress the ISO reported (docs/BAREMETAL.md 9.8). */
+export type EndpointRecoveryProgress = {
+  phase: string;
+  step: number;
+  stepsTotal: number;
+  bytesDone: number;
+  totalBytes: number;
+  filesDone: number;
+  totalFiles: number;
+  message: string;
+  updatedAt: string;
+};
+
+/**
+ * One recovery code and the session it became (docs/BAREMETAL.md 9, 14.2). The code itself is never
+ * stored: `code_hash` is SHA-256 of the proof the ISO sends, bound to `instance_origin`; the session
+ * secret only as its hash. A session lasts until `expires_at` of its code, at most 48 hours after
+ * it was issued (CHECK). Everything the ISO reports (hardware, progress, verification, warnings)
+ * is shown as reported by the ISO.
+ */
+export const endpointRecoveries = pgTable(
+  "endpoint_recoveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    endpointId: uuid("endpoint_id")
+      .notNull()
+      .references(() => endpoints.id, { onDelete: "cascade" }),
+    kind: endpointRecoveryKindEnum("kind").notNull(),
+    status: endpointRecoveryStatusEnum("status").notNull().default("issued"),
+    // SHA-256 of the code proof (kind `code`).
+    codeHash: text("code_hash"),
+    // The canonical origin the code was issued for, and the SHA-256 of its TLS public key.
+    instanceOrigin: text("instance_origin"),
+    spkiSha256: text("spki_sha256"),
+    requireApproval: boolean("require_approval").notNull().default(true),
+    snapshotId: text("snapshot_id"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: text("revoked_by").references(() => user.id, { onDelete: "set null" }),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    usedIp: text("used_ip"),
+    sessionSecretHash: text("session_secret_hash"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedBy: text("approved_by").references(() => user.id, { onDelete: "set null" }),
+    credentialsIssuedAt: timestamp("credentials_issued_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    recoveryVersion: text("recovery_version"),
+    hardware: jsonb("hardware").$type<EndpointRecoveryHardware>(),
+    sshKeys: jsonb("ssh_keys").$type<string[]>(),
+    sshHostKeys: jsonb("ssh_host_keys").$type<{ type: string; fingerprint: string }[]>(),
+    progress: jsonb("progress").$type<EndpointRecoveryProgress>(),
+    verification: jsonb("verification").$type<Record<string, unknown>>(),
+    warnings: jsonb("warnings").$type<{ code: string; message: string }[]>(),
+    logBytes: integer("log_bytes").notNull().default(0),
+    /**
+     * The stored log ends inside a key block (a BEGIN line without its END yet): the next batch
+     * goes on masking until the END line (docs/BAREMETAL.md 9.8).
+     */
+    logInKeyBlock: boolean("log_in_key_block").notNull().default(false),
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("endpoint_recoveries_code_uq").on(t.codeHash).where(sql`${t.codeHash} IS NOT NULL`),
+    index("endpoint_recoveries_endpoint_idx").on(t.endpointId, t.issuedAt),
+    // The sessions that hold the repository open (retention and removal wait for them).
+    index("endpoint_recoveries_active_idx")
+      .on(t.endpointId)
+      .where(sql`${t.status} IN ('active', 'finishing')`),
+    check(
+      "endpoint_recoveries_max_48h",
+      sql`${t.expiresAt} <= ${t.issuedAt} + interval '48 hours'`,
+    ),
+  ],
+);
+
+/** Lines the ISO sent for a recovery session, redacted and without control characters (9.8). */
+export const endpointRecoveryLog = pgTable(
+  "endpoint_recovery_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    recoveryId: uuid("recovery_id")
+      .notNull()
+      .references(() => endpointRecoveries.id, { onDelete: "cascade" }),
+    // The lines of one call, joined with newlines.
+    lines: text("lines").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Read in pages in the order they came (the cursor is the time and the id).
+  (t) => [index("endpoint_recovery_log_recovery_idx").on(t.recoveryId, t.createdAt, t.id)],
 );
 
 /** Params of a restore task: into a new folder on the endpoint, never over files. */
@@ -949,9 +1180,14 @@ export type EndpointSample = typeof endpointSamples.$inferSelect;
 export type NewEndpointSample = typeof endpointSamples.$inferInsert;
 export type EndpointReport = typeof endpointReports.$inferSelect;
 export type NewEndpointReport = typeof endpointReports.$inferInsert;
+export type EndpointLayout = typeof endpointLayouts.$inferSelect;
+export type NewEndpointLayout = typeof endpointLayouts.$inferInsert;
 export type EndpointRepositoryLock = typeof endpointRepositoryLocks.$inferSelect;
 export type NewEndpointRepositoryLock = typeof endpointRepositoryLocks.$inferInsert;
 export type EndpointSnapshotFlag = typeof endpointSnapshotFlags.$inferSelect;
 export type NewEndpointSnapshotFlag = typeof endpointSnapshotFlags.$inferInsert;
+export type EndpointRecovery = typeof endpointRecoveries.$inferSelect;
+export type NewEndpointRecovery = typeof endpointRecoveries.$inferInsert;
+export type EndpointRecoveryLogEntry = typeof endpointRecoveryLog.$inferSelect;
 export type EndpointDownload = typeof endpointDownloads.$inferSelect;
 export type NewEndpointDownload = typeof endpointDownloads.$inferInsert;

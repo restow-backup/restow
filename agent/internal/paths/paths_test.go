@@ -18,13 +18,17 @@ func TestDefaultLayoutIsFixedPerSpecification(t *testing.T) {
 	if l.StatusFile() != "/var/lib/restow-agent/status.json" || l.LogFile() != "/var/log/restow-agent/agent.log" {
 		t.Fatalf("data/log location: %+v", l)
 	}
+	// docs/BAREMETAL.md 4.3: the manifest path in the snapshot.
+	if l.BaremetalDir() != "/var/lib/restow-agent/baremetal" || SnapTreeDir != "/run/restow-agent/snaptree" || BtrfsTopDir != "/run/restow-agent/btrfs" {
+		t.Fatalf("bare-metal locations: %s", l.BaremetalDir())
+	}
 }
 
 func TestDevelopmentOverrideRelocatesEverything(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(EnvAgentDir, dir)
 	l := Default()
-	for _, p := range []string{l.StateDir, l.DataDir, l.LogDir, l.CacheDir(), l.TmpDir(), l.OutboxDir(), l.LockFile()} {
+	for _, p := range []string{l.StateDir, l.DataDir, l.LogDir, l.CacheDir(), l.TmpDir(), l.OutboxDir(), l.LockFile(), l.BaremetalDir()} {
 		if !strings.HasPrefix(p, dir) {
 			t.Errorf("%s is outside the override directory", p)
 		}

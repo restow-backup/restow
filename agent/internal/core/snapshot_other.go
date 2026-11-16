@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package core
 
@@ -8,8 +8,8 @@ import (
 	"github.com/restow-backup/restow/agent/internal/restic"
 )
 
-// planSnapshot: Linux and macOS take no file system snapshot of an ordinary
-// backup in this release (LVM, btrfs and APFS come with "whole machine").
+// planSnapshot: macOS and the BSDs take no file system snapshot in this
+// release (APFS comes with M6).
 func planSnapshot(cfg *api.Config, _ []string) snapshotPlan {
 	var p snapshotPlan
 	if cfg.UseVSS {
@@ -21,3 +21,7 @@ func planSnapshot(cfg *api.Config, _ []string) snapshotPlan {
 // platformBackupOptions adds what the system needs to every backup: nothing
 // outside Windows.
 func platformBackupOptions(*restic.BackupOptions, paths.Layout) {}
+
+// newFSBackend: LVM and btrfs snapshots and whole-machine backups are
+// Linux only (macOS follows in M6).
+func newFSBackend(*Agent) fsBackend { return nil }

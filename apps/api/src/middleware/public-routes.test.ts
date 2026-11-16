@@ -24,6 +24,7 @@ const BROWSER_GUARDED: Readonly<Record<string, string>> = {
   "POST /api/v1/cluster-join": "/api/v1/cluster-join",
   "POST /api/v1/accounts/set-password": "/api/v1/accounts/set-password",
   "POST /agent/v1/enroll": "/agent/v1/enroll",
+  "POST /agent/v1/recovery/sessions": "/agent/v1/recovery/sessions",
   "POST /agent/pve/v1/enroll": "/agent/pve/v1/enroll",
   "POST /agent/pve/v1/enroll/preflight": "/agent/pve/v1/enroll/preflight",
 };
@@ -37,6 +38,16 @@ const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
   "POST /agent/v1/runs": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs/:runId/progress": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs/:runId/finish": "HTTP Basic with the agent's secret",
+  "POST /agent/v1/recovery/sessions/current/progress":
+    "HTTP Basic with the recovery session's secret",
+  "POST /agent/v1/recovery/sessions/current/log": "HTTP Basic with the recovery session's secret",
+  "POST /agent/v1/recovery/sessions/current/event": "HTTP Basic with the recovery session's secret",
+  "POST /agent/v1/recovery/sessions/current/release":
+    "HTTP Basic with the recovery session's secret",
+  "POST /agent/v1/recovery/sessions/current/finish":
+    "HTTP Basic with the recovery session's secret",
+  "POST /agent/v1/recovery/sessions/current/rebind":
+    "HTTP Basic with the recovery session's secret",
   "POST /agent/pve/v1/heartbeat": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/inventory": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/runs": "HTTP Basic with the PVE node's secret",

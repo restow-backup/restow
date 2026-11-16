@@ -40,6 +40,7 @@ import {
 } from "@restow/core";
 import {
   type Endpoint,
+  EndpointRecoveryActiveError,
   type EndpointRemoval,
   endpointSamples,
   endpointSnapshotFlags,
@@ -57,6 +58,7 @@ import {
   type EndpointJobDeps,
   loadEndpoint,
   reportableMessage,
+  waitForRecovery,
   withMaintenanceLock,
 } from "./common.js";
 
@@ -291,9 +293,12 @@ export async function endpointRemoval(
   const prefix = endpointPrefix(endpointId);
   const snapshots = new Set<string>();
   let result: Awaited<ReturnType<typeof deleteUnder>>;
+  // Not while a bare metal recovery reads the backups (docs/BAREMETAL.md 9.7): retried later.
+  await waitForRecovery(deps, endpointId);
   try {
     result = await withDeletionPermit({ pass: "endpoint_removal", tenantId }, () =>
       withMaintenanceLock(deps, endpointId, "exclusive", async () => {
+        await waitForRecovery(deps, endpointId);
         const total = {
           deleted: 0,
           locked: 0,
@@ -313,6 +318,10 @@ export async function endpointRemoval(
       }),
     );
   } catch (error) {
+    if (error instanceof EndpointRecoveryActiveError) {
+      // Waiting for a recovery is no failure of the removal.
+      throw error;
+    }
     // Recorded for the list of removals; pg-boss and the scheduler try again.
     await saveRemoval(
       deps,

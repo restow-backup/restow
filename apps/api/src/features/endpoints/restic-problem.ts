@@ -2,8 +2,13 @@ import { ResticError } from "@restow/core";
 import { ProblemError } from "../../problem.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 
-/** Map a failed restic run to the problem an admin can act on. */
-export function resticProblem(error: unknown): ProblemError {
+/**
+ * Map a failed restic run to the problem an admin can act on. Anything else (a database or
+ * storage error, a bug) is answered as it is: the global error handler logs it with route and
+ * stack and answers a generic 500. Wrapped into a ProblemError here, it left no trace at all
+ * (an enrollment failing with a bare 500 and an empty log).
+ */
+export function resticProblem(error: unknown): unknown {
   if (error instanceof ProblemError) {
     return error;
   }
@@ -34,13 +39,18 @@ export function resticProblem(error: unknown): ProblemError {
         });
     }
   }
-  if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "ENOENT") {
     return new ProblemError(503, "restic not available", {
       type: ENDPOINT_PROBLEMS.resticUnavailable,
       detail: "The restic binary is not available on this server.",
     });
   }
-  return new ProblemError(500, "Internal Server Error", {
-    detail: "An unexpected error occurred.",
-  });
+  if (code === "EACCES") {
+    return new ProblemError(503, "restic not available", {
+      type: ENDPOINT_PROBLEMS.resticUnavailable,
+      detail: "The restic binary on this server cannot be run (permission denied).",
+    });
+  }
+  return error instanceof Error ? error : new Error(String(error));
 }

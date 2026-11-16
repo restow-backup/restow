@@ -701,6 +701,41 @@
       "when": 1794699259976,
       "tag": "0099_restic_snapshot_origins",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794750529758,
+      "tag": "0100_baremetal_layouts",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794750589758,
+      "tag": "0101_baremetal_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794750649758,
+      "tag": "0102_endpoint_recoveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794750709758,
+      "tag": "0103_endpoint_recovery_log_key_block",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794750769758,
+      "tag": "0104_boot_probe",
+      "breakpoints": true
     }
   ]
 }

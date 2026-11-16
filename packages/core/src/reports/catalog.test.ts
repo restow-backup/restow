@@ -173,6 +173,23 @@ describe("channel columns", () => {
   });
 });
 
+describe("bare metal recovery events (docs/BAREMETAL.md 12.6)", () => {
+  it("are errors of the recoverability group, in the bell by default and off the webhook stream", () => {
+    for (const event of [
+      "endpoint.recovery.started",
+      "endpoint.recovery_code.rejected",
+      "endpoint.rebound",
+      "endpoint.recovery.failed",
+    ] as const) {
+      expect(REPORT_EVENTS).toContain(event);
+      expect(REPORT_EVENT_INFO[event]).toEqual({ group: "recoverability", level: "error" });
+      expect(DEFAULT_BELL_EVENTS).toContain(event);
+      expect(ROUTINE_REPORT_EVENTS).not.toContain(event);
+      expect(presetEvents("errors")).toContain(event);
+    }
+  });
+});
+
 describe("critical events (0.5.0)", () => {
   it("are the security and data-loss events [ALERT-001]", () => {
     expect(CRITICAL_REPORT_EVENTS).toEqual([

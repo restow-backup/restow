@@ -97,6 +97,9 @@ assert_contains "--http-local is deprecated, use --local" "$( (parse_args --http
 assert_not_contains "deprecated" "$( (parse_args --local) 2>&1)" "--local prints no notice"
 assert_eq "help" "$(parsed --help | cut -d '|' -f 10)" "--help"
 assert_eq "upgrade" "$(parsed --upgrade | cut -d '|' -f 10)" "--upgrade"
+# claim: UPDATE-018 (the manual update names the lab's image, and the updater moves it itself)
+assert_contains "change RESTOW_LAB_IMAGE as well" "$(print_upgrade_info)" "--upgrade: the manual step for the recovery lab"
+assert_contains "where the recovery lab runs, RESTOW_LAB_IMAGE itself" "$(print_upgrade_info)" "--upgrade: the updater moves the lab"
 assert_eq "0" "$(parsed --with-updater --no-updater | cut -d '|' -f 9)" "--no-updater wins when last"
 parsed_mounter() {
   (
@@ -430,6 +433,51 @@ for secret in "$pg" "$app_pw" "$provider_pw" "$master" "$auth"; do
   assert_not_contains "$secret" "$log_and_output" "no secret in the log or the output"
 done
 assert_eq "" "$(find "$dir1" -name '.env.install.*')" "no temporary file left"
+
+# --with-recovery-lab (docs/BAREMETAL.md 12.3): parsed, refused on a worker node, checked for
+# /dev/kvm, and written into .env (token, image, group of /dev/kvm) only when asked for.
+parsed_lab() {
+  (
+    set -Eeuo pipefail
+    parse_args "$@"
+    printf '%s' "$OPT_LAB"
+  ) 2>/dev/null
+}
+assert_eq "0" "$(parsed_lab)" "the recovery lab is off by default"
+assert_eq "1" "$(parsed_lab --with-recovery-lab)" "--with-recovery-lab turns it on"
+assert_contains "--with-recovery-lab" "$(usage)" "--help names --with-recovery-lab"
+assert_contains "--with-recovery-lab are for a main host" "$( (
+  set -Eeuo pipefail
+  parse_args --join https://restow.example.com --join-token x --with-recovery-lab
+  validate_cluster_options
+) 2>&1)" "--with-recovery-lab is refused for a worker node"
+kvm_check() {
+  (
+    PREFLIGHT_FAILED=0 WARNINGS=0 OPT_LAB=$1 KVM_DEVICE=$2 LOG_FILE=/dev/null LOG_READY=1
+    check_kvm
+    printf 'failed=%s' "$PREFLIGHT_FAILED"
+  ) 2>&1
+}
+assert_contains "failed=1" "$(kvm_check 1 "$TMP_ROOT/no-kvm")" "the lab without /dev/kvm fails the preflight"
+assert_contains "failed=0" "$(kvm_check 0 "$TMP_ROOT/no-kvm")" "no lab, no KVM check"
+assert_contains "failed=0" "$(kvm_check 1 /dev/null)" "a character device passes"
+assert_eq "" "$(env_get "$env1" RESTOW_LAB_TOKEN)" "no lab token without --with-recovery-lab"
+dir_lab="$TMP_ROOT/install-lab"
+env_fixture "$dir_lab"
+(
+  set -Eeuo pipefail
+  OPT_DIR=$dir_lab OPT_UPDATER=0 OPT_LAB=1 KVM_DEVICE=/dev/null LOG_FILE=/dev/null LOG_READY=1
+  APP_IMAGE=ghcr.io/restow-backup/restow:0.5.0 WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.5.0
+  LAB_IMAGE=ghcr.io/restow-backup/restow-lab:0.5.0
+  DOMAIN=backup.example.com PUBLIC_URL=https://backup.example.com
+  write_env
+) >"$TMP_ROOT/write-lab.out" 2>&1
+assert_eq 0 "$?" "write_env with the lab succeeds"
+lab_token=$(env_get "$dir_lab/.env" RESTOW_LAB_TOKEN)
+assert_status 0 "lab token: 64 hex" bash -c '[[ $1 =~ ^[0-9a-f]{64}$ ]]' _ "$lab_token"
+assert_eq "ghcr.io/restow-backup/restow-lab:0.5.0" "$(env_get "$dir_lab/.env" RESTOW_LAB_IMAGE)" "RESTOW_LAB_IMAGE"
+assert_eq "$(stat -c %g /dev/null)" "$(env_get "$dir_lab/.env" RESTOW_LAB_KVM_GID)" "RESTOW_LAB_KVM_GID is the group of the device"
+assert_not_contains "$lab_token" "$(cat "$TMP_ROOT/write-lab.out")" "the lab token is in no output"
 
 # A second run never overwrites .env.
 before=$(sha256_of "$env1")

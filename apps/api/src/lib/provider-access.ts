@@ -144,11 +144,26 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/v1/runs/:runId/progress",
   "POST /agent/v1/runs/:runId/finish",
   "GET /agent/v1/update",
+  // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
+  // per address), the session routes authenticate with the session's own secret (HTTP Basic).
+  "POST /agent/v1/recovery/sessions",
+  "GET /agent/v1/recovery/sessions/current",
+  "GET /agent/v1/recovery/sessions/current/credentials",
+  "GET /agent/v1/recovery/sessions/current/ssh-keys",
+  "POST /agent/v1/recovery/sessions/current/progress",
+  "POST /agent/v1/recovery/sessions/current/log",
+  "POST /agent/v1/recovery/sessions/current/event",
+  "POST /agent/v1/recovery/sessions/current/release",
+  "POST /agent/v1/recovery/sessions/current/finish",
+  "POST /agent/v1/recovery/sessions/current/rebind",
   "GET /install/linux.sh",
   "GET /install/macos.sh",
   "GET /install/windows.ps1",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
+  // The recovery ISO from RESTOW_RECOVERY_ISO_DIR (docs/BAREMETAL.md 8.5): a public download of
+  // exactly the file the signed checksums of a release list.
+  "GET /install/recovery/:version/:file",
   // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,
   // the node installer is a public download.
   "POST /agent/pve/v1/enroll",
@@ -716,6 +731,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/removals": view(),
+  "GET /api/v1/endpoints/capabilities": view(),
   "GET /api/v1/endpoints/agent-updates": view(),
   "PUT /api/v1/endpoints/agent-updates": configure(),
   "DELETE /api/v1/endpoints/agent-updates/machines/:id": configure(),
@@ -745,6 +761,27 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints/:id/browse": operate(),
   "POST /api/v1/endpoints/:id/downloads": operate(),
   "GET /api/v1/endpoints/:id/downloads/:downloadId": operate(),
+  // Bare metal (preview): the card with the layout's summary, and the full manifest with the
+  // machine's serial numbers only for those who configure machines.
+  "GET /api/v1/endpoints/:id/baremetal": view(),
+  "GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId": configure(),
+  // "Probe now" (docs/BAREMETAL.md 12.3): a check that restores a copy in the lab, like checking
+  // a backup; nothing leaves the installation.
+  "POST /api/v1/endpoints/:id/baremetal/probe": operate(),
+  // Bare metal recovery (docs/BAREMETAL.md 9, 11): a code hands out the machine's repository
+  // password to the ISO, a session reads all of its backups, a rebind token gives the machine a
+  // new agent secret. All of it, and the ISO's download facts, is configuration work.
+  "GET /api/v1/recovery-iso": configure(),
+  "GET /api/v1/recovery-iso/file/:file": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes/:codeId/revoke": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes/:codeId/extend": configure(),
+  "GET /api/v1/endpoints/:id/recoveries": configure(),
+  "GET /api/v1/endpoints/:id/recoveries/:recoveryId": configure(),
+  "POST /api/v1/endpoints/:id/recoveries/:recoveryId/approve": configure(),
+  "POST /api/v1/endpoints/:id/recoveries/:recoveryId/cancel": configure(),
+  "PUT /api/v1/endpoints/:id/recoveries/:recoveryId/ssh-keys": configure(),
+  "POST /api/v1/endpoints/:id/rebind-token": configure(),
   // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1): reading the databases
   // and their backups is for every member; checking a backup (a restore under a temporary name
   // with CHECKDB) and the agent's sign-in check need a technician; a restore under a new name,

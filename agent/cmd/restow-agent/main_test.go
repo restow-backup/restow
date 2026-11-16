@@ -76,6 +76,18 @@ func TestUsageAndUnknownCommands(t *testing.T) {
 	if code := run([]string{"help"}, &so, &se); code != exitOK || !strings.Contains(so.String(), "enroll") {
 		t.Fatalf("help: %d", code)
 	}
+	// baremetal is documented; the helper snapshot-exec is internal.
+	if !strings.Contains(so.String(), "baremetal    Capture the disk layout") || strings.Contains(so.String(), "snapshot-exec") {
+		t.Fatalf("usage:\n%s", so.String())
+	}
+	se.Reset()
+	if code := run([]string{"baremetal"}, &so, &se); code != exitUsage || !strings.Contains(se.String(), "baremetal capture") {
+		t.Fatalf("baremetal without capture: %d %s", code, se.String())
+	}
+	se.Reset()
+	if code := run([]string{"snapshot-exec"}, &so, &se); code != exitUsage {
+		t.Fatalf("snapshot-exec without spec: %d %s", code, se.String())
+	}
 	so.Reset()
 	if code := run([]string{"version"}, &so, &se); code != exitOK || !strings.Contains(so.String(), "restow-agent ") || !strings.Contains(so.String(), "platform:") {
 		t.Fatalf("version: %d %s", code, so.String())
@@ -377,6 +389,51 @@ func TestEnrollRefusesARepositoryOnAnotherHost(t *testing.T) {
 	c.srv.RepoURL = "rest:http://evil.example.net/agent/restic/ep-0001/"
 	_, se, code := c.run("enroll", "--allow-insecure-http")
 	if code != exitError || !strings.Contains(se, "not on the Restow instance") {
+		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// A reconnect token (server 0.5.0) gives an existing machine a new agent
+// secret; the agent says so and stores the credentials like an enrollment.
+func TestEnrollWithReconnectToken(t *testing.T) {
+	c := newCLI(t)
+	c.srv.Rebound = true
+	so, se, code := c.run("enroll", "--allow-insecure-http")
+	if code != exitOK {
+		t.Fatalf("enroll: %d\n%s\n%s", code, so, se)
+	}
+	for _, want := range []string{"Reconnected as the existing machine ep-0001", "backups, settings and history are kept",
+		"previous installation of this machine no longer has access", "backup repository is reachable"} {
+		if !strings.Contains(so, want) {
+			t.Errorf("output lacks %q:\n%s", want, so)
+		}
+	}
+	if strings.Contains(so, "Enrolled as endpoint") {
+		t.Errorf("a reconnection is no new enrollment:\n%s", so)
+	}
+	for _, secret := range []string{c.srv.AgentSecret, c.srv.RepoPassword, "rset_test_token_0123456789"} {
+		if strings.Contains(so+se, secret) {
+			t.Fatalf("enroll printed a secret:\n%s\n%s", so, se)
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(c.dir, "agent", "state", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(raw, &stored); err != nil || stored["endpointId"] != "ep-0001" {
+		t.Fatalf("stored state: %v %s", err, raw)
+	}
+	if _, ok := stored["rebound"]; ok {
+		t.Fatalf("the state file has no rebound field: %s", raw)
+	}
+}
+
+func TestEnrollRejectedReconnectTokenHint(t *testing.T) {
+	c := newCLI(t)
+	t.Setenv("RESTOW_TOKEN", "rset_this_reconnect_token_expired")
+	_, se, code := c.run("enroll", "--allow-insecure-http")
+	if code != exitTokenRefused || !strings.Contains(se, "reconnect tokens for 1 hour") || !strings.Contains(se, "new reconnect token") {
 		t.Fatalf("exit %d\n%s", code, se)
 	}
 }

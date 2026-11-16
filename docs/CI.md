@@ -10,8 +10,10 @@ key, stays on the maintainer's machine: the release waits until it is used there
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename), the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images) and the claims guard (`check-claims.mjs`: every claim of `docs/CLAIMS.md` names a test that carries its ID, see "Claims register"), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
+| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename), the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images) and the claims guard (`check-claims.mjs`: every claim of `docs/CLAIMS.md` names a test that carries its ID, see "Claims register"), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), and of the recovery lab image (target `lab`: QEMU, qemu-img and virt-fw-vars start, the union of its DBX updates goes into a Secure Boot variable store, no server code but the lab's, its own user, the licence notices; `scripts/docker/lab-image.test.mjs` checks the stage and the compose service), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows; the recovery ISO (see "Recovery ISO": `recovery-scripts`, `recovery-paths`, `recovery-iso`, `recovery-iso-rebuild`, `recovery-iso-compare`, `recovery-e2e`) and `agent-root` (the Go tests as root on loop devices). The job **CI passed** is the one to require in branch protection; it counts a recovery ISO job that the path filter skipped as passed. |
 | `release.yml` | a tag `v*` | see "Releasing" |
+| `recovery-rebuild.yml` | a tag `recovery-v*` | rebuilds only the recovery ISO of a published release against a newer Debian snapshot; see "Recovery ISO rebuilds" |
+| `recovery-nightly.yml` | nightly, on demand, and called by `release.yml` | the bare metal restore cases E1b and E3 to E10 in QEMU/KVM (all cases before a release) against the recovery ISO; see "Recovery ISO" |
 | `smoke.yml` | nightly on `main`, and on demand | builds the images of both builds from the checkout and runs every smoke check, once per build; nothing is published |
 | `contributor-checks.yml` | pull requests | CLA and DCO sign-off; the DCO job skips Dependabot's pull requests (its commits carry no sign-off; the CLA job allowlists it for the same reason) |
 
@@ -237,13 +239,21 @@ image).
      their `SHA256SUMS` (`Get-FileHash`), `restow-agent.exe version --short` is the
      release version and `restic.exe version` the pinned restic. Nothing that does not
      start on Windows gets signed.
-   - **agent-sums**: only after that check, puts the checksum list on a **draft**
-     release as `agent-SHA256SUMS` and asks for the signature, naming the SHA-256 of
+   - **recovery-iso** and **recovery-iso-rebuild**: the recovery ISO from the
+     `linux-amd64` folder of that build, on `ubuntu-24.04` and again on `ubuntu-22.04`
+     with another time zone and umask; the first also checks the image and writes the
+     firmware licences and the source bundle (see "Recovery ISO").
+   - **recovery-e2e-full**: every restore case of `recovery-nightly.yml` against that ISO.
+   - **agent-sums**: only after that check, adds `<sha256>  recovery/restow-recovery_<v>_amd64.iso`
+     to the checksum list when both ISO builds have the same SHA-256 (it fails otherwise),
+     puts the list on a **draft** release as `agent-SHA256SUMS` (and hands it to the
+     signature job as `agent-dist-sums`) and asks for the signature, naming the SHA-256 of
      `restow-agent.exe` and `restic.exe` and reminding of the Defender submission
      (maintainer step, see docs/WINDOWS-AGENT.md section 15).
    - **agent-signature** (environment `agent-release-signing`): waits until the
-     maintainer ran `scripts/release/sign-agent.sh vX.Y.Z --key <private key>` on the
-     signing machine (it signs `agent-SHA256SUMS`, checks the signature against the
+     maintainer rebuilt the recovery ISO from the tag on a Docker host of their own and ran
+     `scripts/release/sign-agent.sh vX.Y.Z --key <private key> --iso <rebuilt ISO>` on the
+     signing machine (it refuses when the rebuilt ISO's SHA-256 differs from the line) (it signs `agent-SHA256SUMS`, checks the signature against the
      committed public key, uploads `agent-SHA256SUMS.sig` and approves this job); then
      checks that the signature covers exactly this build. The script runs from any
      directory and needs no clone: without a clone that has the tag it reads the tag and
@@ -257,16 +267,20 @@ image).
      targets"), and the two images of the public demo, `ghcr.io/<owner>/restow-demo-seed`
      (target `demo-seed`) and `ghcr.io/<owner>/restow-demo-dovecot`
      (`deploy/demo/dovecot`), which the demo host pulls in follow mode
-     (`deploy/demo/README.md`, "Following the releases"); all pushed **by digest and
-     untagged**. The demo images are no part of an installation and not smoke-tested;
+     (`deploy/demo/README.md`, "Following the releases"), and on amd64 only the recovery
+     lab `ghcr.io/<owner>/restow-lab` (target `lab`, docs/BAREMETAL.md 12.3: Debian's QEMU,
+     OVMF, SeaBIOS and virt-firmware from the recovery ISO's snapshot, the DBX pinned by
+     SHA-256, the lab's own files); all pushed **by digest and untagged**. The demo images are no part of an installation and not smoke-tested;
      the demo's reset checks that all four images it runs carry the same release version.
    - **release-smoke** (amd64 and arm64, full and Community): the smoke checks against
      exactly those digests, `--variant community` for the Community images. It gates
      the release: nothing below runs unless all four runs pass.
    - **publish**: checks the agent signature on the draft once more, then the tags (one
      multi-arch manifest per image, the demo images with the same tags), the cosign
-     signatures of all six images, an SBOM per image and architecture, and publishes the
-     draft release.
+     signatures of all seven images (the recovery lab with one platform), an SBOM per image
+     and architecture, the Debian sources of the recovery lab image
+     (`restow-lab_<version>_sources.tar` and `.txt`, `scripts/docker/lab-sources.sh`), and
+     publishes the draft release.
 4. Docker tags (`scripts/ci/release-lib.mjs`): `0.x.y` gets
    `:<version>` and `:beta`; from 1.0.0 a stable release gets `:<version>`, `:MAJOR.MINOR`,
    `:MAJOR` and `:latest`; a pre-release (`-rc.N`) gets only `:<version>`. A 0.x release is
@@ -286,8 +300,8 @@ image).
    license notices `restow-agent-THIRD_PARTY_NOTICES.txt`,
    `agent-SHA256SUMS` with the maintainer's signature `agent-SHA256SUMS.sig`, the SBOMs
    (`<image>-<version>-linux-<arch>.spdx.json` for `restow`, `restow-web`,
-   `restow-community`, `restow-web-community`, `restow-demo-seed` and
-   `restow-demo-dovecot`, SPDX, also attached to the images as
+   `restow-community`, `restow-web-community`, `restow-demo-seed`,
+   `restow-demo-dovecot` and `restow-lab` (amd64), SPDX, also attached to the images as
    cosign attestations), `docker-compose.yml` and `env.example` of the release stack
    (`deploy/release/`), and the server install script `install.sh`
    (`deploy/install/install.sh`) with `install.sh.sha256`.
@@ -304,6 +318,89 @@ cosign verify ghcr.io/restow-backup/restow:0.2.1 \
 A failed run leaves untagged digests in the registry and a draft release at most; fix the cause and
 run it again (re-run the workflow, or delete and push the tag again; a published tag is
 never moved: a hotfix is a new PATCH release with its own smoke run).
+
+## Recovery ISO
+
+The build recipe of the recovery ISO is the separate work `integrations/recovery`
+(GPL-3.0-or-later, docs/BAREMETAL.md 8). Its jobs in `ci.yml`:
+
+| Job | What it does |
+| --- | --- |
+| `recovery-scripts` | always: `integrations/recovery/test/unit.sh` (lock and list compare, the forbidden apt options, the split names of the source bundle, the secret scan on fixtures, the refusals of `build.sh`, the boot menus, the unit) and shellcheck of the hooks and `auto/config` (the `*.sh` files are in `shellcheck`) |
+| `recovery-paths` | whether anything of the ISO changed: `integrations/recovery/**`, `agent/**`, `scripts/recovery-e2e/**`, the release stack's `deploy/release/docker-compose.yml` (the end-to-end tests start it), the recovery lab or the recovery API; always on a call from the release, a new branch or by hand. Without entries in `packages.lock` nothing is built (a warning says so) |
+| `recovery-iso` | `ubuntu-24.04`: `build.sh` from the `linux-amd64` agent of this commit (artifact `agent-dist-linux-amd64`), then `test/check-image.sh` (firmware list, the `ice` DDP package, every program of `restow-agent recover --list-tools`, the version, the BIOS and UEFI boot entries, under 900 MiB, the keyboard layouts, no auto-activation files, `no-secrets.sh`), then `scripts/recovery-e2e/no-autoactivation.mjs` in QEMU/KVM (the ISO prepares a second disk with md RAID1, a volume group and swap, then starts normally and runs `test/no-autoactivation.sh`; the job fails when anything of it is active); `permissions: contents: read`, no secrets |
+| `recovery-iso-rebuild` | the same build on `ubuntu-22.04` with another `TZ` and `umask` |
+| `recovery-iso-compare` | the SHA-256 of both builds must be equal; otherwise `diffoscope` and a failure |
+| `recovery-e2e` | one job per case, side by side (matrix): E1 and E2, and the boot probes P1 (green) and P2 (red, the emergency target) with the recovery lab's container built from this commit (`scripts/recovery-e2e/run.mjs --cases <case>`; artifact `recovery-e2e-logs-<case>`), with KVM through a udev rule; the serial logs and the lab's log as an artifact; also when the lab's paths change (`apps/worker/src/lab/`, the lab API and the planning) |
+
+The first `packages.lock` comes from **Actions > CI > Run workflow** with `update-lock`:
+`recovery-iso` keeps the lock it wrote as the artifact `recovery-packages-lock`; review its
+diff and commit it as `integrations/recovery/packages.lock`. Do the same, by hand, whenever
+`snapshot.env` moves to a new snapshot time (each release). Until two builds of a commit were
+equal, the ISO is not reproducible and no release lists it.
+
+An installation fetches the ISO of its own release itself (the worker, queue
+`endpoint-recovery-iso`, into the data volume; docs/BAREMETAL.md 26.13): the release's
+`agent-SHA256SUMS` and the ISO from the GitHub release, one download per installation and
+release, served to the tenant administrators from the instance; the GitHub link stays the
+fallback. Newer rebuilds of the ISO come from `recovery-rebuild.yml` ("Recovery ISO rebuilds").
+
+`recovery-nightly.yml` runs E1b and E3 to E10 every night (each case its own job, at most four
+at a time), builds the agent and the ISO of the default branch first, and is called by the
+release with the release's ISO and every case. The cloud image cases (E3, E4, E5, E6b) need the
+hashes in `scripts/recovery-e2e/images.json`; `run.mjs --pin-images` prints them, the
+maintainer compares them with the distribution's checksum file and commits them.
+
+## Recovery ISO rebuilds
+
+The recovery ISO of a release is built from one fixed Debian snapshot (`snapshot.env`). To ship
+its security updates without a new Restow release, the maintainer rebuilds only the ISO of an
+existing release against a newer snapshot (docs/BAREMETAL.md 26.13):
+
+1. Branch from the release tag (`git switch -c recovery/0.5.0 v0.5.0`), set the new
+   `SNAPSHOT_TIMESTAMP` (and, when the image changed, `DEBIAN_IMAGE_DIGEST`) in
+   `integrations/recovery/snapshot.env`, and write the new `packages.lock` with
+   **Actions > CI > Run workflow** and `update-lock` on that branch (as for a release). Review
+   the lock's diff (security updates only) and commit both files. Nothing else may change.
+2. Tag the commit, annotated and signed, with the release version and the next rebuild number:
+   `git tag -s recovery-v0.5.0.1 -m "Restow 0.5.0 recovery ISO, rebuild 1"`, then push the tag.
+   The numbers start at 1 and leave no gap; a release has at most 999 rebuilds.
+3. `recovery-rebuild.yml` runs:
+   - **verify**: the tag is `recovery-v<version>.<n>` and annotated (its signature as in
+     **verify** of `release.yml`, `REQUIRE_SIGNED_TAGS`), the release `v<version>` is published
+     and its `agent-SHA256SUMS` carries a valid signature of `agent/release-signing.pub` at
+     `v<version>` and lists the release's ISO, the tree of the tag differs from `v<version>`
+     only in `integrations/recovery/snapshot.env` and `packages.lock` with a newer
+     `SNAPSHOT_TIMESTAMP`, rebuild `n-1` is published (for `n > 1`) and `n` is not.
+   - **agent**: `linux-amd64` of the release's published image (`ghcr.io/<owner>/restow:<version>`,
+     `/srv/agent/<version>/linux-amd64`), every file checked against the signed
+     `agent-SHA256SUMS`, `restow-agent version --short` equal to the version.
+   - **recovery-iso**, **recovery-iso-rebuild**: `integrations/recovery/build.sh --rebuild <n>`
+     twice, as in the release (image checks, firmware licences and source bundle in the first);
+     the files are named `restow-recovery_<version>.<n>_*`.
+   - **recovery-e2e-full**: every case of `recovery-nightly.yml` against the rebuilt ISO.
+   - **sums**: both builds equal, then `recovery-SHA256SUMS` with exactly two lines,
+     `<sha256>  recovery/restow-recovery_<version>.<n>_amd64.iso` and
+     `<sha256 of agent-SHA256SUMS of v<version>>  release/agent-SHA256SUMS`, on a **draft**
+     release `recovery-v<version>.<n>`.
+   - **signature** (environment `agent-release-signing`): waits until the maintainer rebuilt the
+     ISO from the tag on a Docker host of their own (`integrations/recovery/build.sh --agent-dist
+     <linux-amd64 of the release> --version <version> --rebuild <n> --out <dir>`) and ran
+     `scripts/release/sign-agent.sh recovery-v<version>.<n> --key <private key> --iso <rebuilt ISO>`.
+     The script refuses any other content of `recovery-SHA256SUMS`, checks the release's signed
+     `agent-SHA256SUMS` and the binding line, compares the ISO, signs with the same key in the
+     same namespace (`restow-agent-release`), uploads `recovery-SHA256SUMS.sig` and approves
+     the job. The key never enters CI.
+   - **publish**: the ISO (checked against the signed list), its firmware licences and source
+     bundle on the release, never marked as the latest release (`--latest=false`), a
+     pre-release when `v<version>` is one.
+
+Instances of `<version>` ask for `recovery-v<version>.1`, `.2`, … until the first that does not
+exist, take a rebuild only when `recovery-SHA256SUMS` verifies against the release key they ship
+and its `release/agent-SHA256SUMS` line is the SHA-256 of their own signed checksums, and
+download the newest one once (docs/BAREMETAL.md 26.13). A rebuild for another release names
+another checksum list and is never taken; the updater and `previous-release.mjs` ignore these
+tags (they are no `v*` tags).
 
 ## Server install script
 
@@ -345,7 +442,8 @@ any other).
   Link them to the repository so the workflow's `GITHUB_TOKEN` keeps write access.
 - **Branch protection** for `main`: require a pull request, and the status check
   **CI passed**; allow only the maintainer to push.
-- **Tag protection** (Settings > Rules > Rulesets): only the maintainer may create `v*` tags.
+- **Tag protection** (Settings > Rules > Rulesets): only the maintainer may create `v*` and
+  `recovery-v*` tags.
 - **Actions**: enabled; the arm64 hosted runner `ubuntu-24.04-arm` available (free for
   public repositories). Workflow permissions can stay at "read": every job asks for what it
   needs.

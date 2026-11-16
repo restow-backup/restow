@@ -1,0 +1,1393 @@
+#!/usr/bin/env node
+/**
+ * The end-to-end tests of the bare metal restore (docs/BAREMETAL.md 21.2) in QEMU/KVM:
+ *
+ *   1. start a test instance like the release smoke (scripts/smoke), with
+ *      RESTOW_BAREMETAL_PREVIEW on and an agent folder whose SHA256SUMS lists the ISO under
+ *      test, signed with a key made for this run only (never a release key);
+ *   2. build the source machine: the test machine factory of the recovery ISO
+ *      (integrations/recovery/test/machines, run inside a VM booted from the ISO) or a pinned
+ *      cloud image (images.json); it enrolls with a one-time token through fw_cfg;
+ *   3. back it up with a whole machine job and wait for the layout check;
+ *   4. issue a recovery code (a fresh sign-in), boot the ISO on new disks with the answers
+ *      through fw_cfg (opt/restow/answers), release the session over the API and wait for
+ *      its end, which the driver judges by the API alone;
+ *   5. boot the restored disks on another controller and expect
+ *      "E2E-BOOT <hostname> <sha256 of the marker>" on the serial console.
+ *
+ * The boot probe cases (P1 to P3, cases.mjs) replace 4 and 5 with the recovery lab: its
+ * container (the image of this checkout, Dockerfile target lab) runs next to the test instance
+ * with /dev/kvm, "Probe now" plans the probe, and the machine's bare metal state and its newest
+ * probe report must say what the case expects (docs/BAREMETAL.md 12.3).
+ *
+ *   node scripts/recovery-e2e/run.mjs --iso <iso> --agent-dist <dir> [--cases per-pr|nightly|all|E1,E2]
+ *
+ * Needs KVM, qemu-system-x86_64, qemu-img, OVMF and virt-fw-vars (python3-virt-firmware),
+ * Docker with compose, ssh-keygen and Node 22. See --help.
+ */
+import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { connect } from "node:tls";
+import { fileURLToPath } from "node:url";
+import { DEFAULT_WHOLE_MACHINE_EXCLUDES } from "../../packages/core/src/endpoints/whole-machine.ts";
+import { CASES, PROBE_CASES, selectCases } from "./cases.mjs";
+import { factoryDebs } from "./factory-debs.mjs";
+import {
+  assertKvm,
+  connectSerial,
+  createDisk,
+  createVars,
+  GRUB_SILENCE_MS,
+  MAX_PASSPHRASE_TRIES,
+  passphrasePrompts,
+  qmp,
+  sendKeys,
+  startMachine,
+  typeSerial,
+  waitForSerial,
+} from "./lib/qemu.mjs";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const FACTORY = join(repoRoot, "integrations/recovery/test/machines");
+
+export const USAGE = `Usage: node scripts/recovery-e2e/run.mjs --iso <iso> --agent-dist <dir> [options]
+
+  --iso FILE          the recovery ISO under test (restow-recovery_<v>_amd64.iso)
+  --agent-dist DIR    the agent build the ISO was made from (the folder with linux-amd64/)
+  --version V         its version (default: read from the ISO's file name)
+  --cases LIST        per-pr (E1, E2; default), nightly (the others), all, or ids: E1,E7
+  --work-dir DIR      disks, logs and the test instance (default: recovery-e2e-out)
+  --image REF         the application image of the test instance (default: built like the smoke)
+  --web-image REF     its web edge image
+  --dbx FILE          the current DBX update for the Secure Boot variable store (virt-fw-vars)
+  --lab-image REF     the recovery lab image of the probe cases (default: built from this checkout)
+  --keep              leave the test instance running afterwards
+  --pin-images        download the cloud images of images.json and print their SHA-256 (by hand)
+  --help
+`;
+
+export function parseArgs(argv) {
+  const options = { cases: "per-pr", workDir: "recovery-e2e-out", keep: false, pinImages: false };
+  const value = (index, flag) => {
+    const next = argv[index + 1];
+    if (next === undefined || next.startsWith("--")) throw new Error(`${flag} needs a value`);
+    return next;
+  };
+  for (let index = 0; index < argv.length; index++) {
+    const flag = argv[index];
+    switch (flag) {
+      case "--iso":
+        options.iso = value(index++, flag);
+        break;
+      case "--agent-dist":
+        options.agentDist = value(index++, flag);
+        break;
+      case "--version":
+        options.version = value(index++, flag);
+        break;
+      case "--cases":
+        options.cases = value(index++, flag);
+        break;
+      case "--work-dir":
+        options.workDir = value(index++, flag);
+        break;
+      case "--image":
+        options.image = value(index++, flag);
+        break;
+      case "--web-image":
+        options.webImage = value(index++, flag);
+        break;
+      case "--dbx":
+        options.dbx = value(index++, flag);
+        break;
+      case "--lab-image":
+        options.labImage = value(index++, flag);
+        break;
+      case "--keep":
+        options.keep = true;
+        break;
+      case "--pin-images":
+        options.pinImages = true;
+        break;
+      case "--help":
+      case "-h":
+        options.help = true;
+        break;
+      default:
+        throw new Error(`unknown option ${flag}`);
+    }
+  }
+  if (!options.help && !options.pinImages) {
+    if (!options.iso) throw new Error("--iso <file> is needed");
+    if (!options.agentDist) throw new Error("--agent-dist <dir> is needed");
+    options.version ??= versionOfIso(options.iso);
+  }
+  // Fails early on a typo in --cases.
+  options.selected = options.help || options.pinImages ? [] : selectCases(options.cases);
+  return options;
+}
+
+/** The version in restow-recovery_<v>_amd64.iso. */
+export function versionOfIso(file) {
+  const match = /^restow-recovery_(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)_amd64\.iso$/.exec(
+    basename(file),
+  );
+  if (!match)
+    throw new Error(`${basename(file)} is not restow-recovery_<version>_amd64.iso; pass --version`);
+  return match[1];
+}
+
+/**
+ * The address the guests use for the test instance: a name that resolves to 10.0.2.2, QEMU's
+ * address of the host, on the port the edge publishes there. The edge gets a certificate of its
+ * own CA for it (RESTOW_EDGE_TLS=internal); the ISO pins its key (spkiCheck), the source
+ * machines trust the CA.
+ */
+export function guestInstanceUrl(httpsPort) {
+  return `https://restow-e2e.10.0.2.2.nip.io:${httpsPort}`;
+}
+
+/**
+ * The identity of a QEMU disk as the ISO sees it (C-M4-4), derived like recovery.Identity in
+ * agent/internal/recovery/hardware.go: every disk of the cases by its serial number
+ * (serial.<serial>; QEMU gives them no WWN), an NVMe namespace with its namespace id
+ * (serial.<serial>-1). The eui64= of the command line does not show: Linux ignores the namespace
+ * IDs of QEMU's NVMe controller (NVME_QUIRK_BOGUS_NID). The shared fixture
+ * agent/internal/recovery/testdata/hw/qemu-e2e.json pins both sides.
+ */
+export function identityOf(disk) {
+  if (disk.bus === "nvme") return `serial.${disk.serial}-1`;
+  return `serial.${disk.serial}`;
+}
+
+/**
+ * The answers file of a case (restow-answers-v1, C-M4-4). Only the keys the format knows: the
+ * ISO refuses any other. The code, the passphrase and the rebind token may come in only this
+ * way, through fw_cfg of a QEMU machine.
+ */
+export function buildAnswers(testCase, context) {
+  const answers = {
+    format: "restow-answers-v1",
+    instanceUrl: context.instanceUrl,
+    code: context.code,
+    snapshotId: context.snapshotId,
+    keymap: testCase.answers.keymap ?? "us",
+    language: "en",
+    network: { mode: "dhcp" },
+    diskMapping: testCase.answers.diskMapping ?? "auto",
+    adopt: testCase.answers.adopt ?? [],
+    shrink: "none",
+    keyFiles: "regenerate",
+    confirmErase: [...testCase.target.disks.map(identityOf), ...(testCase.eraseAlso ?? [])].sort(),
+    renameNics: true,
+    rawLvs: "skip",
+    secureBootOff: false,
+    afterSuccess: "poweroff",
+  };
+  if (context.spkiCheck) answers.spkiCheck = context.spkiCheck;
+  if (context.passphrase) answers.passphrase = context.passphrase;
+  if (context.rebindToken) answers.rebindToken = context.rebindToken;
+  return answers;
+}
+
+/** The serial line a restored machine prints after its start (C-M4-7). */
+export function bootPattern(hostname, markerSha256) {
+  const escaped = hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`E2E-BOOT ${escaped} ${markerSha256}\\b`);
+}
+
+/** The marker line of a source machine: hostname and the SHA-256 of its marker file. */
+/** Where the lab keeps a picture of the boot screen of a probe that did not start (diagnostics). */
+const LAB_SCREEN_DIR = "/var/lib/restow-lab/screens";
+
+export const SOURCE_BOOT = /E2E-BOOT (\S+) ([0-9a-f]{64})/;
+
+/** Add the ISO's line to an agent release's SHA256SUMS (C-M4-3), once. */
+export function withIsoLine(sums, fileName, sha256) {
+  const lines = sums
+    .split("\n")
+    .filter((line) => line !== "" && !line.endsWith(` recovery/${fileName}`));
+  lines.push(`${sha256}  recovery/${fileName}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The kernel command line of a factory VM: the ISO's live system without the recovery
+ * program, running the factory script from the read-only disk RESTOWFACTORY once, then off.
+ * /run is an empty tmpfs at start: the mount point is made first.
+ */
+export function factoryCmdline() {
+  return [
+    "boot=live",
+    "components",
+    "noswap",
+    "nopersistence",
+    "console=ttyS0,115200n8",
+    "systemd.mask=restow-recover.service",
+    "systemd.run=\"/usr/bin/sh -c 'mkdir -p /run/restow-factory && mount -o ro /dev/disk/by-label/RESTOWFACTORY /run/restow-factory && exec sh /run/restow-factory/run.sh'\"",
+    "systemd.run_success_action=poweroff",
+    "systemd.run_failure_action=poweroff",
+  ].join(" ");
+}
+
+/**
+ * The settings of the test instance for the boot probe cases among `selected`: the lab's token,
+ * image and /dev/kvm group, and the restore limit a case asks for. Empty without probe cases.
+ */
+export function labEnv(selected, { token, kvmGid, image }) {
+  const probes = selected.filter((item) => item.probe);
+  if (probes.length === 0) return {};
+  const limits = probes.map((item) => item.probe.maxRestoreGiB).filter((v) => v !== undefined);
+  return {
+    RESTOW_LAB_TOKEN: token,
+    RESTOW_LAB_IMAGE: image,
+    RESTOW_LAB_KVM_GID: String(kvmGid),
+    RESTOW_LAB_SCREEN_DIR: LAB_SCREEN_DIR,
+    ...(limits.length > 0 ? { RESTOW_LAB_MAX_RESTORE_GIB: String(Math.min(...limits)) } : {}),
+  };
+}
+
+/**
+ * Whether the machine's bare metal state shows the end of the probe the case asked for at
+ * `requestedAt`: null while it runs, else `{ ok, reason }` judged against the case.
+ */
+export function probeOutcome(testCase, state, requestedAt) {
+  const latest = state.probe?.latest;
+  if (!latest || Date.parse(latest.checkedAt) < requestedAt || state.probe?.pending) return null;
+  const expect = testCase.probe;
+  const cause = latest.cause ?? {};
+  const said = `state ${state.state}, probe ${latest.readiness ?? "without a rating"} (${cause.kind ?? latest.notPossible ?? "?"}${cause.reason ? `: ${cause.reason}` : ""}${cause.pattern ? `: ${cause.pattern}` : ""})`;
+  if (expect.expect === "green") {
+    const empty = (expect.emptyDirs ?? []).filter((dir) => !latest.emptyDirs.includes(dir));
+    if (state.state !== "green" || latest.readiness !== "green" || cause.kind !== "booted") {
+      return { ok: false, reason: `expected green: ${said}` };
+    }
+    if (empty.length > 0) return { ok: false, reason: `not left empty: ${empty.join(", ")}` };
+    return { ok: true, reason: said };
+  }
+  if (state.state !== "red" || latest.readiness !== "red") {
+    return { ok: false, reason: `expected red: ${said}` };
+  }
+  if (expect.pattern && cause.pattern !== expect.pattern) {
+    return { ok: false, reason: `expected the pattern ${expect.pattern}: ${said}` };
+  }
+  return { ok: true, reason: said };
+}
+
+/** The status of a recovery the API reports, until it leaves the running states. */
+export function isFinal(status) {
+  return ["succeeded", "failed", "cancelled", "expired", "revoked"].includes(status);
+}
+
+/**
+ * What a stage 1 report found, for the job log: each check that did not pass with its failed
+ * and warning findings, and the planner's answer when there is one (at most 3000 characters).
+ */
+export function checkFindings(check) {
+  if (!check) return "no layout check";
+  const parts = [];
+  for (const item of check.checks ?? []) {
+    if (!item || ["ok", "passed", "skipped"].includes(item.status)) continue;
+    const findings = (item.findings ?? [])
+      .filter((finding) => finding.severity !== "info")
+      .slice(0, 5)
+      .map(
+        (finding) =>
+          `${finding.code}${finding.ref ? ` [${finding.ref}]` : ""} ${JSON.stringify(finding.params ?? {})}`,
+      );
+    parts.push(`${item.id} ${item.status}: ${findings.join("; ") || "no findings"}`);
+  }
+  if (check.incomplete) parts.push(`incomplete: ${check.incomplete}`);
+  if (check.planner) parts.push(`planner: ${JSON.stringify(check.planner)}`);
+  const text = parts.join(" | ") || `readiness ${check.readiness} without failed checks`;
+  return text.length > 3000 ? `${text.slice(0, 3000)}...` : text;
+}
+
+/** The disks the ISO reported (model, serial, WWN or wwid, size, transport), in one line. */
+export function targetSummary(hardware) {
+  if (!hardware) return "no hardware report";
+  const disk = (d) =>
+    `${d.model || "?"} serial ${d.serial || "-"} wwn ${d.wwn || "-"} ${d.sizeBytes ?? "?"} B ${d.transport || "?"}`;
+  return `${hardware.firmware ?? "?"}, disks [${(hardware.disks ?? []).map(disk).join("; ")}]`;
+}
+
+/** The last `count` lines of a recovery's log pages (the ISO's own log), oldest first. */
+export function recoveryLogTail(pages, count = 60) {
+  const lines = pages.flatMap((page) =>
+    (page?.log?.items ?? []).flatMap((item) => item.lines ?? []),
+  );
+  return lines.slice(-count);
+}
+
+/** Why a recovery ended as it did: phase, warnings and the end of the ISO's log. */
+async function recoveryDiagnosis(client, tenantId, recoveryPath) {
+  const pages = [];
+  let after = null;
+  for (let page = 0; page < 40; page++) {
+    const query = `?logLimit=500${after ? `&logAfter=${encodeURIComponent(after)}` : ""}`;
+    const detail = await client.get(`${recoveryPath}${query}`, { tenantId });
+    pages.push(detail);
+    after = detail.log?.next ?? null;
+    if (!after) break;
+  }
+  const last = pages[pages.length - 1] ?? {};
+  const warnings = (last.warnings ?? []).map((w) => `${w.code}: ${w.message}`).join(" | ");
+  return (
+    `phase ${last.phase ?? "?"}, progress ${JSON.stringify(last.progress ?? null)}` +
+    `${warnings ? `, warnings ${warnings}` : ""}\ntarget: ${targetSummary(last.hardware)}` +
+    `\nISO log (end):\n${recoveryLogTail(pages, 800).join("\n")}`
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The run (needs KVM, Docker; the parts above are pure and tested)
+// ---------------------------------------------------------------------------------------------
+
+function sh(command, args, options = {}) {
+  return execFileSync(command, args, { stdio: ["ignore", "pipe", "inherit"], ...options })
+    .toString("utf8")
+    .trim();
+}
+
+async function runAsync(command, args) {
+  sh(command, args);
+}
+
+function sha256File(file) {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+/** The programs of an agent build (the Dockerfile sets them to 0755 the same way). */
+export const AGENT_PROGRAMS = Object.freeze([
+  "restow-agent",
+  "restic",
+  "restow-pve",
+  "restow-share",
+]);
+
+/**
+ * The agent folder of the test instance: the build, its SHA256SUMS with the ISO's line, signed
+ * with an Ed25519 key made here and deleted right after (only its public half stays, as the
+ * instance's release-signing.pub), and the install scripts of this checkout.
+ */
+export function testAgentDir({ agentDist, iso, version, dir }) {
+  const release = join(dir, version);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(release, { recursive: true });
+  cpSync(agentDist, release, { recursive: true });
+  // A downloaded CI artifact keeps no file modes: the server runs /usr/local/bin/restic, a link
+  // to linux-<arch>/restic in this folder (Dockerfile, agent-dist), and the install scripts
+  // hand out the agent. As in the image: 0755 for every program of the build.
+  for (const target of readdirSync(release, { withFileTypes: true })) {
+    if (!target.isDirectory()) continue;
+    for (const program of AGENT_PROGRAMS) {
+      const file = join(release, target.name, program);
+      if (existsSync(file)) chmodSync(file, 0o755);
+    }
+  }
+  const sumsFile = join(release, "SHA256SUMS");
+  const sums = existsSync(sumsFile) ? readFileSync(sumsFile, "utf8") : "";
+  writeFileSync(sumsFile, withIsoLine(sums, basename(iso), sha256File(iso)));
+  const key = join(dir, "ephemeral-signing-key");
+  sh("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "restow-e2e-test-only", "-f", key]);
+  try {
+    sh("ssh-keygen", ["-q", "-Y", "sign", "-f", key, "-n", "restow-agent-release", sumsFile]);
+  } finally {
+    rmSync(key, { force: true });
+  }
+  copyFileSync(`${key}.pub`, join(dir, "release-signing.pub"));
+  rmSync(`${key}.pub`, { force: true });
+  cpSync(join(repoRoot, "agent/install"), join(dir, "install"), { recursive: true });
+  return dir;
+}
+
+/** The SPKI SHA-256 of the edge's certificate, as the ISO will see it (RESTOW_PUBLIC_TLS_SPKI). */
+async function measureSpki(port, servername) {
+  return new Promise((resolvePromise, reject) => {
+    const socket = connect(
+      { host: "127.0.0.1", port, servername, rejectUnauthorized: false },
+      () => {
+        const certificate = socket.getPeerX509Certificate();
+        socket.end();
+        if (!certificate) return reject(new Error("the edge sent no certificate"));
+        const der = certificate.publicKey.export({ type: "spki", format: "der" });
+        resolvePromise(createHash("sha256").update(der).digest("hex"));
+      },
+    );
+    socket.on("error", reject);
+  });
+}
+
+/** The test instance: the smoke's stack with the preview, the test agent folder and the guest address. */
+/**
+ * The compose overlay of the test instance: the test agent folder for api and worker, and for
+ * the worker the folder of the ISO under test as its drop folder (RESTOW_RECOVERY_ISO_DIR), with
+ * downloading off. The worker leases a boot probe to the lab only with a verified local copy of
+ * the ISO that SHA256SUMS offers (lab-api.ts, selectRecoveryIso); a development build is
+ * published nowhere, and the run reaches no release host.
+ */
+export function e2eOverlay(agentDir, isoDir) {
+  return [
+    "# The recovery end-to-end overlay (scripts/recovery-e2e/run.mjs): the test agent folder",
+    "# and the ISO under test as the worker's drop folder.",
+    "services:",
+    "  api:",
+    "    volumes:",
+    `      - ${agentDir}:/srv/agent:ro`,
+    "  worker:",
+    "    environment:",
+    "      RESTOW_RECOVERY_ISO_DIR: /srv/recovery-iso",
+    '      RESTOW_RECOVERY_ISO_FETCH: "false"',
+    "    volumes:",
+    `      - ${agentDir}:/srv/agent:ro`,
+    `      - ${isoDir}:/srv/recovery-iso:ro`,
+    "",
+  ].join("\n");
+}
+
+async function startInstance(options, workDir, agentDir) {
+  const { Stack } = await import("../smoke/lib/stack.mjs");
+  const { setUpInstallation } = await import("../smoke/lib/restow.mjs");
+  const stack = new Stack({
+    repoRoot,
+    dir: join(workDir, "instance"),
+    project: "restow-recovery-e2e",
+    portBase: 39300,
+    tag: options.image ? "external" : "recovery-e2e",
+  });
+  const host = new URL(guestInstanceUrl(stack.ports.https)).hostname;
+  stack.publicUrl = guestInstanceUrl(stack.ports.https);
+  stack.writeFiles();
+  // The boot probe cases: the lab's token and image, the group of /dev/kvm on this host.
+  const lab = labEnv(options.selected, {
+    token: randomBytes(32).toString("hex"),
+    kvmGid: options.selected.some((item) => item.probe) ? sh("stat", ["-c", "%g", "/dev/kvm"]) : 0,
+    image: options.labImage ?? "restow-lab:recovery-e2e",
+  });
+  if (lab.RESTOW_LAB_TOKEN && !options.labImage) {
+    sh("docker", [
+      "buildx",
+      "build",
+      "--load",
+      "--target",
+      "lab",
+      "-t",
+      "restow-lab:recovery-e2e",
+      repoRoot,
+    ]);
+  }
+  const overlay = join(stack.dir, "docker-compose.recovery-e2e.yml");
+  writeFileSync(overlay, e2eOverlay(agentDir, dirname(resolve(options.iso))));
+  const composeArgs = stack.composeArgs.bind(stack);
+  stack.composeArgs = (args) => {
+    const base = composeArgs([]);
+    return [...base, "-f", overlay, ...args];
+  };
+  stack.addEnv({
+    RESTOW_PUBLIC_URL: stack.publicUrl,
+    RESTOW_APP_DOMAIN: host,
+    RESTOW_EDGE_TLS: "internal",
+    RESTOW_BAREMETAL_PREVIEW: "true",
+    ...lab,
+    ...(options.image ? { RESTOW_IMAGE: options.image, RESTOW_UPDATER_IMAGE: options.image } : {}),
+    ...(options.webImage ? { RESTOW_WEB_IMAGE: options.webImage } : {}),
+  });
+  if (!options.image) {
+    sh("docker", [
+      "buildx",
+      "build",
+      "--load",
+      "--target",
+      "runtime",
+      "-t",
+      "restow-smoke/app:recovery-e2e",
+      repoRoot,
+    ]);
+    sh("docker", [
+      "buildx",
+      "build",
+      "--load",
+      "--target",
+      "web",
+      "-t",
+      "restow-smoke/web:recovery-e2e",
+      repoRoot,
+    ]);
+  }
+  await stack.up();
+  await stack.waitForApi();
+  // The ISO pins the edge's key; the source machines trust its CA.
+  stack.addEnv({ RESTOW_PUBLIC_TLS_SPKI: await measureSpki(stack.ports.https, host) });
+  await stack.up(["api"], { forceRecreate: true });
+  await stack.waitForApi();
+  const caFile = join(workDir, "instance-ca.pem");
+  const ca = await stack.compose([
+    "exec",
+    "-T",
+    "caddy",
+    "cat",
+    "/data/caddy/pki/authorities/local/root.crt",
+  ]);
+  writeFileSync(caFile, ca.stdout);
+  const setup = await setUpInstallation(stack);
+  // The space rule of the size and space guard (#99) keeps at least 20 GiB free on a storage
+  // target; a CI runner whose disk the cases' VM images fill would hold the whole machine
+  // backups. As in the smoke (checks/03-passkey.mjs): 64 MiB, the rule stays on.
+  await setup.api.put("/api/v1/updates/space-rule", { space: E2E_SPACE_RULE });
+  if (lab.RESTOW_LAB_TOKEN) {
+    // The worker opens its lab API with the token; the lab asks it for work from now on.
+    await stack.up(["worker", "recovery-lab"], { forceRecreate: true });
+  }
+  const { listTenants, ownOrganisationOf } = await import("../smoke/lib/restow.mjs");
+  const tenant = ownOrganisationOf(await listTenants(setup.api));
+  if (!tenant) throw new Error("the setup created no own organisation");
+  return { stack, caFile, tenantId: tenant.id, ...setup };
+}
+
+/** What the factory installs into the live overlay with dpkg (lib.sh factory_prepare). */
+export const FACTORY_ROOTS = ["debootstrap"];
+/** The archive keyrings of the factory disk (keyrings/), installed with the rest. */
+export const FACTORY_KEYRINGS = ["debian-archive-keyring", "ubuntu-keyring"];
+/** apt-cache depends limited to what dpkg -i checks: Depends and Pre-Depends. */
+const APT_DEPENDS_ONLY =
+  "--no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances";
+
+/**
+ * run.sh of the factory disk: the settings of the case, then the network (the factory starts
+ * right after sysinit, before it is up, and debootstrap needs it), then the machine script,
+ * then the marker run.mjs waits for.
+ */
+export function factoryRunScript({ mirror, passphrase, env, script }) {
+  return [
+    "#!/bin/sh",
+    "set -eu",
+    `export FACTORY_MIRROR='${mirror}'`,
+    passphrase ? `export FACTORY_PASSPHRASE='${passphrase}'` : "",
+    ...Object.entries(env ?? {}).map(
+      ([name, value]) => `export ${name}='${String(value).replace(/'/g, "")}'`,
+    ),
+    "systemctl start --no-block systemd-networkd.service systemd-resolved.service",
+    "/usr/lib/systemd/systemd-networkd-wait-online --any --timeout=180 ||",
+    "  { echo 'factory: no network after 180 s' >/dev/ttyS0; exit 1; }",
+    `sh /run/restow-factory/${script} >/dev/ttyS0 2>&1`,
+    "echo E2E-FACTORY-DONE >/dev/ttyS0",
+    "",
+  ].join("\n");
+}
+
+/** The read-only factory disk: the machine scripts, run.sh and the debootstrap packages. */
+function factoryDisk(workDir, testCase, context) {
+  const tree = join(workDir, `${testCase.id}-factory`);
+  rmSync(tree, { recursive: true, force: true });
+  mkdirSync(join(tree, "debs"), { recursive: true });
+  mkdirSync(join(tree, "keyrings"), { recursive: true });
+  for (const file of readdirSync(FACTORY)) copyFileSync(join(FACTORY, file), join(tree, file));
+  copyFileSync(context.caFile, join(tree, "ca.pem"));
+  const snapshot = readFileSync(join(repoRoot, "integrations/recovery/snapshot.env"), "utf8");
+  const stamp = /^SNAPSHOT_TIMESTAMP=(\S+)$/m.exec(snapshot)?.[1];
+  const image = /^DEBIAN_IMAGE_DIGEST=(\S+)$/m.exec(snapshot)?.[1];
+  // debootstrap with what it needs that the ISO lacks (factory-debs.mjs) and the keyrings,
+  // from the ISO's own snapshot, in its build container.
+  const apt = [
+    `printf 'deb http://snapshot.debian.org/archive/debian/${stamp}/ trixie main\\n' >/etc/apt/sources.list`,
+    "rm -f /etc/apt/sources.list.d/debian.sources",
+    "apt-get -o Acquire::Check-Valid-Until=false update >/dev/null",
+  ];
+  const depends = sh("docker", [
+    "run",
+    "--rm",
+    image,
+    "sh",
+    "-c",
+    [...apt, `apt-cache depends --recurse ${APT_DEPENDS_ONLY} ${FACTORY_ROOTS.join(" ")}`].join(
+      " && ",
+    ),
+  ]);
+  const lock = readFileSync(join(repoRoot, "integrations/recovery/packages.lock"), "utf8");
+  const debs = factoryDebs(depends, lock, FACTORY_ROOTS);
+  const download = [...new Set([...debs, ...FACTORY_KEYRINGS])].sort();
+  sh("docker", [
+    "run",
+    "--rm",
+    "-v",
+    `${tree}:/out`,
+    image,
+    "sh",
+    "-c",
+    [
+      ...apt,
+      `cd /out/debs && apt-get download ${download.join(" ")}`,
+      "dpkg-deb -x ubuntu-keyring_*.deb /tmp/u && cp /tmp/u/usr/share/keyrings/ubuntu-archive-keyring.gpg /out/keyrings/",
+      "dpkg-deb -x debian-archive-keyring_*.deb /tmp/d && cp /tmp/d/usr/share/keyrings/debian-archive-keyring.gpg /out/keyrings/",
+    ].join(" && "),
+  ]);
+  const mirror =
+    testCase.source.mirror === "ubuntu"
+      ? "http://archive.ubuntu.com/ubuntu"
+      : `http://snapshot.debian.org/archive/debian/${stamp}/`;
+  writeFileSync(
+    join(tree, "run.sh"),
+    factoryRunScript({
+      mirror,
+      passphrase: context.passphrase,
+      env: testCase.source.env,
+      script: testCase.source.script,
+    }),
+  );
+  const disk = join(workDir, `${testCase.id}-factory.img`);
+  sh("truncate", ["-s", "512M", disk]);
+  sh("mkfs.ext4", ["-q", "-F", "-L", "RESTOWFACTORY", "-d", tree, disk]);
+  return disk;
+}
+
+async function api(context) {
+  const { signIn } = await import("../smoke/lib/restow.mjs");
+  return signIn(context.stack, context.totpSecret);
+}
+
+async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await check();
+    if (value) return value;
+    await sleep(intervalMs);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/** Build, enroll and back up the source machine; answers what the restore is checked against. */
+/**
+ * The settings of a case's backup job, as the job editor sends them when "whole machine" goes on
+ * (docs/BAREMETAL.md 5.2, 5.3). A job always names folders (the API requires them): a member
+ * without "whole machine" (Windows, a container) backs them up instead; a Linux member replaces
+ * them with the sources of its manifest. The exclusions are the whole machine ones, which keep
+ * /tmp and /var/tmp as folders; without them the job keeps the profile's, which leave out
+ * /var/tmp itself, and the restored system lacks it (mkinitramfs needs it).
+ */
+export function wholeMachineJobSettings() {
+  return {
+    wholeMachine: true,
+    paths: ["/etc", "/home"],
+    excludes: [...DEFAULT_WHOLE_MACHINE_EXCLUDES],
+  };
+}
+
+/** The space rule of the test instance: 64 MiB free instead of 5 % and at least 20 GiB. */
+export const E2E_SPACE_RULE = Object.freeze({ percent: 0, minGib: 0.0625, maxGib: 0.0625 });
+
+/** The services of the test instance whose logs a failed run keeps (instance/<service>.log). */
+export const INSTANCE_LOG_SERVICES = ["api", "worker", "scheduler", "caddy"];
+
+/** Write the logs of INSTANCE_LOG_SERVICES into `dir` as instance-<service>.log. */
+async function keepInstanceLogs(stack, dir) {
+  mkdirSync(dir, { recursive: true });
+  for (const service of INSTANCE_LOG_SERVICES) {
+    writeFileSync(join(dir, `instance-${service}.log`), await stack.logs(service, 20_000));
+  }
+}
+
+/** The QEMU machines of the running case; a failed case leaves none behind (stopMachines). */
+const running = new Set();
+
+/** startMachine, remembered until the machine exits. */
+function launch(spec) {
+  const machine = startMachine(spec);
+  running.add(machine);
+  machine.exited.finally(() => running.delete(machine));
+  return machine;
+}
+
+/**
+ * Kill every machine still running: after each case and at the end. A source machine of a failed
+ * case would otherwise run on and keep the driver from ending until the job's time limit.
+ */
+function stopMachines() {
+  for (const machine of running) machine.child.kill("SIGKILL");
+  running.clear();
+}
+
+/**
+ * Whether a source machine asks for a passphrase at boot: an encrypted root (`passphrase`, the
+ * initramfs asks) or an encrypted /boot that GRUB unlocks (`unlockAtBoot`).
+ */
+export function needsPassphraseAtBoot(source) {
+  return Boolean(source.passphrase || source.unlockAtBoot);
+}
+
+/** How long typing at the serial console may show no effect before the keyboard is tried. */
+export const KEYBOARD_FALLBACK_MS = 90_000;
+
+/**
+ * Boot a machine with an encrypted root until `pattern` is on its serial console; answers the
+ * match. Like the lab (apps/worker/src/lab/runner.ts): connected to the serial socket from the
+ * start, the passphrase typed there once per prompt (initramfs-tools and systemd-cryptsetup ask
+ * on ttyS0, the kernel's console), at most MAX_PASSPHRASE_TRIES times, and once on the keyboard
+ * when the console shows nothing new for KEYBOARD_FALLBACK_MS after typing. Every step goes to
+ * the job log.
+ */
+export async function bootThroughPassphrase({
+  id,
+  log,
+  serialSocket,
+  qmpSocket,
+  machine,
+  passphrase,
+  pattern,
+}) {
+  const timeoutMs = 25 * 60_000;
+  const serial = await connectSerial(serialSocket);
+  serial.on("data", () => {});
+  serial.on("error", () => {});
+  let exited = null;
+  machine.exited.then((code) => {
+    exited = code;
+  });
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let typed = 0;
+  let keyed = false;
+  let lastLength = 0;
+  let quietSince = Date.now();
+  try {
+    while (Date.now() < deadline) {
+      const text = existsSync(log) ? readFileSync(log, "utf8") : "";
+      const match = pattern.exec(text);
+      if (match) return match;
+      if (exited !== null)
+        throw new Error(`${id}: QEMU ended (exit code ${exited}) before ${pattern} on ${log}`);
+      if (text.length !== lastLength) {
+        lastLength = text.length;
+        quietSince = Date.now();
+      }
+      const prompts = passphrasePrompts(text);
+      if (prompts > typed && typed < MAX_PASSPHRASE_TRIES) {
+        typed += 1;
+        console.log(
+          `${id}: passphrase prompt ${prompts} on the serial console, typing the passphrase there`,
+        );
+        await typeSerial(serial, `${passphrase}\n`);
+        quietSince = Date.now();
+      } else if (typed > 0 && !keyed && Date.now() - quietSince >= KEYBOARD_FALLBACK_MS) {
+        keyed = true;
+        console.log(
+          `${id}: no output for ${KEYBOARD_FALLBACK_MS / 1000} s after typing, typing on the keyboard`,
+        );
+        await sendKeys(qmpSocket, `${passphrase}\n`);
+      } else if (
+        typed === 0 &&
+        !keyed &&
+        text.trim() === "" &&
+        Date.now() - started >= GRUB_SILENCE_MS
+      ) {
+        // GRUB asks for the passphrase of an encrypted /boot only on the screen (the lab's rule).
+        keyed = true;
+        console.log(`${id}: the console is silent, typing the passphrase on the keyboard (GRUB)`);
+        await sendKeys(qmpSocket, `${passphrase}\n`);
+      }
+      await sleep(2000);
+    }
+    throw new Error(
+      `${id}: no ${pattern} on ${log} within ${timeoutMs / 60_000} min (prompts typed: ${typed})`,
+    );
+  } finally {
+    serial.destroy();
+  }
+}
+
+/** A backup run has ended and the machine's bare metal state is "not possible". */
+export function wholeMachineNotPossible(runs, state) {
+  const finished = runs.some((run) => run.kind === "backup" && run.status !== "running");
+  return finished && state?.state === "not_possible";
+}
+
+/** One line about the machine's runs and its bare metal state, for the job log. */
+export function backupProgressLine(runs, state) {
+  const latest = runs[0];
+  const run = latest
+    ? `${runs.length} run(s), latest ${latest.kind} ${latest.status}` +
+      (latest.errorCount ? ` with ${latest.errorCount} error(s)` : "") +
+      (latest.failure?.code ? ` (${latest.failure.code})` : "") +
+      (latest.snapshotId ? ` snapshot ${latest.snapshotId.slice(0, 8)}` : "")
+    : "no run yet";
+  const layout = state
+    ? `bare metal ${state.state ?? "?"}${state.notPossible ? ` (${state.notPossible})` : ""}, check ${state.check ? (state.check.readiness ?? "done") : "none"}, ` +
+      `latest snapshot ${state.latest?.snapshotId ? state.latest.snapshotId.slice(0, 8) : "none"}`
+    : "bare metal state unknown";
+  return `${run}; ${layout}`;
+}
+
+/**
+ * Wait for the whole machine backup and its layout check (at most 60 minutes). Every five
+ * minutes the job log gets the state of the machine's runs; at the end a timeout names the latest
+ * run with its errors and the end of its log, so a failed backup says why.
+ */
+async function waitForWholeMachineBackup(client, tenantId, endpointId, id) {
+  const base = `/api/v1/endpoints/${endpointId}`;
+  const deadline = Date.now() + 60 * 60_000;
+  let nextReport = Date.now() + 5 * 60_000;
+  let runs = [];
+  let state = null;
+  // The backup run's errors and the end of its log (not those of a restore test after it).
+  const backupDetail = async () => {
+    const backup = runs.find((run) => run.kind === "backup");
+    if (!backup) return "";
+    const run = await client.get(`${base}/runs/${backup.id}`, { tenantId });
+    const errors = (run.errors ?? [])
+      .slice(0, 5)
+      .map((e) => [e.code, e.message].filter(Boolean).join(": ") || JSON.stringify(e));
+    return `; backup errors: ${errors.join(" | ") || "none"}; log tail: ${(run.logTail ?? "").slice(-1500)}`;
+  };
+  while (Date.now() < deadline) {
+    state = await client.get(`${base}/baremetal`, { tenantId });
+    if (state.check && state.latest?.snapshotId) return state;
+    runs = (await client.get(`${base}/runs?limit=5`, { tenantId })).items ?? [];
+    // A finished backup that left the machine "not possible" will not change by waiting.
+    if (wholeMachineNotPossible(runs, state)) {
+      throw new Error(
+        `the whole machine backup cannot restore this machine: ${backupProgressLine(runs, state)}${await backupDetail()}`,
+      );
+    }
+    if (Date.now() >= nextReport) {
+      console.log(
+        `${id}: waiting for the whole machine backup: ${backupProgressLine(runs, state)}`,
+      );
+      nextReport = Date.now() + 5 * 60_000;
+    }
+    await sleep(15_000);
+  }
+  throw new Error(
+    `timed out waiting for the whole machine backup and its layout check: ${backupProgressLine(runs, state)}${await backupDetail()}`,
+  );
+}
+
+async function sourceMachine(testCase, context) {
+  const dir = join(context.workDir, testCase.id);
+  mkdirSync(dir, { recursive: true });
+  const disks = testCase.source.disks.map((disk) => ({
+    ...disk,
+    file: join(dir, `${disk.serial}.qcow2`),
+  }));
+  for (const disk of disks) await createDisk(runAsync, disk.file, disk.size);
+  const varsFile = testCase.source.firmware === "bios" ? undefined : join(dir, "source-vars.fd");
+  if (varsFile) await createVars(runAsync, varsFile, testCase.source.firmware, context.dbx);
+  const client = await api(context);
+  const tenantId = context.tenantId;
+  if (testCase.source.kind === "factory") {
+    const kernel = join(dir, "vmlinuz");
+    const initrd = join(dir, "initrd.img");
+    sh("xorriso", ["-osirrox", "on", "-indev", context.iso, "-extract", "/live/vmlinuz", kernel]);
+    sh("xorriso", [
+      "-osirrox",
+      "on",
+      "-indev",
+      context.iso,
+      "-extract",
+      "/live/initrd.img",
+      initrd,
+    ]);
+    const factory = factoryDisk(context.workDir, testCase, context);
+    // Direct kernel boot of the ISO's live system with the factory command line.
+    const build = launch({
+      name: `${testCase.id}-factory`,
+      firmware: "bios",
+      disks,
+      cdrom: context.iso,
+      extraDisks: [factory],
+      serialLog: join(dir, "factory.log"),
+      qmpSocket: join(dir, "factory.qmp"),
+      kernel: { file: kernel, initrd, append: factoryCmdline() },
+    });
+    await waitForSerial(join(dir, "factory.log"), /E2E-FACTORY-DONE/, {
+      timeoutMs: 40 * 60_000,
+      machine: build,
+    });
+    await build.exited;
+  } else {
+    throw new Error(
+      `${testCase.id}: cloud image sources (${testCase.source.image}) need a pinned image; see images.json`,
+    );
+  }
+  const token = await client.post(
+    "/api/v1/endpoints/tokens",
+    { profile: "server", os: "linux", displayName: `e2e-${testCase.id}` },
+    { tenantId },
+  );
+  const enroll = join(dir, "enroll.txt");
+  writeFileSync(enroll, `url=${context.instanceUrl}\ntoken=${token.token}\n`, { mode: 0o600 });
+  const source = launch({
+    name: `${testCase.id}-source`,
+    firmware: testCase.source.firmware,
+    varsFile,
+    disks,
+    serialLog: join(dir, "source.log"),
+    serialSocket: join(dir, "source-serial.sock"),
+    qmpSocket: join(dir, "source.qmp"),
+    fwCfg: { "opt/restow/enroll": enroll },
+  });
+  const [, hostname, markerSha256] = needsPassphraseAtBoot(testCase.source)
+    ? await bootThroughPassphrase({
+        id: `${testCase.id} source`,
+        log: join(dir, "source.log"),
+        serialSocket: join(dir, "source-serial.sock"),
+        qmpSocket: join(dir, "source.qmp"),
+        machine: source,
+        passphrase: context.passphrase,
+        pattern: SOURCE_BOOT,
+      })
+    : await waitForSerial(join(dir, "source.log"), SOURCE_BOOT, {
+        timeoutMs: 15 * 60_000,
+        machine: source,
+      });
+  const endpoint = await waitUntil(
+    "the source machine to enroll",
+    async () =>
+      (await client.get("/api/v1/endpoints", { tenantId })).items.find(
+        (item) => item.hostname === hostname,
+      ),
+    { timeoutMs: 10 * 60_000 },
+  );
+  const job = await client.post(
+    "/api/v1/backup-jobs",
+    {
+      kind: "endpoint",
+      name: `Recovery ${testCase.id}`,
+      schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+      settings: wholeMachineJobSettings(),
+      scope: { mode: "selected", members: [{ id: endpoint.id }] },
+    },
+    { tenantId },
+  );
+  await client.post(`/api/v1/endpoints/${endpoint.id}/tasks`, { kind: "backup_now" }, { tenantId });
+  const baremetal = await waitForWholeMachineBackup(client, tenantId, endpoint.id, testCase.id);
+  console.log(
+    `${testCase.id}: layout check ${baremetal.check?.readiness ?? "none"}` +
+      (baremetal.check?.readiness === "green" ? "" : `: ${checkFindings(baremetal.check)}`),
+  );
+  await qmp(join(dir, "source.qmp"), "quit").catch(() => undefined);
+  await source.exited;
+  return {
+    dir,
+    disks,
+    hostname,
+    markerSha256,
+    endpoint,
+    job,
+    snapshotId: baremetal.latest.snapshotId,
+  };
+}
+
+/** Issue a code, boot the ISO on the target, release the session; answers the final recovery. */
+async function restore(testCase, context, source, { interrupt } = {}) {
+  const client = await api(context);
+  const tenantId = context.tenantId;
+  const issued = await client.post(
+    `/api/v1/endpoints/${source.endpoint.id}/recovery-codes`,
+    { validityHours: 4, requireApproval: true, snapshotId: source.snapshotId },
+    { tenantId },
+  );
+  const answersFile = join(source.dir, "answers.json");
+  writeFileSync(
+    answersFile,
+    JSON.stringify(
+      buildAnswers(testCase, {
+        instanceUrl: context.instanceUrl,
+        code: issued.code,
+        spkiCheck: issued.spkiCheck,
+        snapshotId: source.snapshotId,
+        passphrase: context.passphrase,
+      }),
+    ),
+    { mode: 0o600 },
+  );
+  const kept = (testCase.target.keepSourceDisks ?? []).map((serial) =>
+    source.disks.find((disk) => disk.serial === serial),
+  );
+  const fresh = testCase.target.disks.map((disk) => ({
+    ...disk,
+    file: join(source.dir, `${disk.serial}.qcow2`),
+  }));
+  if (!context.targetsMade?.has(testCase.id)) {
+    for (const disk of fresh) await createDisk(runAsync, disk.file, disk.size);
+    context.targetsMade = new Set([...(context.targetsMade ?? []), testCase.id]);
+  }
+  const varsFile =
+    testCase.target.firmware === "bios" ? undefined : join(source.dir, "target-vars.fd");
+  if (varsFile && !existsSync(varsFile))
+    await createVars(runAsync, varsFile, testCase.target.firmware, context.dbx);
+  const log = join(source.dir, `iso-${issued.id}.log`);
+  const iso = launch({
+    name: `${testCase.id}-iso`,
+    firmware: testCase.target.firmware,
+    varsFile,
+    disks: [...kept, ...fresh],
+    cdrom: context.iso,
+    serialLog: log,
+    qmpSocket: join(source.dir, "iso.qmp"),
+    mac: testCase.target.newMac ? "52:54:00:65:43:21" : undefined,
+    fwCfg: { "opt/restow/answers": answersFile },
+  });
+  // QEMU reads the answers file while it starts (fw_cfg): only then may it go, as in the lab
+  // (apps/worker/src/lab/vm.ts). A QEMU that ended at once says why.
+  const early = await Promise.race([iso.exited, sleep(1500).then(() => null)]);
+  if (early !== null) {
+    rmSync(answersFile, { force: true });
+    throw new Error(`the ISO's QEMU ended at once (${early}): ${iso.stderrTail()}`);
+  }
+  rmSync(answersFile, { force: true });
+  const recoveryPath = `/api/v1/endpoints/${source.endpoint.id}/recoveries/${issued.id}`;
+  let isoEnded = null;
+  iso.exited.then((code) => {
+    isoEnded = code;
+  });
+  await waitUntil(
+    "the ISO to redeem the code",
+    async () => {
+      const recovery = await client.get(recoveryPath, { tenantId });
+      if (recovery.status === "pending_approval") return true;
+      // A session that ended or an ISO that stopped will not get there: say so at once.
+      if (isFinal(recovery.status)) {
+        throw new Error(`the recovery ended as ${recovery.status} before it waited for approval`);
+      }
+      if (isoEnded !== null) {
+        throw new Error(`the ISO's QEMU ended (${isoEnded}) before it redeemed the code`);
+      }
+      return false;
+    },
+    { timeoutMs: 20 * 60_000 },
+  );
+  // Releasing needs a sign-in from the last 10 minutes (assertRecentSignIn): the redeem can take
+  // longer than that, so the approval signs in anew.
+  await (await api(context)).post(`${recoveryPath}/approve`, {}, { tenantId });
+  if (interrupt) {
+    await waitUntil(
+      "the restore to start",
+      async () => (await client.get(recoveryPath, { tenantId })).phase === "restoring",
+      { timeoutMs: 30 * 60_000 },
+    );
+    await sleep(30_000);
+    if (interrupt === "cancel") await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
+    else {
+      await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
+      // After a power loss the session stays active until the code expires (plus 30 minutes);
+      // the admin ends it, as before a second code.
+      await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
+    }
+  }
+  const final = await waitUntil(
+    "the end of the recovery",
+    async () => {
+      const recovery = await client.get(recoveryPath, { tenantId });
+      return isFinal(recovery.status) ? recovery : null;
+    },
+    { timeoutMs: 3 * 60 * 60_000, intervalMs: 15_000 },
+  );
+  if (!interrupt) {
+    // Every recovery's log is kept: a restored system that does not start is judged by it.
+    const diagnosis = await recoveryDiagnosis(client, tenantId, recoveryPath).catch(
+      (error) => `no diagnosis (${error.message})`,
+    );
+    writeFileSync(join(source.dir, `recovery-${issued.id}.log`), `${diagnosis}\n`);
+    if (final.status !== "succeeded") {
+      console.log(
+        `${testCase.id}: the recovery ended ${final.status}: ${diagnosis.split("\n").slice(-60).join("\n")}`,
+      );
+    }
+  }
+  await Promise.race([iso.exited, sleep(10 * 60_000)]);
+  iso.child.kill("SIGKILL");
+  return { final, disks: [...kept, ...fresh], varsFile };
+}
+
+/** Boot the restored disks and expect the source machine's marker line. */
+async function bootRestored(testCase, context, source, restored, { emptyNvram = false } = {}) {
+  let varsFile = restored.varsFile;
+  if (varsFile && emptyNvram) {
+    varsFile = join(source.dir, "target-vars-empty.fd");
+    await createVars(runAsync, varsFile, testCase.target.firmware, context.dbx);
+  }
+  const log = join(source.dir, emptyNvram ? "restored-empty-nvram.log" : "restored.log");
+  const machine = launch({
+    name: `${testCase.id}-restored`,
+    firmware: testCase.target.firmware,
+    varsFile,
+    disks: restored.disks,
+    serialLog: log,
+    serialSocket: join(source.dir, "restored-serial.sock"),
+    qmpSocket: join(source.dir, "restored.qmp"),
+    mac: testCase.target.newMac ? "52:54:00:65:43:21" : undefined,
+  });
+  try {
+    const pattern = bootPattern(source.hostname, source.markerSha256);
+    if (needsPassphraseAtBoot(testCase.source)) {
+      await bootThroughPassphrase({
+        id: `${testCase.id} restored`,
+        log,
+        serialSocket: join(source.dir, "restored-serial.sock"),
+        qmpSocket: join(source.dir, "restored.qmp"),
+        machine,
+        passphrase: context.passphrase,
+        pattern,
+      });
+    } else {
+      await waitForSerial(log, pattern, { timeoutMs: 15 * 60_000, machine });
+    }
+  } catch (error) {
+    if (testCase.target.firmware !== "bios") throw error;
+    const notes = [];
+    for (const disk of restored.disks) {
+      const sector = join(source.dir, `${basename(disk.file)}.mbr`);
+      try {
+        await runAsync("qemu-img", [
+          "dd",
+          "-U",
+          "-O",
+          "raw",
+          `if=${disk.file}`,
+          `of=${sector}`,
+          "bs=512",
+          "count=1",
+        ]);
+        notes.push(`${disk.serial}: ${mbrNote(readFileSync(sector))}`);
+      } catch (readError) {
+        notes.push(`${disk.serial}: MBR not read (${readError.message})`);
+      }
+    }
+    throw new Error(`${error.message}; ${notes.join("; ")}`);
+  } finally {
+    await qmp(join(source.dir, "restored.qmp"), "quit").catch(() => undefined);
+    machine.child.kill("SIGKILL");
+  }
+}
+
+/**
+ * What the first sector of a restored BIOS disk holds: GRUB's boot code (its "GRUB " message at
+ * offset 0x180), other boot code, or none, and whether it ends with the boot signature 55 AA.
+ */
+export function mbrNote(sector) {
+  if (!sector || sector.length < 512) return "MBR shorter than 512 bytes";
+  const signature = sector[510] === 0x55 && sector[511] === 0xaa;
+  const code = sector.subarray(0, 440);
+  const kind = code.includes(Buffer.from("GRUB "))
+    ? "GRUB boot code"
+    : code.every((byte) => byte === 0)
+      ? "no boot code (zeros)"
+      : "boot code without GRUB";
+  return `${kind}, ${signature ? "boot signature 55 AA" : "no boot signature"}`;
+}
+
+/** A boot probe case: back up the source, plan a probe, wait for its report and judge it. */
+async function runProbeCase(testCase, context) {
+  const started = Date.now();
+  context.passphrase = testCase.source.passphrase
+    ? `e2e-${randomBytes(9).toString("hex")}`
+    : undefined;
+  const source = await sourceMachine(testCase, context);
+  const client = await api(context);
+  const tenantId = context.tenantId;
+  const path = `/api/v1/endpoints/${source.endpoint.id}/baremetal`;
+  const before = await client.get(path, { tenantId });
+  if (before.check?.readiness !== "green") {
+    throw new Error(
+      `${testCase.id}: the layout check is ${before.check?.readiness}, not green: ${checkFindings(before.check)}`,
+    );
+  }
+  // The lab must have asked once with KVM before a probe can be planned.
+  await waitUntil(
+    "the recovery lab to ask for work with KVM",
+    async () => {
+      const state = await client.get(path, { tenantId });
+      return state.probe?.lab.present && state.probe.lab.kvm;
+    },
+    { timeoutMs: 5 * 60_000, intervalMs: 10_000 },
+  );
+  const requestedAt = Date.now() - 1000;
+  await client.post(`${path}/probe`, {}, { tenantId });
+  let outcome = null;
+  try {
+    outcome = await waitUntil(
+      "the boot probe's report",
+      async () => probeOutcome(testCase, await client.get(path, { tenantId }), requestedAt),
+      { timeoutMs: 150 * 60_000, intervalMs: 20_000 },
+    );
+  } finally {
+    const logs = await context.stack.compose(["logs", "--no-color", "recovery-lab"], {
+      allowFailure: true,
+    });
+    writeFileSync(join(source.dir, "lab.log"), logs.stdout ?? "");
+    // A boot that did not finish leaves a picture of its VGA screen (GRUB, BIOS).
+    await context.stack.compose(
+      ["cp", `recovery-lab:${LAB_SCREEN_DIR}/.`, join(source.dir, "screens")],
+      { allowFailure: true },
+    );
+  }
+  console.log(`${testCase.id}: ${outcome.reason}`);
+  if (!outcome.ok) {
+    // The probe's own recovery sessions are in no list of the machine (docs/BAREMETAL.md 12.3):
+    // their status and the log recover sent are read from the database directly.
+    const probeLog = await context.stack.compose(
+      [
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        "restow",
+        "-d",
+        "restow",
+        "-At",
+        "-c",
+        `SELECT 'session ' || r.id || ' ' || r.status || E'\n' ||
+                coalesce((SELECT string_agg(l.lines, E'\n' ORDER BY l.created_at, l.id)
+                            FROM endpoint_recovery_log l WHERE l.recovery_id = r.id), '(no log)')
+           FROM endpoint_recoveries r
+          WHERE r.endpoint_id = '${source.endpoint.id}' AND r.kind = 'probe'
+          ORDER BY r.issued_at`,
+      ],
+      { allowFailure: true },
+    );
+    const probeText = `${probeLog.stdout ?? ""}${probeLog.stderr ?? ""}`;
+    writeFileSync(join(source.dir, "probe-recoveries.log"), probeText);
+    console.log(
+      `${testCase.id}: the probe's recovery log (end):\n${probeText.split("\n").slice(-60).join("\n")}`,
+    );
+    // The lab's recovery sessions of this machine: their log says where the restore stood.
+    const base = `/api/v1/endpoints/${source.endpoint.id}/recoveries`;
+    const sessions = await client.get(base, { tenantId }).catch(() => ({ items: [] }));
+    for (const session of sessions.items ?? []) {
+      const diagnosis = await recoveryDiagnosis(client, tenantId, `${base}/${session.id}`).catch(
+        (error) => `no diagnosis (${error.message})`,
+      );
+      writeFileSync(
+        join(source.dir, `recovery-${session.id}.log`),
+        `status ${session.status}, phase ${session.phase ?? "?"}\n${diagnosis}\n`,
+      );
+      console.log(
+        `${testCase.id}: lab session ${session.id} ${session.status} (${session.phase ?? "no phase"})`,
+      );
+    }
+    throw new Error(`${testCase.id}: ${outcome.reason}`);
+  }
+  return { id: testCase.id, seconds: Math.round((Date.now() - started) / 1000) };
+}
+
+async function runCase(testCase, context) {
+  if (testCase.probe) return runProbeCase(testCase, context);
+  const started = Date.now();
+  context.passphrase = testCase.source.passphrase
+    ? (testCase.source.passphraseText ?? `e2e-${randomBytes(9).toString("hex")}`)
+    : undefined;
+  const source = await sourceMachine(testCase, context);
+  for (const interrupt of testCase.interrupt ?? []) {
+    const stopped = await restore(testCase, context, source, { interrupt });
+    if (!["cancelled", "failed"].includes(stopped.final.status)) {
+      throw new Error(
+        `${testCase.id}: after the ${interrupt} the recovery is ${stopped.final.status}`,
+      );
+    }
+  }
+  const restored = await restore(testCase, context, source);
+  if (restored.final.status !== "succeeded") {
+    throw new Error(`${testCase.id}: the recovery ended ${restored.final.status}`);
+  }
+  if (restored.final.verification?.format !== "restow-verify-v1") {
+    throw new Error(`${testCase.id}: the ISO sent no verification report`);
+  }
+  await bootRestored(testCase, context, source, restored);
+  if (testCase.target.alsoEmptyNvram) {
+    await bootRestored(testCase, context, source, restored, { emptyNvram: true });
+  }
+  return { id: testCase.id, seconds: Math.round((Date.now() - started) / 1000) };
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    process.stdout.write(USAGE);
+    return;
+  }
+  if (options.pinImages) {
+    const images = JSON.parse(readFileSync(new URL("./images.json", import.meta.url), "utf8"));
+    for (const [name, image] of Object.entries(images)) {
+      if (name.startsWith("$")) continue;
+      const response = await fetch(image.url);
+      if (!response.ok) throw new Error(`${image.url}: ${response.status}`);
+      const hash = createHash("sha256")
+        .update(Buffer.from(await response.arrayBuffer()))
+        .digest("hex");
+      console.log(`${name} ${hash} ${image.url}`);
+    }
+    return;
+  }
+  assertKvm();
+  const workDir = resolve(options.workDir);
+  mkdirSync(workDir, { recursive: true });
+  const agentDir = testAgentDir({
+    agentDist: options.agentDist,
+    iso: options.iso,
+    version: options.version,
+    dir: join(workDir, "agent"),
+  });
+  const instance = await startInstance(options, workDir, agentDir);
+  const context = {
+    ...instance,
+    workDir,
+    iso: resolve(options.iso),
+    dbx: options.dbx,
+    instanceUrl: instance.stack.publicUrl,
+  };
+  const results = [];
+  let failed = 0;
+  try {
+    for (const testCase of options.selected) {
+      console.log(`== ${testCase.id}: ${testCase.title}`);
+      try {
+        results.push({ ...(await runCase(testCase, context)), result: "passed" });
+      } catch (error) {
+        failed += 1;
+        results.push({
+          id: testCase.id,
+          result: "failed",
+          reason: String(error?.message ?? error),
+        });
+        console.error(`${testCase.id} failed: ${error?.stack ?? error}`);
+        // The instance's logs right away: a job that hits its time limit never reaches the end.
+        await keepInstanceLogs(instance.stack, join(workDir, testCase.id)).catch((logError) =>
+          console.error(`${testCase.id}: the instance's logs could not be kept: ${logError}`),
+        );
+      } finally {
+        stopMachines();
+      }
+    }
+  } finally {
+    stopMachines();
+    writeFileSync(join(workDir, "report.json"), `${JSON.stringify(results, null, 2)}\n`);
+    // The instance's own logs, for a 500 or a stuck job (uploaded with the cases' logs).
+    if (failed > 0) await keepInstanceLogs(instance.stack, join(workDir, "instance"));
+    if (!options.keep) await instance.stack.down();
+  }
+  for (const result of results)
+    console.log(`${result.id} ${result.result} ${result.reason ?? `${result.seconds}s`}`);
+  if (failed > 0) process.exitCode = 1;
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main().catch((error) => {
+    console.error(error?.message ?? error);
+    process.exitCode = 1;
+  });
+}
+
+export { CASES, PROBE_CASES };

@@ -12,6 +12,7 @@ import { installCommands, psQuote, releaseKeyFingerprint } from "./commands.js";
 /** Stands in for a maintainer's SSHSIG signature (the server never checks it, the agent does). */
 const SIGNATURE = "-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n";
 
+import { ProblemError } from "../../problem.js";
 import {
   agentBinaryName,
   announcedAgentVersion,
@@ -38,6 +39,7 @@ import {
   problemsOf,
   type RatedTests,
   storageOf,
+  toConfigDto,
   toRunDetail,
   toRunSummary,
   toSummary,
@@ -526,6 +528,28 @@ describe("the configuration an agent is served", () => {
     expect(
       configResponse(stored, 1, { zone: "America/New_York", now: instant }).bandwidthKbps,
     ).toBe(2000); // 12:30
+  });
+});
+
+describe("the configuration a machine's page shows", () => {
+  it("says whether the agent gets the whole machine: only with the preview on and on Linux", () => {
+    const linux = {
+      ...defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      wholeMachine: true,
+    };
+    expect(toConfigDto(linux, { os: "linux", baremetalPreview: false })).toMatchObject({
+      wholeMachine: true,
+      wholeMachineActive: false,
+      fsSnapshot: null,
+    });
+    expect(toConfigDto(linux, { os: "linux", baremetalPreview: true }).wholeMachineActive).toBe(
+      true,
+    );
+    expect(toConfigDto(linux, { os: "windows", baremetalPreview: true }).wholeMachineActive).toBe(
+      false,
+    );
+    // It matches what GET /agent/v1/config sends.
+    expect(configResponse(linux, 1, undefined, { os: "linux" }).fsSnapshot).toBe("off");
   });
 });
 
@@ -1272,12 +1296,27 @@ describe("restic failures become problems an admin can act on", () => {
     });
   });
 
+  it("passes any other error on as it is, so the global handler logs it", () => {
+    const database = new Error('relation "endpoints" does not exist');
+    expect(resticProblem(database)).toBe(database);
+    expect(resticProblem("odd")).toBeInstanceOf(Error);
+    expect(resticProblem("odd")).not.toBeInstanceOf(ProblemError);
+  });
+
   it("says restic is missing when it cannot be started", () => {
     expect(
       resticProblem(Object.assign(new Error("spawn restic ENOENT"), { code: "ENOENT" })),
     ).toMatchObject({
       status: 503,
       type: "urn:restow:problem:restic-unavailable",
+    });
+    // A binary without the execute bit (a mounted agent folder that lost its modes).
+    expect(
+      resticProblem(Object.assign(new Error("spawn restic EACCES"), { code: "EACCES" })),
+    ).toMatchObject({
+      status: 503,
+      type: "urn:restow:problem:restic-unavailable",
+      detail: "The restic binary on this server cannot be run (permission denied).",
     });
   });
 });

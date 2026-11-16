@@ -45,6 +45,7 @@ const fetchTokens = vi.fn();
 const revokeToken = vi.fn();
 const fetchAgentUpdates = vi.fn();
 const setAgentUpdates = vi.fn();
+const capabilities = { baremetalPreview: false };
 vi.mock("./api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api.js")>();
   return {
@@ -54,6 +55,7 @@ vi.mock("./api.js", async (importOriginal) => {
     revokeToken: (...args: unknown[]) => revokeToken(...args),
     fetchAgentUpdates: (...args: unknown[]) => fetchAgentUpdates(...args),
     setAgentUpdates: (...args: unknown[]) => setAgentUpdates(...args),
+    fetchEndpointCapabilities: async () => ({ ...capabilities }),
   };
 });
 
@@ -190,6 +192,37 @@ describe("EndpointsPage", () => {
     expect(
       document.querySelector('a[href="/inventory/11111111-1111-4111-8111-111111111111"]'),
     ).not.toBeNull();
+  });
+
+  it("words the backup by the preview: no bare metal while it is off, Linux as a whole once on", async () => {
+    await open("servers");
+    const off = document.querySelector('[data-slot="endpoints-honesty"]')?.textContent ?? "";
+    expect(off).toContain("no disk images and no bare-metal restore");
+    page.unmount();
+    capabilities.baremetalPreview = true;
+    try {
+      await open("servers");
+      const on = document.querySelector('[data-slot="endpoints-honesty"]')?.textContent ?? "";
+      expect(on).not.toContain("no bare-metal restore");
+      expect(on).toContain("restored as a whole on new hardware (preview)");
+      expect(on).toContain("there are no disk images");
+    } finally {
+      capabilities.baremetalPreview = false;
+    }
+  });
+
+  it("marks a machine that is being restored, linking to its recovery", async () => {
+    fetchEndpoints.mockResolvedValue([
+      endpoint({ recovery: { status: "active", phase: "restoring" } }),
+      endpoint({ id: "22222222-2222-4222-8222-222222222222", hostname: "db-01" }),
+    ]);
+    await open("servers");
+    const badges = [...document.querySelectorAll('[data-slot="endpoint-recovering"]')];
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.textContent).toBe("Being restored");
+    expect(badges[0]?.getAttribute("href")).toBe(
+      "/inventory/11111111-1111-4111-8111-111111111111/bare-metal",
+    );
   });
 
   it("is the inventory with the filter chips All, Servers and Clients, one pressed", async () => {

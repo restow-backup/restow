@@ -356,6 +356,25 @@ func TestExplainNetworkErrors(t *testing.T) {
 	}
 }
 
+func TestExplainServerErrorNamesTheReason(t *testing.T) {
+	err := &api.APIError{Method: "POST", Path: "/agent/v1/enroll", Status: 503,
+		Title: "Installation default storage not configured", Detail: "Set up a storage target\nfirst."}
+	msg := api.Explain(err, "https://restow.example")
+	if !strings.Contains(msg, "HTTP 503") ||
+		!strings.Contains(msg, "Reason given: Installation default storage not configured: Set up a storage target first.") {
+		t.Fatalf("explanation: %s", msg)
+	}
+	// A proxy's bare error page carries no problem: no reason, no dangling colon.
+	bare := api.Explain(&api.APIError{Status: 502}, "https://restow.example")
+	if strings.Contains(bare, "Reason given") {
+		t.Fatalf("explanation without a problem: %s", bare)
+	}
+	long := api.Explain(&api.APIError{Status: 500, Detail: strings.Repeat("x", 400)}, "https://restow.example")
+	if !strings.Contains(long, strings.Repeat("x", 300)+"…") || strings.Contains(long, strings.Repeat("x", 301)) {
+		t.Fatalf("a long detail is cut at 300 characters: %d", len(long))
+	}
+}
+
 func TestRedirectDowngradeRefused(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	defer plain.Close()

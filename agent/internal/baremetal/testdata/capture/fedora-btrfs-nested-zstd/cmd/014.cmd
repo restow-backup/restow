@@ -1,0 +1,15 @@
+lsattr
+-d
+/etc
+/etc/default
+/etc/dracut.conf.d
+/etc/selinux
+/home
+/lib
+/lib/modules
+/lib/modules/6.11.5-300.fc41.x86_64
+/var
+/var/lib
+/var/lib/libvirt
+/var/lib/libvirt/images
+/var/lib/machines

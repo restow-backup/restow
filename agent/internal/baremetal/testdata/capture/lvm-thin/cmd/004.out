@@ -1,0 +1,108 @@
+  {
+      "report": [
+          {
+              "lv": [
+                  {
+                      "data_percent": "50.00",
+                      "lv_active": "active",
+                      "lv_attr": "twi-aotz--",
+                      "lv_full_name": "vg0/pool",
+                      "lv_kernel_major": "-1",
+                      "lv_kernel_minor": "0",
+                      "lv_layout": "thin,pool",
+                      "lv_metadata_size": "1073741824",
+                      "lv_name": "pool",
+                      "lv_size": "483183820800",
+                      "lv_tags": "",
+                      "lv_uuid": "lvpool-1",
+                      "metadata_percent": "12.00",
+                      "origin": "",
+                      "pool_lv": "",
+                      "snap_percent": ""
+                  },
+                  {
+                      "data_percent": "30.00",
+                      "lv_active": "active",
+                      "lv_attr": "Vwi-aotz--",
+                      "lv_full_name": "vg0/root",
+                      "lv_kernel_major": "253",
+                      "lv_kernel_minor": "0",
+                      "lv_layout": "thin,sparse",
+                      "lv_metadata_size": "",
+                      "lv_name": "root",
+                      "lv_size": "42949672960",
+                      "lv_tags": "",
+                      "lv_uuid": "lvroot-2",
+                      "metadata_percent": "",
+                      "origin": "",
+                      "pool_lv": "pool",
+                      "snap_percent": ""
+                  },
+                  {
+                      "data_percent": "60.00",
+                      "lv_active": "active",
+                      "lv_attr": "Vwi-aotz--",
+                      "lv_full_name": "vg0/home",
+                      "lv_kernel_major": "253",
+                      "lv_kernel_minor": "1",
+                      "lv_layout": "thin,sparse",
+                      "lv_metadata_size": "",
+                      "lv_name": "home",
+                      "lv_size": "214748364800",
+                      "lv_tags": "",
+                      "lv_uuid": "lvhome-3",
+                      "metadata_percent": "",
+                      "origin": "",
+                      "pool_lv": "pool",
+                      "snap_percent": ""
+                  }
+              ],
+              "pv": [
+                  {
+                      "dev_size": "498004194304",
+                      "pv_fmt": "lvm2",
+                      "pv_name": "/dev/sda2",
+                      "pv_size": "498000000000",
+                      "pv_uuid": "pvthin-0000",
+                      "vg_name": "vg0"
+                  }
+              ],
+              "pvseg": [],
+              "seg": [
+                  {
+                      "chunk_size": "65536",
+                      "lv_uuid": "lvpool-1",
+                      "segtype": "thin-pool",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  },
+                  {
+                      "chunk_size": "0",
+                      "lv_uuid": "lvroot-2",
+                      "segtype": "thin",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  },
+                  {
+                      "chunk_size": "0",
+                      "lv_uuid": "lvhome-3",
+                      "segtype": "thin",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  }
+              ],
+              "vg": [
+                  {
+                      "vg_attr": "wz--n-",
+                      "vg_extent_size": "4194304",
+                      "vg_fmt": "lvm2",
+                      "vg_free": "10737418240",
+                      "vg_name": "vg0",
+                      "vg_size": "498000000000",
+                      "vg_systemid": "",
+                      "vg_uuid": "vgthin-0000"
+                  }
+              ]
+          }
+      ]
+  }

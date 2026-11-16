@@ -164,6 +164,11 @@ export const FAILURE_CODES = [
   "endpoint.hooks_not_allowed",
   "endpoint.snapshot_failed",
   "endpoint.snapshot_unavailable",
+  "endpoint.layout_capture_failed",
+  // Bare metal (docs/BAREMETAL.md 12.1, 12.3): stage 1 or the boot probe found a problem of the
+  // backup; sent as `job.failed` with the red report.
+  "endpoint.baremetal_check_failed",
+  "endpoint.boot_probe_failed",
   "endpoint.source_unreadable",
   "endpoint.source_is_mount_point",
   "endpoint.timeout",
@@ -387,6 +392,9 @@ export const FAILURE_STEP_IDS = [
   "allow_endpoint_hooks",
   "check_endpoint_snapshot",
   "check_endpoint_snapshot_service",
+  "check_endpoint_layout_tools",
+  "read_baremetal_report",
+  "run_boot_probe_again",
   "check_endpoint_agent",
   "check_endpoint_file_access",
   "choose_empty_restore_folder",

@@ -1,0 +1,443 @@
+package recovery
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// Isolation of the programs of the restored system (docs/BAREMETAL.md
+// 10.14): initramfs generators, grub-install, bootctl and the like come
+// from a machine that may have been compromised. Each runs through the
+// hidden helper restow-agent chroot-exec (isolate_linux.go) in new mount,
+// PID, network, IPC and UTS namespaces, with pivot_root into the target
+// (a chroot could be left with chroot("..") or open_by_handle_at, R4), the
+// target tree nodev and nosuid with all its submounts, a fresh /proc, a
+// read-only /sys, a /dev with only the null devices and the target
+// devices, a reduced capability bounding set, no new privileges and the
+// seccomp filter below.
+
+// IsolateSpec is what recover hands the helper (JSON over fd 3).
+type IsolateSpec struct {
+	// Root is the target root (paths.RecoveryTargetRoot).
+	Root string `json:"root"`
+	// Devices are device nodes (/dev/sda, /dev/sda1, /dev/mapper/x) bound
+	// into the new /dev; a symlink (/dev/vg/lv) is recreated and its node
+	// bound.
+	Devices []string `json:"devices"`
+	// DevLinks are /dev/disk/by-* links recreated in the new /dev.
+	DevLinks []string `json:"devLinks"`
+	// CapSysAdmin keeps CAP_SYS_ADMIN (device-mapper ioctls of grub-probe
+	// on LVM or LUKS, grub2-mkconfig, vgimportdevices).
+	CapSysAdmin bool `json:"capSysAdmin"`
+	// Env is the environment of the program (PATH, LANG and
+	// SYSTEMD_OFFLINE are always set).
+	Env []string `json:"env"`
+	// Argv is the program of the target system and its arguments.
+	Argv []string `json:"argv"`
+	// Cwd is the working directory inside the target (default /).
+	Cwd string `json:"cwd"`
+	// TimeoutSeconds bounds the program (0: 30 minutes).
+	TimeoutSeconds int `json:"timeoutSeconds"`
+}
+
+var (
+	reDevNode = regexp.MustCompile(`^/dev/[A-Za-z0-9_.:+-]+(/[A-Za-z0-9_.:+-]+)?$`)
+	reDevLink = regexp.MustCompile(`^/dev/disk/by-[a-z-]+/[A-Za-z0-9_.:+\\-]+$`)
+	reEnvKey  = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+)
+
+// CheckIsolateSpec checks a spec before it is used (the helper does too).
+func CheckIsolateSpec(s IsolateSpec) error {
+	if !strings.HasPrefix(s.Root, "/") || s.Root == "/" || strings.Contains(s.Root, "..") {
+		return fmt.Errorf("chroot-exec: invalid root %q", s.Root)
+	}
+	if len(s.Argv) == 0 || s.Argv[0] == "" || strings.Contains(s.Argv[0], "..") {
+		return errors.New("chroot-exec: no program")
+	}
+	for _, d := range s.Devices {
+		if !reDevNode.MatchString(d) || strings.Contains(d, "..") {
+			return fmt.Errorf("chroot-exec: invalid device %q", d)
+		}
+	}
+	for _, l := range s.DevLinks {
+		if !reDevLink.MatchString(l) || strings.Contains(l, "..") {
+			return fmt.Errorf("chroot-exec: invalid device link %q", l)
+		}
+	}
+	for _, e := range s.Env {
+		k, _, ok := strings.Cut(e, "=")
+		if !ok || !reEnvKey.MatchString(k) {
+			return fmt.Errorf("chroot-exec: invalid environment entry %q", e)
+		}
+	}
+	if s.Cwd != "" && (!strings.HasPrefix(s.Cwd, "/") || strings.Contains(s.Cwd, "..")) {
+		return fmt.Errorf("chroot-exec: invalid working directory %q", s.Cwd)
+	}
+	if s.TimeoutSeconds < 0 || s.TimeoutSeconds > 24*3600 {
+		return errors.New("chroot-exec: invalid timeout")
+	}
+	return nil
+}
+
+// IsolatedEnv is the environment of the target program: only PATH, LANG,
+// SYSTEMD_OFFLINE and what the step adds (GRUB_DISABLE_OS_PROBER).
+func IsolatedEnv(extra []string) []string {
+	env := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8", "SYSTEMD_OFFLINE=1"}
+	return append(env, extra...)
+}
+
+// Capabilities (linux/capability.h).
+const (
+	capDacReadSearch     = 2
+	capNetAdmin          = 12
+	capIPCLock           = 14
+	capSysModule         = 16
+	capSysRawio          = 17
+	capSysChroot         = 18
+	capSysPtrace         = 19
+	capSysPacct          = 20
+	capSysAdmin          = 21
+	capSysBoot           = 22
+	capSysNice           = 23
+	capSysResource       = 24
+	capSysTime           = 25
+	capSysTTYConfig      = 26
+	capMknod             = 27
+	capAuditWrite        = 29
+	capAuditControl      = 30
+	capMacOverride       = 32
+	capMacAdmin          = 33
+	capSyslog            = 34
+	capWakeAlarm         = 35
+	capBlockSuspend      = 36
+	capAuditRead         = 37
+	capPerfmon           = 38
+	capBPF               = 39
+	capCheckpointRestore = 40
+)
+
+// capsToDrop are the capabilities removed from the bounding set (10.14,
+// plus CAP_SYS_CHROOT and CAP_DAC_READ_SEARCH for R4, CAP_SYS_PTRACE for
+// R6, CAP_BPF and CAP_PERFMON); CAP_SYS_ADMIN only when the step does not
+// need it. The others act on the whole machine, past every namespace, and
+// no step needs them: CAP_SYSLOG (the kernel log and the console log
+// level: raised, the kernel would print text the step controls, escape
+// sequences included, on the operator's console), CAP_SYS_RESOURCE
+// (oom_score_adj -1000, so the OOM killer picks recover), CAP_SYS_NICE
+// (real-time priority that starves recover), CAP_IPC_LOCK,
+// CAP_SYS_TTY_CONFIG, CAP_SYS_PACCT, CAP_WAKE_ALARM, CAP_BLOCK_SUSPEND,
+// the audit and MAC capabilities and CAP_CHECKPOINT_RESTORE. Reserved
+// ext4 blocks stay usable: they are reserved for uid 0, which the step
+// keeps.
+func capsToDrop(keepSysAdmin bool) []int {
+	caps := []int{capDacReadSearch, capNetAdmin, capIPCLock, capSysModule, capSysRawio, capSysChroot, capSysPtrace, capSysPacct,
+		capSysBoot, capSysNice, capSysResource, capSysTime, capSysTTYConfig, capMknod, capAuditWrite, capAuditControl,
+		capMacOverride, capMacAdmin, capSyslog, capWakeAlarm, capBlockSuspend, capAuditRead, capPerfmon, capBPF, capCheckpointRestore}
+	if !keepSysAdmin {
+		caps = append(caps, capSysAdmin)
+	}
+	sort.Ints(caps)
+	return caps
+}
+
+// SockFilter is one classic BPF instruction (struct sock_filter).
+type SockFilter struct {
+	Code uint16
+	Jt   uint8
+	Jf   uint8
+	K    uint32
+}
+
+// Classic BPF and seccomp constants.
+const (
+	bpfLdWAbs         = 0x20 // BPF_LD | BPF_W | BPF_ABS
+	bpfAndK           = 0x54 // BPF_ALU | BPF_AND | BPF_K
+	bpfJeqK           = 0x15 // BPF_JMP | BPF_JEQ | BPF_K
+	bpfJgeK           = 0x35 // BPF_JMP | BPF_JGE | BPF_K
+	bpfJsetK          = 0x45 // BPF_JMP | BPF_JSET | BPF_K
+	bpfRetK           = 0x06 // BPF_RET | BPF_K
+	seccompKill       = 0x80000000
+	seccompErr        = 0x00050000
+	seccompOK         = 0x7fff0000
+	errnoEPERM        = 1
+	errnoENOSYS       = 38
+	errnoEAFNOSUPPORT = 97
+	// offsets in struct seccomp_data (the low 32 bits of an argument on a
+	// little-endian machine; amd64 and arm64 both are)
+	offNr   = 0
+	offArch = 4
+	offArg0 = 16
+	offArg1 = 24
+	// x32 system calls on amd64 have this bit set.
+	x32Bit = 0x40000000
+	// cloneNewMask are the CLONE_NEW* flags clone(2) accepts in its first
+	// argument (NEWNS, NEWCGROUP, NEWUTS, NEWIPC, NEWUSER, NEWPID,
+	// NEWNET; CLONE_NEWTIME is only valid for clone3 and unshare).
+	cloneNewMask = 0x00020000 | 0x02000000 | 0x04000000 | 0x08000000 | 0x10000000 | 0x20000000 | 0x40000000
+	// firstUnknownSyscall is the first system call number the filter does
+	// not know (amd64 and arm64 share the numbers from 424 on): 443 to 466
+	// are known and harmless (quotactl_fd, landlock, memfd_secret,
+	// process_mrelease, the futex2 calls, set_mempolicy_home_node,
+	// cachestat, fchmodat2, map_shadow_stack, statmount, listmount, the LSM
+	// attribute calls, mseal, the *xattrat calls); open_tree_attr (467) is
+	// denied, and everything from 467 on answers ENOSYS, so a newer kernel
+	// cannot add a mount-API call the filter lets through unnoticed (the C
+	// library falls back as it does for clone3).
+	firstUnknownSyscall = 467
+)
+
+// ioctl request numbers (_IOC: number in bits 0-7, type in bits 8-15;
+// the kernel reads the request as an unsigned int).
+const (
+	ioctlTypeMask = 0xff00
+	ioctlNrMask   = 0x00ff
+	// ioctlTypeDM is device-mapper ('\xfd', /dev/mapper/control); every
+	// command needs only CAP_SYS_ADMIN (dm-ioctl.c ctl_ioctl), and a table
+	// names its devices as major:minor, so a reload could point a bound
+	// node at any disk.
+	ioctlTypeDM = 0xfd00
+	// ioctlTypeNVMe is 'N' (NVMe passthrough; with CAP_SYS_ADMIN any
+	// admin command on any namespace, nvme_cmd_allowed).
+	ioctlTypeNVMe = 0x4e00
+	// ioctlTypeMD is the md driver (MD_MAJOR 9, linux/raid/md_u.h): every
+	// command but the three queries needs only CAP_SYS_ADMIN (md.c
+	// md_ioctl_valid), and ADD_NEW_DISK names the new member as
+	// major:minor, so a step that keeps CAP_SYS_ADMIN could stop a bound
+	// array, build it anew over any disk and write to it through the bound
+	// /dev/mdN, or add a foreign disk to a running array.
+	ioctlTypeMD = 0x0900
+	// tiocsti and tioclinux push input into a terminal (TIOCSTI) or paste
+	// the console selection (TIOCLINUX); a program of the target must not
+	// type into the console of recover.
+	tiocsti   = 0x5412
+	tioclinux = 0x541c
+	// ioctlTypeNrMask is type and number of a request without the size
+	// and direction bits.
+	ioctlTypeNrMask = 0xffff
+	// fiFreeze, fiThaw and fsShutdown are FIFREEZE _IOWR('X', 119, int),
+	// FITHAW _IOWR('X', 120, int) and FS_IOC_SHUTDOWN _IOR('X', 125,
+	// __u32) (EXT4_IOC_SHUTDOWN, XFS_IOC_GOINGDOWN, F2FS_IOC_SHUTDOWN), by
+	// type and number. With CAP_SYS_ADMIN a step could freeze a file
+	// system of the target: the freeze belongs to the superblock and
+	// outlives the namespaces, and the next write (the helper's, recover's
+	// own) waits for good in an unkillable state. A shutdown makes the
+	// file system refuse every later write.
+	fiFreeze   = 0x5877
+	fiThaw     = 0x5878
+	fsShutdown = 0x587d
+)
+
+// dmReadOnlyCommands are the device-mapper commands a step may send: the
+// read-only ones grub-probe (libdevmapper: version, list, info, deps,
+// table) and vgimportdevices need. DM_VERSION 0, DM_LIST_DEVICES 2,
+// DM_DEV_STATUS 7, DM_TABLE_DEPS 11, DM_TABLE_STATUS 12 (grub reads the
+// table of linear mappings), DM_LIST_VERSIONS 13, DM_GET_TARGET_VERSION
+// 17. Everything else (remove all, create, remove, rename, suspend and
+// resume, wait, table load and clear, target messages, geometry, poll and
+// later commands) answers EPERM.
+var dmReadOnlyCommands = []uint32{0, 2, 7, 11, 12, 13, 17}
+
+// mdQueryCommands are the md commands a step may send: RAID_VERSION 0x10,
+// GET_ARRAY_INFO 0x11 and GET_DISK_INFO 0x12 (grub-probe on md, LVM,
+// mdadm --detail) and GET_BITMAP_FILE 0x15 (read-only, mdadm --detail).
+// Everything else (CLEAR_ARRAY, ADD_NEW_DISK, HOT_REMOVE_DISK,
+// SET_ARRAY_INFO, SET_DISK_INFO, HOT_ADD_DISK, SET_DISK_FAULTY,
+// SET_BITMAP_FILE, RUN_ARRAY, STOP_ARRAY, RAID_AUTORUN, ...) answers EPERM.
+// The kernel dispatches md commands by the whole request; type and number
+// fix the command, the size and direction bits cannot turn a query into
+// another command.
+var mdQueryCommands = []uint32{0x10, 0x11, 0x12, 0x15}
+
+// socketFamilies are the address families socket(2) and socketpair(2)
+// may use: AF_UNIX 1, AF_INET 2, AF_INET6 10 and AF_NETLINK 16, all bound
+// to the empty network namespace. Every other family answers
+// EAFNOSUPPORT, above all AF_VSOCK (40), which is not network-namespaced
+// and reaches the hypervisor of a VM (VMware VMCI, Hyper-V, virtio-vsock,
+// Firecracker); also AF_PACKET, AF_BLUETOOTH, AF_ALG and the rest.
+var socketFamilies = []uint32{1, 2, 10, 16}
+
+// syscallTable is the architecture's audit value and the numbers the
+// filter needs.
+type syscallTable struct {
+	audit  uint32
+	x32    bool
+	denied map[string]int
+	clone  int
+	clone3 int
+	ioctl  int
+	// socket and socketpair are checked for their address family.
+	socket     int
+	socketpair int
+}
+
+// deniedSyscalls answer EPERM (10.14 plus R4: chroot and the file handle
+// calls; plus delete_module, fspick, mount_setattr, open_tree_attr,
+// swapon, swapoff, the io_uring calls (IORING_OP_SOCKET and
+// IORING_OP_CONNECT run past seccomp, so a ring could open an AF_VSOCK
+// socket) and, on amd64, iopl and ioperm), and syslog: with
+// CAP_SYS_ADMIN the kernel lets it change the console log level even
+// without CAP_SYSLOG.
+var deniedSyscalls = []string{"syslog", "mount", "umount2", "pivot_root", "open_tree", "open_tree_attr", "move_mount", "fsopen", "fsmount",
+	"fsconfig", "fspick", "mount_setattr", "mknod", "mknodat", "init_module", "finit_module", "delete_module", "kexec_load",
+	"kexec_file_load", "reboot", "ptrace", "process_vm_readv", "process_vm_writev", "bpf", "perf_event_open", "unshare",
+	"setns", "chroot", "open_by_handle_at", "name_to_handle_at", "swapon", "swapoff", "io_uring_setup", "io_uring_enter",
+	"io_uring_register", "iopl", "ioperm"}
+
+// bpfAsm builds a classic BPF program with forward jumps to labels.
+type bpfAsm struct {
+	prog   []SockFilter
+	jumps  map[int][2]string
+	labels map[string]int
+}
+
+func (a *bpfAsm) ins(code uint16, k uint32) { a.prog = append(a.prog, SockFilter{Code: code, K: k}) }
+
+// jump is a conditional jump; an empty label is the next instruction.
+func (a *bpfAsm) jump(code uint16, k uint32, jt, jf string) {
+	if a.jumps == nil {
+		a.jumps = map[int][2]string{}
+	}
+	a.jumps[len(a.prog)] = [2]string{jt, jf}
+	a.ins(code, k)
+}
+
+// retIf returns ret when the accumulator equals k.
+func (a *bpfAsm) retIf(k, ret uint32) {
+	a.prog = append(a.prog, SockFilter{Code: bpfJeqK, Jt: 0, Jf: 1, K: k}, SockFilter{Code: bpfRetK, K: ret})
+}
+
+func (a *bpfAsm) label(name string) {
+	if a.labels == nil {
+		a.labels = map[string]int{}
+	}
+	a.labels[name] = len(a.prog)
+}
+
+func (a *bpfAsm) assemble() ([]SockFilter, error) {
+	for pc, j := range a.jumps {
+		for i, l := range j {
+			if l == "" {
+				continue
+			}
+			to, ok := a.labels[l]
+			if !ok || to <= pc || to-pc-1 > 255 {
+				return nil, fmt.Errorf("seccomp: bad jump to %s at %d", l, pc)
+			}
+			if i == 0 {
+				a.prog[pc].Jt = uint8(to - pc - 1)
+			} else {
+				a.prog[pc].Jf = uint8(to - pc - 1)
+			}
+		}
+	}
+	return a.prog, nil
+}
+
+// BuildSeccomp builds the filter for arch (amd64 or arm64): a wrong
+// architecture kills the process, x32 calls and the denied calls get
+// EPERM, system calls newer than the table get ENOSYS, clone with any
+// CLONE_NEW* flag gets EPERM, clone3 gets ENOSYS (so the C library falls
+// back to clone, whose flags the filter can read), socket and socketpair
+// get EAFNOSUPPORT for every family but AF_UNIX, AF_INET, AF_INET6 and
+// AF_NETLINK, ioctl gets EPERM for the device-mapper commands that change
+// mappings, for every md command but the queries, for every NVMe
+// passthrough command, for FIFREEZE, FITHAW and FS_IOC_SHUTDOWN and for
+// TIOCSTI and TIOCLINUX; everything else is allowed.
+func BuildSeccomp(arch string) ([]SockFilter, error) {
+	tab, ok := syscallTables[arch]
+	if !ok {
+		return nil, fmt.Errorf("seccomp: no system call table for %s", arch)
+	}
+	const (
+		eperm        = seccompErr | errnoEPERM
+		enosys       = seccompErr | errnoENOSYS
+		eafnosupport = seccompErr | errnoEAFNOSUPPORT
+	)
+	a := &bpfAsm{}
+	a.ins(bpfLdWAbs, offArch)
+	a.jump(bpfJeqK, tab.audit, "nr", "")
+	a.ins(bpfRetK, seccompKill)
+	a.label("nr")
+	a.ins(bpfLdWAbs, offNr)
+	if tab.x32 {
+		a.jump(bpfJgeK, x32Bit, "", "native")
+		a.ins(bpfRetK, eperm)
+		a.label("native")
+	}
+	var nrs []int
+	for _, name := range deniedSyscalls {
+		if nr, ok := tab.denied[name]; ok {
+			nrs = append(nrs, nr)
+		}
+	}
+	sort.Ints(nrs)
+	for _, nr := range nrs {
+		a.retIf(uint32(nr), eperm)
+	}
+	a.jump(bpfJgeK, firstUnknownSyscall, "", "known")
+	a.ins(bpfRetK, enosys)
+	a.label("known")
+	a.retIf(uint32(tab.clone3), enosys)
+	a.jump(bpfJeqK, uint32(tab.clone), "", "not_clone")
+	a.ins(bpfLdWAbs, offArg0)
+	a.jump(bpfJsetK, cloneNewMask, "", "allow")
+	a.ins(bpfRetK, eperm)
+	a.label("not_clone")
+	a.jump(bpfJeqK, uint32(tab.socket), "socket", "")
+	a.jump(bpfJeqK, uint32(tab.socketpair), "socket", "")
+	a.jump(bpfJeqK, uint32(tab.ioctl), "", "allow")
+	a.ins(bpfLdWAbs, offArg1)
+	a.ins(bpfAndK, ioctlTypeMask)
+	a.jump(bpfJeqK, ioctlTypeDM, "dm", "")
+	a.jump(bpfJeqK, ioctlTypeMD, "md", "")
+	a.retIf(ioctlTypeNVMe, eperm)
+	a.ins(bpfLdWAbs, offArg1)
+	a.ins(bpfAndK, ioctlTypeNrMask)
+	a.retIf(fiFreeze, eperm)
+	a.retIf(fiThaw, eperm)
+	a.retIf(fsShutdown, eperm)
+	a.ins(bpfLdWAbs, offArg1)
+	a.retIf(tiocsti, eperm)
+	a.retIf(tioclinux, eperm)
+	a.ins(bpfRetK, seccompOK)
+	a.label("dm")
+	a.ins(bpfLdWAbs, offArg1)
+	a.ins(bpfAndK, ioctlNrMask)
+	for _, c := range dmReadOnlyCommands {
+		a.jump(bpfJeqK, c, "allow", "")
+	}
+	a.ins(bpfRetK, eperm)
+	a.label("md")
+	a.ins(bpfLdWAbs, offArg1)
+	a.ins(bpfAndK, ioctlNrMask)
+	for _, c := range mdQueryCommands {
+		a.jump(bpfJeqK, c, "allow", "")
+	}
+	a.ins(bpfRetK, eperm)
+	a.label("socket")
+	// The family is an int: the kernel reads only the low 32 bits.
+	a.ins(bpfLdWAbs, offArg0)
+	for _, f := range socketFamilies {
+		a.jump(bpfJeqK, f, "allow", "")
+	}
+	a.ins(bpfRetK, eafnosupport)
+	a.label("allow")
+	a.ins(bpfRetK, seccompOK)
+	return a.assemble()
+}
+
+// EncodeFilter is the program as the kernel reads it (little endian
+// struct sock_filter).
+func EncodeFilter(p []SockFilter) []byte {
+	b := make([]byte, 0, 8*len(p))
+	for _, f := range p {
+		b = binary.LittleEndian.AppendUint16(b, f.Code)
+		b = append(b, f.Jt, f.Jf)
+		b = binary.LittleEndian.AppendUint32(b, f.K)
+	}
+	return b
+}

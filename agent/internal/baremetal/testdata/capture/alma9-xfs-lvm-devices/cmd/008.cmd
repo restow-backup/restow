@@ -1,0 +1,2 @@
+xfs_info
+/boot

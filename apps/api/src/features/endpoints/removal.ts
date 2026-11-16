@@ -6,11 +6,13 @@ import {
   retentionExpiry,
 } from "@restow/core";
 import {
+  activeRecoveryOf,
   backupJobMembers,
   type Database,
   type Endpoint,
   type EndpointRemoval,
   type EndpointRemovalMode,
+  endpointRecoveries,
   endpoints,
   type InstallationZoneInput,
   legalHolds,
@@ -24,6 +26,7 @@ import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { jobQueue } from "../jobs/queue.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { forgetRecoverySession } from "./recovery-session-cache.js";
 
 /**
  * Removing a machine from Restow (release 0.4.5, #65; @restow/db `EndpointRemoval` has the
@@ -244,6 +247,16 @@ export async function removeEndpoint(
     if (input.confirmHostname.trim() !== endpoint.hostname) {
       throw confirmMismatch();
     }
+    // A bare metal recovery reads the machine's backups (docs/BAREMETAL.md 9.7): it ends first.
+    const recovery = await activeRecoveryOf(tx, id, now);
+    if (recovery) {
+      throw new ProblemError(409, "Recovery running", {
+        type: ENDPOINT_PROBLEMS.recoveryActive,
+        detail:
+          "A recovery session reads this machine's backups. Let it finish or end it on the machine's page first.",
+        extensions: { recoveryId: recovery.id, expiresAt: recovery.expiresAt.toISOString() },
+      });
+    }
     const reason = input.reason?.trim() ?? "";
     if (input.mode === "delete" && reason.length === 0) {
       throw new ProblemError(422, "Reason required", {
@@ -300,6 +313,43 @@ export async function removeEndpoint(
       .set({ removedAt: input.mode === "expire" ? now : null, removal, removalDueAt: dueAt })
       .where(eq(endpoints.id, id))
       .returning();
+    // Recovery codes nobody redeemed go with it.
+    const revoked = await tx
+      .update(endpointRecoveries)
+      .set({ status: "revoked", revokedAt: now, revokedBy: actor.userId, updatedAt: now })
+      .where(and(eq(endpointRecoveries.endpointId, id), eq(endpointRecoveries.status, "issued")))
+      .returning({ id: endpointRecoveries.id });
+    for (const code of revoked) {
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryCodeRevoked,
+        endpointId: id,
+        details: { recoveryId: code.id, kind: "code", reason: "removed" },
+      });
+    }
+    // A session that waits for its release ends too: released later, it would hold the deletion of
+    // the backups until it expires, while it could read nothing of a removed machine.
+    const cancelled = await tx
+      .update(endpointRecoveries)
+      .set({ status: "cancelled", cancelRequestedAt: now, finishedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(endpointRecoveries.endpointId, id),
+          eq(endpointRecoveries.status, "pending_approval"),
+        ),
+      )
+      .returning({ id: endpointRecoveries.id });
+    for (const session of cancelled) {
+      forgetRecoverySession(session.id);
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryCancelled,
+        endpointId: id,
+        details: { recoveryId: session.id, from: "pending_approval", reason: "removed" },
+      });
+    }
     // Out of its backup job: the job's machines are listed from its members. A revoked machine
     // is never backed up again, so a cancelled deletion does not put it back.
     const left = await tx

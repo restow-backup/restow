@@ -1,0 +1,21 @@
+{
+   "partitiontable": {
+      "device": "/dev/nvme0n2",
+      "firstlba": 2048,
+      "id": "C6D7E8F9-0A1B-4C2D-3E4F-506172839405",
+      "label": "gpt",
+      "lastlba": 976773134,
+      "partitions": [
+         {
+            "node": "/dev/nvme0n2p1",
+            "start": 2048,
+            "size": 974848000,
+            "type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+            "uuid": "ab000000-0000-4000-8000-000000000001",
+            "name": "data"
+         }
+      ],
+      "sectorsize": 512,
+      "unit": "sectors"
+   }
+}

@@ -18,6 +18,7 @@ import {
   DEFAULT_ENDPOINT_RETENTION,
   isUnscheduled,
 } from "../endpoints/config.js";
+import { wholeMachineApplies } from "../endpoints/whole-machine.js";
 import { normalizeBandwidthWindows } from "./bandwidth.js";
 import { endpointScheduleOf, jobScheduleFromEndpoint } from "./schedule.js";
 import type {
@@ -107,16 +108,22 @@ function scheduleToWrite(current: AgentSchedule, schedule: JobSchedule): AgentSc
  * stays byte-for-byte what it was (an agent that does not know the size limit ignores it, and the
  * windows never reach the agent: the server answers with the limit that applies when it is
  * asked, `bandwidthKbps` of the configuration being the default outside every window).
+ *
+ * `wholeMachine` (docs/BAREMETAL.md 5.1) is written as `true` only to a `member` that can be backed
+ * up as a whole (Linux, not a container) and removed otherwise, so a configuration of a job
+ * without it stays as it was. Without `member` the key is left as the machine has it.
  */
 export function buildEndpointConfig(
   current: AgentConfig,
   schedule: JobSchedule | null,
   settings: JobEndpointSettings,
   policy?: PolicyLevels,
+  member?: { os: string; virtualization?: string | null },
 ): AgentConfig {
   const {
     excludeLargerThanBytes: _dropped,
     bandwidthWindows: _windows,
+    wholeMachine: currentWhole,
     sql: _sql,
     ...rest
   } = current;
@@ -134,6 +141,12 @@ export function buildEndpointConfig(
   }
   if (settings.bandwidthWindows && settings.bandwidthWindows.length > 0) {
     next.bandwidthWindows = normalizeBandwidthWindows(settings.bandwidthWindows);
+  }
+  const whole = member
+    ? settings.wholeMachine === true && wholeMachineApplies(member.os, member.virtualization)
+    : currentWhole === true;
+  if (whole) {
+    next.wholeMachine = true;
   }
   // Only when the job sets it (and the caller passes it for Windows machines only), so every other
   // configuration stays byte-for-byte what it was.

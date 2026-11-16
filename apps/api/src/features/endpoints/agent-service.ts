@@ -7,8 +7,11 @@ import {
   buildCause,
   cleanDataFolderReport,
   DEFAULT_SCHEDULE_TIMEZONE,
+  ENDPOINT_QUEUES,
+  type EndpointJobPayload,
   effectiveBandwidthKbps,
   endpointPasswordKey,
+  endpointSingletonKey,
   enrolledEndpointConfig,
   enrollmentProfile,
   enrollmentTokenState,
@@ -28,6 +31,7 @@ import {
   type RestoreTestTaskParams,
   redactAgentLog,
   redactAgentMessage,
+  resolveFsSnapshot,
   resticInit,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
@@ -56,16 +60,20 @@ import {
   runSizeHoldOfRun,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, notInArray, or, type SQL, sql } from "drizzle-orm";
+import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
+import { jobQueue } from "../jobs/queue.js";
 import { RESTORE_MODE_TASK_HOLD_MESSAGE, restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
 import { readFromIn } from "../storage/repository-source.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
+import { storeRunLayout } from "./baremetal.js";
 import { type AgentCancelOrders, agentCancelOrders } from "./cancel.js";
 import {
   announcedAgentVersion,
@@ -73,7 +81,9 @@ import {
   isAgentVersion,
   latestAgentRelease,
 } from "./distribution.js";
+import { wholeMachineSent } from "./dto.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { claimEnrollmentToken, rotateEndpointSecret } from "./rebind.js";
 import {
   forgetTenantStorage,
   REPOSITORY_SECRET_KIND,
@@ -141,6 +151,11 @@ export interface EnrollResponse {
   repository: { url: string; password: string };
   config: AgentConfigResponse;
   restic: { version: string };
+  /**
+   * A rebind token was redeemed (0.5.0, docs/BAREMETAL.md 11): the existing machine got a new
+   * secret and kept its backups. Absent for a new machine; an older agent ignores it.
+   */
+  rebound?: true;
 }
 
 /**
@@ -151,14 +166,38 @@ export interface EnrollResponse {
  * asks again when a backup starts and then gets the limit of that moment. A machine in no backup
  * job (schedule `none`) is sent no folders and no hooks (`agentFacingConfig`): an agent older
  * than 0.2.1 does not know `none` and would otherwise back them up on its profile's default.
+ *
+ * Whole machine backups (docs/BAREMETAL.md 5.1, 6.1; agents from 0.5.0, an older one ignores both
+ * fields): `wholeMachine: true` only while RESTOW_BAREMETAL_PREVIEW is on and for a Linux machine
+ * whose job writes it, so switching the preview off takes effect with the agent's next fetch (it
+ * fetches before every backup). `fsSnapshot` goes to Linux and macOS machines (never Windows,
+ * which has `useVss`): the machine's own setting, else on for a whole machine and off otherwise.
+ * Without `os` neither is sent.
  */
 export function configResponse(
   config: EndpointConfig,
   configVersion: number,
   effective?: { zone: string; now: Date },
-  options: { startsPaused?: boolean } = {},
+  options: { startsPaused?: boolean; os?: string; baremetalPreview?: boolean } = {},
 ): AgentConfigResponse {
-  const { bandwidthWindows, policy, ...rest } = agentFacingConfig(config);
+  const {
+    bandwidthWindows,
+    policy,
+    wholeMachine: storedWhole,
+    fsSnapshot: storedSnapshot,
+    ...rest
+  } = agentFacingConfig(config);
+  const wholeMachine = wholeMachineSent(storedWhole, options.os, options.baremetalPreview);
+  const snapshotFields =
+    options.os === "linux"
+      ? {
+          ...(wholeMachine ? { wholeMachine: true } : {}),
+          fsSnapshot: resolveFsSnapshot(storedSnapshot, wholeMachine),
+        }
+      : // macOS gets its APFS snapshots with M6; until then it never takes one.
+        options.os === "darwin"
+        ? { fsSnapshot: "off" as const }
+        : {};
   // The agent policy (docs/AGENT.md, "Richtlinien"): the limit of a job without its own and a lock
   // decide the default limit and whether its windows apply, AC power is folded in, and the rest
   // (window, catch-up, retries) goes along in its wire form. Without a policy nothing changes.
@@ -180,6 +219,7 @@ export function configResponse(
       bandwidthKbps: bandwidth.kbps,
       ...policyFields,
       ...paused,
+      ...snapshotFields,
       configVersion,
     };
   }
@@ -193,6 +233,7 @@ export function configResponse(
     ),
     ...policyFields,
     ...paused,
+    ...snapshotFields,
     configVersion,
   };
 }
@@ -278,18 +319,7 @@ export async function enrollEndpoint(
   }
   const os = input.os;
   const tokenHash = hashSecret(input.token);
-  const [claimed] = await providerDb
-    .update(endpointEnrollmentTokens)
-    .set({ usedAt: now })
-    .where(
-      and(
-        eq(endpointEnrollmentTokens.tokenHash, tokenHash),
-        isNull(endpointEnrollmentTokens.usedAt),
-        isNull(endpointEnrollmentTokens.revokedAt),
-        gt(endpointEnrollmentTokens.expiresAt, now),
-      ),
-    )
-    .returning();
+  const claimed = await claimEnrollmentToken(input.token, now);
   if (!claimed) {
     const [known] = await providerDb
       .select()
@@ -301,6 +331,16 @@ export async function enrollEndpoint(
       detail: "The enrollment token is unknown, expired, revoked or already used.",
       extensions: { reason: known ? enrollmentTokenState(known, now) : "unknown" },
     });
+  }
+
+  // A rebind token (docs/BAREMETAL.md 11): the existing machine gets a new secret, nothing is made.
+  if (claimed.endpointId !== null) {
+    return rotateEndpointSecret(
+      claimed,
+      input,
+      { ip: context.ip, instanceUrl: context.instanceUrl, via: "enroll" },
+      now,
+    );
   }
 
   const tenantId = claimed.tenantId;
@@ -419,7 +459,10 @@ export async function enrollEndpoint(
         url: repositoryUrl(context.instanceUrl, endpointId),
         password: repositoryPassword,
       },
-      config: configResponse(config, 1),
+      config: configResponse(config, 1, undefined, {
+        os: input.os,
+        baremetalPreview: appConfig.baremetalPreview,
+      }),
       restic: { version: RESTIC_VERSION },
     };
   } catch (error) {
@@ -487,7 +530,7 @@ export async function agentConfig(
       endpoint.config,
       endpoint.configVersion,
       zone === null ? undefined : { zone, now },
-      { startsPaused },
+      { startsPaused, os: endpoint.os, baremetalPreview: appConfig.baremetalPreview },
     );
   });
 }
@@ -990,6 +1033,9 @@ export async function finishRun(
     // A run that failed after a stop was asked for in the UI was stopped as asked.
     const cancelled = input.status === "failed" && run.cancelRequestedAt !== null;
     const status: EndpointRun["status"] = cancelled ? "cancelled" : input.status;
+    // The layout of a whole machine backup: stored before the run's errors are, so a refused one
+    // adds its hint to them.
+    const layoutId = await storeRunLayout(tx, agent, run, input, errors);
     // A backup the size and space guard held (#99) says so, not the refusal restic reported. A
     // held run made no restore point, so it failed; a `partial` run made one and keeps its
     // own explanation.
@@ -1030,6 +1076,7 @@ export async function finishRun(
       .update(endpointRuns)
       .set({
         status,
+        layoutId,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
         stats: {
@@ -1071,6 +1118,16 @@ export async function finishRun(
 
     if (run.kind === "backup") {
       const good = input.status !== "failed" && input.snapshotId !== undefined;
+      // The first good backup after a rebind is the new baseline of the ransomware signals
+      // (docs/BAREMETAL.md 11, docs/RANSOMWARE.md): nothing before it is compared with it.
+      if (good && endpoint.settings.activityBaselinePending) {
+        await tx
+          .update(endpointRuns)
+          .set({ activityBaseline: true })
+          .where(eq(endpointRuns.id, runId));
+        const { activityBaselinePending: _cleared, ...settings } = endpoint.settings;
+        await tx.update(endpoints).set({ settings }).where(eq(endpoints.id, agent.endpointId));
+      }
       const change = {
         ...(interrupted ? {} : { lastBackupAt: finishedAt }),
         ...(good
@@ -1097,6 +1154,10 @@ export async function finishRun(
             })),
           )
           .onConflictDoNothing();
+      }
+      // A whole machine backup gets its layout checked (bare metal stage 1) right away.
+      if (good && layoutId) {
+        await queueBaremetalCheck(tx, agent, runId);
       }
       // Samples of long-gone backups are of no use for a restore test.
       await tx
@@ -1191,6 +1252,30 @@ export async function finishRun(
     }
     return { runId, status };
   });
+}
+
+/**
+ * Hand stage 1 of the bare metal check (docs/BAREMETAL.md 12.1) to the worker for the run that
+ * just recorded a layout. In a savepoint: a queue that is not there yet (the worker has not
+ * started) must not fail the finish, and nor may anything else pg-boss refuses; the scheduler
+ * catches the check up within the hour.
+ */
+async function queueBaremetalCheck(tx: Transaction, agent: AgentContext, runId: string) {
+  const payload: EndpointJobPayload = {
+    tenantId: agent.tenantId,
+    endpointId: agent.endpointId,
+    runId,
+  };
+  try {
+    await tx.transaction(async (savepoint) => {
+      await jobQueue(db).send(ENDPOINT_QUEUES.baremetalCheck, payload, {
+        singletonKey: endpointSingletonKey(ENDPOINT_QUEUES.baremetalCheck, agent.endpointId),
+        db: pgBossExecutor(savepoint),
+      });
+    });
+  } catch {
+    // The queue is not there yet (isMissingQueueSchema) or pg-boss refused: the run stands.
+  }
 }
 
 type VerifySampleTaskParams = RestoreTestTaskParams;

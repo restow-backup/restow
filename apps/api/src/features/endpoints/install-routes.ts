@@ -1,6 +1,8 @@
 import { Readable } from "node:stream";
 import { Hono } from "hono";
+import { clientIp } from "../../lib/request.js";
 import { ProblemError } from "../../problem.js";
+import { SlidingWindowRateLimiter } from "../apikeys/rate-limit.js";
 import {
   announcedAgentVersion,
   distributionFile,
@@ -13,6 +15,8 @@ import {
   renderInstallScript,
 } from "./distribution.js";
 import { instanceUrl } from "./instance-url.js";
+import { ONE_HOUR_MS, RECOVERY_ISO_DOWNLOAD_LIMIT } from "./rate-limits.js";
+import { recoveryIsoResponse, servableRecoveryIso } from "./recovery-iso.js";
 
 /**
  * /install: what the one-line install command downloads (docs/AGENT.md).
@@ -24,6 +28,12 @@ import { instanceUrl } from "./instance-url.js";
  *   GET /install/linux.sh | macos.sh | windows.ps1   the install script for the system
  *   GET /install/agent/<version>/SHA256SUMS[.sig]    the signed checksums of a release, byte for byte
  *   GET /install/agent/<version>/<os>-<arch>/<file>  restow-agent, restic, THIRD_PARTY_NOTICES.txt, SHA256SUMS
+ *   GET /install/recovery/<version>/<file>           the recovery ISO the installation offers, from the
+ *                                                    store the worker fills or a drop folder, only
+ *                                                    with the hash of its verified line
+ *                                                    (docs/BAREMETAL.md 8.5, 26.13; 10 per address
+ *                                                    and hour). The web app links the authenticated
+ *                                                    /api/v1/recovery-iso/file/<file> instead.
  *
  * windows.ps1 (0.5.0, preview) is Windows PowerShell; it is served as text/plain so
  * that `irm` hands it over as a string. The placeholders it carries are checked
@@ -106,4 +116,31 @@ installRoutes.get("/agent/:version/:target/:file", async (c) => {
       },
     },
   );
+});
+
+/** Downloads of the recovery ISO per client address (RECOVERY_ISO_DOWNLOAD_LIMIT per hour). */
+export const recoveryIsoDownloadLimiter = new SlidingWindowRateLimiter(
+  RECOVERY_ISO_DOWNLOAD_LIMIT,
+  ONE_HOUR_MS,
+);
+
+installRoutes.get("/recovery/:version/:file", async (c) => {
+  const { version, file } = c.req.param();
+  const decision = recoveryIsoDownloadLimiter.consume(clientIp(c) ?? "unknown", Date.now());
+  if (!decision.allowed) {
+    c.header("retry-after", String(Math.ceil(decision.retryAfterMs / 1000)));
+    throw new ProblemError(429, "Too many requests", {
+      detail: "Too many downloads of the recovery ISO from this address. Try again later.",
+    });
+  }
+  // Only the ISO this installation offers, with the hash of its verified line (the release's
+  // signed SHA256SUMS, or a verified rebuild's recovery-SHA256SUMS): no other path, no folder, no `..`.
+  const found = await servableRecoveryIso(file, version);
+  if (!found) {
+    throw new ProblemError(404, "Not Found", { detail: "No such file." });
+  }
+  const response = recoveryIsoResponse(found, file);
+  // Public like the other install files (virtual media of a BMC fetch it without a login).
+  response.headers.set("cache-control", "public, max-age=300");
+  return response;
 });

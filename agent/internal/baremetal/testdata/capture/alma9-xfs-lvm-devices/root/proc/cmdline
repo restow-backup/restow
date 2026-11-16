@@ -1,0 +1,1 @@
+BOOT_IMAGE=(hd0,gpt2)/vmlinuz-5.14.0-503.11.1.el9_5.x86_64 root=/dev/mapper/almalinux-root ro crashkernel=1G-4G:192M resume=/dev/mapper/almalinux-swap rd.lvm.lv=almalinux/root rd.lvm.lv=almalinux/swap

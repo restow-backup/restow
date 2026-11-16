@@ -15,8 +15,9 @@ Entscheidungen und Testplan: docs/WINDOWS-AGENT.md.
 
 ## Grundsätze
 
-- Dateibasierte Sicherung mit restic. Keine Images, kein Bare-Metal-Restore. Das steht so
-  in der Oberfläche und in der Doku. Unter Windows heißt Wiederherstellung eines Rechners:
+- Dateibasierte Sicherung mit restic; Linux-Rechner lassen sich als Ganzes auf neuer Hardware
+  wiederherstellen (Vorschau, docs/BAREMETAL.md), keine Plattenabbilder. Das steht so in der
+  Oberfläche (ohne Vorschau weiter "kein Bare-Metal-Restore") und in der Doku. Unter Windows heißt Wiederherstellung eines Rechners:
   Windows neu installieren, dann die Dateien zurückholen (kein Systemzustand, keine Registry).
 - Ein Agent für Server und Clients, Profil `server` oder `client`.
 - Der Agent verbindet sich nur ausgehend per HTTPS mit der Restow-Instanz. Kein
@@ -172,7 +173,8 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    (Fingerabdruck des Release-Schlüssels wie `ssh-keygen -l`, SHA-256 von `windows.ps1`, wie
    diese Instanz es ausliefert; `null`, wenn es keins gibt). Ein Windows-Rechner bekommt die
    Standardordner `C:\Users` (Server zusätzlich `C:\ProgramData`) und `useVss: true`.
-7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root. Windows
+7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root (ab 0.5.0
+   von jeder Sicherung ausgeschlossen, siehe "Geheimnisse in Snapshots"). Windows
    (Vorschau): `C:\ProgramData\Restow\state\state.json` in einem Ordner mit geschützter DACL
    (SYSTEM und Administratoren), Agent-Secret und Repository-Passwort zusätzlich per DPAPI
    (Maschinenbereich) verschlüsselt im Feld `protected`.
@@ -195,12 +197,52 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | Aufruf | Zweck |
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
-| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
+| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. Seit 0.5.0 (docs/BAREMETAL.md 5.1, 6.1): `wholeMachine: true` nur, wenn der Job des Rechners ihn als Ganzes sichert, der Rechner Linux ist und `RESTOW_BAREMETAL_PREVIEW` an ist (sonst fehlt das Feld; schaltet man die Vorschau ab, sendet der Server es beim nächsten Abruf nicht mehr, ohne `configVersion` zu ändern); `fsSnapshot: "auto" \| "off"` für Linux (macOS bis M6 immer `"off"`, Windows nie): die Einstellung des Rechners, sonst `"auto"` bei `wholeMachine`, sonst `"off"`. Ein Agent vor 0.5.0 ignoriert beide. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused, cancel, updateNow }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe; `cancel` und `updateNow` ab 0.4.2, siehe "Sicherung stoppen" und "Selbstaktualisierung"). Alle 5 Minuten (Jitter +-60 s), während ein Lauf läuft jede Minute (Agent ab 0.4.2), und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
 | `POST /runs` | `{ kind: backup/restore/verify_sample/sql/sql_restore/sql_verify, taskId?, startedAt }` ergibt `{ runId }`. Ein `sql`-Lauf (Agent ab 0.5.0) gehört nie zu einer Aufgabe; mit `taskId` antwortet der Server 409. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
-| `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
+| `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). `layout` (Agent ab 0.5.0, nur bei einer Sicherung des ganzen Rechners mit `snapshotId`): das Layout-Manifest `restow-layout-v1` (docs/BAREMETAL.md 4), genau die kanonischen Bytes von `layout.json` im Snapshot, höchstens 512 KiB; der Server prüft es (`parseLayoutManifest`), legt es je Rechner und SHA-256 einmal in `endpoint_layouts` ab und setzt `endpoint_runs.layout_id`. Ein abgelehntes (ungültig, zu groß, macOS vor M6) ändert den Status des Laufs nicht und hängt den Hinweis `layout_rejected` an seine Fehler. Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
+
+Ein Wiederanbindungs-Token (seit 0.5.0, siehe "Wiederanbindung") wird über dasselbe
+`POST /enroll` eingelöst; die Antwort hat dieselbe Form und zusätzlich `rebound: true`, ein älterer
+Agent ignoriert das Feld.
+
+**Recovery-API `/agent/v1/recovery` (seit 0.5.0, Vorschau, docs/BAREMETAL.md 9).** Vor der
+Agent-API eingehängt, damit deren Agent-Anmeldung sie nicht abfängt. Der Tausch hat keine
+Zugangsdaten außer dem Beweis im Body (und den Browser-Schutz wie `/enroll`), alles andere HTTP-Basic
+`<sessionId>:<sessionSecret>`; Antworten mit Geheimnissen tragen `Cache-Control: no-store`. Bodys
+höchstens 64 KiB, das Log 1 MiB, der Abschluss 320 KiB. Fehlversuche (unbekannter Beweis,
+unbrauchbarer Body, falsches Sitzungsgeheimnis) zählen je Adresse in einem eigenen Zähler (20 je
+10 Minuten), nicht in dem der Agenten; ein toter Code (abgelaufen, eingelöst, widerrufen) zählt nicht,
+er wird beim Mandanten auditiert und alarmiert. Je Sitzung 600 Aufrufe in 10 Minuten.
+
+| Aufruf | Zweck |
+| --- | --- |
+| `POST /sessions` | `{ codeProof, sessionSecretSha256, recoveryVersion, hardware }` ergibt 202 `{ sessionId, status: pending_approval/active, matchCode, expiresAt, endpoint, minRecoveryVersion }`. Derselbe Beweis mit demselben Hash innerhalb von 15 Minuten und vor `release` liefert dieselbe Sitzung. |
+| `GET /sessions/current` | `{ sessionId, status, expiresAt, cancelRequested, approved }`. |
+| `GET /sessions/current/credentials` | nur `active`: Repository-URL (`/agent/recovery/restic/<sessionId>/` an der Adresse des Codes) und Passwort, gewählter Snapshot, `layoutSha256`, Bare-Metal-Snapshots mit Prüfstand, `indexBytes`, `restoreSizes`; einmal und ein zweites Mal innerhalb von 5 Minuten, je auditiert. `layoutSha256` gehört immer zum Snapshot des Codes, auch wenn er nicht mehr unter den 50 neuesten Sicherungen liegt (er steht dann zusätzlich am Ende von `snapshots`). Gibt es zu ihm keine Ganz-Rechner-Sicherung mit Layout mehr: 409 `baremetal-not-available` mit `reason: "snapshot_unknown"` und `snapshotId`, ohne Passwort, und die Abholung zählt nicht. |
+| `GET /sessions/current/ssh-keys` | öffentliche Schlüssel, die der Admin hinterlegt hat. |
+| `POST /sessions/current/progress` | Phase und Zähler, optional SSH-Hostschlüssel (204). |
+| `POST /sessions/current/log` | bis zu 200 Zeilen; ohne ANSI- und Steuerzeichen, geschwärzt, höchstens 2 MiB je Sitzung (202 `{ accepted, dropped }`). |
+| `POST /sessions/current/event` | `remote_access_enabled` oder `keyfile_regenerated` für das Audit (204). |
+| `POST /sessions/current/release` | Ende des Repository-Zugangs: `finishing`, danach antworten Zugangsdaten und restic-Route 401. |
+| `POST /sessions/current/finish` | `{ status: succeeded/failed/cancelled, verification, warnings, durationSeconds }`, endgültig. Antwort `{ status }` mit dem gespeicherten Zustand. `succeeded` ist eine Behauptung des ISO: Der Server speichert sie nur, wenn der mitgeschickte Bericht sie trägt (lesbar als `restow-verify-v1`, keine fehlgeschlagene Prüfung, alle zehn Prüfungen, Snapshot eine Ganz-Rechner-Sicherung dieses Rechners); sonst endet die Sitzung als `failed`, und die Antwort lautet `{ status: "failed", reported: "succeeded", reason }` mit `reason` `success_report_missing`, `success_checks_failed`, `success_checks_missing` oder `success_snapshot_unknown`. `recover` richtet sich nach dieser Antwort (Konsole, `RESTOW-RECOVER-RESULT`, kein Wiederanbinden). |
+| `POST /sessions/current/rebind` | ein Wiederanbindungs-Token desselben Rechners, nur nach `succeeded` und höchstens 15 Minuten danach; Antwort wie `POST /enroll` mit `rebound: true`. |
+
+Die restic-Route der Sitzung, `/agent/recovery/restic/:sessionId/...`, liest als Prinzipal `reader`
+(jede Schreib- und Löschoperation 403 und auditiert als `endpoint.repository.denied` mit
+`principal: "recovery"`), nur während die Sitzung `active` ist; der Zustand ist höchstens 5 Sekunden
+zwischengespeichert, Abbruch und `release` wirken also nach höchstens 5 Sekunden. 120.000 Anfragen je
+Sitzung und 10 Minuten.
+
+Eine beendete Sitzung (`succeeded`, `failed`, `cancelled`) nimmt nichts mehr an: `progress`, `log`,
+`event`, `release` und `finish` antworten 409 `recovery-state-conflict` mit dem Zustand in `status`;
+der erste abgewiesene Aufruf einer Sitzung wird auditiert (`endpoint.recovery.report_refused`).
+`GET /sessions/current` antwortet weiter bis `expiresAt`, `rebind` 15 Minuten nach einem Erfolg.
+`recover` sendet nach der Antwort auf `finish` (oder nach dem ersten solchen 409) keine Meldung
+mehr und zeigt dazu nichts an; für das ISO ist das der erwartete Schluss, kein Fehler
+(docs/BAREMETAL.md 9.8).
 
 ### Rechner und Datenordner
 
@@ -406,6 +448,166 @@ sichern weiter; es gibt keine Datenmigration, die sie anhält (die Migration nac
 - **In einen Job:** Anlegen mit `scope.members`, `POST .../members` oder `PUT .../members` schreiben den
   Zeitplan des Jobs über `none` (`buildEndpointConfig` übernimmt ihn immer, wenn der Rechner `none`
   hat) und erhöhen `config_version`; der Agent holt die Konfiguration mit der `update_config`-Aufgabe.
+
+### Ganzer Rechner (Vorschau, seit 0.5.0)
+
+Ein Job der Art `endpoint` kann `settings.wholeMachine: true` setzen (docs/BAREMETAL.md 5): Der
+Agent (ab 0.5.0, nur Linux) sichert dann statt der Ordner des Jobs jedes lokale Dateisystem, jedes
+btrfs-Subvolume und jeden lokalen `fstab`-Eintrag, mit `--one-file-system`, `--group-by host` und
+dem Tag `restow-baremetal`, erfasst vorher das Plattenlayout (`restow-layout-v1`, im Snapshot unter
+`/var/lib/restow-agent/baremetal/layout.json`) und sendet es mit dem Abschluss (`layout`). Die
+Ordner des Jobs bleiben gespeichert, ein älterer Agent sichert weiter sie.
+
+- Der Schalter ist nicht je Mitglied überschreibbar. `syncEndpointConfigs` schreibt
+  `config.wholeMachine: true` nur in Linux-Rechner, die kein Container sind
+  (`settings.agent.machine.virtualization`); Windows, macOS (folgt mit M6) und Container bekommen
+  ihn nicht, die Mitgliederliste nennt den Grund (`wholeMachineNote`). Verlässt ein Rechner den
+  Job, verschwindet das Feld.
+- Solange `RESTOW_BAREMETAL_PREVIEW` (api) nicht `true` ist, bietet der Job-Editor den Schalter
+  nicht an, das Einschalten wird mit 409 `baremetal-preview-off` abgelehnt, und `GET /config`
+  sendet kein `wholeMachine` (ein Job, der es schon hat, behält es; der Editor zeigt ihn dann nur
+  zum Ausschalten, die Ordner bleiben bearbeitbar, denn die Rechner sichern sie). Die
+  Rechner-Details tragen `config.wholeMachineActive`: das, was `GET /config` sendet; danach
+  richtet sich der angezeigte Standard des Dateisystem-Snapshots. `fsSnapshot` am Rechner
+  (Einstellungen, "Dateisystem-Snapshot (LVM, btrfs)", nur Linux, 422 `linux_only` sonst) wirkt
+  unabhängig davon.
+- `GET /api/v1/endpoints/:id/baremetal` (ab `tenant_restore`) liefert die Karte der Rechnerseite:
+  Zustand (`not_enabled`, `not_possible`, `no_layout`, `unverified`, seit M2 auch
+  `layout_checked` und `red`, mit `stateDetail` und dem Prüfbericht `check`), die Zusammenfassung des
+  neuesten Layouts mit Bewertung und, wenn eine VG keinen Platz für Snapshots hat, den Hinweis
+  `snapshotHint`. `GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId` (Administratoren) liefert
+  das volle Manifest mit Seriennummern. Eine Wiederherstellung gibt es in M1 noch nicht.
+- **Layout-Prüfung (seit 0.5.0, M2, docs/BAREMETAL.md 12.1, 12.2).** Nach jeder Sicherung des
+  ganzen Rechners prüft der Worker (Queue `endpoint-baremetal-check`) den neuesten Snapshot mit
+  Layout: unter der geteilten Sperre des Repositorys einmal `restic snapshots <id>`, `restic dump`
+  der Agent-Kopie des Manifests, ein `restic ls --json` über den ganzen Baum (Restore-Größen je
+  Einhängepunkt, Quellen, Startkette) und höchstens 80 kleine `restic dump` (fstab, crypttab, LVM,
+  Modullisten); danach ohne Sperre dreimal den Planer des Agenten (`restow-agent baremetal plan`,
+  `--target same`, `minimal`, `other-controller`). Ergebnis ist ein Bericht `baremetal_check`
+  (Migration 0077) mit den Prüfungen L1 bis L8, Belegen, Restore- und Mindestgrößen,
+  `bootChainFingerprint` und den Antworten des Planers; rot nur mit Beleg, gelb (unvollständig),
+  wenn der Planer nicht antworten konnte. Ein Lesefehler, der nichts über die Sicherung beweist,
+  schreibt keinen Bericht, der Job wird wiederholt. Die Karte zeigt daraus die Bewertung
+  (`unverified`, `layout_checked`, `red`, bei gelb `unverified` mit `stateDetail: "incomplete"`;
+  `not_possible` auch für `unsupported` und arm64), den Bericht und die Mindestgrößen. Die Liste
+  `reports` der Rechner-Details enthält diese Berichte nicht.
+- **Planer im Worker.** Der Worker startet das Agenten-Binary seiner Architektur
+  (`/usr/local/lib/restow/restow-agent` im Image, sonst `RESTOW_PLANNER_BIN`) mit `execFile`, nur
+  `PATH` und `LC_ALL` in der Umgebung (keine `RESTOW_*`, keine Datenbank-URL, kein Master-Key), in
+  einem frischen leeren Ordner, mit stdin als einziger Eingabe (Manifest, dann die Fakten
+  `restow-plan-facts-v1`), unter `prlimit --data=536870912 --cpu=30 --nofile=16` (fehlt `prlimit`,
+  setzt das Binary die Grenzen selbst; nie `--as`, damit startet kein Go-Programm), höchstens 45
+  Sekunden und 4 MiB Ausgabe.
+
+### Wiederherstellungscode und Wiederanbindung (Vorschau, seit 0.5.0)
+
+Für eine Bare-Metal-Wiederherstellung stellt ein Mandanten-Admin nach frischer Anmeldung einen
+**Wiederherstellungscode** aus (`POST /api/v1/endpoints/:id/recovery-codes`, docs/BAREMETAL.md 9):
+einmal einlösbar, Standard 4 Stunden, höchstens 48, an die Adresse der Instanz gebunden, mit dem
+Prüfwert der Instanz (SPKI-SHA-256 der eigenen Adresse oder `RESTOW_PUBLIC_TLS_SPKI`). Nur für
+Linux-Rechner, die nicht entfernt sind, mit einer Sicherung samt Layout, deren Urteil nicht
+`unsupported` ist, höchstens drei offene je Rechner, und nur, solange `RESTOW_BAREMETAL_PREVIEW` an
+ist und `GET /api/v1/recovery-iso` ein geprüftes ISO meldet (die neueste signierte Agent-Version
+listet `recovery/restow-recovery_<v>_amd64.iso` in ihren `SHA256SUMS`). Bis ein Release das ISO
+mitbringt, ist das nie der Fall: Ausstellen antwortet 409 `baremetal-not-available` mit
+`reason: "iso_unverified"`, Code-Dialog und Assistent sind ausgeblendet. Nach dem Eintausch wartet
+die Sitzung auf die **Freigabe** (`POST .../recoveries/:id/approve`, frische Anmeldung; Vorgabe an,
+abschaltbar beim Ausstellen); ohne Freigabe nach 30 Minuten `failed`. Widerrufen, verlängern
+(höchstens 48 Stunden nach dem Ausstellen), ablehnen bzw. beenden und SSH-Schlüssel hinterlegen
+gehen über `POST .../recovery-codes/:id/revoke`, `.../extend`, `POST .../recoveries/:id/cancel`
+und `PUT .../recoveries/:id/ssh-keys`; `GET .../recoveries` und `.../recoveries/:id` zeigen Liste,
+Prüfzahl, Hardware, Fortschritt und Log.
+
+Audit (docs/BAREMETAL.md 9.9, je Übergang genau ein Eintrag): `endpoint.recovery_code.created`,
+`.revoked`, `.extended`, `.rejected` (toter Code versucht), `endpoint.recovery.started`,
+`.approved`, `.credentials_issued` (mit `repeat`), `.remote_access_enabled`,
+`.keyfile_regenerated`, `.released`, `.finished`, `.expired` (Monitor oder späte Freigabe),
+`.cancelled`; SSH-Schlüssel als `endpoint.config.changed` mit `recoverySshKeys`. Wiederanbindung:
+`endpoint.rebind_token.created` (Ziel `endpoint_enrollment_token`), `endpoint.rebound` (alter und
+neuer Hostname, Adresse, Zweck, `via: enroll/recovery`), `endpoint.unrevoked`. Nie der Code, nie ein
+Hash eines Geheimnisses.
+
+Während eine Sitzung `active` oder `finishing` ist und nicht abgelaufen, warten Aufbewahrung und das
+Löschen der Sicherungen eines entfernten Rechners (`EndpointRecoveryActiveError`, pg-boss wiederholt);
+sie prüfen vor und nach dem Nehmen der exklusiven Sperre, die Freigabe nimmt die geteilte. Entfernen
+(`expire` wie das Vormerken von `delete`) antwortet 409 `endpoint-recovery-active`; mit dem Entfernen
+bzw. dem Vormerken werden offene Codes widerrufen und wartende Sitzungen beendet. Beginnt der Worker
+nach den sieben Tagen mit dem Löschen, wartet er ebenso auf eine laufende Sitzung.
+
+**Wiederanbindung** (docs/BAREMETAL.md 11): `POST /api/v1/endpoints/:id/rebind-token` mit
+`{ purpose: reinstall/baremetal, validityHours?, unrevoke? }` (Admin, frische Anmeldung) stellt ein
+Token `rset_` mit gesetzter Spalte `endpoint_id` aus, Standard 1 Stunde, höchstens 24 (CHECK). Die
+Einlösung über `POST /agent/v1/enroll` (der normale Installationsbefehl) oder im ISO über
+`.../current/rebind` legt keinen Rechner an: Der bestehende bekommt ein neues Agent-Secret und
+behält Repository, Passwort, Jobs, Einstellungen und Läufe. Das Betriebssystem muss gleich sein
+(sonst 422 `endpoint-rebind-os-mismatch`), ein gesperrter Rechner kommt nur mit `unrevoke` zurück
+(sonst 409 `endpoint-revoked`; mit Audit `endpoint.unrevoked`), offene Deinstallations-Aufgaben
+enden, der bisherige Agent bekommt ab dann 401. Der erste gute Lauf danach ist die neue Basis der
+Ransomware-Signale (`endpoint_runs.activity_baseline`, docs/RANSOMWARE.md). Abgelehnt nach dem
+Einlösen: Das Token wird wieder freigegeben. `GET /api/v1/endpoints/tokens` zeigt `kind`
+(`enroll`/`rebind`), `purpose`, `endpointId` und `endpointName`.
+
+### Recovery-ISO und `restow-agent recover` (Vorschau, seit 0.5.0)
+
+Das Recovery-ISO (`restow-recovery_<v>_amd64.iso`, docs/BAREMETAL.md 8) ist ein Debian-13-Live-
+Abbild, gebaut aus dem eigenen Werk `integrations/recovery` (GPL-3.0-or-later, kein Teil des
+Apache-2.0-Kerns) mit einem festen snapshot.debian.org-Stand und einem Lockfile, zweimal auf zwei
+Runner-Images; nur wenn beide Bauten bitgleich sind, nimmt der Release die Zeile
+`<sha256>  recovery/restow-recovery_<v>_amd64.iso` in `agent-SHA256SUMS` auf, und der Maintainer
+signiert erst nach einem eigenen Nachbau (`scripts/release/sign-agent.sh <tag> --key … --iso …`).
+Anhänge des Release: das ISO, `restow-recovery_<v>_FIRMWARE-LICENSES.txt` (Lizenzen der festen
+Firmwareliste) und der Quellcode jedes Pakets (`…_sources.tar`, ab 2 GiB in Teilen, `…_sources.txt`).
+
+- **Prüfen, bevor das ISO auf einen Stick geht:** die Signatur von `agent-SHA256SUMS` mit
+  `scripts/release/verify-agent-signature.sh agent-SHA256SUMS agent-SHA256SUMS.sig release-signing.pub`,
+  mit `release-signing.pub` **aus dem Git-Tag** (`agent/release-signing.pub`), dann
+  `grep ' recovery/<datei>$' agent-SHA256SUMS | sed 's# recovery/# #' | sha256sum -c -`. Den
+  Fingerabdruck des Release-Schlüssels außerhalb der Instanz vergleichen (README und Release-Notes):
+  Eine kompromittierte Instanz könnte ISO, Prüfsumme und Fingerabdruck zugleich fälschen.
+- **`GET /api/v1/recovery-iso`** (Mandanten-Admin): Version, Neubau-Nummer (`rebuild`),
+  Dateiname, `url`, `source` (`instance` oder `github`), SHA-256 aus der geprüften Liste,
+  `sizeBytes` (nur für die Kopie der Instanz), Fingerabdruck des Release-Schlüssels, `verified`,
+  `releaseUrl`, `githubUrl` (Ausweichlink), `sumsUrl`, `signatureUrl`, `sourcesUrl`,
+  `firmwareLicensesUrl`, `local` (Stand der eigenen Kopie: `not_fetched`, `fetching`, `verified`,
+  `failed` mit Grund, `disabled`) und die Prüfbefehle. `verified` heißt: Der Server hat die
+  Signatur von `SHA256SUMS` selbst mit dem Release-Schlüssel des Images geprüft (dieselbe Prüfung
+  wie der Agent, docs/BAREMETAL.md 26.13). Die GitHub-Adresse ist das Release des Projekts (bei
+  einer Installation, die dem Alpha-Repository folgt, dessen Release).
+- **Die Instanz lädt das ISO selbst:** Der Worker holt das ISO des eigenen Release (und den
+  neuesten signierten Neubau `recovery-v<v>.<n>`) einmal je Installation und Release vom
+  GitHub-Release in das Datenvolume (`RESTOW_RECOVERY_ISO_STORE_DIR`, Standard
+  `/data/recovery-iso`), fortsetzbar, höchstens 2 GiB, über `HTTPS_PROXY`/`NO_PROXY`; erst nach
+  Signatur- und Hash-Prüfung bietet die api es unter `GET /api/v1/recovery-iso/file/<datei>` an
+  (nur Mandanten-Admins, `?tenant=`). `RESTOW_RECOVERY_ISO_FETCH=false` schaltet das Laden ab.
+- **Ohne Internet:** Liegt das ISO in `<store>/import/` oder `RESTOW_RECOVERY_ISO_DIR` (ein
+  Volume; für einen Neubau mit `recovery-SHA256SUMS` und `.sig`) und besteht es dieselbe Prüfung,
+  bietet die Instanz es ebenso an; `GET /install/recovery/<version>/<datei>` liefert dieselbe
+  Auswahl öffentlich (für virtuelle Medien eines BMC): nur der Dateiname der geprüften Zeile (kein
+  `/`, kein `..`), gestreamt mit `content-length`, 10 je Stunde und Adresse (429 mit
+  `Retry-After`). Die SHA-256 rechnet der Server einmal je Pfad, Größe und Änderungszeit.
+- **Im ISO** startet `restow-agent recover` auf tty1 (bzw. `restow.console=ttyS0|ttyS1`):
+  Tastaturbelegung, Netzwerk, Uhrzeit, TLS (System-CA, CA-Datei oder der Prüfwert der Instanz),
+  Adresse und Code, Freigabe der Sitzung, Snapshot, Manifest, Hardware, Plan mit jedem Befehl,
+  Bestätigung, Ausführung, Prüfung, Abschluss, optional Wiederanbindung. Unbeaufsichtigt über
+  `--answers` (`restow-answers-v1`; Medium `RESTOWANS` oder in QEMU `fw_cfg`). Code, Passphrase und
+  Wiederanbindungs-Token nimmt es nur aus `fw_cfg` an.
+- **Abschluss** (`POST /agent/v1/recovery/sessions/current/finish`): `verification` im Format
+  `restow-verify-v1` (Ergebnis `ok`, `warning` oder `failed`, die zehn Prüfungen aus
+  docs/BAREMETAL.md 10.17 mit Befunden und Belegen aus kurzen Zeichenketten, Zahlen und
+  Wahrheitswerten, Hinweise für danach mit Parametern, angepasste Dateien, nicht angepasste
+  Kernel; höchstens 64 KiB) und `warnings[]` mit Codes aus
+  `agent/internal/baremetal/testdata/plan-codes.json` und
+  `agent/internal/recovery/testdata/recover-codes.json`. Der Server hält ein gemeldetes
+  `succeeded` gegen diesen Bericht und speichert ohne tragenden Bericht `failed` mit einem eigenen
+  Code (`success_*`, siehe die Tabelle der Aufrufe oben). Der Server speichert den Bericht
+  geschwärzt; `GET .../recoveries/:id` gibt ihn nur aus, wenn er dem Format entspricht, sonst
+  `null` (nie den Rohwert). Die Oberfläche übersetzt Warnungen und Hinweise je Code und zeigt die
+  Meldung des ISO darunter als "vom ISO gemeldet".
+- **Oberfläche:** `GET /api/v1/endpoints/:id/baremetal` liefert zusätzlich `snapshots` (höchstens
+  50, mit Prüfstand und ob das Layout das neueste ist), `hardware` und `hardwareByLayout` (was
+  Ersatzhardware braucht) und `activeRecovery`; Rechnerliste und -seite tragen `recovery`
+  (`status`, `phase`) einer laufenden Sitzung ("Wird wiederhergestellt"); `GET
+  /api/v1/endpoints/capabilities` sagt, ob die Vorschau an ist.
 
 ### Richtlinien (seit 0.4.0)
 
@@ -639,7 +841,8 @@ darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runEr
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
 `snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
-"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0), die Codes der
+"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0), `layout_capture_failed`,
+`layout_too_large`, `layout_rejected` (seit 0.5.0, Sicherung des ganzen Rechners, siehe unten), die Codes der
 nativen SQL-Server-Sicherung (seit 0.5.0, `endpoints:sql.codes.<code>`: `sql_instance_unreachable`,
 `sql_login_missing`, `sql_permission_missing`, `sql_powershell_constrained`,
 `sql_strict_encryption`, `sql_fci_unsupported`, `sql_mode_unsupported`, `sql_staging_unusable`,
@@ -681,8 +884,13 @@ strukturierte Erklärung (`endpoint_runs.failure`, dasselbe Format wie bei Jobs,
 `file_missing`, `file_not_regular`, `read_error`, `restic_failed`, `repository_locked`,
 `repository_missing`, `repository_password`, `repository_refused`, `network`, `agent_stopped`,
 `interrupted`, seit 0.5.0 `snapshot_failed` (vorübergehend) und `snapshot_unavailable`), dazu die
-Schritte aus dem Katalog. `snapshot_cleanup_failed` ist ein Hinweis und nie die Erklärung eines
-Laufs. Entscheidend für die Wahl ist der Fehler, den
+Schritte aus dem Katalog; seit 0.5.0 auch `layout_capture_failed` (Schritt
+`check_endpoint_layout_tools`). `snapshot_cleanup_failed`, `layout_too_large` und `layout_rejected`
+sind Hinweise und nie die Erklärung eines Laufs: `layout_capture_failed` heißt, das Plattenlayout
+ließ sich nicht erfassen (etwa weil `lsblk`, `blkid` oder `sfdisk` fehlen), gesichert wurden die
+eingehängten Dateisysteme, Lauf `partial`; `layout_too_large`, das Layout liegt im Snapshot, ist aber
+größer als 512 KiB und wurde nicht gesendet (`partial`); `layout_rejected` setzt der Server, wenn er
+das gesendete Layout ablehnt (Status unverändert). Entscheidend für die Wahl ist der Fehler, den
 der Admin zuerst beheben muss (ein Hook oder fehlende Ordner vor allem anderen). `restic_exit_<N>`
 wird nach restics Exit-Codes gedeutet (10 Repository fehlt, 11 gesperrt, 12 Passwort, 3
 unvollständig) und nach dem Text des Fehlers (Netzwerk, abgelehnt). Die Detailansicht eines
@@ -915,6 +1123,7 @@ beschränkt die Wiederholung bei dauerhaft fehlschlagenden Jobs.
 | `endpoint-check` | wöchentlich je Endpunkt | Sperren aufräumen, `restic check --read-data-subset=n/20`: pro Woche ein Zwanzigstel der Daten, in fester Reihenfolge, damit das ganze Repository über etwa fünf Monate gelesen wird. Bericht `repository_check`, grün oder rot. War das Repository gesperrt, gilt die Prüfung als nicht gelaufen: `last_check_at` bleibt stehen, der Scheduler bietet sie wieder an. |
 | `endpoint-verify` | nach jedem neuen guten Backup mit Stichproben | Restore-Test (unten). |
 | `endpoint-monitor` | alle 5 Minuten | Aufräumen und Alarme (unten). |
+| `endpoint-baremetal-check` | seit 0.5.0: beim Abschluss jedes Laufs mit Layout sofort, der Scheduler holt einen fehlenden nach (neuester Lauf mit Layout ohne Bericht für seinen Snapshot) | Layout-Prüfung, Stufe 1 der Restore-Prüfung (docs/BAREMETAL.md 12.1, unter "Ganzer Rechner"); Bericht `baremetal_check`. |
 
 **Nie zwei Arbeiten des Servers zugleich auf einem Repository.** restic sperrt seine
 Repositories selbst, aber zwei restic-Prozesse, die im selben Augenblick starten, können die Sperre des
@@ -1069,6 +1278,10 @@ Bericht oder Endpunkt wird in derselben Transaktion gesetzt).
 | `endpoint.storage_quota` (Gruppe Speicher, Warnung bzw. Fehler) | ein Repository hat 90 Prozent seines Budgets erreicht, das Budget ist ausgeschöpft oder ein Upload wurde abgelehnt; je Stufe einmal. Dazu höchstens einmal am Tag, wenn alle Endpunkte eines Mandanten 90 Prozent des Mandantenbudgets erreichen (Gegenstand ist dann der Mandant). |
 | `backup.suspicious` (Gruppe Wiederherstellbarkeit, Fehler) | ein Sicherungsstand zeigt Anzeichen von Ransomware (docs/RANSOMWARE.md); einmal je Episode. |
 | `endpoint.repository_locked` (Gruppe Aufträge, Warnung) | Aufbewahrung und Prüfung fanden das Repository sechsmal in Folge über mindestens zwölf Stunden gesperrt. |
+| `endpoint.recovery.started` (Gruppe Wiederherstellbarkeit, Fehler, seit 0.5.0) | ein Wiederherstellungscode wurde eingetauscht (API, sofort). |
+| `endpoint.recovery_code.rejected` (Gruppe Wiederherstellbarkeit, Fehler) | ein abgelaufener, eingelöster oder widerrufener Code wurde versucht (API, sofort). |
+| `endpoint.rebound` (Gruppe Wiederherstellbarkeit, Fehler) | ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret (API, sofort). |
+| `endpoint.recovery.failed` (Gruppe Wiederherstellbarkeit, Fehler) | eine Wiederherstellung endete mit `failed`: so gemeldet, 30 Minuten ohne Freigabe oder 30 Minuten nach Ablauf ohne Abschluss (Monitor). |
 | `endpoint.backups_deletion_scheduled` (Gruppe Speicher, Warnung, kritisch) | ein Inhaber hat beauftragt, jede Sicherung eines gesperrten Rechners in sieben Tagen zu löschen (siehe "Rechner entfernen"); geht immer sofort an die Pflichtempfänger. |
 | `endpoint.backups_deleted` (Gruppe Speicher, Info) | der Worker hat jede Sicherung eines entfernten Rechners gelöscht (Objekte, Snapshots, Bytes). |
 
@@ -1209,7 +1422,18 @@ Rechner selbst und jede andere Aktion antworten weiter 404. Danach ist er für j
 - Browsen (je Seite), Download, Restore-Anforderung und das Anzeigen des Repository-Passworts stehen im
   Audit-Log: `endpoint.snapshot.browsed`, `endpoint.snapshot.downloaded`,
   `endpoint.restore.requested`, `endpoint.restore.finished`,
-  `endpoint.repository.password.revealed`.
+  `endpoint.repository.password.revealed`, seit 0.5.0 `endpoint.repository.secret_file_revealed`
+  (ein Administrator lädt eine LUKS-Schlüsseldatei herunter oder stellt sie wieder her).
+- **Geheimnisse in Snapshots (seit 0.5.0, docs/BAREMETAL.md 5.4).** Kein Agent ab 0.5.0 sichert
+  seine Zustandsdatei mehr (`state.json` mit Agent-Secret und Repository-Passwort und die
+  Zwischendateien des Speicherns), auf keinem System. Ältere Snapshots enthalten sie weiter: Der
+  Browser blendet sie für alle aus, als einzelne Auswahl (Download, Restore) wird sie mit 422
+  `endpoint-restore-path-locked` abgelehnt, und ein Ordner-ZIP lässt sie aus. Die LUKS-Schlüsseldateien,
+  die das Layout des Snapshots oder das neueste des Rechners nennt (`luks[].keyFile`, aus
+  `crypttab`), sind für die Rolle `tenant_restore` ausgeblendet, als Auswahl gesperrt (403) und im ZIP
+  ausgelassen; ein Administrator bekommt sie nach einer frischen Anmeldung, auditiert. Ein Ordner, der
+  auf dem Rechner wiederhergestellt wird, wird nicht gefiltert (die Daten bleiben auf demselben
+  Rechner, in einem neuen Ordner, den nur root lesen kann).
 - Gleichzeitige restic-Prozesse der API sind begrenzt (6 insgesamt, 3 je Mandant; darüber 429
   `urn:restow:problem:restic-busy`).
 
@@ -1295,6 +1519,21 @@ hier.
 | `endpoint-removal-legal-hold` | 409 | Sicherungen jetzt löschen, aber eine Legal Hold über den ganzen Mandanten hält sie. |
 | `endpoint-removal-suspicion-hold` | 409 | Sicherungen jetzt löschen, aber ein ungeklärter verdächtiger Sicherungsstand des Rechners hält sie. |
 | `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
+| `endpoint-restore-path-locked` | 422 / 403 | Ein ausgewählter Pfad wird nicht herausgegeben (seit 0.5.0): 422 mit `reason: "agent_state"` für die Zustandsdatei des Agenten (für alle), 403 mit `reason: "key_file"` für eine LUKS-Schlüsseldatei des Layouts und die Rolle `tenant_restore`; `path` nennt ihn. |
+| `baremetal-preview-off` | 409 | `wholeMachine` an einem Job einschalten, während `RESTOW_BAREMETAL_PREVIEW` aus ist. |
+| `baremetal-not-available` | 409 | Kein Wiederherstellungscode für diesen Rechner; `reason`: `not_linux`, `removed`, `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`. Auch (ISO) die Zugangsdaten einer Sitzung, wenn die Sicherung, für die der Code ausgestellt wurde, keine Ganz-Rechner-Sicherung mit Layout mehr ist (`snapshot_unknown`, mit `snapshotId`); es braucht dann einen neuen Code. |
+| `recovery-limit-reached` | 409 | Drei Codes des Rechners sind schon offen. |
+| `recovery-code-invalid` | 401 | (ISO) Kein Code passt zum Beweis: falscher Code oder eine andere Adresse. |
+| `recovery-code-expired` | 410 | (ISO) Der Code ist abgelaufen. |
+| `recovery-code-revoked` | 410 | (ISO) Der Code wurde widerrufen (auch beim Entfernen des Rechners). |
+| `recovery-code-used` | 409 | (ISO) Der Code ist eingelöst (anderes Sitzungsgeheimnis, oder später als 15 Minuten bzw. nach `release`). |
+| `recovery-too-old` | 426 | (ISO) Das ISO ist älter als `minRecoveryVersion`; der Code bleibt unverbraucht. |
+| `recovery-session-ended` | 401 | Die Sitzung ist beendet, freigegeben (`release`), abgebrochen oder abgelaufen; auch die Antwort auf eine Freigabe nach den 30 Minuten. |
+| `recovery-not-approved` | 409 | (ISO) Die Sitzung wartet auf die Freigabe. |
+| `recovery-credentials-collected` | 409 | (ISO) Die Zugangsdaten wurden schon zweimal oder vor mehr als 5 Minuten abgeholt. |
+| `recovery-state-conflict` | 409 | Freigeben, ablehnen, verlängern, abschließen oder wiederanbinden in einem Zustand, der das nicht erlaubt (`status`). Auch (ISO) jede Meldung an eine beendete Sitzung: `progress`, `log`, `event`, `release`, `finish`. |
+| `endpoint-recovery-active` | 409 | Entfernen, während eine Recovery-Sitzung die Sicherungen liest. |
+| `endpoint-rebind-os-mismatch` | 422 | Ein Wiederanbindungs-Token wurde von einem anderen Betriebssystem eingelöst; das Token bleibt gültig. |
 | `endpoint-removal-scheduled` | 409 | Die Sicherungen des Rechners sind schon zum Löschen vorgemerkt; erst abbrechen. |
 | `endpoint-removal-reason-required` | 422 | Sicherungen löschen ohne Grund (Feld `reason`). |
 | `endpoint-removal-not-cancellable` | 409 | Abbrechen, aber es wartet kein Löschen (mehr): Der Worker hat begonnen, oder es ist keines (bzw. nur ein `expire`) vorgemerkt. |
@@ -1448,9 +1687,26 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   Mandantentabellen. Ein Rechner ist in höchstens einem Job (`backup_job_members.endpoint_id` ist
   eindeutig); die Wirk-Konfiguration steht weiter in `endpoints.config`, nur ihr Schreiber hat gewechselt.
 - `endpoint_enrollment_tokens`: `token_hash` (eindeutig), Profil, Bezeichnung, `expires_at`,
-  `used_at`, `used_by_endpoint_id`, `revoked_at`, `created_by`.
+  `used_at`, `used_by_endpoint_id`, `revoked_at`, `created_by`; seit Migration 0078 `endpoint_id`
+  (gesetzt: Wiederanbindungs-Token dieses Rechners, CHECK höchstens 24 Stunden), `purpose`
+  (`baremetal`, `reinstall`, `mac_setup`) und `unrevoke`.
+- `endpoint_recoveries` (Migration 0078, docs/BAREMETAL.md 9): Wiederherstellungscodes und ihre
+  Sitzungen: `code_hash` (SHA-256 des Beweises, eindeutig), `instance_origin`, `spki_sha256`,
+  `require_approval`, `snapshot_id`, Status `issued` bis `revoked`, `expires_at` (CHECK höchstens
+  48 Stunden nach `issued_at`), `session_secret_hash`, Zeiten von Einlösung, Freigabe,
+  Zugangsdaten, `release` und Ende, was das ISO meldet (`hardware`, `progress`, `ssh_host_keys`,
+  `verification`, `warnings`), `ssh_keys` und `log_bytes`. `endpoint_recovery_log`: geschwärzte
+  Logzeilen je Sitzung, vom Monitor nach 90 Tagen entfernt. `endpoints.settings.activityBaselinePending`
+  markiert einen wieder angebundenen Rechner bis zu seinem ersten guten Lauf.
 - `endpoint_runs`: Art, Status, Zeiten, `snapshot_id`, `stats`, `errors`, `log_tail`,
-  `progress`, `failure` (die Erklärung oben), `task_id`, `alerted_at`.
+  `progress`, `failure` (die Erklärung oben), `task_id`, `alerted_at`; seit Migration 0076
+  `layout_id` (das Layout einer Sicherung des ganzen Rechners, `ON DELETE SET NULL`); seit
+  Migration 0078 `activity_baseline` (der erste gute Lauf nach einer Wiederanbindung).
+- `endpoint_layouts` (Migration 0076, docs/BAREMETAL.md 4.3): Layout-Manifeste der Sicherungen
+  ganzer Rechner, je Rechner und SHA-256 der kanonischen Kodierung einmal (`sha256`, `format`,
+  `schema_version`, `platform`, `manifest`, `summary` für die Rechnerseite, `verdict`,
+  `layout_fingerprint`). Der Monitor entfernt täglich Layouts, auf die kein Lauf mehr zeigt und die
+  nicht das neueste ihres Rechners sind (ein Layout des letzten Tages bleibt immer).
 - `endpoint_tasks`: Art, `params`, Status, `created_by`, Zeiten, `expires_at`, `error_message`.
   Ein erneut angebotener Restore-Test trägt `params.retry` und `params.notBefore` (keine eigene
   Spalte).
@@ -1465,7 +1721,8 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   vom Monitor eine Stunde nach Ablauf entfernt.
 - `endpoint_reports` (zusätzlich zur ursprünglichen Liste): Ergebnisse der Serverarbeit als Fakten
   mit Zeitpunkt: Restore-Test (Herkunft `server` oder `agent`, Snapshot, grün/rot, Details),
-  Repository-Prüfung, Retention. Sie spielen die Rolle von `verify_reports`, ohne die
+  Repository-Prüfung, Retention, seit Migration 0077 die Layout-Prüfung `baremetal_check`
+  (Snapshot, `run_id` des Laufs mit dem Layout, grün/gelb/rot, Prüfungen in `summary`). Sie spielen die Rolle von `verify_reports`, ohne die
   Postfach-Tabellen zu berühren (deren Fremdschlüssel verlangen ein geschütztes Objekt und einen
   Restow-Snapshot).
 
@@ -1532,7 +1789,8 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   konfigurierte öffentliche URL.
 - **Dienst-Härtung (systemd).** `NoNewPrivileges`, `ProtectKernelTunables`, `ProtectKernelLogs`,
   `ProtectControlGroups`, `ProtectHostname`, kein Laden von Kernelmodulen
-  (`CapabilityBoundingSet=~CAP_SYS_MODULE`, `SystemCallFilter=~@module`), `RestrictNamespaces`,
+  (`CapabilityBoundingSet=~CAP_SYS_MODULE`, `SystemCallFilter=~@module`),
+  `RestrictNamespaces=mnt` (nur Mount-Namespaces, für den Snapshot-Helfer, docs/BAREMETAL.md 6.3),
   `RestrictRealtime`, `LockPersonality`, `SystemCallArchitectures=native`, `UMask=0077`; launchd
   `Umask` 077. Bewusst nicht: `ProtectSystem`, `ProtectHome`, `PrivateTmp` (Sicherung beliebiger
   Pfade, Restore überallhin), `ProtectKernelModules` (versteckt `/usr/lib/modules`),
@@ -1553,7 +1811,21 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - **Wiederherstellung von Sicherungen des Endpunkts setzt das Repository-Passwort voraus.**
   Es liegt nur auf dem Server (und dem Endpunkt selbst).
 - **Konsistenz.** Linux/macOS: optionale Pre-/Post-Hooks (z. B. `pg_dump`); ohne Snapshot
-  liest restic das laufende Dateisystem. Windows: Schattenkopie (VSS) über restic
+  liest restic das laufende Dateisystem. Linux ab 0.5.0 mit `fsSnapshot: "auto"` (Vorgabe nur bei
+  `wholeMachine`, docs/BAREMETAL.md 6): je Dateisystem ein LVM-Snapshot (dick oder dünn) bzw. je
+  btrfs-Subvolume ein `-r`-Snapshot, gelesen über einen privaten Mount-Namensraum mit `chroot`, so
+  dass die Pfade im Snapshot die echten bleiben; ohne `wholeMachine` (restic ohne `-x`) kommen
+  auch die Dateisysteme und Subvolumes unterhalb der Ordner mit in den Baum, aus ihrem Snapshot
+  oder live gelesen. `lvcreate`, `lvchange` und `lvremove` werden nie getötet (ein Abbruch des
+  Laufs erreicht sie nicht, an ihrer Zeitgrenze bekommen sie `SIGTERM`). `method` ist `lvm`,
+  `btrfs` oder `mixed`. `state`:
+  `used`, wenn kein Snapshot scheiterte und mindestens einer hielt; `partial`, wenn einer scheiterte
+  und einer hielt; `unavailable`, wenn keiner hielt. `liveFilesystems` nennt die Einhängepunkte, die
+  ohne Snapshot gelesen wurden (gescheitert oder ohne Verfahren). Ein Dateisystem ohne Verfahren
+  (Partition, md, LUKS auf einem LV, vfat, eine VG mit weniger als 1 GiB frei, ein Thin-Pool ab 80
+  Prozent) ist **kein** Fehler: Der Lauf bleibt `succeeded`, wie die vorab ausgeschlossenen Volumes
+  unter Windows; `partial` wird er nur mit `snapshot_failed` oder `snapshot_unavailable` (Werkzeug
+  fehlt, keine Rechte, Kernel ohne `dm_snapshot`). Windows: Schattenkopie (VSS) über restic
   `--use-fs-snapshot -o vss.timeout=5m` (Wechseldatenträger, FAT und exFAT als
   `vss.exclude-volumes`), wenn `useVss` am Rechner an ist. Das Ergebnis ist **dateikonsistent,
   nicht anwendungskonsistent**: restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an,
@@ -1590,7 +1862,7 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - Windows: Windows on ARM, Authenticode, Windows Bare Metal (Systemzustand, Registry),
   weitere Datenlaufwerke als Datenordner melden, Windows-Pfade im Snapshot-Browser.
 - mTLS je Agent.
-- LVM/ZFS/btrfs-Snapshots als Konsistenzquelle.
+- ZFS-Snapshots als Konsistenzquelle (LVM und btrfs seit 0.5.0, siehe "Konsistenz").
 - Löschen eines Endpunkts samt Repository (heute: Widerruf, Daten bleiben bis zur Aufbewahrung
   bzw. für immer, wenn kein Backup mehr kommt).
 - Die Speicherziel-Migration mit "verschieben" (docs/STORAGE.md, "restic repositories in a move")

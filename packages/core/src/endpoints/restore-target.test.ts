@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { restoreTargetIssue } from "./restore-target.js";
+import {
+  isAgentStatePath,
+  isKeyFilePath,
+  plainSnapshotPath,
+  restoreSelectionIssue,
+  restoreTargetIssue,
+  selectionCovers,
+} from "./restore-target.js";
 
 describe("restoreTargetIssue", () => {
   it("keeps the Unix rules", () => {
@@ -49,5 +56,59 @@ describe("restoreTargetIssue", () => {
     // Not blocked: a folder that only starts with the same letters.
     expect(restoreTargetIssue("windows", "C:\\WindowsBackup")).toBeNull();
     expect(restoreTargetIssue("windows", "C:\\ProgramData\\RestowOld")).toBeNull();
+  });
+});
+
+describe("files a restore does not hand out", () => {
+  const keyFiles = ["/etc/luks-keys/data.key"];
+
+  it("knows the agent's state file on every system, with its temporary copies", () => {
+    for (const path of [
+      "/etc/restow-agent/state.json",
+      "/etc/restow-agent/.state-123456.tmp",
+      "/etc/restow-pve/state.json",
+      "/etc/restow-pve/.state.json.abc",
+      "/private/etc/restow-agent/state.json",
+      "/System/Volumes/Data/private/etc/restow-agent/state.json",
+      "/C/ProgramData/Restow/state/state.json",
+      "/c/programdata/restow/state/.state-1.tmp",
+      "/etc//restow-agent/./state.json",
+    ]) {
+      expect(isAgentStatePath(path), path).toBe(true);
+    }
+    for (const path of [
+      "/etc/restow-agent",
+      "/etc/restow-agent/agent.json",
+      "/etc/restow-agent/state.json.bak",
+      "/etc/restow-agent/sub/.state-1.tmp",
+      "/home/anna/state.json",
+    ]) {
+      expect(isAgentStatePath(path), path).toBe(false);
+    }
+  });
+
+  it("locks the state file for everybody and key files for the restore role", () => {
+    const restore = { role: "restore" as const, keyFiles };
+    const admin = { role: "admin" as const, keyFiles };
+    expect(restoreSelectionIssue("/etc/restow-agent/state.json", restore)).toBe("agent_state");
+    expect(restoreSelectionIssue("/etc/restow-agent/state.json", admin)).toBe("agent_state");
+    expect(restoreSelectionIssue("/etc/luks-keys/data.key", restore)).toBe("key_file");
+    expect(restoreSelectionIssue("/etc/luks-keys//data.key", restore)).toBe("key_file");
+    expect(restoreSelectionIssue("/etc/luks-keys/data.key", admin)).toBeNull();
+    expect(restoreSelectionIssue("/etc/luks-keys", restore)).toBeNull();
+    expect(restoreSelectionIssue("/etc/hosts", restore)).toBeNull();
+    expect(isKeyFilePath("/etc/luks-keys/data.key", keyFiles)).toBe(true);
+    expect(isKeyFilePath("/etc/luks-keys/other.key", keyFiles)).toBe(false);
+  });
+
+  it("says whether a folder takes a locked file along", () => {
+    expect(selectionCovers("/", keyFiles)).toBe(true);
+    expect(selectionCovers("/etc", keyFiles)).toBe(true);
+    expect(selectionCovers("/etc/luks-keys/", keyFiles)).toBe(true);
+    expect(selectionCovers("/etc/luks-keys/data.key", keyFiles)).toBe(true);
+    expect(selectionCovers("/etc/luks", keyFiles)).toBe(false);
+    expect(selectionCovers("/home", keyFiles)).toBe(false);
+    expect(selectionCovers("/home", [])).toBe(false);
+    expect(plainSnapshotPath("a//b/./c/")).toBe("/a/b/c");
   });
 });

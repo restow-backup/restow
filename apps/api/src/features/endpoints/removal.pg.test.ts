@@ -15,6 +15,7 @@ import {
   backupJobMembers,
   backupJobs,
   type EndpointSettings,
+  endpointRecoveries,
   endpointRuns,
   endpoints,
   legalHolds,
@@ -139,6 +140,64 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
     expect(row?.removedAt).toBeNull();
   });
 
+  it("waits for a running recovery, revokes the codes nobody redeemed and ends waiting sessions (docs/BAREMETAL.md 9.7)", async () => {
+    const id = await machine();
+    const hostname = await hostnameOf(id);
+    const recovery = (status: "issued" | "pending_approval" | "active", hours = 4) =>
+      fixture.db
+        .insert(endpointRecoveries)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId: id,
+          kind: "code",
+          status,
+          issuedAt: NOW,
+          expiresAt: new Date(NOW.getTime() + hours * 3600_000),
+        })
+        .returning()
+        .then((rows) => rows[0]?.id as string);
+    const active = await recovery("active");
+    const issued = await recovery("issued");
+    for (const mode of ["delete", "expire"] as const) {
+      expect(await problemOf(remove(id, { mode, confirmHostname: hostname }))).toEqual({
+        status: 409,
+        type: "urn:restow:problem:endpoint-recovery-active",
+      });
+    }
+    // A session that waits for its release holds nothing; an expired active one neither.
+    await fixture.db
+      .update(endpointRecoveries)
+      .set({ expiresAt: new Date(NOW.getTime() - 1000) })
+      .where(eq(endpointRecoveries.id, active));
+    const waiting = await recovery("pending_approval");
+    await remove(id, { mode: "delete", confirmHostname: hostname });
+    const [code] = await fixture.db
+      .select()
+      .from(endpointRecoveries)
+      .where(eq(endpointRecoveries.id, issued));
+    expect(code).toMatchObject({ status: "revoked", revokedBy: fixture.adminId });
+    const revoked = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "endpoint.recovery_code.revoked"), eq(auditLog.target, id)));
+    expect(revoked.map((entry) => entry.details)).toEqual([
+      { recoveryId: issued, kind: "code", reason: "removed" },
+    ]);
+    // The waiting session ends with the machine: released later it would hold the deletion.
+    const [ended] = await fixture.db
+      .select()
+      .from(endpointRecoveries)
+      .where(eq(endpointRecoveries.id, waiting));
+    expect(ended).toMatchObject({ status: "cancelled" });
+    const cancelled = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "endpoint.recovery.cancelled"), eq(auditLog.target, id)));
+    expect(cancelled.map((entry) => entry.details)).toEqual([
+      { recoveryId: waiting, from: "pending_approval", reason: "removed" },
+    ]);
+  });
+
   it("schedules deleting in seven days: still listed, out of its job, audited, alerted", async () => {
     const id = await machine({ hostname: "paperless" });
     const [job] = await fixture.db
@@ -224,16 +283,19 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
       leftJobs: [job?.id],
       queued: false,
     });
-    // The critical alert: in the bell and for the provider's recipients (report_events).
-    const [alert] = await fixture.db
-      .select()
-      .from(reportEvents)
-      .where(
-        and(
-          eq(reportEvents.tenantId, fixture.tenantId),
-          eq(reportEvents.event, "endpoint.backups_deletion_scheduled"),
-        ),
-      );
+    // The critical alert: in the bell and for the provider's recipients (report_events). This
+    // machine's: the test of a running recovery schedules a deletion of another machine before.
+    const alert = (
+      await fixture.db
+        .select()
+        .from(reportEvents)
+        .where(
+          and(
+            eq(reportEvents.tenantId, fixture.tenantId),
+            eq(reportEvents.event, "endpoint.backups_deletion_scheduled"),
+          ),
+        )
+    ).find((row) => (row.details as { endpointId?: string } | null)?.endpointId === id);
     expect(alert).toMatchObject({ level: "warning" });
     expect(alert?.details).toMatchObject({
       endpointId: id,

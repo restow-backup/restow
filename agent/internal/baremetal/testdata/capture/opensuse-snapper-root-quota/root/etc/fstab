@@ -1,0 +1,7 @@
+UUID=f2000000-0000-4000-8000-000000000001 / btrfs defaults 0 0
+UUID=f2000000-0000-4000-8000-000000000001 /.snapshots btrfs subvol=/@/.snapshots 0 0
+UUID=f2000000-0000-4000-8000-000000000001 /home btrfs subvol=/@/home 0 0
+UUID=f2000000-0000-4000-8000-000000000001 /opt btrfs subvol=/@/opt 0 0
+UUID=f2000000-0000-4000-8000-000000000001 /var btrfs subvol=/@/var 0 0
+UUID=f2000000-0000-4000-8000-000000000001 /root btrfs subvol=/@/root 0 0
+UUID=f2000000-0000-4000-8000-0000000000c3 swap swap defaults 0 0
