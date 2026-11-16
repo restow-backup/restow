@@ -157,6 +157,8 @@ jobs:
       - name: Run ${{ matrix.case }}
         env:
           CASE: ${{ matrix.case }}
+          # GitHub's runners are in Azure; archive.ubuntu.com was at times too slow from there.
+          RESTOW_E2E_UBUNTU_MIRROR: http://azure.archive.ubuntu.com/ubuntu
         run: |
           set -euo pipefail
           iso="$(ls "$RUNNER_TEMP"/recovery/restow-recovery_*_amd64.iso)"

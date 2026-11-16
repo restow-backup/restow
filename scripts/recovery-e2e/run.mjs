@@ -213,6 +213,22 @@ export function bootPattern(hostname, markerSha256) {
 /** Where the lab keeps a picture of the boot screen of a probe that did not start (diagnostics). */
 const LAB_SCREEN_DIR = "/var/lib/restow-lab/screens";
 
+/**
+ * The Ubuntu archive the factory installs Ubuntu sources from. RESTOW_E2E_UBUNTU_MIRROR replaces
+ * it: the CI on GitHub's runners (in Azure) uses Ubuntu's Azure mirror, because
+ * archive.ubuntu.com was at times so slow from there that the factory did not finish in 40
+ * minutes (E2 and P2, November 2026). Only http(s) with a host and a plain path: the value goes
+ * into the factory's shell script.
+ */
+export function ubuntuMirror(env = process.env) {
+  const value = env.RESTOW_E2E_UBUNTU_MIRROR?.trim();
+  if (!value) return "http://archive.ubuntu.com/ubuntu";
+  if (!/^https?:\/\/[A-Za-z0-9.-]+(:\d+)?(\/[A-Za-z0-9._/-]*)?$/.test(value)) {
+    throw new Error(`RESTOW_E2E_UBUNTU_MIRROR is not a plain http(s) address: ${value}`);
+  }
+  return value.replace(/\/+$/, "");
+}
+
 export const SOURCE_BOOT = /E2E-BOOT (\S+) ([0-9a-f]{64})/;
 
 /** Add the ISO's line to an agent release's SHA256SUMS (C-M4-3), once. */
@@ -636,7 +652,7 @@ function factoryDisk(workDir, testCase, context) {
   ]);
   const mirror =
     testCase.source.mirror === "ubuntu"
-      ? "http://archive.ubuntu.com/ubuntu"
+      ? ubuntuMirror()
       : `http://snapshot.debian.org/archive/debian/${stamp}/`;
   writeFileSync(
     join(tree, "run.sh"),
