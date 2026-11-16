@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "i18next": "^26.5.2",
-    "i18next-icu": "^2.6.1",
+    "i18next-icu": "^2.7.0",
     "intl-messageformat": "^10.7.0"
   }
 }
