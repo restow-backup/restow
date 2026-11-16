@@ -29,8 +29,8 @@
 #
 # Recommended use (README.md, "Install with the script"): download, check, then run.
 #
-#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.12/install.sh
-#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.12/install.sh.sha256
+#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.5.0/install.sh
+#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.5.0/install.sh.sha256
 #   sha256sum -c install.sh.sha256 && sudo bash install.sh
 #
 # `bash install.sh --help` lists the options and the exit codes. Running it again is
@@ -51,7 +51,7 @@ set -Eeuo pipefail
 # ---- The release this script belongs to ---------------------------------------------
 # The release workflow refuses a tag whose version differs from this line
 # (.github/workflows/release.yml, job verify).
-DEFAULT_VERSION="0.4.12"
+DEFAULT_VERSION="0.5.0"
 
 RELEASE_REPOSITORY="restow-backup/restow"
 RELEASE_URL_DEFAULT="https://github.com/${RELEASE_REPOSITORY}/releases/download"

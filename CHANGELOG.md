@@ -8,7 +8,40 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.5.0] - 2026-11-16
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.0 restores whole Linux machines onto new hardware from a recovery ISO and proves it
+first: a boot probe starts each backed up machine on other hardware in a lab and only then calls
+it green. Alongside come restic repositories on copy targets that can become the primary, a
+billing API for PSA tools, branded mails and reports, Proxmox VE selection by node, SQL Server
+backups of Windows machines (preview) and many fixes. The update runs thirty-two database
+migrations, and owners of the provider team receive critical events by e-mail from now on: read
+Breaking Changes and Upgrade Notes before you update.
+
+### Breaking Changes
+
+- Phones are no longer a supported surface: on a smartphone every page shows a block page
+  instead of the app (see Changed). Use a computer or a tablet.
+- "Delete every backup" of a revoked machine is now delayed by seven days and may be requested
+  only by an owner of the provider team, with a reason (see Changed). Scripts that called the
+  removal with mode `delete` as a tenant administrator now get a refusal; the backups are no
+  longer deleted at once.
+- The agent no longer backs up its own state file, and LUKS key files are hidden from restore
+  operators (see Changed): a restore of `/etc/restow-agent/state.json` from an older snapshot is
+  refused with `endpoint-restore-path-locked`.
+- Every owner of the provider team receives the critical events and the installation's own events
+  by e-mail without opting in; an installation without a mail transport shows a lasting delivery
+  failure alert until one is configured or the notification mail is marked as not needed.
+- Whole machine backups of Linux machines are offered at once (the job switch "Whole machine");
+  `RESTOW_BAREMETAL_PREVIEW=false` for the api hides them again.
+- The integration API contract moves from 1.9.0 to 1.10.0; every change is additive (new
+  endpoints, scopes and fields), and a tenant key can no longer carry the new provider-only scope
+  `billing:read` (`api-key-scope-provider-only`).
 
 ### Added
 
@@ -2758,7 +2791,7 @@ private repository.
 
 ### Upgrade Notes
 
-Thirty database migrations (0073 to 0102) run on start: 0073 creates the new table `storage_samples` and 0074
+Thirty-two database migrations (0073 to 0104) run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -2806,12 +2839,13 @@ Windows machines and adds values to the enums of endpoint run, task and report k
 are new and empty. 0093 creates the new table `repository_copies` (Row Level Security), which is
 empty until the first copy pass, and 0094 adds the defaulted column `settings.modules`; neither
 rewrites a table. 0095 to 0098 are those of the size and space guard (see Added). 0099 creates
-the table `endpoint_layouts` and adds the empty column
-`endpoint_runs.layout_id`; 0100 adds the value `baremetal_check` to the report kinds of machines;
-0101 creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the empty columns
+the table `restic_snapshot_origins` (Row Level Security), empty until the first copy of a restic
+repository. 0100 creates the table `endpoint_layouts` and adds the empty column
+`endpoint_runs.layout_id`; 0101 adds the value `baremetal_check` to the report kinds of machines;
+0102 creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the empty columns
 `endpoint_id`, `purpose` and `unrevoke` (false) to `endpoint_enrollment_tokens` and
-`endpoint_runs.activity_baseline` (false); 0102 adds `endpoint_recoveries.log_in_key_block`
-(false); 0103 adds the values `boot_probe` (report kinds) and `probe` (recovery kinds) and the
+`endpoint_runs.activity_baseline` (false); 0103 adds `endpoint_recoveries.log_in_key_block`
+(false); 0104 adds the values `boot_probe` (report kinds) and `probe` (recovery kinds) and the
 empty column `settings.recovery_lab`. None of them rewrites a table. The recovery lab is not
 started by an update: turn it on with `install.sh --with-recovery-lab` on a new installation, or
 on an existing one with `RESTOW_LAB_TOKEN` (at least 32 characters), `RESTOW_LAB_IMAGE` and
@@ -2876,6 +2910,23 @@ docs/UPDATING.md ("Rollback") says how to keep that version from deleting.
   built, and it counts as reproducible only once two CI builds were equal. The ISO download of the
   instance does not support a proxy that is itself reached over https (`HTTPS_PROXY=https://…`),
   and the rebuild workflow and the signing of a rebuild have not run against a real release yet.
+- Bare metal restore is proven in the CI only (QEMU/KVM, see Verification), not yet on real
+  hardware: the maintainer checklist of docs/BAREMETAL.md 21.4 has not run for this release.
+  Test a restore of your own machines onto spare hardware before you rely on it.
+
+### Verification
+
+Before the tag, on the release branch at the commit of this release: lint, typecheck and build of
+every workspace package; the test suites with Postgres, restic 0.19.1 and the restore planner
+(API 4,778 tests, web 5,101, worker 933, core 3,626, database 267, i18n 289, ee/api 299,
+scheduler 90, with nothing failed); the script tests (262) and the install script's test (790).
+The CI on that commit built the recovery ISO twice (ubuntu-24.04 and ubuntu-22.04 with another
+time zone and umask) with the same SHA-256, and ran the bare metal end-to-end cases in QEMU/KVM:
+E1 (Debian 12, BIOS, mdadm RAID1 onto one disk, degraded) and E2 (Ubuntu 24.04, UEFI Secure Boot,
+LUKS2 and LVM, NVMe, smaller disk, other MAC) restore and start; the boot probe P1 rates E1's
+source green on other hardware, and P2 rates a machine that starts into the emergency target red
+(`boot_failed: emergency_mode`). Not run: the real hardware checklist of docs/BAREMETAL.md 21.4
+(see Known Issues).
 
 ## [0.4.12] - 2026-11-04
 
