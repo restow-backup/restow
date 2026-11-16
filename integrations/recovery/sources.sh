@@ -94,7 +94,8 @@ LC_ALL=C sort -u pairs.txt -o pairs.txt
 if [ "$CHECK" = yes ]; then
   missing=0
   while read -r source version; do
-    if ! apt-cache showsrc "$source=$version" 2>/dev/null | grep -q '^Package:'; then
+    # showsrc takes a name only (no =version) and lists every version the indexes carry.
+    if ! apt-cache showsrc "$source" 2>/dev/null | grep -qxF "Version: $version"; then
       echo "sources: no source package $source $version in the snapshot" >&2
       missing=$((missing + 1))
     fi
