@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { resolvePricing } from "../../../../apps/api/src/features/settings/pricing.js";
-import { type ClosingTenantRow, closeTenant, peaksOf, periodTotal } from "./peaks.js";
+import {
+  type ClosingTenantRow,
+  closeTenant,
+  monthEndPrices,
+  peaksOf,
+  periodTotal,
+  pricesInForce,
+} from "./peaks.js";
 
 const UNITS = { servers: 0, clients: 0, vms: 0, containers: 0, fileShares: 0 };
 
@@ -127,5 +134,62 @@ describe("the close of one tenant", () => {
       ]),
     ).toBe(15.5);
     expect(periodTotal([{ kind: "internal", total: 3 }])).toBeNull();
+  });
+});
+
+describe("the prices of the month's end", () => {
+  const atEnd = resolvePricing({ currency: "EUR", mailboxPrice: 3, serverPrice: 20 });
+  const atClose = resolvePricing({ currency: "CHF", mailboxPrice: 9, serverPrice: 99 });
+
+  it("records per line the price in force and its source", () => {
+    const prices = pricesInForce({
+      pricing: atEnd,
+      own: { mailboxPrice: 1.5 },
+      overridesEnabled: true,
+    });
+    expect(prices.lines).toEqual({
+      mailboxes: { unitPrice: 1.5, source: "tenant" },
+      servers: { unitPrice: 20, source: "installation" },
+    });
+    expect(prices.installation).toMatchObject({ mailboxPrice: 3, serverPrice: 20, vmPrice: null });
+    // The gate closed: the tenant's own price does not apply.
+    expect(
+      pricesInForce({ pricing: atEnd, own: { mailboxPrice: 1.5 }, overridesEnabled: false }).lines
+        .mailboxes,
+    ).toEqual({ unitPrice: 3, source: "installation" });
+  });
+
+  it("bills the last sample's prices, not those of a late close", () => {
+    const early = pricesInForce({
+      pricing: resolvePricing({ mailboxPrice: 2 }),
+      own: {},
+      overridesEnabled: false,
+    });
+    const last = pricesInForce({
+      pricing: atEnd,
+      own: { mailboxPrice: 1.5 },
+      overridesEnabled: true,
+    });
+    const samples = [
+      {
+        day: "2026-09-30",
+        quantities: { mailboxes: 4, storedBytes: 0, ...UNITS, servers: 1 },
+        prices: last,
+      },
+      { day: "2026-09-02", quantities: { mailboxes: 6, storedBytes: 0, ...UNITS }, prices: early },
+    ];
+    expect(monthEndPrices(samples)?.day).toBe("2026-09-30");
+    const closed = closeTenant({ row: row(), samples, pricing: atClose, overridesEnabled: false });
+    expect(closed.lines).toEqual([
+      expect.objectContaining({
+        type: "mailboxes",
+        quantity: 6,
+        unitPrice: 1.5,
+        priceSource: "tenant",
+        amount: 9,
+      }),
+      expect.objectContaining({ type: "servers", unitPrice: 20, priceSource: "installation" }),
+    ]);
+    expect(closed.total).toBe(29);
   });
 });

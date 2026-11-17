@@ -45,6 +45,31 @@ export interface BillingSampleQuantities {
   fileShares?: number;
 }
 
+/** One price of a sample: the price per unit in force that day and where it came from. */
+export interface BillingSamplePrice {
+  unitPrice: number;
+  source: "installation" | "tenant";
+}
+
+/**
+ * The prices in force for one tenant on the day of a sample (0.6.0): per billed line (`mailboxes`,
+ * `storage`, `servers`, ...) the price that applied (the tenant's own where the gate
+ * `tenants.additional` was open and it has one, else the installation's), absent where none did;
+ * with the currency and how stored data was billed. The close takes them from the month's last
+ * sample of the tenant, so a close that runs late bills the prices of the month's end.
+ */
+export interface BillingSamplePrices {
+  currency: string;
+  storageUnit: "GB" | "TB";
+  storageBilling: "exact" | "block_100gb" | "block_1tb";
+  /** Whether tenants' own prices applied that day (the gate `tenants.additional`). */
+  perTenantOverrides: boolean;
+  /** The installation's prices that day, by price key (`mailboxPrice`, ...); null = none. */
+  installation: Record<string, number | null>;
+  /** The price that applied to this tenant, by line. */
+  lines: Partial<Record<string, BillingSamplePrice>>;
+}
+
 /** One line of a closed month, as GET /provider/billing answers it plus the peak's day. */
 export interface BillingClosedLine {
   type: string;
@@ -70,6 +95,8 @@ export const billingSamples = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     day: date("day", { mode: "string" }).notNull(),
     quantities: jsonb("quantities").$type<BillingSampleQuantities>().notNull(),
+    /** The prices in force that day (0.6.0, migration 0107); null on samples written before. */
+    prices: jsonb("prices").$type<BillingSamplePrices>(),
     ...createdOnly(),
   },
   (t) => [

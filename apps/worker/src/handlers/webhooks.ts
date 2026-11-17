@@ -45,8 +45,14 @@ import http from "node:http";
 import https from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import {
+  DELIVERY_FAILED_EVENT,
+  type Dek,
+  deriveInstallationSecretsKey,
   isNotBackedUpFailure,
   isServiceLimitedFailure,
+  kekFromBase64,
+  openSecret,
+  subjectKeyOf,
   WEBHOOK_EVENTS,
   type WebhookEvent,
   webhookEventRow,
@@ -55,16 +61,20 @@ import {
   type Database,
   type Job,
   jobs,
+  notifications,
   protectedObjects,
+  providerWebhooks,
   raiseReportEvents,
+  reportEvents,
   safeErrorMessage,
+  secrets,
   settings,
   tenants,
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
 import { defaultLanguage, type SupportedLanguage } from "@restow/i18n";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { loadChatBrand } from "../branding.js";
 import type { WorkerFeatureGate } from "../extensions.js";
 import { reportInstallationTimeZone } from "../reporting.js";
@@ -850,10 +860,12 @@ export function planAfterAttempt(input: {
 
 export interface DueDelivery {
   id: string;
-  tenantId: string;
+  /** Null for a delivery of one of the provider's own webhooks (0.6.0, `provider_webhooks`). */
+  tenantId: string | null;
 }
 
 export interface LoadedDelivery extends DueDelivery {
+  /** The tenant webhook, or for a provider delivery the provider webhook. */
   webhookId: string;
   event: string;
   payload: Record<string, unknown>;
@@ -965,17 +977,21 @@ export class PgDeliveryStore implements DeliveryStore {
       )
       RETURNING d.id, d.tenant_id
     `);
-    return (result.rows as { id: string; tenant_id: string }[]).map((row) => ({
+    return (result.rows as { id: string; tenant_id: string | null }[]).map((row) => ({
       id: row.id,
       tenantId: row.tenant_id,
     }));
   }
 
   async load(due: DueDelivery): Promise<LoadedDelivery | null> {
-    if (!isUuid(due.tenantId)) {
+    if (due.tenantId === null) {
+      return this.loadProvider(due);
+    }
+    const tenantId = due.tenantId;
+    if (!isUuid(tenantId)) {
       return null;
     }
-    const [row] = await withTenantTx(this.db, due.tenantId, (tx) =>
+    const [row] = await withTenantTx(this.db, tenantId, (tx) =>
       tx
         .select({
           id: webhookDeliveries.id,
@@ -992,10 +1008,37 @@ export class PgDeliveryStore implements DeliveryStore {
         })
         .from(webhookDeliveries)
         .innerJoin(webhooks, eq(webhooks.id, webhookDeliveries.webhookId))
-        .where(and(eq(webhookDeliveries.tenantId, due.tenantId), eq(webhookDeliveries.id, due.id)))
+        .where(and(eq(webhookDeliveries.tenantId, tenantId), eq(webhookDeliveries.id, due.id)))
         .limit(1),
     );
-    return row ?? null;
+    return row && row.webhookId !== null ? { ...row, tenantId, webhookId: row.webhookId } : null;
+  }
+
+  /**
+   * A delivery of one of the provider's own webhooks (0.6.0): no tenant to pin, read on the
+   * installation pool this store runs on. Always the signed `restow` envelope.
+   */
+  private async loadProvider(due: DueDelivery): Promise<LoadedDelivery | null> {
+    if (!isUuid(due.id)) {
+      return null;
+    }
+    const [row] = await this.db
+      .select({
+        id: webhookDeliveries.id,
+        webhookId: providerWebhooks.id,
+        event: webhookDeliveries.event,
+        payload: webhookDeliveries.payload,
+        attempts: webhookDeliveries.attempts,
+        url: providerWebhooks.url,
+        active: providerWebhooks.active,
+        secretRef: providerWebhooks.secretRef,
+        name: providerWebhooks.name,
+      })
+      .from(webhookDeliveries)
+      .innerJoin(providerWebhooks, eq(providerWebhooks.id, webhookDeliveries.providerWebhookId))
+      .where(and(isNull(webhookDeliveries.tenantId), eq(webhookDeliveries.id, due.id)))
+      .limit(1);
+    return row ? { ...row, tenantId: null, format: "restow" } : null;
   }
 
   async record(
@@ -1004,7 +1047,27 @@ export class PgDeliveryStore implements DeliveryStore {
     now: Date,
     health?: WebhookHealthInput,
   ): Promise<void> {
-    await withTenantTx(this.db, due.tenantId, async (tx) => {
+    const tenantId = due.tenantId;
+    if (tenantId === null) {
+      await this.db.transaction(async (tx) => {
+        await tx
+          .update(webhookDeliveries)
+          .set({
+            status: plan.status,
+            attempts: plan.attempts,
+            lastError: plan.lastError,
+            nextAttemptAt: plan.nextAttemptAt,
+            deliveredAt: plan.deliveredAt,
+            updatedAt: now,
+          })
+          .where(and(isNull(webhookDeliveries.tenantId), eq(webhookDeliveries.id, due.id)));
+        if (health) {
+          await recordProviderWebhookHealth(tx, plan, now, health);
+        }
+      });
+      return;
+    }
+    await withTenantTx(this.db, tenantId, async (tx) => {
       await tx
         .update(webhookDeliveries)
         .set({
@@ -1015,9 +1078,9 @@ export class PgDeliveryStore implements DeliveryStore {
           deliveredAt: plan.deliveredAt,
           updatedAt: now,
         })
-        .where(and(eq(webhookDeliveries.tenantId, due.tenantId), eq(webhookDeliveries.id, due.id)));
+        .where(and(eq(webhookDeliveries.tenantId, tenantId), eq(webhookDeliveries.id, due.id)));
       if (health) {
-        await recordWebhookHealth(tx, due.tenantId, plan, now, health);
+        await recordWebhookHealth(tx, tenantId, plan, now, health);
       }
     });
   }
@@ -1037,6 +1100,136 @@ export class PgDeliveryStore implements DeliveryStore {
 }
 
 type HealthTx = Parameters<Parameters<typeof withTenantTx>[2]>[0];
+
+/** A transaction of the installation pool. */
+type InstallationTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/**
+ * The health of one of the provider's own webhooks after an attempt (0.6.0), as
+ * {@link recordWebhookHealth} keeps a tenant webhook's: a delivered attempt ends the failure
+ * episode, a failed one counts it, and once per episode (same rule, {@link webhookFailureAlertDue})
+ * `notification.delivery_failed` is raised for the provider: a notification without a tenant in
+ * the provider's bell and a `report_events` row the API's dispatcher fans out to the provider's
+ * recipients (`audience: "provider"`; no tenant rule ever sees it). Like a tenant webhook, a
+ * provider webhook that keeps failing stays active; it is paused by hand.
+ */
+export async function recordProviderWebhookHealth(
+  tx: InstallationTx,
+  plan: AttemptPlan,
+  now: Date,
+  health: WebhookHealthInput,
+): Promise<"reset" | "counted" | "alerted" | "unchanged"> {
+  const { delivery, failure } = health;
+  const hook = eq(providerWebhooks.id, delivery.webhookId);
+  if (plan.status === "delivered" || failure === null) {
+    const reset = await tx
+      .update(providerWebhooks)
+      .set({
+        consecutiveFailures: 0,
+        failingSince: null,
+        failureAlertedAt: null,
+        lastFailure: null,
+      })
+      .where(
+        and(
+          hook,
+          sql`(${providerWebhooks.consecutiveFailures} > 0 OR ${providerWebhooks.failingSince} IS NOT NULL OR ${providerWebhooks.failureAlertedAt} IS NOT NULL)`,
+        ),
+      )
+      .returning({ id: providerWebhooks.id });
+    return reset.length > 0 ? "reset" : "unchanged";
+  }
+  if (NOT_A_WEBHOOK_FAILURE.has(failure.code)) {
+    return "unchanged";
+  }
+  const lastError = plan.lastError ?? formatDeliveryError(failure);
+  const [row] = await tx
+    .update(providerWebhooks)
+    .set({
+      consecutiveFailures: sql`${providerWebhooks.consecutiveFailures} + 1`,
+      failingSince: sql`coalesce(${providerWebhooks.failingSince}, ${now.toISOString()}::timestamptz)`,
+      lastFailure: lastError,
+    })
+    .where(hook)
+    .returning({
+      name: providerWebhooks.name,
+      url: providerWebhooks.url,
+      consecutiveFailures: providerWebhooks.consecutiveFailures,
+      failingSince: providerWebhooks.failingSince,
+      failureAlertedAt: providerWebhooks.failureAlertedAt,
+    });
+  if (!row || row.failureAlertedAt !== null) {
+    return "counted";
+  }
+  const failingSince = row.failingSince ?? now;
+  if (
+    !webhookFailureAlertDue({
+      failure,
+      format: "restow",
+      consecutiveFailures: row.consecutiveFailures,
+      failingSince,
+      now,
+    })
+  ) {
+    return "counted";
+  }
+  const claimed = await tx
+    .update(providerWebhooks)
+    .set({ failureAlertedAt: now })
+    .where(and(hook, sql`${providerWebhooks.failureAlertedAt} IS NULL`))
+    .returning({ id: providerWebhooks.id });
+  if (claimed.length === 0) {
+    return "counted";
+  }
+  const [failed] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(webhookDeliveries)
+    .where(
+      and(
+        eq(webhookDeliveries.providerWebhookId, delivery.webhookId),
+        sql`${webhookDeliveries.status} <> 'delivered'`,
+        sql`${webhookDeliveries.attempts} > 0`,
+        sql`${webhookDeliveries.updatedAt} >= ${failingSince.toISOString()}::timestamptz`,
+      ),
+    );
+  const host = hostOf(row.url);
+  const message = `The provider webhook ${row.name ?? host} keeps failing: ${lastError}`;
+  const details: Record<string, unknown> = {
+    channel: "webhook",
+    scope: "webhook",
+    audience: "provider",
+    providerWebhookId: delivery.webhookId,
+    webhookName: row.name,
+    host,
+    format: "restow",
+    reason: failure.code,
+    httpStatus: failure.httpStatus,
+    detail: failure.detail ? sanitizeDetail(failure.detail) : null,
+    since: failingSince.toISOString(),
+    failedDeliveries: Math.max(1, failed?.count ?? 1),
+    objectName: row.name ?? host,
+    deliveryFailure: true,
+  };
+  await tx.insert(notifications).values({
+    tenantId: null,
+    level: "error",
+    event: DELIVERY_FAILED_EVENT,
+    message,
+    details,
+    createdAt: now,
+  });
+  await tx.insert(reportEvents).values({
+    tenantId: null,
+    event: DELIVERY_FAILED_EVENT,
+    level: "error",
+    subjectKey: subjectKeyOf(DELIVERY_FAILED_EVENT, details),
+    message,
+    details,
+    occurredAt: now,
+    createdAt: now,
+  });
+  return "alerted";
+}
 
 /**
  * A webhook's health after an attempt (0.5.0): a delivered attempt ends the failure episode; a
@@ -1207,58 +1400,85 @@ export function pgChatContextSource(
       .select({ publicUrl: settings.publicUrl })
       .from(settings)
       .limit(1);
-    const objectId = jobObjectId(delivery.payload);
-    const { tenant, objectName, objectKind } = await withTenantTx(
-      db,
-      delivery.tenantId,
-      async (tx) => {
-        const [row] = await tx
-          .select({ name: tenants.name, language: tenants.language })
-          .from(tenants)
-          .where(eq(tenants.id, delivery.tenantId))
-          .limit(1);
-        let name: string | null = null;
-        let kind: string | null = null;
-        if (objectId) {
-          const [object] = await tx
-            .select({
-              displayName: protectedObjects.displayName,
-              externalId: protectedObjects.externalId,
-              kind: protectedObjects.kind,
-            })
-            .from(protectedObjects)
-            .where(
-              and(
-                eq(protectedObjects.tenantId, delivery.tenantId),
-                eq(protectedObjects.id, objectId),
-              ),
-            )
-            .limit(1);
-          name = object ? object.displayName?.trim() || object.externalId : null;
-          kind = object?.kind ?? null;
-        }
-        return { tenant: row ?? null, objectName: name, objectKind: kind };
-      },
-    );
-    const language: SupportedLanguage = tenant?.language ?? defaultLanguage;
     const publicUrl = originOf(installation?.publicUrl) ?? originOf(env.RESTOW_PUBLIC_URL);
+    const tenantId = delivery.tenantId;
+    // A provider webhook (0.6.0) is always the signed envelope; neutral should one ever get here.
+    if (tenantId === null) {
+      return { language: defaultLanguage, tenantName: "", publicUrl, objectName: null };
+    }
+    const objectId = jobObjectId(delivery.payload);
+    const { tenant, objectName, objectKind } = await withTenantTx(db, tenantId, async (tx) => {
+      const [row] = await tx
+        .select({ name: tenants.name, language: tenants.language })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      let name: string | null = null;
+      let kind: string | null = null;
+      if (objectId) {
+        const [object] = await tx
+          .select({
+            displayName: protectedObjects.displayName,
+            externalId: protectedObjects.externalId,
+            kind: protectedObjects.kind,
+          })
+          .from(protectedObjects)
+          .where(and(eq(protectedObjects.tenantId, tenantId), eq(protectedObjects.id, objectId)))
+          .limit(1);
+        name = object ? object.displayName?.trim() || object.externalId : null;
+        kind = object?.kind ?? null;
+      }
+      return { tenant: row ?? null, objectName: name, objectKind: kind };
+    });
+    const language: SupportedLanguage = tenant?.language ?? defaultLanguage;
     return {
       language,
-      tenantName: tenant?.name ?? delivery.tenantId,
+      tenantName: tenant?.name ?? tenantId,
       publicUrl,
       objectName,
       objectKind,
-      brand: await loadChatBrand(db, delivery.tenantId, gate, publicUrl),
+      brand: await loadChatBrand(db, tenantId, gate, publicUrl),
     };
   };
 }
 
-/** Opens a webhook's signing secret; null when the secret row is gone. */
-export type SecretSource = (tenantId: string, secretRef: string) => Promise<string | null>;
+/**
+ * Opens a webhook's signing secret; null when the secret row is gone. `tenantId` null: a
+ * provider webhook's secret (0.6.0), sealed at installation level.
+ */
+export type SecretSource = (tenantId: string | null, secretRef: string) => Promise<string | null>;
 
-/** Secrets sealed by the API under the tenant DEK, opened with the worker's keyrings. */
-export function keyringSecretSource(runtime: Pick<WorkerRuntime, "db" | "keyrings">): SecretSource {
+/** An installation-level secret (tenant_id null), opened with the installation secrets key. */
+export async function readInstallationSecret(
+  db: Database,
+  key: Dek,
+  secretRef: string,
+): Promise<string | null> {
+  if (!isUuid(secretRef)) {
+    return null;
+  }
+  const [row] = await db
+    .select({ id: secrets.id, ciphertext: secrets.ciphertext })
+    .from(secrets)
+    .where(and(isNull(secrets.tenantId), eq(secrets.id, secretRef)))
+    .limit(1);
+  return row ? openSecret(key, row.id, row.ciphertext) : null;
+}
+
+/**
+ * Secrets sealed by the API under the tenant DEK, opened with the worker's keyrings; a provider
+ * webhook's under the installation key derived from the master key (without one: none).
+ */
+export function keyringSecretSource(
+  runtime: Pick<WorkerRuntime, "db" | "keyrings">,
+  installationKey?: () => Dek,
+): SecretSource {
   return async (tenantId, secretRef) => {
+    if (tenantId === null) {
+      return installationKey
+        ? readInstallationSecret(runtime.db, installationKey(), secretRef)
+        : null;
+    }
     const keys = await runtime.keyrings.get(tenantId);
     return new PgSecretReader(tenantRunner(runtime.db, tenantId), tenantId, keys).get(secretRef);
   };
@@ -1489,7 +1709,7 @@ export class WebhookDispatcher {
         ? await this.deps.chatContext(delivery)
         : {
             language: defaultLanguage,
-            tenantName: delivery.tenantId,
+            tenantName: delivery.tenantId ?? "",
             publicUrl: null,
             objectName: null,
           };
@@ -1619,11 +1839,17 @@ export const webhooksHandler = {
     options: WebhookDispatcherOptions = webhookOptionsFromEnv(),
     /** The worker's feature gate: whether chat messages carry the branding (0.5.0). */
     gate?: WorkerFeatureGate,
+    /** RESTOW_MASTER_KEY: opens the provider webhooks' secrets (0.6.0). */
+    masterKey?: string,
   ): WebhookDispatcher {
+    const kek = masterKey ? kekFromBase64(masterKey) : null;
     const dispatcher = new WebhookDispatcher(
       {
         store: new PgDeliveryStore(runtime.db),
-        secrets: keyringSecretSource(runtime),
+        secrets: keyringSecretSource(
+          runtime,
+          kek ? () => deriveInstallationSecretsKey(kek) : undefined,
+        ),
         chatContext: pgChatContextSource(runtime.db, process.env, gate),
         transport: createHttpTransport({ allowPrivateNetworks: options.allowPrivateNetworks }),
         logger: runtime.logger.child({ component: "webhooks" }),

@@ -1,6 +1,7 @@
 import type { ApiExtension } from "../../../apps/api/src/extensions.js";
 import { auditLogRoutes } from "./audit-log/routes.js";
 import { billingCloseService } from "./billing-close/job.js";
+import { billingRoutes } from "./billing-close/routes.js";
 import { forwardingRoutes } from "./forwarding/routes.js";
 import { journalRoutes } from "./journal/routes.js";
 import { journalReceiverService } from "./journal/service.js";
@@ -18,6 +19,10 @@ export { runStartupLicenseCheck } from "./license/startup-check.js";
 import { registerProviderRoutes } from "./provider-api/routes.js";
 import { providerDashboardLoader } from "./provider-dashboard/view.js";
 import { eeProviderRouteRules } from "./provider-rules.js";
+import {
+  providerWebhookRoutes,
+  registerProviderWebhookRoutes,
+} from "./provider-webhooks/routes.js";
 import { reportsExtensionHooks } from "./reports/summary.js";
 import { microsoftSignInGuard, microsoftSignInProvider } from "./sso/access.js";
 
@@ -36,8 +41,10 @@ export const eeApiExtension: ApiExtension = {
     journalRoutes,
     forwardingRoutes,
     legalHoldRoutes,
+    billingRoutes,
+    providerWebhookRoutes,
   ],
-  integrationRoutes: [registerProviderRoutes],
+  integrationRoutes: [registerProviderRoutes, registerProviderWebhookRoutes],
   authRouteGuards: [microsoftSignInGuard],
   signInProviders: [microsoftSignInProvider],
   services: [journalReceiverService, pendingLicenseKeyService, billingCloseService],

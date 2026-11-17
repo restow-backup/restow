@@ -179,6 +179,24 @@ describe("where a failed delivery leads (0.5.0)", () => {
     expect(notificationTarget(item, admin)).toBeNull();
   });
 
+  it("leads one of the provider's own webhooks (0.6.0) to Installation, Provider API", () => {
+    const item = {
+      event,
+      tenantId: null,
+      details: {
+        channel: "webhook",
+        scope: "webhook",
+        audience: "provider",
+        providerWebhookId: webhookId,
+      },
+    };
+    expect(notificationTarget(item, provider)).toEqual({
+      to: "/installation/provider-api",
+      tenantId: null,
+    });
+    expect(notificationTarget(item, admin)).toBeNull();
+  });
+
   it("leads a transport that is down to Installation, Notification mail", () => {
     const item = { event, tenantId: null, details: { channel: "email", scope: "transport" } };
     expect(notificationTarget(item, provider)).toEqual({

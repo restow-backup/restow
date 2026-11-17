@@ -327,13 +327,14 @@ describe("registration", () => {
     );
   });
 
-  it("adds the sections of the installation page: journal receiving, provider API and the license", () => {
+  it("adds the sections of the installation page: journal receiving, provider API, billing and the license", () => {
     expect(extensionInstallationSections()).toEqual([]);
     registerWebExtension(eeWebExtension);
     const sections = extensionInstallationSections();
     expect(sections.map((section) => [section.id, section.order])).toEqual([
       ["journal", 40],
       ["provider-api", 60],
+      ["billing", 61],
       ["license", 80],
     ]);
     const community = { features: [], extensions: { edition: "community" } };
@@ -345,6 +346,8 @@ describe("registration", () => {
     expect(lockOf("journal")?.isLocked(business)).toBe(false);
     expect(lockOf("provider-api")?.isLocked(business)).toBe(true);
     expect(lockOf("provider-api")?.isLocked(provider)).toBe(false);
+    expect(lockOf("billing")?.isLocked(business)).toBe(true);
+    expect(lockOf("billing")?.isLocked(provider)).toBe(false);
     // ... and lead to the license section, which no edition locks: it is where the key goes in.
     expect(lockOf("journal")?.to).toBe("/installation/license");
     expect(lockOf("journal")?.search).toEqual({ requires: "business" });

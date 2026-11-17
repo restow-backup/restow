@@ -7,6 +7,7 @@ import {
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { FILE_SHARES_PATH } from "@/features/file-shares/paths";
 import { installationSectionPath } from "@/features/installation/paths";
+import { PROVIDER_API_SECTION_ID } from "@/features/integrations/paths";
 import { guestTo } from "@/features/pve/paths";
 import { RESTORE_PATHS } from "@/features/restore/navigation";
 import { sourceDetailTo } from "@/features/sources/paths";
@@ -180,6 +181,12 @@ function deliveryFailureTarget(
   const tenantId = item.tenantId;
   if (scope === "transport") {
     return viewer.isProviderAdmin ? { to: installationSectionPath("mail"), tenantId: null } : null;
+  }
+  // One of the provider's own webhooks (0.6.0): Installation › Provider API.
+  if (text(details.providerWebhookId)) {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath(PROVIDER_API_SECTION_ID), tenantId: null }
+      : null;
   }
   const webhookId = text(details.webhookId);
   if (scope === "webhook" || webhookId) {

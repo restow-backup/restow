@@ -9,6 +9,8 @@ import {
   billingSamples,
   type Database,
   safeErrorMessage,
+  settings,
+  type TenantPricing,
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, gte, inArray, lt, ne, notExists, sql } from "drizzle-orm";
@@ -28,7 +30,18 @@ import { featureEnabled } from "../../../../apps/api/src/lib/features.js";
 import { loadInstallationTimeZone } from "../../../../apps/api/src/lib/installation-time-zone.js";
 import type { DbExecutor } from "../../../../apps/api/src/lib/tenant-context.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
-import { type ClosedTenant, closeTenant, type DaySample, periodTotal } from "./peaks.js";
+import {
+  PROVIDER_WEBHOOK_BILLING_CLOSED,
+  queueProviderWebhookEvent,
+} from "../provider-webhooks/service.js";
+import {
+  type ClosedTenant,
+  closeTenant,
+  type DaySample,
+  monthEndPrices,
+  periodTotal,
+  pricesInForce,
+} from "./peaks.js";
 import {
   daysInPeriod,
   localDay,
@@ -68,6 +81,8 @@ export const BILLING_AUDIT_ACTIONS = {
   periodClosed: "billing.period.closed",
   /** The tenant's chain, in the transaction of the correction. */
   correctionCreated: "billing.correction.created",
+  /** Installation chain: a closed month exported as CSV (Installation › Billing). */
+  exported: "billing.period.exported",
 } as const;
 
 /** The gated feature that opens the provider API (Service Provider): no close without it. */
@@ -126,9 +141,13 @@ export interface SampleSummary {
 }
 
 /** Tenants (not being deleted) without a sample for `day`, the oldest first. */
-async function tenantsDue(providerDb: Database, day: string, limit: number): Promise<string[]> {
-  const rows = await providerDb
-    .select({ id: tenants.id })
+async function tenantsDue(
+  providerDb: Database,
+  day: string,
+  limit: number,
+): Promise<{ id: string; pricing: TenantPricing }[]> {
+  return providerDb
+    .select({ id: tenants.id, pricing: tenants.pricing })
     .from(tenants)
     .where(
       and(
@@ -143,13 +162,13 @@ async function tenantsDue(providerDb: Database, day: string, limit: number): Pro
     )
     .orderBy(asc(tenants.createdAt), asc(tenants.id))
     .limit(limit);
-  return rows.map((row) => row.id);
 }
 
 /**
  * Write today's sample (`timeZone`'s day of `now`) for the tenants that have none yet, at most
- * {@link SAMPLES_PER_PASS}. A tenant whose figures cannot be read stays due; two processes that
- * sample the same tenant write one row.
+ * {@link SAMPLES_PER_PASS}: the quantities and the prices in force today (the installation's, the
+ * tenant's own where the gate `tenants.additional` is open). A tenant whose figures cannot be read
+ * stays due; two processes that sample the same tenant write one row.
  */
 export async function sampleDueTenants(
   deps: BillingCloseDeps,
@@ -161,7 +180,13 @@ export async function sampleDueTenants(
   const period = periodOfDay(day);
   const read = deps.readFigures ?? readTenantFigures;
   const due = await tenantsDue(deps.providerDb, day, options.limit ?? SAMPLES_PER_PASS);
-  const outcomes = await mapBounded(due, TENANT_READS_AT_ONCE, async (tenantId) => {
+  if (due.length === 0) {
+    return { day, sampled: 0, failed: 0 };
+  }
+  const pricing = await getPricing(deps.providerDb);
+  const overridesEnabled = await featureEnabled(TENANT_PRICING_FEATURE, deps.providerDb);
+  const outcomes = await mapBounded(due, TENANT_READS_AT_ONCE, async (tenant) => {
+    const tenantId = tenant.id;
     try {
       const figures = await read(deps.db, tenantId);
       return await deps.providerDb.transaction(async (tx) => {
@@ -172,7 +197,12 @@ export async function sampleDueTenants(
         }
         await tx
           .insert(billingSamples)
-          .values({ tenantId, day, quantities: quantitiesOf(figures) })
+          .values({
+            tenantId,
+            day,
+            quantities: quantitiesOf(figures),
+            prices: pricesInForce({ pricing, own: tenant.pricing, overridesEnabled }),
+          })
           .onConflictDoNothing();
         return "sampled" as const;
       });
@@ -249,6 +279,7 @@ export async function closePeriod(
         tenantId: billingSamples.tenantId,
         day: billingSamples.day,
         quantities: billingSamples.quantities,
+        prices: billingSamples.prices,
       })
       .from(billingSamples)
       .where(and(gte(billingSamples.day, range.first), lt(billingSamples.day, range.end)));
@@ -258,11 +289,14 @@ export async function closePeriod(
     const byTenant = new Map<string, DaySample[]>();
     for (const sample of samples) {
       const list = byTenant.get(sample.tenantId) ?? [];
-      list.push({ day: sample.day, quantities: sample.quantities });
+      list.push({ day: sample.day, quantities: sample.quantities, prices: sample.prices });
       byTenant.set(sample.tenantId, list);
     }
+    // The prices at the close only stand in for samples that did not record theirs (written
+    // before 0.6.0's migration 0107); the month's end is what counts.
     const pricing = await getPricing(tx);
     const overridesEnabled = await featureEnabled(TENANT_PRICING_FEATURE, tx);
+    const monthEnd = monthEndPrices(samples)?.prices ?? null;
     const rows = await tx
       .select({
         id: tenants.id,
@@ -289,11 +323,11 @@ export async function closePeriod(
         startsAt,
         endsAt,
         closedAt: now,
-        currency: pricing.currency,
-        storageUnit: pricing.storageUnit,
-        storageBilling: pricing.storageBilling,
-        prices: { ...globalPriceSet(pricing) },
-        perTenantOverrides: overridesEnabled,
+        currency: monthEnd?.currency ?? pricing.currency,
+        storageUnit: monthEnd?.storageUnit ?? pricing.storageUnit,
+        storageBilling: monthEnd?.storageBilling ?? pricing.storageBilling,
+        prices: monthEnd ? { ...monthEnd.installation } : { ...globalPriceSet(pricing) },
+        perTenantOverrides: monthEnd?.perTenantOverrides ?? overridesEnabled,
         days: daysInPeriod(period),
         sampledDays,
         total,
@@ -329,13 +363,44 @@ export async function closePeriod(
         timeZone,
         tenants: closed.length,
         total,
-        currency: pricing.currency,
+        currency: monthEnd?.currency ?? pricing.currency,
         days: daysInPeriod(period),
         sampledDays,
       },
     });
+    // The provider's webhooks (0.6.0), queued in this transaction: exactly when the close commits.
+    await queueProviderWebhookEvent(tx, {
+      event: PROVIDER_WEBHOOK_BILLING_CLOSED,
+      data: {
+        period,
+        closedAt: now.toISOString(),
+        currency: monthEnd?.currency ?? pricing.currency,
+        tenants: closed.length,
+        total,
+        url: await periodUrl(tx, period),
+      },
+      now,
+    });
     return { status: "closed", period, tenants: closed.length, total } as const;
   });
+}
+
+/**
+ * Where a tool reads the closed month: the integration API's period, absolute with the
+ * installation's public URL (Installation › Server, else RESTOW_PUBLIC_URL), else as a path.
+ */
+export async function periodUrl(tx: DbExecutor, period: string): Promise<string> {
+  const path = `/api/v1/provider/billing/periods/${period}`;
+  const [row] = await tx.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
+  const base = row?.publicUrl ?? process.env.RESTOW_PUBLIC_URL ?? null;
+  if (!base) {
+    return path;
+  }
+  try {
+    return new URL(path, new URL(base).origin).toString();
+  } catch {
+    return path;
+  }
 }
 
 /** Close every month that is due, oldest first. */
@@ -494,7 +559,7 @@ export interface CorrectionInput {
   lineType: string | null;
   amount: number;
   reason: string;
-  actor: { label: string; keyId: string | null; ip: string | null };
+  actor: { label: string; keyId: string | null; ip: string | null; userId?: string | null };
 }
 
 /**
@@ -550,7 +615,7 @@ export async function createCorrection(
     await (deps.audit ?? appendAudit)(tx, {
       tenantId: input.tenantId,
       actor: input.actor.label,
-      actorUserId: null,
+      actorUserId: input.actor.userId ?? null,
       action: BILLING_AUDIT_ACTIONS.correctionCreated,
       target: row.id,
       targetType: "billing_correction",

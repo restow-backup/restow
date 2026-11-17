@@ -56,6 +56,7 @@ function delivery(overrides: Partial<WebhookDelivery> = {}): WebhookDelivery {
     id: DELIVERY,
     tenantId: TENANT,
     webhookId: HOOK,
+    providerWebhookId: null,
     event: "job.failed",
     payload: { id: "evt-1", event: "job.failed" },
     status: "pending",

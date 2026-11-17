@@ -6,15 +6,21 @@
  * fan-out, claiming with leases, recording and pruning (database
  * `restow_worker_webhooks_test`, recreated per run).
  */
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { webhookColumnUpdate, webhookSubscriptionUpdate } from "@restow/core";
+import {
+  deriveInstallationSecretsKey,
+  sealSecret,
+  webhookColumnUpdate,
+  webhookSubscriptionUpdate,
+} from "@restow/core";
 import {
   createDb,
   type Database,
   notifications,
   providers,
+  providerWebhooks,
   reportDeliveries,
   reportEvents,
   reportRules,
@@ -52,6 +58,7 @@ import {
   isPermanentFailure,
   jobEventData,
   jobWebhookEvent,
+  keyringSecretSource,
   type LoadedDelivery,
   PgDeliveryStore,
   parseRetryAfter,
@@ -792,7 +799,8 @@ class MemoryStore implements DeliveryStore {
 function dispatcherWith(
   store: MemoryStore,
   transport: (request: WebhookHttpRequest) => Promise<ReceiverResponse>,
-  secrets: (tenantId: string, ref: string) => Promise<string | null> = async () => "whsec_test",
+  secrets: (tenantId: string | null, ref: string) => Promise<string | null> = async () =>
+    "whsec_test",
   options = {},
   disabled = false,
   chatContext?: ChatContextSource,
@@ -1612,5 +1620,155 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
         await db.delete(webhookDeliveries);
       }
     });
+  });
+
+  it("delivers a provider webhook (0.6.0) signed with its installation secret, and keeps its health", async () => {
+    await db.delete(webhookDeliveries);
+    const kek = randomBytes(32);
+    const key = deriveInstallationSecretsKey(kek);
+    const secretId = randomUUID();
+    await db.insert(secrets).values({
+      id: secretId,
+      tenantId: null,
+      kind: "webhook_signing_secret",
+      ciphertext: sealSecret(key, secretId, "whsec_provider"),
+    });
+    const [provider] = await db.select({ id: providers.id }).from(providers).limit(1);
+    let answer = 200;
+    let received: { headers: IncomingMessage["headers"]; body: string } | null = null;
+    const { server, url } = await startServer((req, res, body) => {
+      received = { headers: req.headers, body };
+      res.writeHead(answer);
+      res.end("ok");
+    });
+    const [hook] = await db
+      .insert(providerWebhooks)
+      .values({
+        providerId: provider?.id ?? "",
+        name: "Billing",
+        url: `${url}/billing`,
+        secretRef: secretId,
+        events: ["billing.period_closed"],
+      })
+      .returning();
+    const queue = async (id: string) => {
+      const [row] = await db
+        .insert(webhookDeliveries)
+        .values({
+          tenantId: null,
+          webhookId: null,
+          providerWebhookId: hook?.id ?? "",
+          event: "billing.period_closed",
+          payload: {
+            id,
+            event: "billing.period_closed",
+            version: 1,
+            scope: "provider",
+            data: { period: "2026-10", tenants: 3, total: 120 },
+          },
+          status: "pending",
+          nextAttemptAt: new Date(),
+        })
+        .returning({ id: webhookDeliveries.id });
+      return row?.id ?? "";
+    };
+    // A little ahead of the rows queued below, so each is due at once.
+    let clock = Date.now() + MINUTE;
+    const dispatcher = new WebhookDispatcher(
+      {
+        store: new PgDeliveryStore(db),
+        secrets: keyringSecretSource(
+          {
+            db,
+            keyrings: {
+              get: async () => {
+                throw new Error("no tenant keyring");
+              },
+            },
+          } as never,
+          () => key,
+        ),
+        transport: createHttpTransport({ allowPrivateNetworks: true }),
+        logger: silentLogger,
+        now: () => new Date(clock),
+      },
+      DEFAULT_WEBHOOK_OPTIONS,
+    );
+    try {
+      // A delivery row needs exactly one owner: never a tenant and a provider webhook together.
+      await expect(
+        db.insert(webhookDeliveries).values({
+          tenantId,
+          webhookId: subscribed,
+          providerWebhookId: hook?.id ?? "",
+          event: "billing.period_closed",
+          payload: {},
+        }),
+      ).rejects.toThrow();
+
+      const delivered = await queue("evt-provider-1");
+      expect(await dispatcher.runOnce()).toBe(1);
+      const got = received as unknown as { headers: IncomingMessage["headers"]; body: string };
+      expect(JSON.parse(got.body)).toMatchObject({
+        id: "evt-provider-1",
+        scope: "provider",
+        data: { period: "2026-10" },
+      });
+      expect(got.headers["x-restow-event"]).toBe("billing.period_closed");
+      expect(got.headers["x-restow-delivery"]).toBe(delivered);
+      expect(got.headers["x-restow-signature"]).toBe(
+        `sha256=${createHmac("sha256", "whsec_provider").update(got.body).digest("hex")}`,
+      );
+      const [row] = await db
+        .select()
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.id, delivered));
+      expect(row).toMatchObject({ status: "delivered", attempts: 1, tenantId: null });
+
+      // A receiver that is gone (410) gives the delivery up and alerts the provider once.
+      answer = 410;
+      clock += MINUTE;
+      const gone = await queue("evt-provider-2");
+      expect(await dispatcher.runOnce()).toBe(1);
+      const [failed] = await db
+        .select()
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.id, gone));
+      expect(failed?.status).toBe("failed");
+      const [health] = await db
+        .select()
+        .from(providerWebhooks)
+        .where(eq(providerWebhooks.id, hook?.id ?? ""));
+      expect(health).toMatchObject({ consecutiveFailures: 1 });
+      expect(health?.failureAlertedAt).toBeInstanceOf(Date);
+      const bell = await db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.event, "notification.delivery_failed"));
+      const alert = bell.find((entry) => entry.details?.providerWebhookId === hook?.id);
+      expect(alert).toMatchObject({ tenantId: null, level: "error" });
+      expect(alert?.details).toMatchObject({ audience: "provider", scope: "webhook" });
+      const fanned = await db
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.event, "notification.delivery_failed"));
+      expect(fanned.some((entry) => entry.tenantId === null)).toBe(true);
+
+      // The next delivered attempt ends the episode.
+      answer = 200;
+      clock += MINUTE;
+      await queue("evt-provider-3");
+      expect(await dispatcher.runOnce()).toBe(1);
+      const [healed] = await db
+        .select()
+        .from(providerWebhooks)
+        .where(eq(providerWebhooks.id, hook?.id ?? ""));
+      expect(healed).toMatchObject({ consecutiveFailures: 0, failingSince: null });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await db.delete(webhookDeliveries);
+      await db.delete(providerWebhooks);
+    }
   });
 });

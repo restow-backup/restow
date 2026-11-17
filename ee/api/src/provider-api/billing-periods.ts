@@ -1,9 +1,16 @@
-import type { BillingCorrectionRow } from "@restow/db";
+import type { BillingCorrectionRow, Database } from "@restow/db";
 import { z } from "zod";
+import { type CsvValue, toCsv } from "../../../../apps/api/src/features/stats/csv.js";
+import { loadInstallationTimeZone } from "../../../../apps/api/src/lib/installation-time-zone.js";
+import { ProblemError } from "../../../../apps/api/src/problem.js";
 import { component } from "../../../../apps/api/src/routes/v1/components.js";
 import { timestampSchema, uuidSchema } from "../../../../apps/api/src/routes/v1/schemas.js";
 import { localDay, nextPeriod, periodBounds, periodOfDay } from "../billing-close/period.js";
-import type { LoadedPeriod, listClosedPeriods } from "../billing-close/service.js";
+import {
+  type LoadedPeriod,
+  type listClosedPeriods,
+  loadClosedPeriod,
+} from "../billing-close/service.js";
 import {
   BILLING_LINE_TYPES,
   billingLineSchema,
@@ -61,7 +68,11 @@ export const billingPeriodLineSchema = component(
       .describe(
         "The month's peak: the highest daily quantity (for `storage` the highest stored bytes, rounded and in `unit` as the installation said at the close).",
       ),
-    unitPrice: z.number().describe("The price per `unit` in force at the close."),
+    unitPrice: z
+      .number()
+      .describe(
+        "The price per `unit` in force at the month's end (the tenant's last sampled day).",
+      ),
     peakDate: daySchema.describe("The first day the peak was reached."),
   }),
 );
@@ -278,4 +289,131 @@ export function periodTenantByCustomerNumber(
 ): string | undefined {
   const wanted = customerNumber.trim().toLowerCase();
   return loaded.tenants.find((row) => row.customerNumber?.toLowerCase() === wanted)?.tenantId;
+}
+
+/**
+ * A closed month, or the problem that says why there is none: 404
+ * `urn:restow:problem:billing-period-open` (with `closesAt`) for the current month or a later
+ * one, 404 for a past month without a close.
+ */
+export async function loadClosedPeriodOrProblem(
+  providerDb: Database,
+  period: string,
+  now: Date,
+): Promise<LoadedPeriod> {
+  const { timeZone } = await loadInstallationTimeZone(providerDb);
+  const open = openPeriod(now, timeZone);
+  if (period >= open.period) {
+    throw new ProblemError(404, "Billing period open", {
+      type: BILLING_PERIOD_OPEN_PROBLEM,
+      detail:
+        period === open.period
+          ? "The current month is closed on the 1st of the next month; GET /provider/billing estimates it."
+          : "This month has not begun.",
+      extensions: { period, closesAt: period === open.period ? open.closesAt : null },
+    });
+  }
+  const loaded = await loadClosedPeriod(providerDb, period);
+  if (!loaded) {
+    throw new ProblemError(404, "Billing period not found", {
+      detail:
+        "This month has no close: no tenant was sampled in it, or its close has not run yet (within a minute after the month ends).",
+    });
+  }
+  return loaded;
+}
+
+/**
+ * The columns of a closed month's CSV export (Installation › Billing; docs/ARCHITECTURE.md,
+ * "Monatsabschluss der Abrechnung"): one row per tenant and line, a tenant without a line in one
+ * row with empty line columns, and one row per correction (`row` = `correction`, its amount and
+ * reason). Field names of the JSON contract, the same in every language.
+ */
+export const PERIOD_CSV_COLUMNS = [
+  "period",
+  "tenantId",
+  "tenantName",
+  "customerNumber",
+  "kind",
+  "status",
+  "sampledDays",
+  "days",
+  "row",
+  "type",
+  "quantity",
+  "unit",
+  "unitPrice",
+  "priceSource",
+  "amount",
+  "peakDate",
+  "currency",
+  "reason",
+  "createdAt",
+] as const;
+
+/** A closed month as CSV (RFC 4180, UTF-8 with BOM, formula triggers neutralised); pure. */
+export function periodCsv(loaded: LoadedPeriod): string {
+  const dto = periodDto(loaded);
+  const rows: CsvValue[][] = [];
+  for (const tenant of dto.tenants) {
+    const base: CsvValue[] = [
+      dto.period,
+      tenant.tenantId,
+      tenant.name,
+      tenant.customerNumber,
+      tenant.kind,
+      tenant.status,
+      tenant.sampledDays,
+      dto.days,
+    ];
+    if (tenant.lines.length === 0) {
+      rows.push([
+        ...base,
+        "line",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        dto.currency,
+        null,
+        null,
+      ]);
+    }
+    for (const line of tenant.lines) {
+      rows.push([
+        ...base,
+        "line",
+        line.type,
+        line.quantity,
+        line.unit,
+        line.unitPrice,
+        line.priceSource,
+        line.amount,
+        line.peakDate,
+        dto.currency,
+        null,
+        null,
+      ]);
+    }
+    for (const correction of tenant.corrections) {
+      rows.push([
+        ...base,
+        "correction",
+        correction.type,
+        null,
+        null,
+        null,
+        null,
+        correction.amount,
+        null,
+        dto.currency,
+        correction.reason,
+        correction.createdAt,
+      ]);
+    }
+  }
+  return toCsv(PERIOD_CSV_COLUMNS, rows);
 }

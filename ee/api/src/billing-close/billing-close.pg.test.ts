@@ -25,8 +25,10 @@ import {
   createDb,
   type Database,
   providers,
+  providerWebhooks,
   settings,
   tenants,
+  webhookDeliveries,
 } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -214,7 +216,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the monthly billing close against Postgr
     expect(nextDay.day).toBe("2026-02-01");
   });
 
-  it("closes a month at its peak with the prices of the close, and the close never changes", async () => {
+  it("closes a month at its peak, and the database refuses any change of the closed month [BILLING-001]", async () => {
     const peak = await addTenant("Peak", { customerNumber: "K-7001" });
     const midMonth = await addTenant("MidMonth");
     const leaving = await addTenant("Leaving", { customerNumber: "K-7003" });
@@ -229,7 +231,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the monthly billing close against Postgr
     await sample(leaving, "2026-03-02", 8);
     await owner.update(tenants).set({ status: "deleting" }).where(eq(tenants.id, leaving));
     await sample(own, "2026-03-05", 50);
-    // A price change mid-month does not matter: the price at the close counts.
+    // These samples were written as before migration 0107, without the prices of their day:
+    // for them the close falls back to the prices in force when it runs.
     await setPrices({ currency: "EUR", mailboxPrice: 3, storagePrice: 10, storageUnit: "TB" });
 
     // Not before 00:00 on 1 April in Berlin (22:00 UTC on 31 March, summer time).
@@ -339,7 +342,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the monthly billing close against Postgr
     await setPrices({ currency: "EUR", mailboxPrice: 2, storagePrice: 10, storageUnit: "TB" });
   });
 
-  it("adds corrections next to a closed month, audited in the tenant's chain, and refuses changing them", async () => {
+  it("adds corrections next to a closed month, audited in the tenant's chain, and refuses changing them [BILLING-001]", async () => {
     const loaded = await service.loadClosedPeriod(providerDb, "2026-03");
     const peak = loaded?.tenants.find((row) => row.name === "Peak")?.tenantId as string;
     const actor = { label: "api-key:test", keyId: "test", ip: "192.0.2.7" };
@@ -510,5 +513,134 @@ describe.skipIf(!testDatabaseAdminUrl)("the monthly billing close against Postgr
       (await owner.select().from(billingSamples).where(eq(billingSamples.day, "2026-08-01")))
         .length,
     ).toBeGreaterThan(0);
+  });
+
+  it("bills the prices of the month's end, also when the close runs days late after a price change", async () => {
+    const monthEnd = await addTenant("MonthEnd", { customerNumber: "K-9001" });
+    const own = await addTenant("OwnPrice", { pricing: { mailboxPrice: 1.5 } });
+    figures.set(monthEnd, { mailboxes: 5, storedBytes: 0, units: { ...UNITS } });
+    figures.set(own, { mailboxes: 4, storedBytes: 0, units: { ...UNITS } });
+    await setPrices({ currency: "EUR", mailboxPrice: 2 });
+    await service.sampleDueTenants(deps, noon("2026-09-10"), ZONE);
+    // A price change mid-month: the month's end counts.
+    await setPrices({ currency: "EUR", mailboxPrice: 3 });
+    await service.sampleDueTenants(deps, noon("2026-09-30"), ZONE);
+    const [recorded] = await owner
+      .select({ prices: billingSamples.prices })
+      .from(billingSamples)
+      .where(and(eq(billingSamples.tenantId, own), eq(billingSamples.day, "2026-09-30")));
+    expect(recorded?.prices?.lines.mailboxes).toEqual({ unitPrice: 1.5, source: "tenant" });
+    expect(recorded?.prices?.installation.mailboxPrice).toBe(3);
+    // The server was off on the 1st; the provider raised the price meanwhile.
+    await setPrices({ currency: "CHF", mailboxPrice: 7 });
+
+    const hooks = await import("../provider-webhooks/service.js");
+    const hook = await hooks.createProviderWebhook(
+      { providerDb },
+      { name: "PSA", url: "https://psa.example/hooks/restow", active: true },
+      { label: "owner@provider.example", userId: null, ip: "192.0.2.1" },
+    );
+    expect(hook.secret).toMatch(/^whsec_/);
+    expect(hook.events).toEqual(["billing.period_closed"]);
+
+    const late = new Date("2026-10-03T08:00:00.000Z");
+    expect(await service.closePeriod(deps, "2026-09", late, ZONE)).toMatchObject({
+      status: "closed",
+    });
+    const closed = await service.loadClosedPeriod(providerDb, "2026-09");
+    expect(closed?.period).toMatchObject({ currency: "EUR", closedAt: late });
+    expect(closed?.period.prices).toMatchObject({ mailboxPrice: 3 });
+    const byId = new Map(closed?.tenants.map((row) => [row.tenantId, row]));
+    expect(byId.get(monthEnd)?.lines[0]).toMatchObject({
+      type: "mailboxes",
+      quantity: 5,
+      unitPrice: 3,
+      priceSource: "installation",
+      amount: 15,
+    });
+    expect(byId.get(own)?.lines[0]).toMatchObject({ unitPrice: 1.5, priceSource: "tenant" });
+
+    // The provider's webhook got `billing.period_closed` in the close's transaction.
+    const [delivery] = await owner
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.providerWebhookId, hook.id));
+    expect(delivery).toMatchObject({
+      tenantId: null,
+      webhookId: null,
+      event: "billing.period_closed",
+      status: "pending",
+    });
+    expect(delivery?.payload).toMatchObject({
+      event: "billing.period_closed",
+      scope: "provider",
+      data: {
+        period: "2026-09",
+        closedAt: late.toISOString(),
+        currency: "EUR",
+        tenants: closed?.tenants.length,
+        total: closed?.period.total,
+        url: "/api/v1/provider/billing/periods/2026-09",
+      },
+    });
+    // No tenant figures in the payload: those are read, audited, at `url`.
+    expect(JSON.stringify(delivery?.payload)).not.toContain("K-9001");
+    await setPrices({ currency: "EUR", mailboxPrice: 2, storagePrice: 10, storageUnit: "TB" });
+  });
+
+  it("manages the provider's webhooks with an audit entry for each change and a readable secret", async () => {
+    const hooks = await import("../provider-webhooks/service.js");
+    const { readSecret } = await import("../../../../apps/api/src/lib/secrets.js");
+    const actor = { label: "api-key:psa", userId: null, ip: "192.0.2.9", keyId: "psa" };
+    const created = await hooks.createProviderWebhook(
+      { providerDb },
+      { name: "Billing", url: "https://billing.example/in?token=abc", events: [], active: true },
+      actor,
+    );
+    const [row] = await owner
+      .select()
+      .from(providerWebhooks)
+      .where(eq(providerWebhooks.id, created.id));
+    expect(await readSecret(providerDb, { id: row?.secretRef as string, tenantId: null })).toBe(
+      created.secret,
+    );
+    await hooks.updateProviderWebhook(
+      { providerDb },
+      created.id,
+      { events: ["billing.period_closed"], name: "Billing tool" },
+      actor,
+    );
+    const test = await hooks.sendProviderWebhookTest({ providerDb }, created.id, actor);
+    expect(test).toMatchObject({ event: "webhook.test", status: "pending" });
+    const rotated = await hooks.rotateProviderWebhookSecret({ providerDb }, created.id, actor);
+    expect(rotated.secret).not.toBe(created.secret);
+    expect((await hooks.listProviderWebhookDeliveries(providerDb, created.id)).items).toHaveLength(
+      1,
+    );
+    await hooks.updateProviderWebhook({ providerDb }, created.id, { active: false }, actor);
+    await expect(
+      hooks.sendProviderWebhookTest({ providerDb }, created.id, actor),
+    ).rejects.toMatchObject({ status: 409 });
+    await hooks.deleteProviderWebhook({ providerDb }, created.id, actor);
+    await expect(hooks.getProviderWebhook(providerDb, created.id)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const entries = await owner
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.target, created.id), sql`${auditLog.tenantId} IS NULL`))
+      .orderBy(auditLog.createdAt);
+    expect(entries.map((entry) => entry.action)).toEqual([
+      "provider_webhook.created",
+      "provider_webhook.updated",
+      "provider_webhook.tested",
+      "provider_webhook.secret_rotated",
+      "provider_webhook.updated",
+      "provider_webhook.deleted",
+    ]);
+    expect(entries[0]?.details).toMatchObject({ keyId: "psa", origin: "https://billing.example" });
+    // The URL is audited by origin only: a receiver's token in the query never lands in the log.
+    expect(JSON.stringify(entries.map((entry) => entry.details))).not.toContain("token=abc");
   });
 });

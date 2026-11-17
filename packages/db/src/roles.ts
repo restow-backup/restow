@@ -447,6 +447,9 @@ export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
   billing_periods: "installation",
   billing_period_tenants: "installation",
   billing_corrections: "installation",
+  // The provider's own webhooks (0.6.0, schema/webhooks.ts); their deliveries share
+  // webhook_deliveries with a null tenant_id, which tenant sessions never see.
+  provider_webhooks: "installation",
 };
 
 /** The tables {@link TABLE_ACCESS} gives `access`. */

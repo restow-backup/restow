@@ -1,0 +1,106 @@
+{
+  "section": {
+    "label": "Billing",
+    "description": "The closed months per tenant: peak, prices, corrections and CSV export."
+  },
+  "intro": "On the 1st of every month at 00:00 in the installation's time zone the previous month is closed: per tenant and line the month's peak counts, the highest daily quantity, at the prices of the last sampled day. A closed month never changes; corrections stand next to it as entries of their own.",
+  "loadError": "The billing months could not be loaded.",
+  "months": {
+    "title": "Months",
+    "description": "The current month and the closed months, newest first.",
+    "caption": "Billing months",
+    "columns": {
+      "month": "Month",
+      "status": "State",
+      "tenants": "Tenants",
+      "total": "Total",
+      "correctedTotal": "With corrections",
+      "closedAt": "Closed"
+    },
+    "open": "Open",
+    "closed": "Closed",
+    "closesAt": "closes on {date}",
+    "show": "Show {month}",
+    "shown": "{month} is shown",
+    "empty": "No month closed yet. The first close comes on the 1st of next month."
+  },
+  "month": {
+    "loadError": "The month could not be loaded.",
+    "closedAt": "Closed on {date}, time zone {zone}",
+    "sampled": "Sampled on {sampled} of {days} days",
+    "gaps": "Some days have no sample (the server was off, or the month began before the update). The peak is over the sampled days.",
+    "caption": "Lines per tenant in {month}",
+    "columns": {
+      "tenant": "Tenant",
+      "line": "Line",
+      "quantity": "Peak",
+      "unitPrice": "Unit price",
+      "peakDate": "Peak on",
+      "amount": "Amount"
+    },
+    "total": "Customers' total",
+    "correctedTotal": "With corrections",
+    "tenantTotal": "Total {name}",
+    "sampledDays": "{count} days sampled",
+    "noCustomerNumber": "no customer number",
+    "internal": "Own organisation, not in the total",
+    "deleting": "Deleted",
+    "noPrice": "No price",
+    "incomplete": "Incomplete",
+    "empty": "No tenant was sampled in this month."
+  },
+  "priceSource": {
+    "tenant": "own price",
+    "installation": "installation price"
+  },
+  "lines": {
+    "mailboxes": "Mailboxes",
+    "storage": "Storage",
+    "servers": "Servers",
+    "clients": "Clients",
+    "vms": "VMs",
+    "containers": "Containers",
+    "fileShares": "File shares"
+  },
+  "units": {
+    "mailbox": "mailboxes",
+    "unit": "units",
+    "bytes": "{unit}"
+  },
+  "csv": {
+    "export": "Export CSV",
+    "preparing": "Preparing the CSV file …",
+    "done": "CSV file saved",
+    "failed": "The CSV file could not be created."
+  },
+  "corrections": {
+    "title": "Corrections",
+    "empty": "No corrections.",
+    "caption": "Corrections in {month}",
+    "columns": {
+      "tenant": "Tenant",
+      "line": "Line",
+      "amount": "Amount",
+      "reason": "Reason",
+      "by": "Entered"
+    },
+    "whole": "Whole bill",
+    "by": "{who}, {date}",
+    "add": "Add correction",
+    "dialog": {
+      "title": "Add correction",
+      "description": "The close stays as it is. The correction stands next to it as an entry of its own and counts in the total with corrections. It is recorded in the tenant's audit log and cannot be changed or deleted.",
+      "tenant": "Tenant",
+      "line": "Line (optional)",
+      "amount": "Amount in {currency}",
+      "amountHint": "Signed: -12.50 credits, 12.50 charges.",
+      "amountInvalid": "Enter an amount other than 0 with at most four decimals.",
+      "reason": "Reason",
+      "reasonPlaceholder": "For example: do not bill two test mailboxes",
+      "reasonHint": "At least 3 characters.",
+      "confirm": "Add correction"
+    },
+    "done": "Correction added",
+    "failed": "The correction could not be added."
+  }
+}

@@ -33,7 +33,7 @@ import {
   directoryUserSchema,
   loadDirectoryUsers,
 } from "../../../../apps/api/src/routes/v1/users.js";
-import { createCorrection, listClosedPeriods, loadClosedPeriod } from "../billing-close/service.js";
+import { createCorrection, listClosedPeriods } from "../billing-close/service.js";
 import {
   billingFromEstimate,
   billingQuerySchema,
@@ -42,12 +42,12 @@ import {
   tenantByCustomerNumber,
 } from "./billing.js";
 import {
-  BILLING_PERIOD_OPEN_PROBLEM,
   billingCorrectionSchema,
   billingPeriodListSchema,
   billingPeriodSchema,
   correctionDto,
   createCorrectionSchema,
+  loadClosedPeriodOrProblem,
   openPeriod,
   periodDto,
   periodListDto,
@@ -408,7 +408,7 @@ export function registerProviderRoutes(api: IntegrationApi, deps: V1Deps): void 
       operationId: "getProviderBillingPeriod",
       summary: "One closed billing month, for invoicing",
       description:
-        "The month as it was closed (0.6.0), in the shape of `GET /provider/billing`: per tenant the customer number and status at the close and one line per priced quantity at the month's peak, the highest daily quantity (`peakDate`: the first day it was reached), at the prices in force at the close; plus the month's bounds, time zone, close time, the days sampled and the corrections entered since (`corrections`, `correctedTotal`). A closed month never changes. The current month is not closed yet: 404 with `urn:restow:problem:billing-period-open` and `closesAt`. `?tenant=` or `?customerNumber=` (as recorded at the close, without case) narrows it to one tenant. The read is recorded in the audit log of every tenant it contains.",
+        "The month as it was closed (0.6.0), in the shape of `GET /provider/billing`: per tenant the customer number and status at the close and one line per priced quantity at the month's peak, the highest daily quantity (`peakDate`: the first day it was reached), at the prices in force at the month's end (the last sampled day); plus the month's bounds, time zone, close time, the days sampled and the corrections entered since (`corrections`, `correctedTotal`). A closed month never changes. The current month is not closed yet: 404 with `urn:restow:problem:billing-period-open` and `closesAt`. `?tenant=` or `?customerNumber=` (as recorded at the close, without case) narrows it to one tenant. The read is recorded in the audit log of every tenant it contains.",
       tag: "Provider",
       scope: "billing:read",
       audited: true,
@@ -422,28 +422,7 @@ export function registerProviderRoutes(api: IntegrationApi, deps: V1Deps): void 
       },
     },
     async ({ actor, input: { params, query } }) => {
-      const { timeZone } = await loadInstallationTimeZone(deps.providerDb);
-      const open = openPeriod(deps.now(), timeZone);
-      if (params.period >= open.period) {
-        throw new ProblemError(404, "Billing period open", {
-          type: BILLING_PERIOD_OPEN_PROBLEM,
-          detail:
-            params.period === open.period
-              ? "The current month is closed on the 1st of the next month; GET /provider/billing estimates it."
-              : "This month has not begun.",
-          extensions: {
-            period: params.period,
-            closesAt: params.period === open.period ? open.closesAt : null,
-          },
-        });
-      }
-      const loaded = await loadClosedPeriod(deps.providerDb, params.period);
-      if (!loaded) {
-        throw new ProblemError(404, "Billing period not found", {
-          detail:
-            "This month has no close: no tenant was sampled in it, or its close has not run yet (within a minute after the month ends).",
-        });
-      }
+      const loaded = await loadClosedPeriodOrProblem(deps.providerDb, params.period, deps.now());
       let tenantId = query.tenant;
       if (query.customerNumber !== undefined) {
         const named = periodTenantByCustomerNumber(loaded, query.customerNumber);

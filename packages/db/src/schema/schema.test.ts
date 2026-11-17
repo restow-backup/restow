@@ -201,6 +201,7 @@ describe("reference conventions", () => {
     const holders = tableConfigs.filter((t) => t.columns.some((c) => c.name === "secret_ref"));
     expect(holders.map((t) => t.name).sort()).toEqual([
       "protected_objects",
+      "provider_webhooks",
       "sources",
       "storage_targets",
       "webhooks",

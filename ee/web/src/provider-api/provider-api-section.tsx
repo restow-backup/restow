@@ -4,13 +4,16 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "@/features/installation/access";
 import { ProviderKeysCard } from "@/features/integrations/api-keys/api-keys-panel";
 
+import { ProviderWebhooksCard } from "./provider-webhooks-card";
+
 /**
  * Installation, Provider API (Service Provider, `apiKeys.provider`): the
  * provider keys that RMM and PSA tools use across all tenants (docs
  * internal/DASH-INTEGRATION.md). They moved here from the Integrations page,
  * which keeps the keys and webhooks of one tenant. Creating and revoking a key
  * is for the owner of the provider team; every other provider role sees the
- * keys read-only.
+ * keys read-only. Below them the provider's own webhooks (0.6.0, ./provider-webhooks-card.tsx),
+ * with the same rule.
  */
 export function ProviderApiSection() {
   const { t } = useTranslation("installation");
@@ -23,6 +26,7 @@ export function ProviderApiSection() {
         <ReadOnlyGroup closed={access.change !== null}>
           <ProviderKeysCard />
         </ReadOnlyGroup>
+        <ProviderWebhooksCard canChange={access.change === null} />
       </div>
     </TooltipProvider>
   );

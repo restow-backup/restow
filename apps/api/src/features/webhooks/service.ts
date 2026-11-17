@@ -177,7 +177,8 @@ function eventIdOf(payload: Record<string, unknown>): string | null {
 export function toDeliveryDto(row: DeliveryRow): DeliveryDto {
   return {
     id: row.id,
-    webhookId: row.webhookId,
+    // A tenant's delivery always names its webhook; a provider webhook's (0.6.0) its own one.
+    webhookId: row.webhookId ?? row.providerWebhookId ?? "",
     event: row.event,
     eventId: eventIdOf(row.payload),
     status: row.status,
@@ -275,6 +276,7 @@ async function loadStats(
 
   const stats = new Map<string, WebhookStatsDto>();
   for (const row of counts) {
+    if (row.webhookId === null) continue;
     stats.set(row.webhookId, {
       pending: Number(row.pending),
       failedLast24h: Number(row.failed),
@@ -283,6 +285,7 @@ async function loadStats(
     });
   }
   for (const row of latest) {
+    if (row.webhookId === null) continue;
     const entry = stats.get(row.webhookId) ?? { ...EMPTY_STATS };
     entry.lastDelivery = {
       id: row.id,

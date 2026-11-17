@@ -73,9 +73,28 @@ const KEY = {
   kind: "provider",
 };
 
+const WEBHOOK = {
+  id: "w-1",
+  name: "Billing tool",
+  url: "https://billing.example/hooks/restow",
+  events: ["billing.period_closed"],
+  active: true,
+  failingSince: "2026-11-01T10:00:00.000Z",
+  consecutiveFailures: 3,
+  lastFailure: null,
+  pending: 1,
+  lastDelivery: null,
+  createdAt: "2026-10-01T10:00:00.000Z",
+  updatedAt: "2026-10-01T10:00:00.000Z",
+};
+
 function render(node: React.ReactNode): string {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(integrationKeys.providerKeys, { available: true, items: [KEY] });
+  client.setQueryData(["installation", "provider-webhooks"], {
+    items: [WEBHOOK],
+    events: ["billing.period_closed"],
+  });
   client.setQueryData(["setup", "state"], undefined);
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
@@ -107,6 +126,22 @@ describe("ProviderApiSection", () => {
       expect(html).toContain("<fieldset disabled");
     },
   );
+
+  it("lists the provider's own webhooks below the keys, changeable by the owner only", () => {
+    session("owner");
+    const owner = render(<ProviderApiSection />);
+    expect(owner).toContain("Provider webhooks");
+    expect(owner).toContain("Billing tool");
+    expect(owner).toContain("billing.period_closed");
+    // A failing webhook is a warning, never green.
+    expect(owner).toContain("Delivery failing");
+    expect(owner).toMatch(/<button[^>]*>(?:(?!<\/button>).)*Add webhook/);
+    expect(owner).not.toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>).)*Add webhook/);
+    session("read_only");
+    const reader = render(<ProviderApiSection />);
+    expect(reader).toContain("Billing tool");
+    expect(reader).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>).)*Add webhook/);
+  });
 });
 
 describe("the section the Service Provider module adds", () => {

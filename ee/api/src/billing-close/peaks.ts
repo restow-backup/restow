@@ -1,26 +1,108 @@
 import type {
   BillingClosedLine,
+  BillingSamplePrices,
   BillingSampleQuantities,
   TenantKind,
   TenantPricing,
 } from "@restow/db";
-import { type PricingDto, UNIT_LINES } from "../../../../apps/api/src/features/settings/pricing.js";
+import {
+  type PriceKey,
+  type PricingDto,
+  UNIT_LINES,
+} from "../../../../apps/api/src/features/settings/pricing.js";
 import {
   estimateTenant,
   type TenantFigures,
 } from "../../../../apps/api/src/features/settings/pricing-estimate.js";
 import {
+  globalPriceSet,
   NO_OVERRIDES,
   resolveTenantOverrides,
+  type TenantPriceOverridesDto,
 } from "../../../../apps/api/src/features/settings/tenant-pricing.js";
-import { type BillingLineType, billingLines } from "../provider-api/billing.js";
+import { BILLING_LINE_TYPES, type BillingLineType, billingLines } from "../provider-api/billing.js";
 
 /**
  * The close of one tenant's month, pure (docs/ARCHITECTURE.md, "Monatsabschluss der Abrechnung"):
  * the peak of every quantity over the month's daily samples, then the lines and the total with
- * the estimate's own functions (`estimateTenant`, `billingLines`) at the prices of the close, so
- * a closed month counts and prices exactly as GET /provider/billing does on the day of the peak.
+ * the estimate's own functions (`estimateTenant`, `billingLines`) at the prices of the month's
+ * end, the ones the tenant's last sample of the month recorded, so a closed month counts and
+ * prices exactly as GET /provider/billing did on its last day, whenever the close runs.
  */
+
+/** The price key of each billed line. */
+export const LINE_PRICE_KEY: Readonly<Record<BillingLineType, PriceKey>> = {
+  mailboxes: "mailboxPrice",
+  storage: "storagePrice",
+  ...(Object.fromEntries(UNIT_LINES.map((line) => [line.key, line.price])) as Record<
+    (typeof UNIT_LINES)[number]["key"],
+    PriceKey
+  >),
+};
+
+/** The prices in force for a tenant now, as a sample records them (pure). */
+export function pricesInForce(input: {
+  pricing: PricingDto;
+  /** The tenant's own prices (`tenants.pricing`). */
+  own: TenantPricing;
+  /** The gate `tenants.additional`: whether its own prices apply. */
+  overridesEnabled: boolean;
+}): BillingSamplePrices {
+  const { pricing, overridesEnabled } = input;
+  const overrides = overridesEnabled ? resolveTenantOverrides(input.own) : NO_OVERRIDES;
+  const lines: BillingSamplePrices["lines"] = {};
+  for (const type of BILLING_LINE_TYPES) {
+    const key = LINE_PRICE_KEY[type];
+    const own = overrides[key];
+    const installation = pricing[key];
+    if (own !== null) {
+      lines[type] = { unitPrice: own, source: "tenant" };
+    } else if (installation !== null) {
+      lines[type] = { unitPrice: installation, source: "installation" };
+    }
+  }
+  return {
+    currency: pricing.currency,
+    storageUnit: pricing.storageUnit,
+    storageBilling: pricing.storageBilling,
+    perTenantOverrides: overridesEnabled,
+    installation: { ...globalPriceSet(pricing) },
+    lines,
+  };
+}
+
+/**
+ * The installation's prices and the tenant's own ones as a sample recorded them, in the shape the
+ * estimate takes: a line priced by the tenant is an override, one priced by the installation the
+ * installation's price (pure).
+ */
+export function pricingOfSample(prices: BillingSamplePrices): {
+  pricing: PricingDto;
+  overrides: TenantPriceOverridesDto;
+} {
+  const pricing = {
+    currency: prices.currency,
+    storageUnit: prices.storageUnit,
+    storageBilling: prices.storageBilling,
+  } as PricingDto;
+  const overrides = { ...NO_OVERRIDES };
+  for (const type of BILLING_LINE_TYPES) {
+    const key = LINE_PRICE_KEY[type];
+    const line = prices.lines[type];
+    if (!line) {
+      // No price applied that day: neither the installation's nor an own one.
+      pricing[key] = null;
+      overrides[key] = null;
+    } else if (line.source === "tenant") {
+      pricing[key] = prices.installation[key] ?? null;
+      overrides[key] = line.unitPrice;
+    } else {
+      pricing[key] = line.unitPrice;
+      overrides[key] = null;
+    }
+  }
+  return { pricing, overrides };
+}
 
 /** The quantities a sample holds, in the order of the lines. */
 export const SAMPLED_QUANTITIES = [
@@ -38,6 +120,22 @@ export function quantityOfLine(type: BillingLineType): SampledQuantity {
 export interface DaySample {
   day: string;
   quantities: BillingSampleQuantities;
+  /** The prices in force that day; absent on samples written before they were recorded. */
+  prices?: BillingSamplePrices | null;
+}
+
+/** The prices of the month's end: those of the latest sample that recorded them, or null. */
+export function monthEndPrices(samples: readonly DaySample[]): {
+  day: string;
+  prices: BillingSamplePrices;
+} | null {
+  let latest: { day: string; prices: BillingSamplePrices } | null = null;
+  for (const sample of samples) {
+    if (sample.prices && (latest === null || sample.day > latest.day)) {
+      latest = { day: sample.day, prices: sample.prices };
+    }
+  }
+  return latest;
 }
 
 export interface Peaks {
@@ -105,7 +203,11 @@ export interface ClosedTenant {
   total: number | null;
 }
 
-/** One tenant's closed month from its samples and the prices of the close. */
+/**
+ * One tenant's closed month from its samples, at the prices its last sample of the month
+ * recorded. `pricing` and `overridesEnabled` are the prices at the close: only for samples
+ * written before the prices were recorded with them.
+ */
 export function closeTenant(input: {
   row: ClosingTenantRow;
   samples: readonly DaySample[];
@@ -113,9 +215,15 @@ export function closeTenant(input: {
   /** The gate `tenants.additional` at the close: whether the tenant's own prices apply. */
   overridesEnabled: boolean;
 }): ClosedTenant {
-  const { row, samples, pricing, overridesEnabled } = input;
+  const { row, samples } = input;
   const peaks = peaksOf(samples);
-  const overrides = overridesEnabled ? resolveTenantOverrides(row.pricing) : NO_OVERRIDES;
+  const recorded = monthEndPrices(samples);
+  const { pricing, overrides } = recorded
+    ? pricingOfSample(recorded.prices)
+    : {
+        pricing: input.pricing,
+        overrides: input.overridesEnabled ? resolveTenantOverrides(row.pricing) : NO_OVERRIDES,
+      };
   const entry = estimateTenant({ row, overrides, pricing, figures: peaks.figures });
   const lines: BillingClosedLine[] = billingLines(entry, pricing.storageUnit).map((line) => ({
     ...line,

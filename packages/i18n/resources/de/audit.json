@@ -167,7 +167,8 @@
     "provider_notifications": "Provider-Benachrichtigungen",
     "installation": "Installation",
     "cluster": "Worker-Knoten",
-    "billing": "Abrechnung"
+    "billing": "Abrechnung",
+    "provider_webhook": "Webhooks des Providers"
   },
   "events": {
     "account": {
@@ -822,11 +823,19 @@
     },
     "billing": {
       "period": {
-        "closed": "Abrechnungsmonat abgeschlossen"
+        "closed": "Abrechnungsmonat abgeschlossen",
+        "exported": "Abgeschlossener Abrechnungsmonat als CSV exportiert"
       },
       "correction": {
         "created": "Korrektur zu einem abgeschlossenen Abrechnungsmonat eingetragen"
       }
+    },
+    "provider_webhook": {
+      "created": "Webhook des Providers angelegt",
+      "updated": "Webhook des Providers geändert",
+      "deleted": "Webhook des Providers gelöscht",
+      "tested": "Testzustellung an einen Webhook des Providers eingereiht",
+      "secret_rotated": "Signaturschlüssel eines Webhooks des Providers ersetzt"
     }
   },
   "targetTypes": {
@@ -887,7 +896,8 @@
     "cluster_join_token": "Beitrittstoken",
     "cluster_node": "Worker-Knoten",
     "billing_period": "Abrechnungsmonat",
-    "billing_correction": "Abrechnungskorrektur"
+    "billing_correction": "Abrechnungskorrektur",
+    "provider_webhook": "Webhook des Providers"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {
