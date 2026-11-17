@@ -31,6 +31,8 @@ export * from "./chunker.js";
 export * from "./chunkId.js";
 // Storage format
 export * from "./crypto.js";
+// Databases: address, engine detection, rights matrix, identity, network protection (docs/DATABASES.md)
+export * from "./databases/index.js";
 export * from "./directory/index.js";
 // Endpoint backup: the agent contract, the restic REST endpoint, restic on the server
 export * from "./endpoints/index.js";
