@@ -203,6 +203,8 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). `layout` (Agent ab 0.5.0, nur bei einer Sicherung des ganzen Rechners mit `snapshotId`): das Layout-Manifest `restow-layout-v1` (docs/BAREMETAL.md 4), genau die kanonischen Bytes von `layout.json` im Snapshot, höchstens 512 KiB; der Server prüft es (`parseLayoutManifest`), legt es je Rechner und SHA-256 einmal in `endpoint_layouts` ab und setzt `endpoint_runs.layout_id`. Ein abgelehntes (ungültig, zu groß, macOS vor M6) ändert den Status des Laufs nicht und hängt den Hinweis `layout_rejected` an seine Fehler. Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
+| `GET /databases/probes/:id` | Seit 0.6.0: eine Prüfung einer Datenbankverbindung (Aufgabe `db_probe`) mit ihren Zugangsdaten, **genau einmal** und nur an den Agenten, für den sie bestimmt ist (danach 409); im Wiederherstellungsmodus 409. Siehe "Datenbanken". |
+| `POST /databases/probes/:id/result` | Seit 0.6.0: die Fakten der Prüfung (`DBProbeResult`); der Server bewertet sie und löscht danach die versiegelten Zugangsdaten der Prüfung. |
 
 Ein Wiederanbindungs-Token (seit 0.5.0, siehe "Wiederanbindung") wird über dasselbe
 `POST /enroll` eingelöst; die Antwort hat dieselbe Form und zusätzlich `rebound: true`, ein älterer
@@ -735,7 +737,8 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
 ### Aufgaben (`tasks`)
 
 `backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`, seit 0.5.0 `sql_restore`,
-`sql_verify`, `sql_inventory` (siehe "SQL Server (native Sicherung, Vorschau)"). Eine Aufgabe ist
+`sql_verify`, `sql_inventory` (siehe "SQL Server (native Sicherung, Vorschau)"), seit 0.6.0
+`db_probe` (siehe "Datenbanken"). Eine Aufgabe ist
 `pending`, dann `delivered` (der Agent hat sie mit dem Heartbeat erhalten), dann `done` oder
 `failed`; seit 0.4.2 auch `cancelled` (in der Oberfläche zurückgezogen, siehe "Sicherung stoppen").
 
@@ -897,6 +900,34 @@ unvollständig) und nach dem Text des Fehlers (Netzwerk, abgelehnt). Die Detaila
 Endpunkts erklärt jeden Grund für Aufmerksamkeit ebenso (`problems`: still, überfällig, letzte
 Sicherung fehlgeschlagen, Restore-Test fehlgeschlagen, Repository beschädigt). Die Texte stehen
 in `failures.json` (de/en); ein Test in apps/api verlangt sie für jeden Code.
+
+### Datenbanken (seit 0.6.0, Stufe D1)
+
+Entwurf: docs/DATABASES.md. Jeder Agent ab 0.6.0 nennt in Enrollment und Heartbeat die Fähigkeit
+`db_runner_v1`: Er kann Datenbankverbindungen des Mandanten ausführen, auch als Brücke in ein
+Kundennetz. In D1 heißt das:
+
+- **Aufgabe `db_probe`** (`params: { probeId }`, gilt mit der Zustellung als erledigt): Der Agent
+  holt die Prüfung mit `GET /agent/v1/databases/probes/:id` (Adresse, Engine als Hinweis,
+  Anmeldung, "unverschlüsselt erlaubt" und einmalig Benutzer und Kennwort), prüft neben einem
+  laufenden Lauf (eigenes Zeitlimit) und schickt nur Fakten (`internal/dbprobe`): erkannte
+  Engine am ersten Austausch des Protokolls, TLS mit Fingerabdruck, Anmeldung, Version, Rechte
+  und Datenbanken, Identität der Instanz. Die Zugangsdaten bleiben im Speicher; Meldungen werden
+  um URL, Benutzer und Kennwort bereinigt. Ohne TLS meldet er sich nur an, wenn die Verbindung es
+  erlaubt.
+- **Socket-Anmeldung** (nur Linux): MariaDB und MySQL als root über `/run/mysqld/mysqld.sock` und
+  die üblichen Orte, PostgreSQL per `peer`: Der Agent startet sich als `postgres` mit dem
+  versteckten Befehl `restow-agent db-probe-peer` (Spezifikation ohne Zugangsdaten auf stdin,
+  Fakten auf stdout).
+- **Inventur** (nur Linux): `pg_lsclusters`, systemd-Units von PostgreSQL, MySQL und MariaDB,
+  Docker-Container mit deren Images (veröffentlichter Port) und die Sockets; höchstens alle
+  6 Stunden im Heartbeat als `databaseInventory` (`{ collectedAt, instances }`, höchstens
+  64 KiB). Der Server speichert sie in `endpoints.settings.databaseInventory` und zeigt sie als
+  Vorschläge; eine Verbindung entsteht daraus nie.
+
+Vertrag: `agent/internal/api/testdata/contract/db-*.json`, `task-db-probe.json`,
+`heartbeat-db-inventory.json` (Go dekodiert strikt, `packages/core/src/databases/contract.test.ts`
+liest dieselben Dateien).
 
 ### SQL Server (native Sicherung, Vorschau, seit 0.5.0)
 

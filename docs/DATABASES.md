@@ -1,7 +1,8 @@
 # Datenbanken (Entwurf für 0.6.0)
 
-Stand: Entwurf, noch nicht umgesetzt. Ziel ist Restow 0.6.0 für den Modus Sicherung, 0.6.x für
-Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores (November 2026):
+Stand: Stufe D1 umgesetzt (Abschnitt 16), D2 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
+Sicherung, 0.6.x für Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores
+(November 2026):
 
 - **E1** Version 0.6.0, nicht 0.5.x.
 - **E2** Eigenes Modul "Datenbanken": standardmäßig aus, im Menü nur, wenn eingeschaltet.
@@ -611,3 +612,57 @@ Datenbank, Streaming-Standby nur auf Nachfrage (7.3).
 
 Keine. F1 bis F3 dieses Entwurfs sind als E5 (Prüfdienst in 0.6.0), E9 (Preis je Datenbank) und
 E10 (alle Editionen) entschieden.
+
+## 16. Stand der Umsetzung
+
+### D1 (umgesetzt)
+
+- **Modul:** `databases` in `MODULE_IDS` (apps/api und apps/web `lib/modules.ts`), Migration
+  `0105_databases` (Tabellen `database_connections`, `databases`, `database_probes`, Aufgabe
+  `db_probe`, Modul aus außer bei SQL-Server-Sicherung in einem Job oder Mitglied; für die eine
+  Anweisung wird FORCE ROW LEVEL SECURITY auf `backup_jobs` und `backup_job_members` aufgehoben).
+  Der Einrichtungsassistent lässt das Modul ohne Auswahl aus. Menüpunkt unter "Server & Clients"
+  nach den Freigaben (einen Bereich "Schutz" gibt es im Menü nicht).
+- **Prüfung:** packages/core `databases/` (Adresse, Fakten als Vertrag, Rechte-Matrix,
+  Identität, Bereinigung, Netzschutz, Bewertung) und `databases/probe/` (Prüfung des
+  Restow-Servers); agent/internal/dbprobe (Prüfung des Agenten, nur Standardbibliothek).
+  Vertragsdaten in agent/internal/api/testdata/contract/db-*.json.
+- **Ablauf:** Eine Prüfung des Servers läuft in der API sofort, wie der Verbindungstest von IMAP;
+  eine Prüfung des Agenten ist eine Zeile `database_probes` mit Aufgabe `db_probe`, die der
+  Agent beim nächsten Heartbeat abholt (bis zu 5 Minuten, Ablauf nach 15 Minuten). Gespeichert
+  wird nur aus einer abgeschlossenen Prüfung desselben Mandanten.
+- **API:** wie Abschnitt 9, dazu `GET …/connections/test/:probeId` (Stand einer Prüfung),
+  `POST …/connections/:id/test` (gespeicherte Verbindung prüfen), `GET /api/v1/databases/suggestions`
+  und `GET /api/v1/databases/runners`. `PATCH …/connections/:id` mit `confirm` bestätigt ein neues
+  Zertifikat oder eine neue Instanz. Agent: `GET /agent/v1/databases/probes/:id` (einmal, mit
+  Zugangsdaten), `POST /agent/v1/databases/probes/:id/result`.
+
+### Abweichungen und Grenzen von D1
+
+- **SQL Server:** erkannt am PRELOGIN mit Version und Verschlüsselung; angemeldet wird nicht. Die
+  Rechte-Matrix sagt "nicht prüfbar", bis die native Sicherung mit D5 umzieht (Anmeldung mit
+  SQL-Login über den Agenten auf Windows).
+- **Socket-Anmeldung:** MariaDB und MySQL als root über den Socket, PostgreSQL per `peer` als
+  `postgres` (der Agent startet sich dafür selbst als dieser Benutzer, `db-probe-peer`). Container
+  ohne veröffentlichten Port (`docker exec`) bietet D1 nicht an; der Vorschlag sagt das.
+- **SQLite unter Linux:** Identität aus Pfad, Gerät und Inode; eine Erstellzeit liefert `stat`
+  unter Linux nicht (macOS und Windows: ja).
+- **Benutzername:** gilt als Teil der Zugangsdaten. Die gespeicherten Fakten einer Prüfung tragen
+  ihn nicht (`currentUser` leer, `SHOW GRANTS` ohne Benutzer).
+- **Bewertung:** Ohne Sicherungen ist jede Datenbank "Noch nicht gesichert" (`not_protected`);
+  die Regel aus 2.4 steht in packages/core `databases/rating.ts` bereit. Erreichbarkeit stammt bis
+  zu den Healthchecks (D2) aus der letzten Prüfung der Verbindung.
+- **SCRAM im Agenten:** ohne SASLprep (Kennwörter außerhalb von ASCII mit Sonderformen können
+  abweichen); der Server normalisiert mit NFKC.
+
+### Nahtstellen für D2 bis D7
+
+- D2: `database_health_samples`, Alarme; die Prüfung (`probeDatabaseFromServer`,
+  `dbprobe.Run`) liefert Version, TLS und Erreichbarkeit schon heute.
+- D3/D4: Sicherungsläufe über die Queue `db` bzw. die Aufgabe `db_backup`, Repository
+  `db/<verbindung>`, `database_backups`; Zeitplan und Auswahl stehen in der Verbindung, die
+  Aufbewahrung in `retention_policy_id` (leer = Vorgabe des Mandanten).
+- D5: SQL Server (Anmeldung und Umzug der `endpoint_sql_*`-Daten), SQLite-Sicherung über die
+  Online-Backup-API, Reiter "Datenbanken" auf der Rechnerseite.
+- D6: Bewertung aus Prüfungen (`rateDatabase`), `db-lab`, Abrechnungsposition.
+

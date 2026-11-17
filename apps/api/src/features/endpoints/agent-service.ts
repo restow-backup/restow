@@ -599,9 +599,9 @@ function settingsWithFacts(facts: EndpointAgentFacts, now: Date): SQL {
 }
 
 /**
- * Keep the database inventory of a heartbeat in `settings.databaseInventory` (3.4): only from an
- * agent that runs connections, at most {@link DB_INVENTORY_MAX_BYTES}, checked entry by entry.
- * A heartbeat without one leaves the stored one.
+ * Keep the database inventory of a heartbeat in `settings.databaseInventory` (3.4): at most
+ * {@link DB_INVENTORY_MAX_BYTES}, checked entry by entry; a malformed one is dropped and the
+ * heartbeat still counts. A heartbeat without one leaves the stored one.
  */
 async function recordDatabaseInventory(
   tx: Transaction,

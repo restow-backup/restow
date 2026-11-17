@@ -93,6 +93,17 @@ Postgres-Service bereit und setzt die Variable.
   der eigenen Frist einer Regel), apps/api `features/reports/reports.pg.test.ts` (Frist der Regel)
 - apps/api: `features/imports/imports.pg.test.ts`, `features/exports/exports.pg.test.ts`,
   `features/restore/imported.pg.test.ts`, `features/archive/sent-at.pg.test.ts`
+- Datenbanken (docs/DATABASES.md, seit 0.6.0): packages/core `databases/probe/postgres.pg.test.ts`
+  (die Prüfung des Restow-Servers gegen dasselbe PostgreSQL 16: Erkennung ohne Port, TLS mit
+  Fingerabdruck, SCRAM-SHA-256, Rechte-Matrix nach echten Rollen, Kennwort nicht im Fehlertext;
+  legt eine Rolle an und löscht sie wieder), packages/db `databases.pg.test.ts` (RLS, CHECK-Regeln
+  der Ausführer, Identität, Kaskaden), apps/api `features/databases/databases.pg.test.ts`
+  (Prüfung über Server und Agent, Speichern aus der Prüfung, Zugangsdaten nie in Antworten oder
+  im Audit-Log, Netzschutz und Freigabe, eigene Datenbank, neues Zertifikat und neue Instanz,
+  Inventur). Der Agent prüft mit `RESTOW_TEST_DATABASE_URL` gegen echtes PostgreSQL
+  (`agent/internal/dbprobe/postgres_test.go`); MySQL, MariaDB und SQL Server laufen in allen
+  Stufen gegen nachgebaute Server (Begrüßung, Anmeldung, Antworten nach der
+  Protokollbeschreibung), die echte Versionsmatrix ist Stufe D7.
 - packages/db: `imports.pg.test.ts` (RLS, Segment-Eindeutigkeit, Kaskaden der Import-Tabellen),
   `rls.pg.test.ts` — RLS auf der echten Anwendungsrolle: ohne Pin keine
   Zeile, mit Pin auf Mandant A keine Zeile von B, kein Schreiben für B, kein Ändern des

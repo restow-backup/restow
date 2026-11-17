@@ -8,6 +8,52 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- The module "Databases" (docs/DATABASES.md, stage D1 of 0.6.0): connections to PostgreSQL,
+  MySQL, MariaDB, SQL Server and SQLite by address and user, without backing up the whole server.
+  Backups, health checks and restore checks of the module follow in the next stages; nothing is
+  backed up yet.
+  - A new module `databases` in Installation › Modules and the setup wizard, off unless chosen.
+    Migration 0105 switches it off in installations that update, unless a backup job (or one of
+    its members) has the native SQL Server backup on, which moves into the module later.
+  - "Add database" takes a URL (`postgresql://`, `mysql://`, `mariadb://`, `sqlserver://`),
+    `host:port`, a bare host or the path of an SQLite file; a user and a password in the URL move
+    into their fields and are never stored as typed. "Test connection" recognises the engine from
+    the first exchange of its protocol (the MySQL and MariaDB greeting, the PostgreSQL SSLRequest,
+    the TDS PRELOGIN of SQL Server, ports 5432, 3306 and 1433 without a port), uses TLS whenever
+    the server offers it and shows the certificate's SHA-256 fingerprint, signs in (SCRAM-SHA-256,
+    MD5, mysql_native_password, caching_sha2_password) and shows the version, the databases and
+    what the user allows: backup, check and restore on the same instance, point-in-time, with the
+    SQL that creates a backup user `restow_backup` with exactly the missing rights. A connection
+    is saved only from a finished test and takes engine, address, identity, certificate and
+    databases from it.
+  - Executor: the Restow server itself (PostgreSQL, MySQL, MariaDB) or an agent of the tenant
+    (every agent from 0.6.0 announces `db_runner_v1`); SQLite, SQL Server and the sign-in over the
+    local socket (PostgreSQL `peer` as postgres, MariaDB and MySQL as root) need an agent. An
+    agent's test is the task `db_probe`; it fetches the credentials once
+    (`GET /agent/v1/databases/probes/:id`) and posts facts only
+    (`POST /agent/v1/databases/probes/:id/result`), which the server judges.
+  - Credentials are sealed with the tenant key in the secret store (`database_credentials`) and
+    never appear in an answer, the audit log or a stored error text (the user name is removed from
+    stored facts too). The Restow server as executor connects only to public addresses; a private
+    address or a container name needs a provider admin's approval per connection (audited) or
+    `RESTOW_DB_ALLOW_PRIVATE_NETWORKS=true`; link-local and reserved addresses are always refused,
+    a public address is never used without TLS, and Restow's own database is refused
+    (`db_target_is_restow`). Tests are limited to 30 per tenant in ten minutes.
+  - Identity: the cluster's `system_identifier` (PostgreSQL), `@@server_uuid` (MySQL), server id
+    and data directory (MariaDB), path, device and inode (SQLite). A database dropped and created
+    again under its name is another database; another instance or another certificate under the
+    address turns the connection red until an administrator confirms it (audited).
+  - The Linux agent reports the database instances of its machine (pg_lsclusters, systemd units,
+    Docker containers, sockets) at most every 6 hours; the Databases page offers them as "found,
+    not protected" and opens the dialog prefilled. The inventory never creates a connection.
+  - Session API `/api/v1/databases` (databases, connections, `connections/test`, suggestions,
+    runners); administrators change, restore operators read. Audit actions
+    `database_connection.*`.
+
 ## [0.5.0] - 2026-11-17
 
 Beta release. Run it alongside your existing backups, not as your only one, until
