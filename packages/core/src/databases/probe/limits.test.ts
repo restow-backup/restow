@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createSelfSignedCertificate } from "../../../../../scripts/smoke/lib/selfsigned.mjs";
 import type { DbProbeSpec } from "../facts.js";
 import { DbConn, DbConnError, DbProbeScope } from "./conn.js";
+import { checkDatabaseHealthFromServer, type DbHealthCheckTarget } from "./health-check.js";
 import { DB_MAX_VALUE_BYTES, pgQuery } from "./postgres.js";
 import { probeDatabaseFromServer } from "./probe.js";
 
@@ -645,5 +646,108 @@ describe("Restow's own database on loopback [DB-003]", () => {
       await sleep(30);
       expect(received, address).toBe(0);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The health check of a stored connection (D2): the same scope, nothing around it
+// ---------------------------------------------------------------------------
+
+function healthTarget(port: number, over: Partial<DbHealthCheckTarget> = {}): DbHealthCheckTarget {
+  return {
+    engine: "postgresql",
+    host: "127.0.0.1",
+    port,
+    database: "postgres",
+    user: "restow_backup",
+    password: "s3cret-pass",
+    allowUnencrypted: true,
+    pinnedFingerprintSha256: null,
+    sizes: true,
+    ...over,
+  };
+}
+
+const healthOptions = {
+  allowPrivateNetworks: false,
+  approvedAddresses: ["127.0.0.1"],
+  forbiddenTargets: [] as { address: string; port: number }[],
+  stepTimeoutMs: 2000,
+};
+
+describe("the health check runs inside the probe's scope [DB-004]", () => {
+  it("ends at its deadline with every socket closed when the server trickles notices", async () => {
+    let timer: NodeJS.Timeout | undefined;
+    const { port, sockets } = await startPg({
+      startup: (reply) => {
+        reply("R", auth(0));
+        timer = setInterval(() => reply("N", Buffer.from("SNOTICE\0Mstill here\0\0")), 50);
+      },
+      seen: { startups: 0, bytes: 0 },
+    });
+    try {
+      const started = Date.now();
+      const result = await checkDatabaseHealthFromServer(healthTarget(port), {
+        ...healthOptions,
+        timeoutSeconds: 1,
+      });
+      expect(Date.now() - started).toBeLessThan(2500);
+      expect(result.error?.code).toMatch(/^db_(unreachable|probe_failed)$/);
+      expect(result.health).toBeUndefined();
+      expect(await allClosed(sockets)).toBe(true);
+    } finally {
+      clearInterval(timer);
+    }
+  });
+
+  it("keeps the read budget and the value cut while it reads the sizes", async () => {
+    const big = Buffer.alloc(900 * 1024, 0x61);
+    const flood = await startPg(openPg(() => Array(20).fill(big)));
+    const flooded = await checkDatabaseHealthFromServer(healthTarget(flood.port), healthOptions);
+    expect(flooded.error?.code).toBe("db_probe_failed");
+    expect(flooded.health).toBeUndefined();
+    expect(await allClosed(flood.sockets)).toBe(true);
+
+    const long = await startPg(openPg(() => [Buffer.alloc(300 * 1024, 0x62)]));
+    const cut = await checkDatabaseHealthFromServer(healthTarget(long.port), healthOptions);
+    expect(cut).toMatchObject({ login: "ok", error: null });
+    // Every value was cut to DB_MAX_VALUE_BYTES while reading; a name to its 128 characters.
+    expect(cut.health?.databases?.every((database) => database.name.length <= 128)).toBe(true);
+    expect(cut.serverVersion?.length ?? 0).toBeLessThanOrEqual(DB_MAX_VALUE_BYTES);
+  });
+
+  it("reaches only the approved addresses, never with an approval without addresses", async () => {
+    const { port } = await startPg(openPg(() => []));
+    const check = (approvedAddresses: string[]) =>
+      checkDatabaseHealthFromServer(healthTarget(port, { sizes: false }), {
+        ...healthOptions,
+        approvedAddresses,
+      });
+    expect((await check([])).error?.code).toBe("db_private_network");
+    expect((await check(["127.0.0.2"])).error?.code).toBe("db_private_network");
+    expect(await check(["127.0.0.1"])).toMatchObject({ login: "ok", error: null });
+  });
+
+  it("refuses Restow's own database and another certificate before anything of the sign-in", async () => {
+    const own = await startPg(openPg(() => []));
+    const refused = await checkDatabaseHealthFromServer(healthTarget(own.port), {
+      ...healthOptions,
+      forbiddenTargets: [{ address: "127.0.0.1", port: own.port }],
+    });
+    expect(refused.error?.code).toBe("db_target_is_restow");
+    const fake: FakePg = { ...openPg(() => []), ssl: () => "S" };
+    const tls = await startPg(fake);
+    const pinned = await checkDatabaseHealthFromServer(
+      healthTarget(tls.port, { pinnedFingerprintSha256: OTHER_FINGERPRINT }),
+      healthOptions,
+    );
+    expect(pinned.error?.code).toBe("db_tls_changed");
+    expect(fake.seen.startups).toBe(0);
+    const good = await checkDatabaseHealthFromServer(
+      healthTarget(tls.port, { pinnedFingerprintSha256: CERT_FINGERPRINT }),
+      healthOptions,
+    );
+    expect(good).toMatchObject({ login: "ok", error: null });
+    expect(fake.seen.startups).toBe(1);
   });
 });

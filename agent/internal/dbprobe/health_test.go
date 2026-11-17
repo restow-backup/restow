@@ -87,3 +87,34 @@ func TestHealthCheckEndsAtItsDeadlineAndClosesItsConnections(t *testing.T) {
 	}
 }
 
+// The size query of a health check reads within the probe's budget and cuts
+// every value while it reads it.
+//
+// claim: DB-004
+func TestHealthCheckKeepsTheReadBudgetAndTheValueCut(t *testing.T) {
+	big := []byte(strings.Repeat("a", 900<<10))
+	flood := openPG(func() [][]byte {
+		out := make([][]byte, 20)
+		for i := range out {
+			out[i] = big
+		}
+		return out
+	})
+	s := pgSpec(flood.listen(t))
+	s.Sizes = true
+	if r := Health(context.Background(), s, fast); code(r) != CodeProbeFailed || r.Health != nil {
+		t.Fatalf("flood: %+v %+v", r.Error, r.Health)
+	}
+	long := openPG(func() [][]byte { return [][]byte{[]byte(strings.Repeat("b", 300<<10))} })
+	s = pgSpec(long.listen(t))
+	s.Sizes = true
+	r := Health(context.Background(), s, fast)
+	if r.Error != nil || r.Health == nil || len(deref(r.ServerVersion)) > maxValueBytes {
+		t.Fatalf("long: %+v %+v", r.Error, r.Health)
+	}
+	for _, d := range r.Health.Databases {
+		if len(d.Name) > 128 {
+			t.Fatalf("name of %d bytes", len(d.Name))
+		}
+	}
+}

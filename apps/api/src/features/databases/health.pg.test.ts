@@ -437,5 +437,40 @@ describe.skipIf(!testDatabaseAdminUrl)(
       const list = await service.listDatabases(shared.db, fixture.tenantId);
       expect(list.databases[0]?.band).toHaveLength(24);
     });
+
+    it("hands credentials only to the agent the connection runs on, also after a move [DB-002]", async () => {
+      const now = new Date();
+      const connectionId = await agentConnection("ERP");
+      const [task] = (await beat(agentId, now)).tasks;
+      // The administrator moves the connection to another agent, entering the password again.
+      await service.updateConnection(
+        shared.db,
+        fixture.tenantId,
+        connectionId,
+        { executor: { kind: "agent", endpointId: otherAgentId }, password: PASSWORD },
+        ctx(),
+      );
+      // The task the old agent holds hands out nothing of the moved connection.
+      const plan = await health.agentFetchHealth(
+        shared.db,
+        { endpointId: agentId, tenantId: fixture.tenantId },
+        task?.id as string,
+        now,
+      );
+      expect(plan.checks).toEqual([]);
+      // Nor does the old agent get a new task; the new agent does, with the credentials.
+      const later = new Date(now.getTime() + 5 * 60_000);
+      expect((await beat(agentId, later)).tasks).toEqual([]);
+      const [moved] = (await beat(otherAgentId, later)).tasks;
+      const other = await health.agentFetchHealth(
+        shared.db,
+        { endpointId: otherAgentId, tenantId: fixture.tenantId },
+        moved?.id as string,
+        later,
+      );
+      expect(other.checks.map((check) => [check.connectionId, check.spec.password])).toEqual([
+        [connectionId, PASSWORD],
+      ]);
+    });
   },
 );
