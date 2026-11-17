@@ -1,6 +1,6 @@
 # Datenbanken (Entwurf für 0.6.0)
 
-Stand: Stufe D1 umgesetzt (Abschnitt 16), D2 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
+Stand: Stufen D1 und D2 umgesetzt (Abschnitt 16), D3 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
 Sicherung, 0.6.x für Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores
 (November 2026):
 
@@ -655,10 +655,77 @@ E10 (alle Editionen) entschieden.
 - **SCRAM im Agenten:** ohne SASLprep (Kennwörter außerhalb von ASCII mit Sonderformen können
   abweichen); der Server normalisiert mit NFKC.
 
-### Nahtstellen für D2 bis D7
+### D2 (umgesetzt)
 
-- D2: `database_health_samples`, Alarme; die Prüfung (`probeDatabaseFromServer`,
-  `dbprobe.Run`) liefert Version, TLS und Erreichbarkeit schon heute.
+- **Prüfung:** Die Prüfung aus D1 kennt den Zweck `health` (packages/core `databases/probe`,
+  agent `internal/dbprobe`): nach der Anmeldung `SELECT 1` (die Antwortzeit zählt vom
+  Verbindungsaufbau bis dahin, mit TLS und Anmeldung), dann Startzeit der Instanz
+  (`pg_postmaster_start_time()`, bei MySQL/MariaDB aus `Uptime`), Verbindungen in Benutzung
+  (`pg_stat_activity` der Client-Backends, `Threads_connected`) gegen `max_connections`, die
+  Identität der Instanz und höchstens stündlich die Größe je Datenbank. SQLite: der Dateikopf wie
+  beim Test; SQL Server: die Antwort auf PRELOGIN (angemeldet wird ab D5). Jede Prüfung bekommt
+  das bestätigte Zertifikat mit; zeigt der Server ein anderes, endet sie nach dem TLS-Handshake
+  und **vor** der Anmeldung (`db_tls_changed`), es geht kein Zugangsdatum hinaus. Eine Frist von
+  10 Sekunden gilt für die ganze Prüfung und schließt danach jede Verbindung, die sie geöffnet hat
+  (`checkDatabaseHealthFromServer`, `dbprobe.Health`).
+- **Bewertung:** Der Server bewertet jede Prüfung wie einen Test (`judgeDbHealth`): gut nur mit
+  Anmeldung und `SELECT 1`; eine andere Engine, Instanz oder ein anderes Zertifikat ist ein
+  Fehlschlag mit dem Code des Tests und macht die Verbindung rot, bis ein Admin nach einem Test
+  bestätigt; Restows eigene Datenbank wird abgelehnt (`db_target_is_restow`). Meldungen werden vor
+  dem Speichern erneut um die Zugangsdaten bereinigt.
+- **Restow-Server als Ausführer:** ein Durchlauf je Minute in einem Worker der Installation
+  (`apps/worker databases/health.ts`, Advisory Lock): jede eingeschaltete Verbindung, deren
+  Intervall um ist, höchstens 200 je Durchlauf, 4 zugleich; Netzschutz wie beim Test (Adresse vor
+  dem Verbinden, geprüfte Namensauflösung, private Netze nur mit Schalter oder Freigabe).
+- **Agent als Ausführer:** Der Heartbeat gibt höchstens alle 4 Minuten eine gebündelte Aufgabe
+  `db_health` für alle eingeschalteten Verbindungen des Agenten. Der Agent holt deren Prüfungen
+  genau einmal mit den Zugangsdaten (`GET /agent/v1/databases/health/:taskId`), prüft jede
+  Verbindung zu ihrem Termin und dann in ihrem Intervall, bis das Fenster der Aufgabe endet
+  (6 Minuten, etwas länger als der Heartbeat) oder die nächste Aufgabe sie ablöst, und schickt
+  jede Prüfung sofort (`POST …/:taskId/samples`). Der Server nimmt nur Verbindungen der Aufgabe in
+  ihrem Fenster an. So hält der Agent Zugangsdaten höchstens 6 Minuten im Speicher.
+- **Verlauf:** Tabelle `database_health_samples` (Migration `0108_database_health`): eine Zeile je
+  Prüfung, nach 14 Tagen eine je Stunde (Summen, Mittel und Extreme, letzte Version, Startzeit,
+  Zertifikat, Größen), 400 Tage. Die Größen stehen je Datenbankzeile und führen
+  `databases.size_bytes` nach.
+- **Alarme:** `database.unreachable` (Warnung) nach drei fehlgeschlagenen Prüfungen in Folge,
+  einmal je Episode, `database.reachable` (Info) beim ersten Erfolg danach; Gruppe `jobs`, für
+  Prüfungen des Servers und des Agenten gleich (`advanceDbHealthState` im Worker, Zustand in
+  `database_connections.health`). Eine ausgeschaltete Verbindung wird nicht gemeldet.
+- **Anzeige:** Liste mit Erreichbarkeit (erreichbar, langsam ab 2 Sekunden, nicht erreichbar,
+  unbekannt ohne Prüfung seit drei Intervallen) und dem Band der letzten 24 Stunden;
+  Verbindungsseite mit Stand, Band, Verfügbarkeit 24 Stunden/7 Tage/30 Tage, Antwortzeit,
+  Verbindungen, Ereignissen und dem Intervall in den Einstellungen; Datenbankseite mit Größe und
+  Wachstum je Tag. Nichts davon ist grün. Session-API `GET …/connections/:id/health?from&to` und
+  `GET …/:id/health?from&to`, `PATCH …/connections/:id` mit `healthIntervalMinutes`.
+
+### Abweichungen und Grenzen von D2
+
+- **Erreichbar heißt angemeldet:** Eine abgelehnte Anmeldung zählt als fehlgeschlagene Prüfung und
+  nach dreien als `database.unreachable` (mit dem Code im Alarm): Für die Sicherung ist die
+  Datenbank dann nicht erreichbar.
+- **Kein Backoff, keine Ruhezeiten:** Der Entwurf nennt keine; eine Verbindung wird auch während
+  einer Störung im Intervall geprüft, damit `database.reachable` pünktlich kommt. Gegen Flattern
+  wirkt die Regel "drei in Folge" und die Drosselung der Benachrichtigungsregeln.
+- **Agent:** Prüfungen laufen höchstens so lange, wie die letzte Aufgabe gilt; ein Agent, der den
+  Server nicht erreicht, prüft nach 6 Minuten nicht weiter (die Verbindung wird "unbekannt",
+  nicht "nicht erreichbar", und es kommt kein Alarm: Das meldet `db_runner_offline`). Prüfungen,
+  die eine neue Aufgabe abbricht, werden nicht gemeldet.
+- **Matrix:** Die Benachrichtigungsmatrix zeigt `database.*` direkt nach `endpoint.sql_*` in der
+  Gruppe "Läufe", ohne eigene Überschrift "Datenbanken" (die Gruppen sind fest); die Alarme der
+  Bewertung (`database.red`, `database.recovered`, `database.overdue`) kommen mit D6.
+- **Point-in-Time:** Rückstand und zurückgehaltenes WAL misst der Healthcheck mit P1/P2.
+- **Datenbanken:** Der Healthcheck legt keine Datenbankzeilen an und markiert keine als gelöscht;
+  das bleibt beim Test und ab D3 bei den Läufen.
+
+### Nahtstellen für D3 bis D7
+
+- D2 → D3/D6: `rateDatabase` bekommt Sicherungen und Prüfungen; die Erreichbarkeit
+  (`DatabaseDto.reachable`, `reachability`) kommt aus den Healthchecks und bleibt neben der
+  Bewertung. Läufe können `database_connections.health` lesen, um bei einer roten Verbindung
+  (anderes Zertifikat, andere Instanz) nicht zu starten.
+- P1/P2: Rückstand der Übertragung als weitere Spalten von `database_health_samples` und
+  `database.pitr_lag` über denselben Durchlauf des Workers.
 - D3/D4: Sicherungsläufe über die Queue `db` bzw. die Aufgabe `db_backup`, Repository
   `db/<verbindung>`, `database_backups`; Zeitplan und Auswahl stehen in der Verbindung, die
   Aufbewahrung in `retention_policy_id` (leer = Vorgabe des Mandanten).

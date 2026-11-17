@@ -100,7 +100,14 @@ Postgres-Service bereit und setzt die Variable.
   der Ausführer, Identität, Kaskaden), apps/api `features/databases/databases.pg.test.ts`
   (Prüfung über Server und Agent, Speichern aus der Prüfung, Zugangsdaten nie in Antworten oder
   im Audit-Log, Netzschutz und Freigabe, eigene Datenbank, neues Zertifikat und neue Instanz,
-  Inventur). Der Agent prüft mit `RESTOW_TEST_DATABASE_URL` gegen echtes PostgreSQL
+  Inventur). Seit D2 (Healthchecks): apps/api `features/databases/health.pg.test.ts` (Aufgabe
+  `db_health` im Heartbeat, Prüfungen einmal mit Zugangsdaten und Zertifikat, Bewertung und
+  Bereinigung der Proben, Verlauf, Größe je Tag, Band), apps/worker `databases/health.pg.test.ts`
+  (fällige Prüfungen des Servers mit Zertifikat und Netzfreigabe, `database.unreachable` nach drei
+  Fehlschlägen und `database.reachable` je einmal, eigene Datenbank, Wiederherstellungsmodus,
+  Verdichtung zu Stunden); packages/core `databases/probe/postgres.pg.test.ts` prüft die
+  Healthchecks gegen dasselbe PostgreSQL 16 (ein anderes Zertifikat: keine Anmeldung). Der
+  Agent prüft mit `RESTOW_TEST_DATABASE_URL` gegen echtes PostgreSQL
   (`agent/internal/dbprobe/postgres_test.go`); MySQL, MariaDB und SQL Server laufen in allen
   Stufen gegen nachgebaute Server (Begrüßung, Anmeldung, Antworten nach der
   Protokollbeschreibung), die echte Versionsmatrix ist Stufe D7.

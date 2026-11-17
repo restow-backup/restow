@@ -205,6 +205,8 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
 | `GET /databases/probes/:id` | Seit 0.6.0: eine Prüfung einer Datenbankverbindung (Aufgabe `db_probe`) mit ihren Zugangsdaten, **genau einmal** und nur an den Agenten, für den sie bestimmt ist (danach 409); im Wiederherstellungsmodus 409. Siehe "Datenbanken". |
 | `POST /databases/probes/:id/result` | Seit 0.6.0: die Fakten der Prüfung (`DBProbeResult`); der Server bewertet sie und löscht danach die versiegelten Zugangsdaten der Prüfung. |
+| `GET /databases/health/:taskId` | Seit 0.6.0: die Healthchecks einer Aufgabe `db_health` (`{ taskId, windowSeconds, checks: [{ connectionId, firstAfterSeconds, intervalSeconds, spec }] }`) mit den Zugangsdaten und dem bestätigten Zertifikat, **genau einmal** (danach 409), nur im Fenster der Aufgabe; im Wiederherstellungsmodus 409. |
+| `POST /databases/health/:taskId/samples` | Seit 0.6.0: `{ samples: [{ connectionId, at, result }] }`, höchstens 200; der Server bewertet jede Prüfung und nimmt nur Verbindungen der Aufgabe in ihrem Fenster an (Antwort `{ accepted }`, 409 nach dem Fenster). |
 
 Ein Wiederanbindungs-Token (seit 0.5.0, siehe "Wiederanbindung") wird über dasselbe
 `POST /enroll` eingelöst; die Antwort hat dieselbe Form und zusätzlich `rebound: true`, ein älterer
@@ -738,7 +740,7 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
 
 `backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`, seit 0.5.0 `sql_restore`,
 `sql_verify`, `sql_inventory` (siehe "SQL Server (native Sicherung, Vorschau)"), seit 0.6.0
-`db_probe` (siehe "Datenbanken"). Eine Aufgabe ist
+`db_probe` und `db_health` (siehe "Datenbanken"). Eine Aufgabe ist
 `pending`, dann `delivered` (der Agent hat sie mit dem Heartbeat erhalten), dann `done` oder
 `failed`; seit 0.4.2 auch `cancelled` (in der Oberfläche zurückgezogen, siehe "Sicherung stoppen").
 
@@ -925,8 +927,19 @@ Kundennetz. In D1 heißt das:
   64 KiB). Der Server speichert sie in `endpoints.settings.databaseInventory` und zeigt sie als
   Vorschläge; eine Verbindung entsteht daraus nie.
 
+- **Aufgabe `db_health`** (Stufe D2, `params: { windowSeconds }`, gilt mit der Zustellung als
+  erledigt): höchstens alle 4 Minuten mit dem Heartbeat, solange der Agent eine eingeschaltete
+  Verbindung ausführt. Der Agent holt die Prüfungen einmal (`GET /agent/v1/databases/health/:id`),
+  prüft jede Verbindung zu `firstAfterSeconds` und dann alle `intervalSeconds` (mindestens eine
+  Minute), bis das Fenster endet (höchstens 10 Minuten) oder eine neuere Aufgabe sie ablöst, und
+  schickt jede Prüfung sofort (`POST …/samples`). `dbprobe.Health` prüft mit `purpose: health`
+  (Antwortzeit, Startzeit, Verbindungen, Identität, Größen auf Wunsch), mit dem bestätigten
+  Zertifikat (ein anderes beendet die Prüfung vor der Anmeldung, `db_tls_changed`) und einer
+  Frist von 10 Sekunden, nach der jede ihrer Verbindungen geschlossen wird. Eine abgebrochene
+  Prüfung wird nicht gemeldet; ins Log kommen nur Verbindung und Code.
+
 Vertrag: `agent/internal/api/testdata/contract/db-*.json`, `task-db-probe.json`,
-`heartbeat-db-inventory.json` (Go dekodiert strikt, `packages/core/src/databases/contract.test.ts`
+`task-db-health.json`, `heartbeat-db-inventory.json` (Go dekodiert strikt, `packages/core/src/databases/contract.test.ts`
 liest dieselben Dateien).
 
 ### SQL Server (native Sicherung, Vorschau, seit 0.5.0)

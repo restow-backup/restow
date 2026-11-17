@@ -53,6 +53,31 @@ private repository.
   - Session API `/api/v1/databases` (databases, connections, `connections/test`, suggestions,
     runners); administrators change, restore operators read. Audit actions
     `database_connection.*`.
+- Health checks of database connections (docs/DATABASES.md 8, stage D2 of 0.6.0), for every
+  engine the module detects:
+  - Every enabled connection is checked every 5 minutes (1 to 60 per connection) by its executor
+    with the backup user, read-only, within 10 seconds: sign-in and `SELECT 1` (the response time),
+    the instance's start time (a restart becomes an event), connections in use against
+    `max_connections`, the version, the certificate and, at most once an hour, the size of each
+    database. SQLite checks the file, SQL Server answers its PRELOGIN (sign-in follows with D5).
+  - Every check passes the confirmed TLS certificate: another one ends the check after the
+    handshake, before any credential is sent (`db_tls_changed`), and turns the connection red; the
+    page sends the administrator to a test to confirm it. One deadline closes every socket of a
+    check. The Restow server checks its own connections in the worker (one pass a minute, the
+    network protection of the module on every connection); an agent gets a bundled `db_health`
+    task at most every 4 minutes, fetches the checks with their credentials once
+    (`GET /agent/v1/databases/health/:taskId`) and posts each sample
+    (`POST /agent/v1/databases/health/:taskId/samples`). No checks while restore mode is on.
+  - History in `database_health_samples` (migration 0108): raw samples 14 days, then hourly means
+    and extremes 400 days.
+  - Alerts `database.unreachable` (three failed checks in a row, once per episode) and
+    `database.reachable` (the first good check after), group "Jobs", de and en.
+  - The Databases list shows reachability (reachable, slow, not reachable, unknown) with a band of
+    the last 24 hours; the connection page shows availability over 24 hours, 7 and 30 days,
+    response time, connections in use and the events (not reachable from/until, restart, version
+    change, another certificate); the database page shows its size and growth per day. Session API
+    `GET /api/v1/databases/connections/:id/health` and `GET /api/v1/databases/:id/health`; a
+    connection's `healthIntervalMinutes` is changed with `PATCH`.
 
 ## [0.5.0] - 2026-11-17
 
