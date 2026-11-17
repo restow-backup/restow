@@ -78,6 +78,53 @@ private repository.
     change, another certificate); the database page shows its size and growth per day. Session API
     `GET /api/v1/databases/connections/:id/health` and `GET /api/v1/databases/:id/health`; a
     connection's `healthIntervalMinutes` is changed with `PATCH`.
+- Monthly billing close (Service Provider; integration API contract 1.11.0, additive): every
+  tenant's billed quantities (protected mailboxes, stored data, servers, clients, VMs,
+  containers, file shares) are sampled once a day, counted exactly like `GET /provider/billing`,
+  together with the prices in force that day, and each month is closed automatically on the 1st
+  at 00:00 in the installation's time zone (Installation › Server, else `RESTOW_TIME_ZONE`, `TZ`,
+  Europe/Berlin). A closed month bills the peak, the highest daily quantity of the month per
+  tenant and line, at the prices of the month's end (the last sampled day), so a close that runs
+  days late after a price change on the 1st still bills the old prices. A closed month never
+  changes: the database refuses any update or deletion of it. Corrections are separate entries
+  next to the close. A server that was off on the 1st closes the missed months on its next start;
+  days on which it was off have no sample and are shown as such (`sampledDays`). New endpoints:
+  `GET /api/v1/provider/billing/periods` (the closed months and when the open one closes),
+  `GET /api/v1/provider/billing/periods/{YYYY-MM}` (the closed month in the shape of
+  `GET /provider/billing` plus the peak date of each line, the close time and the corrections;
+  `404 urn:restow:problem:billing-period-open` for the current month) and
+  `POST /api/v1/provider/billing/periods/{YYYY-MM}/corrections` with the new provider-only scope
+  `billing:write` ("Billing corrections" in the web UI). Audited: `billing.period.closed`
+  (installation chain), `billing.correction.created` and `api.provider.billing.period.read`
+  (each tenant's chain), `billing.period.exported`.
+- Installation › Billing (Service Provider): the open month with the day it closes, every closed
+  month with its tenants, each line's peak, peak date, unit price and its source, the days sampled
+  against the days of the month and the corrections; the owner of the provider team adds a
+  correction with amount and reason; every month exports as CSV (one row per tenant and line, one
+  per correction; columns in docs/ARCHITECTURE.md, "Monatsabschluss der Abrechnung").
+- The provider's own webhooks (Service Provider): `/api/v1/provider/webhooks` for a provider key
+  with `webhooks:manage` (list, create, change, delete, renew the secret, send a test, the latest
+  deliveries) and the same under Installation › Provider API. Their first event is
+  `billing.period_closed` with `{period, closedAt, currency, tenants, total, url}` and no tenant
+  figures, queued in the transaction of the close. Deliveries are the signed `restow` envelope
+  (`scope: "provider"`), sent, retried and health-checked by the worker like a tenant webhook's;
+  a provider webhook that keeps failing alerts the provider (bell and provider recipients). Every
+  change is audited in the installation chain (`provider_webhook.*`).
+
+### Changed
+
+- The integration API contract moves from 1.10.0 to 1.11.0; every change is additive (new
+  endpoints and the scope `billing:write`).
+- `webhook_deliveries` holds the provider's deliveries too: `tenant_id` and `webhook_id` may be
+  null when `provider_webhook_id` is set (exactly one owner per row, checked by the database).
+
+### Upgrade Notes
+
+- Database migrations 0105 (databases module), 0106 (billing close) and 0107 (provider webhooks,
+  the prices of each daily sample), applied in this order. 0107 checks every row of `webhook_deliveries` once when it adds the owner constraint;
+  the table only keeps 30 days of deliveries.
+- The worker needs `RESTOW_MASTER_KEY` (it already does) to sign the provider webhooks'
+  deliveries.
 
 ## [0.5.0] - 2026-11-17
 

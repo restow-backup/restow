@@ -125,7 +125,11 @@
     },
     "billing_read": {
       "label": "Billing",
-      "description": "What each tenant would be billed this month at your prices, with customer numbers, for PSA and billing tools. Provider keys only."
+      "description": "What each tenant would be billed this month at your prices, and the closed months, with customer numbers, for PSA and billing tools. Provider keys only."
+    },
+    "billing_write": {
+      "label": "Billing corrections",
+      "description": "Add corrections to a closed billing month; the close itself never changes. Provider keys only."
     },
     "restore_write": {
       "label": "Backups and restores",

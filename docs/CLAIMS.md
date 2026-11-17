@@ -1195,6 +1195,17 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
 - Stand: belegt
 
+## Abrechnung (BILLING)
+
+### BILLING-001
+- Aussage: Ein abgeschlossener Monat ändert sich nie: Weder ein späterer Preis noch eine späte Messung noch ein zweiter Abschluss ändert ihn, und die Datenbank weist jede Änderung und Löschung des Monats, seiner Mandantenzeilen und seiner Korrekturen ab; eine Korrektur ist immer ein eigener Eintrag.
+- Fundstelle: docs/ARCHITECTURE.md (Abschnitt „Monatsabschluss der Abrechnung“), ee/README.md (Zeile „Monthly billing close“), CHANGELOG.md (Unreleased, „Monthly billing close“)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: ee/api/src/billing-close/billing-close.pg.test.ts
+- Belegt gegen: echtes System (PostgreSQL 16 mit den Rollen der Installation, Job test in ci.yml)
+- Stand: belegt
+- Hinweis: Der Trigger und die entzogenen Rechte schützen gegen die Anwendungsrollen und gegen versehentliche Änderungen; wer Eigentümerrechte an der Datenbank hat, kann den Trigger entfernen (wie beim Audit-Log). Belegt sind UPDATE und DELETE durch den Eigentümer (Trigger) und durch die Installationsrolle (keine Rechte).
+
 ## Datenbanken (DB)
 
 ### DB-001

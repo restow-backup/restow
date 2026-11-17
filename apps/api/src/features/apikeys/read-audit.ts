@@ -50,8 +50,10 @@ export const KEY_READ_AUDIT: Readonly<Record<ApiScope, ReadAuditRule | null>> = 
     actions: sameAction(V1_AUDIT_ACTIONS.archiveReportRead),
     itemType: "archive_item",
   },
-  // Only GET /provider/billing reads under it, and that records each read itself.
+  // Only the /provider/billing reads use it, and they record each read themselves.
   "billing:read": null,
+  // Corrections of a closed billing month (0.6.0), recorded by the billing close itself.
+  "billing:write": null,
   "restore:write": null,
   "verify:write": null,
   "users:write": null,

@@ -13,6 +13,7 @@ describe("API scopes", () => {
       [
         "archive:read",
         "billing:read",
+        "billing:write",
         "items:read",
         "jobs:read",
         "restore:write",
@@ -25,8 +26,8 @@ describe("API scopes", () => {
     );
   });
 
-  it("keep the billing figures to provider keys", () => {
-    expect(PROVIDER_ONLY_SCOPES).toEqual(["billing:read"]);
+  it("keep the billing figures and their corrections to provider keys", () => {
+    expect(PROVIDER_ONLY_SCOPES).toEqual(["billing:read", "billing:write"]);
   });
 
   it("recognise known scopes only", () => {

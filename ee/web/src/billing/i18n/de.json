@@ -1,0 +1,106 @@
+{
+  "section": {
+    "label": "Abrechnung",
+    "description": "Die abgeschlossenen Monate je Mandant: Spitze, Preise, Korrekturen und CSV-Export."
+  },
+  "intro": "Am 1. jedes Monats um 00:00 in der Zeitzone der Installation wird der Vormonat abgeschlossen: Je Mandant und Zeile zählt die Spitze des Monats, die höchste Tagesmenge, zu den Preisen des letzten gemessenen Tages. Ein abgeschlossener Monat ändert sich nie; Korrekturen stehen als eigene Einträge daneben.",
+  "loadError": "Die Abrechnungsmonate konnten nicht geladen werden.",
+  "months": {
+    "title": "Monate",
+    "description": "Der laufende Monat und die abgeschlossenen Monate, der neueste zuerst.",
+    "caption": "Abrechnungsmonate",
+    "columns": {
+      "month": "Monat",
+      "status": "Stand",
+      "tenants": "Mandanten",
+      "total": "Summe",
+      "correctedTotal": "Mit Korrekturen",
+      "closedAt": "Abgeschlossen"
+    },
+    "open": "Offen",
+    "closed": "Abgeschlossen",
+    "closesAt": "schließt am {date}",
+    "show": "{month} ansehen",
+    "shown": "{month} wird angezeigt",
+    "empty": "Noch kein Monat abgeschlossen. Der erste Abschluss kommt am 1. des nächsten Monats."
+  },
+  "month": {
+    "loadError": "Der Monat konnte nicht geladen werden.",
+    "closedAt": "Abgeschlossen am {date}, Zeitzone {zone}",
+    "sampled": "An {sampled} von {days} Tagen gemessen",
+    "gaps": "An einigen Tagen gab es keine Messung (Server aus oder Monat nach dem Update begonnen). Die Spitze gilt über die gemessenen Tage.",
+    "caption": "Zeilen je Mandant im {month}",
+    "columns": {
+      "tenant": "Mandant",
+      "line": "Zeile",
+      "quantity": "Spitze",
+      "unitPrice": "Stückpreis",
+      "peakDate": "Spitze am",
+      "amount": "Betrag"
+    },
+    "total": "Summe der Kunden",
+    "correctedTotal": "Mit Korrekturen",
+    "tenantTotal": "Summe {name}",
+    "sampledDays": "{count} Tage gemessen",
+    "noCustomerNumber": "ohne Kundennummer",
+    "internal": "Eigene Organisation, nicht in der Summe",
+    "deleting": "Gelöscht",
+    "noPrice": "Kein Preis",
+    "incomplete": "Unvollständig",
+    "empty": "In diesem Monat wurde kein Mandant gemessen."
+  },
+  "priceSource": {
+    "tenant": "eigener Preis",
+    "installation": "Preis der Installation"
+  },
+  "lines": {
+    "mailboxes": "Postfächer",
+    "storage": "Speicher",
+    "servers": "Server",
+    "clients": "Arbeitsplätze",
+    "vms": "VMs",
+    "containers": "Container",
+    "fileShares": "Freigaben"
+  },
+  "units": {
+    "mailbox": "Postfächer",
+    "unit": "Stück",
+    "bytes": "{unit}"
+  },
+  "csv": {
+    "export": "CSV exportieren",
+    "preparing": "Die CSV-Datei wird erstellt …",
+    "done": "CSV-Datei gespeichert",
+    "failed": "Die CSV-Datei konnte nicht erstellt werden."
+  },
+  "corrections": {
+    "title": "Korrekturen",
+    "empty": "Keine Korrekturen.",
+    "caption": "Korrekturen im {month}",
+    "columns": {
+      "tenant": "Mandant",
+      "line": "Zeile",
+      "amount": "Betrag",
+      "reason": "Begründung",
+      "by": "Eingetragen"
+    },
+    "whole": "Ganze Rechnung",
+    "by": "{who}, {date}",
+    "add": "Korrektur eintragen",
+    "dialog": {
+      "title": "Korrektur eintragen",
+      "description": "Der Abschluss bleibt, wie er ist. Die Korrektur steht als eigener Eintrag daneben und zählt in der Summe mit Korrekturen. Sie wird im Audit-Log des Mandanten festgehalten und lässt sich nicht ändern oder löschen.",
+      "tenant": "Mandant",
+      "line": "Zeile (optional)",
+      "amount": "Betrag in {currency}",
+      "amountHint": "Mit Vorzeichen: -12,50 schreibt gut, 12,50 berechnet nach.",
+      "amountInvalid": "Geben Sie einen Betrag ungleich 0 mit höchstens vier Nachkommastellen ein.",
+      "reason": "Begründung",
+      "reasonPlaceholder": "Zum Beispiel: Zwei Testpostfächer nicht berechnen",
+      "reasonHint": "Mindestens 3 Zeichen.",
+      "confirm": "Korrektur eintragen"
+    },
+    "done": "Korrektur eingetragen",
+    "failed": "Die Korrektur konnte nicht eingetragen werden."
+  }
+}

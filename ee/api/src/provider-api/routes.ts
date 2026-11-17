@@ -6,6 +6,7 @@ import {
   estimateFiguresCache,
   loadPricingEstimate,
 } from "../../../../apps/api/src/features/settings/pricing-estimate.js";
+import { loadInstallationTimeZone } from "../../../../apps/api/src/lib/installation-time-zone.js";
 import { withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 import type { IntegrationApi, V1Deps } from "../../../../apps/api/src/routes/v1/api.js";
@@ -32,6 +33,7 @@ import {
   directoryUserSchema,
   loadDirectoryUsers,
 } from "../../../../apps/api/src/routes/v1/users.js";
+import { createCorrection, listClosedPeriods } from "../billing-close/service.js";
 import {
   billingFromEstimate,
   billingQuerySchema,
@@ -39,6 +41,19 @@ import {
   loadBillingFacts,
   tenantByCustomerNumber,
 } from "./billing.js";
+import {
+  billingCorrectionSchema,
+  billingPeriodListSchema,
+  billingPeriodSchema,
+  correctionDto,
+  createCorrectionSchema,
+  loadClosedPeriodOrProblem,
+  openPeriod,
+  periodDto,
+  periodListDto,
+  periodParamSchema,
+  periodTenantByCustomerNumber,
+} from "./billing-periods.js";
 
 /**
  * Cross-tenant overviews for provider keys (Service Provider edition):
@@ -357,6 +372,122 @@ export function registerProviderRoutes(api: IntegrationApi, deps: V1Deps): void 
         });
       }
       return billing;
+    },
+  );
+
+  api.provider(
+    {
+      method: "get",
+      path: "/provider/billing/periods",
+      operationId: "listProviderBillingPeriods",
+      summary: "The closed billing months, and the open one",
+      description:
+        "Every closed month (0.6.0), newest first: its bounds and time zone, when it was closed, the currency, how many tenants it bills, its total and the total with corrections. `open` names the current month and when it will be closed (on the 1st at 00:00 in the installation's time zone); `GET /provider/billing` is its live estimate. Carries no tenant's figures and is not recorded in an audit log.",
+      tag: "Provider",
+      scope: "billing:read",
+      errors: [400],
+      response: {
+        status: 200,
+        description: "The closed months.",
+        schema: billingPeriodListSchema,
+      },
+    },
+    async () => {
+      const { timeZone } = await loadInstallationTimeZone(deps.providerDb);
+      return periodListDto(
+        await listClosedPeriods(deps.providerDb),
+        openPeriod(deps.now(), timeZone),
+      );
+    },
+  );
+
+  api.provider(
+    {
+      method: "get",
+      path: "/provider/billing/periods/:period",
+      operationId: "getProviderBillingPeriod",
+      summary: "One closed billing month, for invoicing",
+      description:
+        "The month as it was closed (0.6.0), in the shape of `GET /provider/billing`: per tenant the customer number and status at the close and one line per priced quantity at the month's peak, the highest daily quantity (`peakDate`: the first day it was reached), at the prices in force at the month's end (the last sampled day); plus the month's bounds, time zone, close time, the days sampled and the corrections entered since (`corrections`, `correctedTotal`). A closed month never changes. The current month is not closed yet: 404 with `urn:restow:problem:billing-period-open` and `closesAt`. `?tenant=` or `?customerNumber=` (as recorded at the close, without case) narrows it to one tenant. The read is recorded in the audit log of every tenant it contains.",
+      tag: "Provider",
+      scope: "billing:read",
+      audited: true,
+      params: periodParamSchema,
+      query: billingQuerySchema,
+      errors: [400, 404, 422],
+      response: {
+        status: 200,
+        description: "The closed month per tenant.",
+        schema: billingPeriodSchema,
+      },
+    },
+    async ({ actor, input: { params, query } }) => {
+      const loaded = await loadClosedPeriodOrProblem(deps.providerDb, params.period, deps.now());
+      let tenantId = query.tenant;
+      if (query.customerNumber !== undefined) {
+        const named = periodTenantByCustomerNumber(loaded, query.customerNumber);
+        if (!named || (tenantId !== undefined && tenantId !== named)) {
+          throw new ProblemError(404, "Tenant not found", {
+            detail: "No tenant of this month has this customer number.",
+          });
+        }
+        tenantId = named;
+      }
+      if (tenantId !== undefined && !loaded.tenants.some((row) => row.tenantId === tenantId)) {
+        throw new ProblemError(404, "Tenant not found", {
+          detail: "The tenant is not part of this closed month.",
+        });
+      }
+      const period = periodDto(loaded, tenantId);
+      for (const tenant of period.tenants) {
+        await recordRead(tenant.tenantId, actor, {
+          action: V1_AUDIT_ACTIONS.providerBillingPeriodRead,
+          target: tenant.tenantId,
+          targetType: "tenant",
+          details: {
+            period: period.period,
+            lines: tenant.lines.length,
+            ...(tenantId ? { filtered: true } : {}),
+          },
+        });
+      }
+      return period;
+    },
+  );
+
+  api.provider(
+    {
+      method: "post",
+      path: "/provider/billing/periods/:period/corrections",
+      operationId: "createProviderBillingCorrection",
+      summary: "Correct a closed billing month",
+      description:
+        "Adds a correction to a closed month (0.6.0): a signed amount in the month's currency for one tenant of it, optionally for one line, with a reason. The close itself never changes; the correction stands next to it and counts in `correctedTotal`. Recorded in the tenant's audit log (`billing.correction.created`).",
+      tag: "Provider",
+      scope: "billing:write",
+      write: true,
+      params: periodParamSchema,
+      body: createCorrectionSchema,
+      errors: [400, 404, 422],
+      response: {
+        status: 201,
+        description: "The correction.",
+        schema: billingCorrectionSchema,
+      },
+    },
+    async ({ actor, input: { params, body } }) => {
+      const row = await createCorrection(
+        { providerDb: deps.providerDb, audit: deps.audit },
+        {
+          period: params.period,
+          tenantId: body.tenantId,
+          lineType: body.type ?? null,
+          amount: body.amount,
+          reason: body.reason,
+          actor: { label: actor.label, keyId: actor.keyId, ip: actor.ip },
+        },
+      );
+      return correctionDto(row);
     },
   );
 

@@ -56,6 +56,34 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
 
   // The cross-tenant provider API, reachable with a session too.
   "GET /api/v1/provider/billing": view(scope.provider),
+  // The closed billing months (0.6.0): read like the live figures; a correction changes what a
+  // customer is billed, so only an owner may enter one.
+  "GET /api/v1/provider/billing/periods": view(scope.provider),
+  "GET /api/v1/provider/billing/periods/:period": view(scope.provider),
+  "POST /api/v1/provider/billing/periods/:period/corrections": own(),
+  // The provider's own webhooks (0.6.0): managed by the owner, like the provider API keys.
+  "GET /api/v1/provider/webhooks": view(scope.provider),
+  "POST /api/v1/provider/webhooks": own(),
+  "GET /api/v1/provider/webhooks/:id": view(scope.provider),
+  "PATCH /api/v1/provider/webhooks/:id": own(),
+  "DELETE /api/v1/provider/webhooks/:id": own(),
+  "POST /api/v1/provider/webhooks/:id/secret": own(),
+  "POST /api/v1/provider/webhooks/:id/test": own(),
+  "GET /api/v1/provider/webhooks/:id/deliveries": view(scope.provider),
+  "GET /api/v1/provider-webhooks": view(scope.provider),
+  "POST /api/v1/provider-webhooks": own(),
+  "PATCH /api/v1/provider-webhooks/:id": own(),
+  "DELETE /api/v1/provider-webhooks/:id": own(),
+  "POST /api/v1/provider-webhooks/:id/secret": own(),
+  "POST /api/v1/provider-webhooks/:id/test": own(),
+  "GET /api/v1/provider-webhooks/:id/deliveries": view(scope.provider),
+
+  // Installation › Billing (0.6.0): every provider role reads the closed months, the owner
+  // corrects one.
+  "GET /api/v1/billing/periods": view(scope.provider),
+  "GET /api/v1/billing/periods/:period": view(scope.provider),
+  "GET /api/v1/billing/periods/:period/csv": view(scope.provider),
+  "POST /api/v1/billing/periods/:period/corrections": own(),
   "GET /api/v1/provider/tenants": view(scope.provider),
   "GET /api/v1/provider/users": view(scope.provider),
 };

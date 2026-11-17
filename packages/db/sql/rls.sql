@@ -205,7 +205,12 @@ DECLARE
     'key_mirror_findings',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
-    'provider_member_tenants'
+    'provider_member_tenants',
+    -- The monthly billing close (0.6.0, ee/api billing-close): installation role only, like
+    -- provider_member_tenants; the policy is the second line.
+    'billing_samples',
+    'billing_period_tenants',
+    'billing_corrections'
   ];
 BEGIN
   FOREACH target_table IN ARRAY tenant_tables LOOP
@@ -295,3 +300,36 @@ DROP TRIGGER IF EXISTS archive_anchor_append_only ON archive_anchor;
 CREATE TRIGGER archive_anchor_append_only
   BEFORE UPDATE OR DELETE ON archive_anchor
   FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+
+-- A closed month of the billing close (0.6.0) and its corrections never change: a correction is
+-- a row of its own (docs/ARCHITECTURE.md, "Monatsabschluss der Abrechnung"). Guarded like the
+-- ones above.
+DO $$
+BEGIN
+  IF to_regclass('public.billing_periods') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS billing_periods_append_only ON billing_periods;
+    CREATE TRIGGER billing_periods_append_only
+      BEFORE UPDATE OR DELETE ON billing_periods
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('public.billing_period_tenants') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS billing_period_tenants_append_only ON billing_period_tenants;
+    CREATE TRIGGER billing_period_tenants_append_only
+      BEFORE UPDATE OR DELETE ON billing_period_tenants
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('public.billing_corrections') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS billing_corrections_append_only ON billing_corrections;
+    CREATE TRIGGER billing_corrections_append_only
+      BEFORE UPDATE OR DELETE ON billing_corrections
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;

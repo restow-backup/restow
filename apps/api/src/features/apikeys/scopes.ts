@@ -11,6 +11,7 @@ export const API_SCOPES = [
   "users:read",
   "archive:read",
   "billing:read",
+  "billing:write",
   "restore:write",
   "verify:write",
   "users:write",
@@ -34,10 +35,10 @@ export function normalizeScopes(values: readonly string[]): ApiScope[] {
 }
 
 /**
- * Scopes only a provider key may carry: they read across tenants (GET /provider/billing). A
- * tenant key is created without them.
+ * Scopes only a provider key may carry: they read across tenants (GET /provider/billing) or
+ * correct a closed billing month (0.6.0). A tenant key is created without them.
  */
-export const PROVIDER_ONLY_SCOPES: readonly ApiScope[] = ["billing:read"];
+export const PROVIDER_ONLY_SCOPES: readonly ApiScope[] = ["billing:read", "billing:write"];
 
 /** True when `scopes` grants `required`. */
 export function hasScope(scopes: readonly ApiScope[], required: ApiScope): boolean {

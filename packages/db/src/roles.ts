@@ -441,6 +441,15 @@ export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
   // Branding (0.5.0): the provider's, and the logos the public image route serves.
   provider_branding: "installation",
   branding_images: "installation",
+  // The monthly billing close (0.6.0, schema/billing.ts): the provider's figures, never a
+  // tenant's to read. The ones with tenant_id carry a policy as a second line.
+  billing_samples: "installation",
+  billing_periods: "installation",
+  billing_period_tenants: "installation",
+  billing_corrections: "installation",
+  // The provider's own webhooks (0.6.0, schema/webhooks.ts); their deliveries share
+  // webhook_deliveries with a null tenant_id, which tenant sessions never see.
+  provider_webhooks: "installation",
 };
 
 /** The tables {@link TABLE_ACCESS} gives `access`. */
@@ -471,6 +480,19 @@ export const AUTH_ROLE_RESTOW_GRANTS: Readonly<Record<string, string>> = {
 
 /** Tables nobody but the owner may rewrite (the triggers in sql/rls.sql refuse it as well). */
 const APPEND_ONLY_TABLES = ["audit_log", "audit_anchor", "archive_anchor"];
+
+/**
+ * A closed month of the billing close and its corrections (0.6.0, schema/billing.ts): nobody but
+ * the owner may rewrite them either. Each revoked only where the table exists, as the migration
+ * tests provision the roles on databases of older versions.
+ */
+const BILLING_CLOSE_TABLES = ["billing_periods", "billing_period_tenants", "billing_corrections"];
+
+function billingCloseRevokes(roles: string): string[] {
+  return BILLING_CLOSE_TABLES.map((table) =>
+    whenTableExists(table, `REVOKE UPDATE, DELETE, TRUNCATE ON ${ident(table)} FROM ${roles}`),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // The role of worker nodes on other hosts (node-roles.ts)
@@ -574,6 +596,7 @@ END $$`,
     `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role}`,
     `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role}`,
     `REVOKE UPDATE, DELETE, TRUNCATE ON ${APPEND_ONLY_TABLES.join(", ")} FROM ${role}`,
+    ...billingCloseRevokes(role),
     `REVOKE UPDATE, TRUNCATE ON archive_items FROM ${role}`,
     whenTableExists(
       "archive_item_mailboxes",
@@ -815,6 +838,7 @@ export async function provisionRoles(
       `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${both}`,
       `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${both}`,
       `REVOKE UPDATE, DELETE, TRUNCATE ON ${APPEND_ONLY_TABLES.join(", ")} FROM ${both}`,
+      ...billingCloseRevokes(both),
       // Archived mail is immutable; only the retention run (installation role) removes it.
       `REVOKE UPDATE, TRUNCATE ON archive_items FROM ${both}`,
       `REVOKE DELETE ON archive_items FROM ${tenant}`,

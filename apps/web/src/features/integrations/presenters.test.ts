@@ -87,8 +87,10 @@ describe("scopes", () => {
     const tenant = scopeGroupsFor("tenant").flatMap((group) => group.scopes);
     const provider = scopeGroupsFor("provider").flatMap((group) => group.scopes);
     expect(tenant).not.toContain("billing:read");
+    expect(tenant).not.toContain("billing:write");
     expect(provider).toContain("billing:read");
-    expect(provider.length - tenant.length).toBe(1);
+    expect(provider).toContain("billing:write");
+    expect(provider.length - tenant.length).toBe(2);
   });
 
   it("have i18n-safe ids and a canonical order", () => {

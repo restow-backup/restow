@@ -58,8 +58,16 @@ describe("row level security coverage", () => {
     expect(tableNames).toContain("tenants");
   });
 
-  it("keeps the append-only guards on the audit and archive chain tables", () => {
-    for (const table of ["audit_log", "audit_anchor", "archive_items", "archive_anchor"]) {
+  it("keeps the append-only guards on the audit and archive chain tables and the billing close", () => {
+    for (const table of [
+      "audit_log",
+      "audit_anchor",
+      "archive_items",
+      "archive_anchor",
+      "billing_periods",
+      "billing_period_tenants",
+      "billing_corrections",
+    ]) {
       expect(tableNames).toContain(table);
       expect(rlsSql).toMatch(new RegExp(`CREATE TRIGGER ${table}_append_only`));
     }
@@ -79,12 +87,19 @@ describe("database role classification", () => {
     expect(unclassified, "add the table to sql/rls.sql or to TABLE_ACCESS in roles.ts").toEqual([]);
   });
 
-  it("keeps tenant data out of the auth and installation-only classes, except the provider team", () => {
+  it("keeps tenant data out of the auth and installation-only classes, except the provider team and the billing close", () => {
+    // Carry tenant_id but are the installation role's alone; their policy is a second line.
+    const installationOnly = [
+      "provider_member_tenants",
+      "billing_samples",
+      "billing_period_tenants",
+      "billing_corrections",
+    ];
     for (const name of tenantScoped) {
       const access = TABLE_ACCESS[name];
       if (access !== undefined) {
-        // Carries tenant_id but is the installation role's alone; its policy is a second line.
-        expect([name, access]).toEqual(["provider_member_tenants", "installation"]);
+        expect(installationOnly, name).toContain(name);
+        expect(access, name).toBe("installation");
       }
     }
     expect(TABLE_ACCESS.tenants).toBe("tenant");
@@ -186,6 +201,7 @@ describe("reference conventions", () => {
     const holders = tableConfigs.filter((t) => t.columns.some((c) => c.name === "secret_ref"));
     expect(holders.map((t) => t.name).sort()).toEqual([
       "protected_objects",
+      "provider_webhooks",
       "sources",
       "storage_targets",
       "webhooks",

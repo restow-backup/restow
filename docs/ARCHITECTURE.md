@@ -505,13 +505,14 @@ Zeile je bepreister Menge (Postfächer, Speicher, Server, Arbeitsplätze, VMs, C
 Freigaben: Menge, Einheit, Stückpreis, Herkunft des Preises, Betrag) samt Summe, für PSA- und
 Abrechnungstools; dieselbe Schätzung wie die Preiskarten der Oberfläche, live zum Zeitpunkt
 `generatedAt`, mit `?tenant=` oder `?customerNumber=` auf einen Mandanten eingeschränkt. Jeder
-Abruf steht im Audit-Log jedes enthaltenen Mandanten (`api.provider.billing.read`). Ein fester
-Monatsabschluss mit Webhook folgt mit 0.6.0.
+Abruf steht im Audit-Log jedes enthaltenen Mandanten (`api.provider.billing.read`). Den festen
+Monatsabschluss dazu gibt es seit 0.6.0 (unten, "Monatsabschluss der Abrechnung").
 SSE `/api/v1/jobs/{id}/events`. Die Läufe heißen in der Integrations-API weiter `/jobs`; seit 0.2.0 (Vertrag
 1.2.0, additiv) gibt es sie auch unter `/runs` (`listRuns`, `startRunBackup`, `getRun`, `streamRunEvents`).
 Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der Integrations-API.
 Webhooks je Mandant (Ereignis,
-HMAC-Signatur). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
+HMAC-Signatur); seit 0.6.0 hat der Provider eigene Webhooks für Ereignisse der Installation
+(unten, "Webhooks des Providers"). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
 
 Der Ereignisstrom der Webhooks kennt `job.failed`, `job.completed` und `verify.completed`; die
 Namen sind öffentlicher Vertrag und bleiben. Die Liste ist nicht mehr dreifach definiert, sie
@@ -558,6 +559,191 @@ Umschlag. Antwortet ein Chatdienst mit 400, 401, 403, 404, 410, 413 oder 422, en
 Zustellung sofort (URL oder Nachricht falsch, ein gelöschter Discord-Webhook antwortet 404);
 429 und 5xx werden wiederholt, frühestens nach `Retry-After`. Für `restow` beendet weiter nur 410
 die Zustellung sofort.
+
+### Monatsabschluss der Abrechnung (0.6.0)
+
+`GET /provider/billing` ist eine Schätzung zum Zeitpunkt des Abrufs. Für die Rechnung gibt es seit
+0.6.0 (Service Provider, Capability `provider.crossTenantApi`, Vertrag 1.11.0, additiv) einen
+festen Monatsabschluss: Je Mandant und Zeile wird die **Spitze des Monats** abgerechnet, die
+höchste Tagesmenge, zu den Preisen des Monatsendes, und ein abgeschlossener Monat ändert sich nie
+mehr. Der Code liegt unter `ee/api/src/billing-close` (Tagesmenge, Abschluss, Korrekturen, Routen
+der Oberfläche), `ee/api/src/provider-api` (Routen der Integrations-API),
+`ee/api/src/provider-webhooks` (Webhooks des Providers) und `ee/web/src/billing` (Installation ›
+Abrechnung).
+
+**Zeitzone.** Ein "Provider" ist die Installation (`providers` hat genau eine Zeile), seine
+Zeitzone die der Installation: `settings.time_zone`, sonst `RESTOW_TIME_ZONE`, sonst `TZ`, sonst
+Europe/Berlin (@restow/core `resolveInstallationTimeZone`, eingestellt unter Installation › Server).
+Tage und Monate sind Kalendertage in dieser Zone.
+
+**Tabellen** (Migrationen 0106 und 0107, alle nur für die Installationsrolle, `TABLE_ACCESS`
+"installation"; die mit `tenant_id` tragen zusätzlich die Mandanten-Policy aus `sql/rls.sql` als
+zweite Linie):
+
+- `billing_samples`: eine Zeile je Mandant und Tag (`tenant_id`, `day`, eindeutig), in
+  `quantities` die Mengen dieses Tages: `mailboxes`, `storedBytes` (die gespeicherten Bytes, noch
+  ohne Rundung) und je Stückzeile (`servers`, `clients`, `vms`, `containers`, `fileShares`) die
+  Anzahl. JSONB, damit eine neue bepreiste Menge keine Migration braucht. Gezählt wird genau wie
+  in der Schätzung (`readTenantFigures` in `apps/api/src/features/settings/pricing-estimate.ts`),
+  für jeden Mandanten, auch ohne Preis: Ein Preis, der erst später im Monat gesetzt wird, gilt
+  beim Abschluss für den ganzen Monat. In `prices` (Migration 0107) die Preise, die an dem Tag
+  gelten: je abgerechneter Zeile Stückpreis und Herkunft (der eigene Preis des Mandanten, wenn das
+  Gate `tenants.additional` offen ist und er einen hat, sonst der der Installation), dazu
+  Währung, Speichereinheit und -rundung, die Preise der Installation und ob eigene Preise galten.
+  Die Zeilen eines abgeschlossenen Monats werden nach 400 Tagen gelöscht.
+- `billing_periods`: eine Zeile je abgeschlossenem Monat (`period` `YYYY-MM`, eindeutig) mit
+  Zeitzone, Beginn und Ende als Zeitpunkte, Abschlusszeit, Währung, Speichereinheit und
+  -rundung, den Preisen der Installation am Monatsende, Tagen des Monats und Tagen mit Messung.
+- `billing_period_tenants`: je Monat und Mandant Name, Kundennummer, Art und Status beim
+  Abschluss, die Zeilen (wie `/provider/billing` plus `peakDate`) und die Summe.
+- `billing_corrections`: Korrekturen eines abgeschlossenen Monats (Mandant, optional die Zeile,
+  Betrag mit Vorzeichen, Begründung, wer).
+
+`billing_periods`, `billing_period_tenants` und `billing_corrections` sind unveränderlich wie das
+Audit-Log: Ein Trigger (`restow_forbid_mutation`) weist jedes UPDATE und DELETE ab, den Rollen ist
+UPDATE, DELETE und TRUNCATE entzogen (`BILLING_CLOSE_TABLES` in `roles.ts`). Eine Korrektur ist
+immer ein neuer Eintrag, nie eine Änderung am Abschluss (Aussage BILLING-001 in docs/CLAIMS.md).
+
+**Tagesmessung.** Ein Hintergrunddienst des API-Prozesses (`billingCloseService`, registriert über
+`services` der Erweiterungsschnittstelle; im API-Prozess, weil dort die Zählregeln der Schätzung
+liegen und Abschluss und Schätzung so nie auseinanderlaufen) läuft jede Minute, solange die
+Lizenz `apiKeys.provider` freischaltet (nicht in der Demo). Ein Durchgang bestimmt den heutigen
+Tag in der Zone und misst die Mandanten (nicht `deleting`), die für heute noch keine Zeile haben,
+mit den Preisen, die in diesem Moment gelten,
+höchstens 50 je Durchgang, einige gleichzeitig; der nächste Durchgang nimmt den Rest. Die Zeile
+wird mit `ON CONFLICT DO NOTHING` geschrieben: Zwei Prozesse, die denselben Mandanten messen,
+schreiben eine Zeile; ein Mandant, dessen Zahlen nicht lesbar sind, bleibt fällig und wird eine
+Minute später wieder versucht. Nach einem Stillstand misst der erste Durchgang sofort den
+laufenden Tag. Vergangene Tage lassen sich nicht nachmessen (die Zahlen sind nur jetzt lesbar);
+sie bleiben ohne Zeile und werden nicht erfunden. Die Spitze gilt dann über die gemessenen Tage,
+und der Abschluss zeigt die Lücke (`days`, `sampledDays` des Monats und je Mandant).
+
+Ein Mandant, der im Monat angelegt wird, wird ab dem Tag gemessen, an dem es ihn gibt; einer, der
+gelöscht wird (`deleting`), ab da nicht mehr. Abgerechnet wird bei beiden die Spitze der
+gemessenen Tage, ohne Anteilsrechnung (das ist die Regel der Spitze); der gelöschte steht mit
+Status `deleting` im Abschluss. Die Zeile eines Mandanten bleibt, bis der Monat abgeschlossen ist
+(die Mandantenzeile selbst wird nie gelöscht, das Audit-Log hält sie).
+
+**Abschluss.** Derselbe Dienst schließt in jedem Durchgang, vor der Messung, jeden Monat ab, der
+vor dem laufenden Monat der Zone liegt, Messungen hat und noch keinen Abschluss: am 1. um
+00:00 in der Zone, innerhalb einer Minute; war der Server dann aus, beim ersten Durchgang danach,
+mehrere offene Monate der Reihe nach. Ein Abschluss ist eine Transaktion: Sperre
+(`pg_advisory_xact_lock`, `restow:billing-close`), Prüfung, ob der Monat schon abgeschlossen ist,
+Berechnung, Einfügen von Monat und Mandantenzeilen, Audit-Eintrag, Zustellungen an die Webhooks
+des Providers (unten). Die eindeutige Spalte
+`period` und die Sperre sorgen dafür, dass ein Monat genau einmal abgeschlossen wird, auch wenn
+zwei API-Prozesse gleichzeitig laufen; bricht der Prozess mitten im Abschluss ab, rollt die
+Transaktion zurück und der nächste Durchgang schließt erneut ab. Die Tagesmessung schreibt unter
+derselben Sperre (geteilt) und nie in einen abgeschlossenen Monat, so kann eine späte Messung des
+letzten Tages den Abschluss nicht unterlaufen.
+
+Je Mandant und Zeile nimmt der Abschluss die höchste Tagesmenge des Monats (beim Speicher die
+höchsten gespeicherten Bytes, danach gerundet, wie es am Monatsende galt) und als `peakDate` den
+ersten Tag, an dem sie erreicht wurde. Daraus rechnet er mit denselben Funktionen wie die
+Schätzung (`estimateTenant`, `billingLines`) mit den **Preisen des Monatsendes**: denen, die die
+letzte Messung des Mandanten im Monat festgehalten hat (für einen im Monat gelöschten Mandanten
+seine letzte Messung). Währung, Speichereinheit, -rundung und Preise der Installation des Monats
+stammen aus der letzten Messung des Monats. Sie werden im Abschluss gespeichert (je Zeile
+Stückpreis und Herkunft), eine spätere Preisänderung ändert ihn nicht. Eine Preisänderung mitten
+im Monat zählt ab dem Monatsende: Es gilt der Preis des letzten gemessenen Tages. Ein Abschluss,
+der wegen eines Ausfalls Tage später läuft, rechnet trotzdem mit den Preisen des Monatsendes;
+wer die Preise am 1. ändert, ändert den Vormonat nicht. Nur Messungen ohne festgehaltene Preise
+(vor Migration 0107 geschrieben) nehmen die Preise, die beim Abschluss gelten.
+
+**Randfälle.** Ein Mandant ohne Kundennummer steht mit `customerNumber: null` im Abschluss
+(`?customerNumber=` findet ihn nicht, `?tenant=` schon); die Kundennummer wird beim Abschluss
+festgehalten. Die eigene Organisation (`internal`) steht mit ihren Zeilen darin und zählt nicht in
+`total`. Ein Mandant ohne Preis steht ohne Zeilen und mit `total: null` darin. Sommerzeit: Ein Tag
+ist ein Kalendertag, auch mit 23 oder 25 Stunden, und hat eine Messung; Beginn und Ende des
+Monats sind 00:00 in der Zone (gibt es 00:00 an dem Tag nicht, die erste Minute danach). Ändert
+jemand die Zeitzone im Monat, verschiebt sich die Tagesgrenze ab da; ein Tag kann dabei einmal
+ausfallen, doppelt gemessen wird keiner (eindeutig je Mandant und Tag). Der Abschluss nennt die
+Zone, mit der er gerechnet hat. Der erste Monat nach dem Update auf 0.6.0 hat Messungen erst ab
+dem Update und wird trotzdem abgeschlossen (`sampledDays` zeigt es).
+
+**API** (Bereich `billing:read`, nur Provider-Key, wie `/provider/billing`):
+
+- `GET /provider/billing/periods`: die abgeschlossenen Monate, neueste zuerst (Monat, Zone,
+  Beginn, Ende, Abschlusszeit, Währung, Zahl der Mandanten, `total`, `correctedTotal`, Zahl der
+  Korrekturen), und unter `open` der laufende Monat mit `closesAt`. Enthält keine Daten eines
+  Mandanten und wird nicht auditiert.
+- `GET /provider/billing/periods/{YYYY-MM}`: der Monat in der Form von `/provider/billing`
+  (`currency`, `storageBilling`, `tenants` mit `lines`, `total`, `missing`) plus `period`,
+  `status: "closed"`, `timeZone`, `startsAt`, `endsAt`, `closedAt` (auch als `generatedAt`),
+  `days`, `sampledDays`, je Zeile `peakDate`, je Mandant `sampledDays`, `corrections` und
+  `correctedTotal`, und `correctedTotal` über alle Kunden. Mit `?tenant=` oder
+  `?customerNumber=` wie dort. Der laufende (offene) Monat wird hier nicht geliefert: 404 mit
+  `urn:restow:problem:billing-period-open` und `closesAt`; ein vergangener Monat ohne Abschluss
+  (keine Messungen) 404. Jeder Abruf steht im Audit-Log jedes enthaltenen Mandanten
+  (`api.provider.billing.period.read`).
+- `POST /provider/billing/periods/{YYYY-MM}/corrections` (Bereich `billing:write`, neu, nur
+  Provider-Key): eine Korrektur `{tenantId, type?, amount, reason}`, Betrag mit Vorzeichen in der
+  Währung des Monats. Nur für einen abgeschlossenen Monat und einen Mandanten darin. Der
+  Abschluss bleibt, wie er war; die Korrektur steht daneben und in `correctedTotal`.
+
+**Oberfläche** (Installation › Abrechnung, `ee/web/src/billing`, Service Provider; die
+Session-Routen unter `/api/v1/billing/periods` in `ee/api/src/billing-close/routes.ts` liefern
+dieselben Antworten): die Liste der Monate (der offene mit "schließt am …", die abgeschlossenen
+mit Summe und Summe mit Korrekturen), ein Monat mit seinen Mandanten, je Zeile Spitze, Tag der
+Spitze, Stückpreis mit Herkunft und Betrag, gemessene Tage gegen Tage des Monats, die
+Korrekturen und der CSV-Export. Jede Rolle des Provider-Teams liest, nur der Eigentümer trägt
+eine Korrektur ein (Betrag und Begründung). Der Export steht als `billing.period.exported` in der
+Kette der Installation.
+
+Die CSV-Datei (RFC 4180, UTF-8 mit BOM, Formelzeichen am Zellanfang mit `'` entschärft, wie die
+Statistik-Exporte) hat eine Zeile je Mandant und Zeile, eine Zeile je Korrektur und für einen
+Mandanten ohne Zeile eine Zeile mit leeren Zeilenspalten. Spalten (Feldnamen der API, in jeder
+Sprache gleich): `period`, `tenantId`, `tenantName`, `customerNumber`, `kind`, `status`,
+`sampledDays` (des Mandanten), `days` (des Monats), `row` (`line` oder `correction`), `type`
+(die Zeile; bei einer Korrektur die korrigierte oder leer für die ganze Rechnung), `quantity`
+(die Spitze), `unit`, `unitPrice`, `priceSource`, `amount` (Betrag der Zeile oder der
+Korrektur), `peakDate`, `currency`, `reason` (nur Korrektur), `createdAt` (nur Korrektur).
+
+**Audit.** `billing.period.closed` in der Kette der Installation (Akteur `system`; Monat, Zone,
+Mandanten, Summe), in der Transaktion des Abschlusses; `billing.correction.created` in der Kette
+des Mandanten (Monat, Zeile, Betrag, Begründung, Key oder Person), in der Transaktion der
+Korrektur; `api.provider.billing.period.read` je Mandant beim Lesen eines Monats über die API;
+`billing.period.exported` beim CSV-Export.
+
+**Webhook.** `billing.period_closed` geht an die Webhooks des Providers (unten), eingereiht in der
+Transaktion des Abschlusses: genau dann, wenn der Abschluss festgeschrieben ist, und genau einmal
+je Monat. Inhalt `data`: `period`, `closedAt`, `currency`, `tenants` (Anzahl), `total` und `url`
+(der Monat in der Integrations-API, absolut mit der öffentlichen URL der Installation, sonst als
+Pfad), keine Zahlen eines Mandanten: die liest das Tool unter `url`, auditiert.
+
+### Webhooks des Providers (0.6.0)
+
+Neben den Webhooks je Mandant hat der Provider eigene (Service Provider, `provider_webhooks`,
+Migration 0107, nur für die Installationsrolle): für Ereignisse der Installation, nicht eines
+Mandanten, zuerst `billing.period_closed`. Ein Mandanten-Webhook taugt dafür nicht (der Mandant
+bekäme die Abrechnung seines Providers), die Empfänger des Providers bekommen nur Mails.
+
+- **Verwaltung:** Integrations-API `/provider/webhooks` mit einem Provider-Key und dem Bereich
+  `webhooks:manage` (derselbe, mit dem ein Mandanten-Key die Webhooks seines Mandanten verwaltet):
+  Liste, Anlegen (der Signaturschlüssel steht nur in dieser Antwort), Ändern (Name, URL,
+  Ereignisse, aktiv), Löschen, Schlüssel erneuern, `webhook.test` senden, die letzten 50
+  Zustellungen. In der Oberfläche unter Installation › Provider-API unter den Provider-Keys
+  (`ee/web/src/provider-api/provider-webhooks-card.tsx`; Session-Routen `/api/v1/provider-webhooks`):
+  jede Rolle des Provider-Teams sieht sie, nur der Eigentümer ändert sie, wie die Provider-Keys.
+  Jede Änderung steht in der Kette der Installation (`provider_webhook.created`, `.updated`,
+  `.deleted`, `.tested`, `.secret_rotated`), die URL nur mit ihrem Ursprung.
+- **Zustellung:** dieselbe Tabelle `webhook_deliveries` wie die Mandanten-Webhooks, mit
+  `tenant_id` und `webhook_id` leer und `provider_webhook_id` gesetzt; die Prüfung
+  `webhook_deliveries_owner_ck` verlangt genau einen Eigentümer (Mandant mit Webhook oder
+  Provider-Webhook). Mandanten-Sitzungen sehen diese Zeilen nie (Mandanten-Policy). Der
+  Zustell-Worker (`apps/worker/src/handlers/webhooks.ts`) holt sie mit den anderen ab, liest sie
+  auf dem Installations-Pool statt in einer Mandanten-Transaktion und signiert mit dem Schlüssel
+  des Webhooks, der auf Installationsebene versiegelt ist (`RESTOW_MASTER_KEY`); Wiederholungen
+  (8 Versuche über etwa einen Tag), Lease, `Retry-After` und Aufräumen nach 30 Tagen wie dort.
+- **Form:** immer der signierte `restow`-Umschlag `{id, event, version, createdAt,
+  scope: "provider", data}` mit `X-Restow-Event`, `X-Restow-Delivery`, `X-Restow-Attempt` und
+  `X-Restow-Signature: sha256=<HMAC-SHA-256 des Rohkörpers>`; Chat-Formate gibt es hier nicht.
+- **Gesundheit:** wie bei einem Mandanten-Webhook (`failing_since`, `consecutive_failures`,
+  `last_failure`): Ein endgültiger Fehler oder drei Fehlversuche über mindestens 15 Minuten
+  melden `notification.delivery_failed` einmal je Episode, als Meldung ohne Mandant in der Glocke
+  des Providers und als `report_events`-Zeile mit `audience: "provider"` für die Empfänger des
+  Providers; die nächste erfolgreiche Zustellung beendet die Episode. Wie ein Mandanten-Webhook
+  wird ein fehlschlagender Webhook nicht von selbst abgeschaltet, sondern von Hand pausiert.
 
 ## Berichte und Benachrichtigungen
 

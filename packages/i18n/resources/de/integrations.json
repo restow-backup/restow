@@ -125,7 +125,11 @@
     },
     "billing_read": {
       "label": "Abrechnung",
-      "description": "Was jeder Mandant diesen Monat zu Ihren Preisen kosten würde, mit Kundennummern, für PSA- und Abrechnungstools. Nur für Provider-Schlüssel."
+      "description": "Was jeder Mandant diesen Monat zu Ihren Preisen kosten würde, und die abgeschlossenen Monate, mit Kundennummern, für PSA- und Abrechnungstools. Nur für Provider-Schlüssel."
+    },
+    "billing_write": {
+      "label": "Abrechnungskorrekturen",
+      "description": "Korrekturen zu einem abgeschlossenen Abrechnungsmonat eintragen; der Abschluss selbst ändert sich nie. Nur für Provider-Schlüssel."
     },
     "restore_write": {
       "label": "Sicherungen und Wiederherstellungen",

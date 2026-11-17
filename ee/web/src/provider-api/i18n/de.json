@@ -1,0 +1,65 @@
+{
+  "webhooks": {
+    "title": "Webhooks des Providers",
+    "description": "Ereignisse der Installation, nicht eines Mandanten, für Ihre Abrechnungs- und PSA-Tools: zuerst billing.period_closed, sobald ein Monat abgeschlossen ist. Jede Zustellung ist mit dem Signaturschlüssel des Webhooks signiert (X-Restow-Signature) und enthält keine Zahlen eines Mandanten, nur den Link, unter dem das Tool den Monat liest.",
+    "caption": "Webhooks des Providers",
+    "columns": {
+      "webhook": "Webhook",
+      "events": "Ereignisse",
+      "state": "Stand",
+      "lastDelivery": "Letzte Zustellung",
+      "actions": "Aktionen"
+    },
+    "state": {
+      "active": "Aktiv",
+      "paused": "Pausiert",
+      "failing": "Zustellung schlägt fehl"
+    },
+    "failingSince": "seit {date}",
+    "noDelivery": "Noch keine",
+    "delivery": {
+      "pending": "Ausstehend",
+      "delivered": "Zugestellt",
+      "failed": "Aufgegeben"
+    },
+    "empty": {
+      "title": "Noch kein Webhook",
+      "description": "Legen Sie einen Webhook an, damit Ihr Abrechnungstool vom Monatsabschluss erfährt."
+    },
+    "loadError": "Die Webhooks des Providers konnten nicht geladen werden.",
+    "create": "Webhook anlegen",
+    "form": {
+      "title": "Webhook des Providers anlegen",
+      "description": "Der Webhook bekommt alle Ereignisse des Providers. Den Signaturschlüssel sehen Sie nur einmal, direkt nach dem Anlegen.",
+      "name": "Name (optional)",
+      "url": "URL",
+      "urlHint": "Eine https-Adresse Ihres Tools, ohne Zugangsdaten in der URL.",
+      "confirm": "Anlegen"
+    },
+    "created": "Webhook angelegt",
+    "createFailed": "Der Webhook konnte nicht angelegt werden.",
+    "actions": {
+      "test": "Test senden",
+      "pause": "Pausieren",
+      "resume": "Aktivieren",
+      "rotate": "Schlüssel erneuern",
+      "delete": "Löschen"
+    },
+    "tested": "Testzustellung eingereiht",
+    "testFailed": "Die Testzustellung konnte nicht eingereiht werden.",
+    "toggled": "Webhook geändert",
+    "toggleFailed": "Der Webhook konnte nicht geändert werden.",
+    "rotateDialog": {
+      "title": "Signaturschlüssel erneuern?",
+      "description": "Der alte Schlüssel gilt ab sofort nicht mehr. Hinterlegen Sie den neuen in Ihrem Tool, sonst lehnt es die Zustellungen ab.",
+      "confirm": "Schlüssel erneuern"
+    },
+    "deleteDialog": {
+      "title": "Webhook löschen?",
+      "description": "Der Webhook und seine ausstehenden Zustellungen werden gelöscht. Ihr Tool erfährt danach nichts mehr vom Monatsabschluss.",
+      "confirm": "Löschen"
+    },
+    "deleted": "Webhook gelöscht",
+    "failed": "Die Aktion ist fehlgeschlagen."
+  }
+}

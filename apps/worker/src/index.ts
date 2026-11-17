@@ -510,6 +510,7 @@ async function main(): Promise<void> {
     { ...runtime, db: providerDb },
     webhookOptionsFromEnv(),
     featureGate,
+    config.masterKey,
   );
   configureArchiveHandler({ providerDb, gate: featureGate });
   const archiveCapture = new ArchiveCaptureService({

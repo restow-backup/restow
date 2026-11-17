@@ -31,6 +31,7 @@ export * from "./audit.js";
 export * from "./auth.js";
 export * from "./backup.js";
 export * from "./backup-jobs.js";
+export * from "./billing.js";
 export * from "./branding.js";
 export * from "./cluster.js";
 export * from "./databases.js";

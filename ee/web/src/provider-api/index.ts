@@ -4,6 +4,7 @@ import { PROVIDER_API_SECTION_ID } from "@/features/integrations/paths";
 import type { InstallationSectionSpec } from "@/lib/extensions";
 
 import { editionLock } from "../license/nav-lock";
+import "./i18n";
 import { ProviderApiSection } from "./provider-api-section";
 
 /**

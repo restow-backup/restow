@@ -2,6 +2,7 @@ import type { WebExtension } from "@/lib/extensions";
 
 import { ArchiveSections, ArchiveSettingsSections } from "./archive-sections";
 import { auditNavItems, auditRoutes, auditTenantSections } from "./audit-log";
+import { billingInstallationSections } from "./billing";
 import { journalInstallationSections } from "./journal";
 import { JobArchiveSetup } from "./journal/job-archive-setup";
 import {
@@ -29,6 +30,7 @@ export const eeWebExtension: WebExtension = {
   installationSections: [
     ...journalInstallationSections,
     ...providerApiInstallationSections,
+    ...billingInstallationSections,
     ...licenseInstallationSections,
   ],
   slots: {

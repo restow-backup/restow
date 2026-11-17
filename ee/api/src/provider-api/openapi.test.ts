@@ -10,6 +10,7 @@ import { featuresOn } from "../../../../apps/api/src/routes/v1/testing/features.
 import { fakeRequireKey } from "../../../../apps/api/src/routes/v1/testing/keys.js";
 import { scriptedDb } from "../../../../apps/api/src/routes/v1/testing/scripted-db.js";
 import { buildV1 } from "../../../../apps/api/src/routes/v1.js";
+import { registerProviderWebhookRoutes } from "../provider-webhooks/routes.js";
 import { registerProviderRoutes } from "./routes.js";
 
 /**
@@ -20,7 +21,7 @@ import { registerProviderRoutes } from "./routes.js";
 
 registerApiExtension({
   name: "provider-api-openapi-test",
-  integrationRoutes: [registerProviderRoutes],
+  integrationRoutes: [registerProviderRoutes, registerProviderWebhookRoutes],
 });
 
 afterAll(() => {
@@ -78,9 +79,20 @@ describe("the provider operations in the v1 OpenAPI document", () => {
       )
       .filter((operation) => operation.includes("/provider/"));
     expect(documented.sort()).toEqual([
+      "DELETE /provider/webhooks/{id}",
       "GET /provider/billing",
+      "GET /provider/billing/periods",
+      "GET /provider/billing/periods/{period}",
       "GET /provider/tenants",
       "GET /provider/users",
+      "GET /provider/webhooks",
+      "GET /provider/webhooks/{id}",
+      "GET /provider/webhooks/{id}/deliveries",
+      "PATCH /provider/webhooks/{id}",
+      "POST /provider/billing/periods/{period}/corrections",
+      "POST /provider/webhooks",
+      "POST /provider/webhooks/{id}/secret",
+      "POST /provider/webhooks/{id}/test",
     ]);
   });
 
@@ -94,6 +106,27 @@ describe("the provider operations in the v1 OpenAPI document", () => {
     expect(billing.security).toEqual([{ apiKey: ["billing:read"] }]);
     expect(JSON.stringify(billing.parameters)).not.toContain("TenantHeader");
     expect(billing["x-restow-audited"]).toBe(true);
+    // The closed months (0.6.0): read with billing:read and audited per tenant; corrected
+    // with billing:write.
+    const period = paths["/provider/billing/periods/{period}"]?.get as JsonSchema;
+    expect(period.security).toEqual([{ apiKey: ["billing:read"] }]);
+    expect(period["x-restow-audited"]).toBe(true);
+    const periods = paths["/provider/billing/periods"]?.get as JsonSchema;
+    expect(periods.security).toEqual([{ apiKey: ["billing:read"] }]);
+    const correction = paths["/provider/billing/periods/{period}/corrections"]?.post as JsonSchema;
+    expect(correction.security).toEqual([{ apiKey: ["billing:write"] }]);
+    // The provider's own webhooks (0.6.0): the scope a key manages webhooks with.
+    for (const [path, method] of [
+      ["/provider/webhooks", "get"],
+      ["/provider/webhooks", "post"],
+      ["/provider/webhooks/{id}", "patch"],
+      ["/provider/webhooks/{id}/test", "post"],
+    ] as const) {
+      expect((paths[path]?.[method] as JsonSchema | undefined)?.security).toEqual([
+        { apiKey: ["webhooks:manage"] },
+      ]);
+    }
+    expect(JSON.stringify(paths["/provider/webhooks"]?.post)).toContain("X-Restow-Signature");
     // Reading contact persons (personal data) through the provider tenant list
     // is a read of user data and must be audited, same as /provider/users.
     const providerTenants = paths["/provider/tenants"]?.get as JsonSchema;

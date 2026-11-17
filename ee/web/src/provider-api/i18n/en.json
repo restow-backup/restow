@@ -1,0 +1,65 @@
+{
+  "webhooks": {
+    "title": "Provider webhooks",
+    "description": "Events of the installation, not of a tenant, for your billing and PSA tools: first billing.period_closed, as soon as a month is closed. Every delivery is signed with the webhook's signing secret (X-Restow-Signature) and carries no tenant's figures, only the link where the tool reads the month.",
+    "caption": "Provider webhooks",
+    "columns": {
+      "webhook": "Webhook",
+      "events": "Events",
+      "state": "State",
+      "lastDelivery": "Last delivery",
+      "actions": "Actions"
+    },
+    "state": {
+      "active": "Active",
+      "paused": "Paused",
+      "failing": "Delivery failing"
+    },
+    "failingSince": "since {date}",
+    "noDelivery": "None yet",
+    "delivery": {
+      "pending": "Pending",
+      "delivered": "Delivered",
+      "failed": "Given up"
+    },
+    "empty": {
+      "title": "No webhook yet",
+      "description": "Add a webhook so your billing tool learns about the monthly close."
+    },
+    "loadError": "The provider webhooks could not be loaded.",
+    "create": "Add webhook",
+    "form": {
+      "title": "Add a provider webhook",
+      "description": "The webhook gets every event of the provider. You see the signing secret once, right after adding it.",
+      "name": "Name (optional)",
+      "url": "URL",
+      "urlHint": "An https address of your tool, without credentials in the URL.",
+      "confirm": "Add"
+    },
+    "created": "Webhook added",
+    "createFailed": "The webhook could not be added.",
+    "actions": {
+      "test": "Send test",
+      "pause": "Pause",
+      "resume": "Activate",
+      "rotate": "Renew secret",
+      "delete": "Delete"
+    },
+    "tested": "Test delivery queued",
+    "testFailed": "The test delivery could not be queued.",
+    "toggled": "Webhook changed",
+    "toggleFailed": "The webhook could not be changed.",
+    "rotateDialog": {
+      "title": "Renew the signing secret?",
+      "description": "The old secret stops working at once. Store the new one in your tool, or it refuses the deliveries.",
+      "confirm": "Renew secret"
+    },
+    "deleteDialog": {
+      "title": "Delete the webhook?",
+      "description": "The webhook and its pending deliveries are deleted. Your tool no longer learns about the monthly close.",
+      "confirm": "Delete"
+    },
+    "deleted": "Webhook deleted",
+    "failed": "The action failed."
+  }
+}
