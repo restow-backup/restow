@@ -12,11 +12,14 @@ import type { DbErrorCode } from "../model.js";
  * Every connection of one probe belongs to a {@link DbProbeScope}: one deadline for the whole
  * probe, however many steps it takes, and every socket the probe opened is destroyed when the
  * probe ends or the deadline passes. A connection keeps at most {@link DB_CONN_MAX_BUFFERED}
- * unread bytes; a server that sends more is cut off.
+ * unread bytes, and the probe reads at most {@link DB_PROBE_READ_BUDGET} over all its
+ * connections; a server that sends more is cut off.
  */
 
 /** The unread bytes one connection keeps at most. */
 export const DB_CONN_MAX_BUFFERED = 2 * 1024 * 1024;
+/** The bytes one probe reads at most, over all its connections. */
+export const DB_PROBE_READ_BUDGET = 8 * 1024 * 1024;
 
 export class DbConnError extends Error {
   constructor(
@@ -38,9 +41,13 @@ export class DbProbeScope {
   private readonly sockets = new Set<Socket>();
   private readonly timer: NodeJS.Timeout;
   private done = false;
+  private received = 0;
   expired = false;
 
-  constructor(readonly deadline: number) {
+  constructor(
+    readonly deadline: number,
+    private readonly readBudget: number = DB_PROBE_READ_BUDGET,
+  ) {
     this.timer = setTimeout(() => this.expire(), Math.max(0, deadline - Date.now()));
     this.timer.unref?.();
   }
@@ -57,6 +64,12 @@ export class DbProbeScope {
     }
     this.sockets.add(socket);
     socket.once("close", () => this.sockets.delete(socket));
+  }
+
+  /** Count bytes received; false once the probe's read budget is spent. */
+  consume(bytes: number): boolean {
+    this.received += bytes;
+    return this.received <= this.readBudget;
   }
 
   /** Sockets of this probe that are not closed yet (tests). */
@@ -241,7 +254,8 @@ export class DbConn {
       if (this.failure) {
         return;
       }
-      if (this.buffered + chunk.length > this.maxBuffered) {
+      const withinBudget = this.options.scope?.consume(chunk.length) ?? true;
+      if (!withinBudget || this.buffered + chunk.length > this.maxBuffered) {
         // More than any answer the probe reads: the connection is cut off.
         this.failure = new DbConnError("limit", "the server sent more data than the probe reads");
         this.chunks = [];
@@ -369,6 +383,10 @@ export class DbConn {
 
   /** Switch to TLS; the certificate is checked by its fingerprint (pinned), not by a CA. */
   async startTls(servername: string | null): Promise<void> {
+    if (this.buffered > 0) {
+      // Bytes before the handshake would be taken as if they came over TLS.
+      throw new DbProbeAbort("db_probe_failed", "the server sent data before the TLS handshake");
+    }
     const plain = this.socket;
     plain.removeAllListeners("data");
     plain.removeAllListeners("end");

@@ -62,8 +62,13 @@ export interface DbServerProbeOptions {
    * private networks are not allowed as a whole.
    */
   approvedAddresses?: readonly string[];
-  /** Where Restow's own database listens: never signed in to. */
+  /**
+   * Where Restow's own database listens: never signed in to. A loopback address stands for the
+   * whole loopback (127.0.0.0/8 and ::1).
+   */
   forbiddenTargets?: readonly { address: string; port: number }[];
+  /** Tests: the bytes the probe reads at most (default 8 MiB). */
+  readBudgetBytes?: number;
   /** Tests: a socket factory instead of the guarded network. */
   connect?: (host: string, port: number) => Socket;
   /** Tests: a lookup instead of the guarded system resolver. */
@@ -280,11 +285,16 @@ function assertNotRestow(conn: DbConn, options: DbServerProbeOptions): void {
     return;
   }
   const address = dbCanonicalAddress(remote);
-  if (
-    options.forbiddenTargets.some(
-      (target) => target.port === port && dbCanonicalAddress(target.address) === address,
-    )
-  ) {
+  const loopback = classifyAddress(address) === "loopback";
+  const same = (target: { address: string; port: number }) => {
+    if (target.port !== port) {
+      return false;
+    }
+    const other = dbCanonicalAddress(target.address);
+    // Every loopback address reaches the same server on this machine.
+    return other === address || (loopback && classifyAddress(other) === "loopback");
+  };
+  if (options.forbiddenTargets.some(same)) {
     throw new DbProbeAbort(
       "db_target_is_restow",
       "This is the database of this Restow installation. It is backed up as described in the backup guide of the installation, not by this module.",
@@ -305,7 +315,7 @@ export async function probeDatabaseFromServer(
   options: DbServerProbeOptions,
 ): Promise<DbProbeResult> {
   const started = Date.now();
-  const scope = new DbProbeScope(started + spec.timeoutSeconds * 1000);
+  const scope = new DbProbeScope(started + spec.timeoutSeconds * 1000, options.readBudgetBytes);
   try {
     return await runServerProbe(spec, options, scope, started);
   } finally {
@@ -479,14 +489,11 @@ async function runServerProbe(
         try {
           if (index > 0) {
             // The first database does not exist: a new connection for the next one.
-            current = await reopenPostgres(open, detected.port, host, tlsOffered, spec);
+            current = await reopenPostgres(open, detected.port, host, tlsOffered, spec, conn);
           }
-          session = await pgSignIn(current, user, spec.password, database, {
-            refuseWeakPasswordAuth:
-              Boolean(spec.pinnedFingerprintSha256) &&
-              current.tls.fingerprintSha256 !== spec.pinnedFingerprintSha256,
-          });
+          session = await pgSignIn(current, user, spec.password, database);
           result.login = "ok";
+          result.connectedAddress = connectedAddressOf(current);
           const facts = await pgFacts(session);
           result.postgresql = facts;
           result.serverVersion =
@@ -544,6 +551,7 @@ async function runServerProbe(
       result.tls = { offered: true, ...conn.tls };
     }
     result.login = "ok";
+    result.connectedAddress = connectedAddressOf(conn);
     result.mysql = await mysqlFacts(session);
     mysqlQuit(session);
     conn.close();
@@ -568,6 +576,7 @@ async function reopenPostgres(
   host: string,
   tls: boolean,
   spec: DbProbeSpec,
+  first: DbConn,
 ): Promise<DbConn> {
   const conn = await open(port);
   try {
@@ -588,11 +597,24 @@ async function reopenPostgres(
       throw tlsMissing();
     }
     assertPinned(conn, spec);
+    // Without a confirmed certificate: the same certificate as on the first connection.
+    if (tls && conn.tls.fingerprintSha256 !== first.tls.fingerprintSha256) {
+      throw new DbProbeAbort(
+        "db_tls_changed",
+        "The server showed another TLS certificate on its second connection.",
+      );
+    }
     return conn;
   } catch (error) {
     conn.close();
     throw error;
   }
+}
+
+/** The address a connection reached, as an approval keeps it. */
+function connectedAddressOf(conn: DbConn): string | null {
+  const remote = conn.remoteAddress;
+  return remote && isIP(remote) !== 0 ? dbCanonicalAddress(remote) : null;
 }
 
 /** The engines a probe may report for a URL scheme (a `mysql://` URL may reach MariaDB). */

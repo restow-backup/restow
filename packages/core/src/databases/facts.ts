@@ -125,6 +125,11 @@ export const dbProbeResultSchema = z.object({
   mysql: dbMysqlFactsSchema.optional(),
   sqlserver: dbSqlServerFactsSchema.optional(),
   sqlite: dbSqliteFactsSchema.optional(),
+  /**
+   * The address the connection that signed in reached (the Restow server's probe): a provider
+   * admin's approval of a private network names this address and no other.
+   */
+  connectedAddress: z.string().max(64).nullable().optional(),
   durationMs: z
     .number()
     .int()

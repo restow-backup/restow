@@ -3,6 +3,7 @@ import type { DbMysqlFacts } from "../facts.js";
 import { DB_MAX_DATABASES } from "../model.js";
 import { redactIdentifiedBy } from "../sanitize.js";
 import type { DbConn } from "./conn.js";
+import { DB_MAX_VALUE_BYTES } from "./postgres.js";
 
 /**
  * The MySQL and MariaDB side of the probe (docs/DATABASES.md 3): the server speaks first with a
@@ -439,7 +440,13 @@ export async function mysqlQuery(session: MysqlSession, sql: string): Promise<(s
         row.push(null);
         offset = next;
       } else {
-        row.push(payload.subarray(next, next + value).toString("utf8"));
+        if (next + value > payload.length) {
+          throw new MysqlServerError(0, "a row of the server is shorter than its columns");
+        }
+        // Only the beginning of a long value is kept, while the row is read.
+        row.push(
+          payload.subarray(next, next + Math.min(value, DB_MAX_VALUE_BYTES)).toString("utf8"),
+        );
         offset = next + value;
       }
     }

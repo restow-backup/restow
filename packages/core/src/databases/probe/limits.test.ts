@@ -6,8 +6,8 @@ import { createSecureContext, TLSSocket } from "node:tls";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSelfSignedCertificate } from "../../../../../scripts/smoke/lib/selfsigned.mjs";
 import type { DbProbeSpec } from "../facts.js";
-import { DbConn, DbConnError, DbProbeAbort } from "./conn.js";
-import { pgSignIn } from "./postgres.js";
+import { DbConn, DbConnError, DbProbeScope } from "./conn.js";
+import { DB_MAX_VALUE_BYTES, pgQuery } from "./postgres.js";
 import { probeDatabaseFromServer } from "./probe.js";
 
 /**
@@ -116,6 +116,10 @@ type Reply = (type: string, body: Buffer) => void;
 interface FakePg {
   /** The answer to the SSLRequest of the connection with this index (default "N"). */
   ssl?: (index: number) => "S" | "N";
+  /** Bytes sent right after the answer "S", before the handshake. */
+  afterSsl?: (index: number) => Buffer | null;
+  /** The certificate of the connection with this index (default: the one of the tests). */
+  certificate?: (index: number) => { certPem: string; keyPem: string };
   /** The startup message arrived. */
   startup: (reply: Reply, socket: Socket, index: number) => void;
   /** A typed message of the client arrived. */
@@ -155,6 +159,10 @@ function startPg(fake: FakePg): Promise<Listening> {
           buffer = buffer.subarray(8);
           const answer = fake.ssl?.(index) ?? "N";
           raw.write(answer);
+          const extra = answer === "S" ? fake.afterSsl?.(index) : null;
+          if (extra) {
+            raw.write(extra);
+          }
           phase = "startup";
           if (answer === "S") {
             raw.removeAllListeners("data");
@@ -171,7 +179,10 @@ function startPg(fake: FakePg): Promise<Listening> {
             raw.on("data", (data) => wire.push(data));
             const secure = new TLSSocket(wire as unknown as Socket, {
               isServer: true,
-              secureContext: createSecureContext({ cert: cert.certPem, key: cert.keyPem }),
+              secureContext: createSecureContext({
+                cert: (fake.certificate?.(index) ?? cert).certPem,
+                key: (fake.certificate?.(index) ?? cert).keyPem,
+              }),
             });
             secure.on("data", onData);
             secure.on("error", () => undefined);
@@ -297,30 +308,6 @@ describe("SCRAM against a hostile server", () => {
     expect(result.error?.code).toBe("db_probe_failed");
     expect(firsts).toBe(2);
     expect(Date.now() - started).toBeLessThan(1500);
-  });
-
-  it("never sends the password in clear text or as MD5 where the confirmed certificate is missing", async () => {
-    const received: string[] = [];
-    const fake: FakePg = {
-      startup: (reply) => reply("R", auth(3)),
-      message: (type) => received.push(type),
-      seen: { startups: 0, bytes: 0 },
-    };
-    const { port } = await startPg(fake);
-    const conn = await DbConn.open({ host: "127.0.0.1", port, timeoutMs: 2000 });
-    try {
-      conn.write(Buffer.from([0x00, 0x00, 0x00, 0x08, 0x04, 0xd2, 0x16, 0x2f]));
-      await conn.read(1);
-      await expect(
-        pgSignIn(conn, "restow_backup", "s3cret-pass", "postgres", {
-          refuseWeakPasswordAuth: true,
-        }),
-      ).rejects.toBeInstanceOf(DbProbeAbort);
-      await sleep(50);
-      expect(received).toEqual([]);
-    } finally {
-      conn.close();
-    }
   });
 });
 
@@ -545,5 +532,118 @@ describe("addresses the server executor never signs in to [DB-003]", () => {
     // A name that resolves to another loopback or private address than the approved one.
     expect((await approved(["10.0.0.9"], "localhost")).error?.code).toBe("db_private_network");
     expect((await approved(["127.0.0.1"])).error?.code).toBe("db_login_failed");
+  });
+});
+
+/** A PostgreSQL that lets anyone in and answers every query with `rows` (one column each). */
+function openPg(rows: (index: number) => Buffer[]): FakePg {
+  return {
+    startup: (reply) => {
+      reply("R", auth(0));
+      reply("Z", READY);
+    },
+    message: (type, _body, reply, index) => {
+      if (type !== "Q") return;
+      for (const value of rows(index)) {
+        const row = Buffer.alloc(6);
+        row.writeUInt16BE(1, 0);
+        row.writeInt32BE(value.length, 2);
+        reply("D", Buffer.concat([row, value]));
+      }
+      reply("C", Buffer.from("SELECT\0"));
+      reply("Z", READY);
+    },
+    seen: { startups: 0, bytes: 0 },
+  };
+}
+
+describe("a read budget for the whole probe", () => {
+  it("stops a server that answers with more data than the probe reads in all", async () => {
+    // Twenty rows just under the message limit: each message is allowed, together they are not.
+    const big = Buffer.alloc(900 * 1024, 0x61);
+    const { port, sockets } = await startPg(openPg(() => Array(20).fill(big)));
+    const result = await probeDatabaseFromServer(spec({ port }), loopback);
+    expect(result.error?.code).toBe("db_probe_failed");
+    expect(result.postgresql).toBeUndefined();
+    expect(await allClosed(sockets)).toBe(true);
+  });
+
+  it("keeps only the beginning of a long value while it reads the row", async () => {
+    const { port } = await startPg(openPg(() => [Buffer.alloc(500 * 1024, 0x62)]));
+    const scope = new DbProbeScope(Date.now() + 5000);
+    const conn = await DbConn.open({ host: "127.0.0.1", port, timeoutMs: 2000, scope });
+    try {
+      conn.write(Buffer.from([0x00, 0x00, 0x00, 0x08, 0x04, 0xd2, 0x16, 0x2f]));
+      await conn.read(1);
+      const { pgSignIn } = await import("./postgres.js");
+      const session = await pgSignIn(conn, "restow_backup", null, "postgres");
+      const rows = await pgQuery(session, "SELECT version()");
+      expect(rows[0]?.[0]?.length).toBe(DB_MAX_VALUE_BYTES);
+    } finally {
+      scope.close();
+    }
+  });
+
+  it("reports the address it signed in on", async () => {
+    const { port } = await startPg(openPg(() => []));
+    const result = await probeDatabaseFromServer(spec({ port }), loopback);
+    expect(result).toMatchObject({ login: "ok", error: null, connectedAddress: "127.0.0.1" });
+  });
+});
+
+describe("TLS of a further connection", () => {
+  it("refuses bytes the server sends before the TLS handshake", async () => {
+    const fake: FakePg = {
+      ssl: () => "S",
+      afterSsl: (index) => (index === 1 ? pgMessage("R", auth(0)) : null),
+      startup: (reply, _socket, index) => {
+        if (index === 0)
+          reply("E", Buffer.from('SFATAL\0C3D000\0Mdatabase "app" does not exist\0\0'));
+        else reply("R", auth(3));
+      },
+      seen: { startups: 0, bytes: 0 },
+    };
+    const { port } = await startPg(fake);
+    const result = await probeDatabaseFromServer(spec({ port, database: "app" }), loopback);
+    expect(result.error?.code).toBe("db_probe_failed");
+    expect(fake.seen.startups).toBe(1);
+  });
+
+  it("refuses another certificate on the second connection without a confirmed one", async () => {
+    const other = createSelfSignedCertificate({ commonName: "other.example.test" });
+    const fake: FakePg = {
+      ssl: () => "S",
+      certificate: (index) => (index === 0 ? cert : other),
+      startup: (reply, _socket, index) => {
+        if (index === 0)
+          reply("E", Buffer.from('SFATAL\0C3D000\0Mdatabase "app" does not exist\0\0'));
+        else reply("R", auth(3));
+      },
+      seen: { startups: 0, bytes: 0 },
+    };
+    const { port } = await startPg(fake);
+    const result = await probeDatabaseFromServer(spec({ port, database: "app" }), loopback);
+    expect(result.error?.code).toBe("db_tls_changed");
+    expect(fake.seen.startups).toBe(1);
+  });
+});
+
+describe("Restow's own database on loopback [DB-003]", () => {
+  it("counts every loopback address as the same server", async () => {
+    for (const address of ["127.0.0.53", "::1"]) {
+      let received = 0;
+      const { port } = await listen((socket) => {
+        socket.on("data", (chunk) => {
+          received += chunk.length;
+        });
+      });
+      const result = await probeDatabaseFromServer(spec({ port }), {
+        ...loopback,
+        forbiddenTargets: [{ address, port }],
+      });
+      expect(result.error?.code, address).toBe("db_target_is_restow");
+      await sleep(30);
+      expect(received, address).toBe(0);
+    }
   });
 });

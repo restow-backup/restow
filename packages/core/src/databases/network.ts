@@ -29,8 +29,9 @@ export const DB_ALLOW_PRIVATE_NETWORKS_ENV = "RESTOW_DB_ALLOW_PRIVATE_NETWORKS";
 
 /**
  * A provider admin's approval of a private address, stored with the connection. It holds the
- * addresses the name stood for when it was approved: the server's connections reach those and no
- * other private address, so a name that later points elsewhere in the network gains nothing.
+ * address the approved test connected to and signed in on (or the literal address): the server's
+ * connections reach those and no other private address, so a name that later points elsewhere in
+ * the network gains nothing.
  */
 export interface DbPrivateNetworkApproval {
   by: string;
@@ -113,26 +114,12 @@ export async function judgeDbHost(
   resolve: HostResolver = systemResolver,
 ): Promise<DbHostDecision> {
   const assessment = await assessHost(host, resolve);
-  if (assessment !== "private" || !context.isProviderAdmin) {
-    return decideDbHost(assessment, context);
-  }
-  // The approval names the addresses it is for: a literal, or what the name resolves to now.
+  // An approval names the addresses it is for: a literal here; for a name, the address the
+  // probe actually connected to and signed in on is added by the server (never a lookup of
+  // its own, which could see another answer than the probe's connection).
   const name = normalizeHost(host);
-  let addresses: readonly string[] = [];
-  if (isIP(name) !== 0) {
-    addresses = [name];
-  } else {
-    try {
-      addresses = await resolve(name);
-    } catch {
-      addresses = [];
-    }
-  }
-  return decideDbHost(
-    assessment,
-    context,
-    addresses.filter((address) => dbPlaintextAllowedFor(classifyAddress(address))),
-  );
+  const literal = isIP(name) !== 0 && dbPlaintextAllowedFor(classifyAddress(name));
+  return decideDbHost(assessment, context, literal ? [name] : []);
 }
 
 /**

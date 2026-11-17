@@ -61,19 +61,15 @@ describe("network protection of the server executor (docs/DATABASES.md 4.2) [DB-
     );
   });
 
-  it("binds an approval to the addresses the name stood for when it was approved", async () => {
+  it("binds an approval to addresses, never to what a lookup of its own finds", async () => {
     const resolve = resolver({ postgres: ["172.18.0.4"], "lan.example.com": ["10.1.2.3"] });
     const admin = { ...context, isProviderAdmin: true };
-    const byName = await judgeDbHost("postgres", admin, resolve);
-    expect(byName).toEqual({
+    // A name: the server adds the address the approved test connected to.
+    expect(await judgeDbHost("postgres", admin, resolve)).toEqual({
       kind: "allowed",
-      approval: {
-        by: "admin@tenant.example",
-        at: "2026-11-17T10:00:00.000Z",
-        addresses: ["172.18.0.4"],
-      },
+      approval: { by: "admin@tenant.example", at: "2026-11-17T10:00:00.000Z", addresses: [] },
     });
-    const approval = byName.kind === "allowed" ? byName.approval : null;
+    const approval = { by: "x", at: "y", addresses: ["172.18.0.4"] };
     expect(dbApprovedAddress(approval, "172.18.0.4")).toBe(true);
     expect(dbApprovedAddress(approval, "::ffff:172.18.0.4")).toBe(true);
     // Another private or loopback address under the same name is not approved.

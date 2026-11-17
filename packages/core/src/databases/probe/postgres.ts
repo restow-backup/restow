@@ -24,6 +24,8 @@ export const PG_MAX_MESSAGE = 1024 * 1024;
 export const PG_SCRAM_MAX_ITERATIONS = 100_000;
 /** Messages the sign-in may take (parameters, notices, the key). */
 const PG_SIGN_IN_MAX_MESSAGES = 256;
+/** A value of a row is kept up to this many bytes (the facts are short; the rest is dropped). */
+export const DB_MAX_VALUE_BYTES = 4096;
 /** Messages besides the rows a query may take (notices, the description, the tag). */
 const PG_QUERY_MAX_EXTRA_MESSAGES = 256;
 
@@ -200,21 +202,12 @@ export interface PgSession {
   parameters: Map<string, string>;
 }
 
-export interface PgSignInOptions {
-  /**
-   * The server may not have the password sent as it is (cleartext) or as MD5: set when the
-   * connection is not protected by the confirmed certificate.
-   */
-  refuseWeakPasswordAuth?: boolean;
-}
-
 /** Sign in after the SSLRequest (and TLS, when the server offered it). */
 export async function pgSignIn(
   conn: DbConn,
   user: string,
   password: string | null,
   database: string,
-  options: PgSignInOptions = {},
 ): Promise<PgSession> {
   conn.write(startupMessage(user, database));
   let scram: PgScram | null = null;
@@ -255,12 +248,6 @@ export async function pgSignIn(
         throw outOfOrder(code);
       }
       if (code === 3 || code === 5) {
-        if (options.refuseWeakPasswordAuth) {
-          throw new DbProbeAbort(
-            "db_tls_changed",
-            "the server asks for the password in a weak form on a connection without the confirmed certificate",
-          );
-        }
         state = "password";
         conn.write(
           code === 3
@@ -338,7 +325,13 @@ export async function pgQuery(session: PgSession, sql: string): Promise<(string 
         if (length < 0) {
           row.push(null);
         } else {
-          row.push(body.subarray(offset, offset + length).toString("utf8"));
+          if (offset + length > body.length) {
+            throw new PgServerError("08P01", "invalid data row from the server");
+          }
+          // Only the beginning of a long value is kept, while the row is read.
+          row.push(
+            body.subarray(offset, offset + Math.min(length, DB_MAX_VALUE_BYTES)).toString("utf8"),
+          );
           offset += length;
         }
       }
