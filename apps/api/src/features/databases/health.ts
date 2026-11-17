@@ -17,7 +17,20 @@ import {
   endpointTasks,
   recordDatabaseHealthSample,
 } from "@restow/db";
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, max, sql } from "drizzle-orm";
+import {
+  type AnyColumn,
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  isNotNull,
+  lte,
+  max,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { readSecret } from "../../lib/secrets.js";
 import { type DbExecutor, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -564,6 +577,68 @@ async function ensureConnection(tx: Transaction, tenantId: string, id: string): 
   }
 }
 
+/** The events are read from at most this many samples, the newest ones. */
+const HISTORY_SAMPLES = 20_000;
+/** A longer range reads its events from hours (the raw samples of 14 days are folded anyway). */
+const HOURLY_HISTORY_AFTER_MS = 14 * DAY_MS;
+
+type HistorySample = Parameters<typeof dbHealthEvents>[0][number];
+
+/** The samples of the range, the newest {@link HISTORY_SAMPLES}, in time order. */
+async function rawHistory(tx: Transaction, inRange: SQL | undefined): Promise<HistorySample[]> {
+  const rows = await tx
+    .select({
+      at: databaseHealthSamples.at,
+      checks: databaseHealthSamples.checks,
+      okChecks: databaseHealthSamples.okChecks,
+      errorCode: databaseHealthSamples.errorCode,
+      serverVersion: databaseHealthSamples.serverVersion,
+      startedAt: databaseHealthSamples.startedAt,
+      tlsFingerprint: databaseHealthSamples.tlsFingerprint,
+    })
+    .from(databaseHealthSamples)
+    .where(inRange)
+    // Newest first, so a long range loses its oldest samples, never the newest events.
+    .orderBy(desc(databaseHealthSamples.at))
+    .limit(HISTORY_SAMPLES);
+  return rows.reverse();
+}
+
+/**
+ * One sample per hour of the range (raw samples and hourly rows alike), the newest
+ * {@link HISTORY_SAMPLES} hours (400 days are 9,600), in time order: the sums of the checks and the
+ * last error, version, start time and certificate of the hour.
+ */
+async function hourlyHistory(tx: Transaction, inRange: SQL | undefined): Promise<HistorySample[]> {
+  const hour = sql`date_trunc('hour', ${databaseHealthSamples.at})`;
+  const lastOf = (column: SQL | AnyColumn) =>
+    sql`(array_agg(${column} ORDER BY ${databaseHealthSamples.at} DESC) FILTER (WHERE ${column} IS NOT NULL))[1]`;
+  const rows = await tx
+    .select({
+      at: sql<string>`${hour}`,
+      checks: sql<number>`sum(${databaseHealthSamples.checks})::int`,
+      okChecks: sql<number>`sum(${databaseHealthSamples.okChecks})::int`,
+      errorCode: sql<string | null>`${lastOf(databaseHealthSamples.errorCode)}`,
+      serverVersion: sql<string | null>`${lastOf(databaseHealthSamples.serverVersion)}`,
+      startedAt: sql<string | null>`${lastOf(databaseHealthSamples.startedAt)}`,
+      tlsFingerprint: sql<string | null>`${lastOf(databaseHealthSamples.tlsFingerprint)}`,
+    })
+    .from(databaseHealthSamples)
+    .where(inRange)
+    .groupBy(hour)
+    .orderBy(desc(hour))
+    .limit(HISTORY_SAMPLES);
+  return rows.reverse().map((row) => ({
+    at: new Date(row.at),
+    checks: Number(row.checks),
+    okChecks: Number(row.okChecks),
+    errorCode: row.errorCode,
+    serverVersion: row.serverVersion,
+    startedAt: row.startedAt ? new Date(row.startedAt) : null,
+    tlsFingerprint: row.tlsFingerprint,
+  }));
+}
+
 /** The health history of a connection: availability, response time, connections, events (8). */
 export async function connectionHealth(
   db: DbExecutor,
@@ -602,20 +677,10 @@ export async function connectionHealth(
       .where(inRange)
       .groupBy(sql`1`)
       .orderBy(sql`1`);
-    const history = await tx
-      .select({
-        at: databaseHealthSamples.at,
-        checks: databaseHealthSamples.checks,
-        okChecks: databaseHealthSamples.okChecks,
-        errorCode: databaseHealthSamples.errorCode,
-        serverVersion: databaseHealthSamples.serverVersion,
-        startedAt: databaseHealthSamples.startedAt,
-        tlsFingerprint: databaseHealthSamples.tlsFingerprint,
-      })
-      .from(databaseHealthSamples)
-      .where(inRange)
-      .orderBy(asc(databaseHealthSamples.at))
-      .limit(20_000);
+    const history =
+      span > HOURLY_HISTORY_AFTER_MS
+        ? await hourlyHistory(tx, inRange)
+        : await rawHistory(tx, inRange);
     const [lastError] = await tx
       .select({
         at: databaseHealthSamples.at,

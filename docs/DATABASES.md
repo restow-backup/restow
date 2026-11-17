@@ -781,7 +781,9 @@ E10 (alle Editionen) entschieden.
   unbekannt ohne Prüfung seit drei Intervallen) und dem Band der letzten 24 Stunden;
   Verbindungsseite mit Stand, Band, Verfügbarkeit 24 Stunden/7 Tage/30 Tage, Antwortzeit,
   Verbindungen, Ereignissen und dem Intervall in den Einstellungen; Datenbankseite mit Größe und
-  Wachstum je Tag. Nichts davon ist grün. Session-API `GET …/connections/:id/health?from&to` und
+  Wachstum je Tag. Die Ereignisse liest der Server aus den neuesten 20.000 Prüfungen des
+  Zeitraums (die ältesten fallen weg, nie die neuesten); bei mehr als 14 Tagen stundenweise (eine
+  Stunde ohne gute Prüfung ist ausgefallen), höchstens 400 Tage. Nichts davon ist grün. Session-API `GET …/connections/:id/health?from&to` und
   `GET …/:id/health?from&to`, `PATCH …/connections/:id` mit `healthIntervalMinutes`.
 
 ### Abweichungen und Grenzen von D2

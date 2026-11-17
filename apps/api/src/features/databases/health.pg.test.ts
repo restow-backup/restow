@@ -20,7 +20,7 @@ import {
   recordDatabaseHealthSample,
   settings,
 } from "@restow/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type EndpointFixture,
@@ -527,6 +527,56 @@ describe.skipIf(!testDatabaseAdminUrl)(
       expect(updated.band.filter((hour) => hour.checks > 0).length).toBeGreaterThan(0);
       const list = await service.listDatabases(shared.db, fixture.tenantId);
       expect(list.databases[0]?.band).toHaveLength(24);
+    });
+
+    it("never drops the newest events of a busy history, and reads long ranges by the hour", async () => {
+      const connectionId = await agentConnection("ERP");
+      const now = new Date();
+      // More samples than the history reads (one every 4 seconds for a day), the newest failed.
+      await fixture.db.execute(sql`
+        INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks)
+        SELECT ${fixture.tenantId}::uuid, ${connectionId}::uuid,
+               ${now.toISOString()}::timestamptz - make_interval(secs => 60 + n * 4), 'agent', 1
+          FROM generate_series(1, 20100) AS n`);
+      await fixture.db.insert(databaseHealthSamples).values({
+        tenantId: fixture.tenantId,
+        connectionId,
+        at: new Date(now.getTime() - 30_000),
+        executorKind: "agent",
+        okChecks: 0,
+        errorCode: "db_unreachable",
+      });
+      const day = await health.connectionHealth(shared.db, fixture.tenantId, connectionId, {}, now);
+      expect(day.events[0]).toMatchObject({ kind: "unreachable", to: null });
+
+      // 30 days: an hour 20 days ago without a good check is an episode, read from the hours.
+      await fixture.db.insert(databaseHealthSamples).values({
+        tenantId: fixture.tenantId,
+        connectionId,
+        at: new Date(Math.floor((now.getTime() - 20 * 86_400_000) / 3_600_000) * 3_600_000),
+        resolution: "hour" as const,
+        executorKind: "agent",
+        checks: 12,
+        okChecks: 0,
+        errorCode: "db_login_failed",
+      });
+      const month = await health.connectionHealth(
+        shared.db,
+        fixture.tenantId,
+        connectionId,
+        { from: new Date(now.getTime() - 30 * 86_400_000).toISOString(), to: now.toISOString() },
+        now,
+      );
+      // By the hour: the hour of the newest failure had good checks too, so it is no episode.
+      const hour = Math.floor((now.getTime() - 20 * 86_400_000) / 3_600_000) * 3_600_000;
+      expect(month.events).toEqual([
+        {
+          kind: "unreachable",
+          from: new Date(hour).toISOString(),
+          to: expect.any(String),
+          errorCode: "db_login_failed",
+        },
+      ]);
     });
 
     it("hands credentials only to the agent the connection runs on, also after a move [DB-002]", async () => {
