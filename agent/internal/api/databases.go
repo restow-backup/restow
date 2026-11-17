@@ -43,6 +43,10 @@ type DBProbeSpec struct {
 	Password         *string `json:"password"`
 	AllowUnencrypted bool    `json:"allowUnencrypted"`
 	TimeoutSeconds   int     `json:"timeoutSeconds"`
+	// PinnedFingerprintSHA256 is the certificate the connection confirmed
+	// ("AB:CD:..."): the probe stops right after the TLS handshake, before any
+	// sign-in, when the server shows another one or no TLS.
+	PinnedFingerprintSHA256 *string `json:"pinnedFingerprintSha256,omitempty"`
 }
 
 // DBTLSFacts is what the TLS session showed.

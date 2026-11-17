@@ -3,6 +3,7 @@ import type { DbMysqlFacts } from "../facts.js";
 import { DB_MAX_DATABASES } from "../model.js";
 import { redactIdentifiedBy } from "../sanitize.js";
 import type { DbConn } from "./conn.js";
+import { DB_MAX_VALUE_BYTES } from "./postgres.js";
 
 /**
  * The MySQL and MariaDB side of the probe (docs/DATABASES.md 3): the server speaks first with a
@@ -10,7 +11,14 @@ import type { DbConn } from "./conn.js";
  * speaks mysql_native_password and caching_sha2_password (the default of MySQL 8), over TLS when
  * the server offers it; without TLS the full caching_sha2 exchange encrypts the password with the
  * server's RSA key. Text protocol, read-only queries.
+ *
+ * A packet is at most {@link MYSQL_MAX_READ} bytes, a result has at most 64 columns and ends after
+ * a fixed number of rows: a server cannot make the probe read without end.
  */
+
+/** The largest packet the probe reads. */
+export const MYSQL_MAX_READ = 1024 * 1024;
+const MYSQL_MAX_COLUMNS = 64;
 
 const CLIENT_LONG_PASSWORD = 0x1;
 const CLIENT_LONG_FLAG = 0x4;
@@ -204,6 +212,9 @@ class Packets {
   async read(): Promise<Buffer> {
     const header = await this.conn.read(4);
     const length = header.readUIntLE(0, 3);
+    if (length === 0 || length > MYSQL_MAX_READ) {
+      throw new MysqlServerError(0, "the server sent a packet the probe does not read");
+    }
     this.sequence = (header.readUInt8(3) + 1) & 0xff;
     return this.conn.read(length);
   }
@@ -237,6 +248,9 @@ function lenenc(value: number): Buffer {
 }
 
 function readLenenc(buffer: Buffer, offset: number): { value: number | null; next: number } {
+  if (offset >= buffer.length) {
+    throw new MysqlServerError(0, "a row of the server is shorter than its columns");
+  }
   const first = buffer.readUInt8(offset);
   if (first < 0xfb) {
     return { value: first, next: offset + 1 };
@@ -350,7 +364,7 @@ export async function mysqlSignIn(
       packets.write(authResponse(plugin, password, scramble, tls));
       continue;
     }
-    if (head === 0x01) {
+    if (head === 0x01 && payload.length >= 2) {
       const status = payload.readUInt8(1);
       if (plugin === "caching_sha2_password" && status === 0x03) {
         // Fast authentication succeeded; the OK packet follows.
@@ -367,7 +381,7 @@ export async function mysqlSignIn(
         if (keyPacket.readUInt8(0) === 0xff) {
           throw errorOf(keyPacket);
         }
-        const pem = keyPacket.subarray(1).toString("latin1");
+        const pem = keyPacket.subarray(1, 16 * 1024).toString("latin1");
         const plain = xor(
           Buffer.concat([Buffer.from(password, "utf8"), Buffer.from([0])]),
           scramble,
@@ -399,13 +413,17 @@ export async function mysqlQuery(session: MysqlSession, sql: string): Promise<(s
     return [];
   }
   const columns = readLenenc(first, 0).value ?? 0;
+  if (columns < 1 || columns > MYSQL_MAX_COLUMNS) {
+    throw new MysqlServerError(0, "more columns than the probe asked for");
+  }
   for (let index = 0; index < columns; index++) {
     await packets.read();
   }
   // EOF after the column definitions (the probe does not ask for CLIENT_DEPRECATE_EOF).
   await packets.read();
   const rows: (string | null)[][] = [];
-  for (;;) {
+  // The probe's queries return at most DB_MAX_DATABASES rows; a server that sends more is cut off.
+  for (let index = 0; index <= DB_MAX_DATABASES + 1; index++) {
     const payload = await packets.read();
     const head = payload.readUInt8(0);
     if (head === 0xfe && payload.length < 9) {
@@ -422,7 +440,13 @@ export async function mysqlQuery(session: MysqlSession, sql: string): Promise<(s
         row.push(null);
         offset = next;
       } else {
-        row.push(payload.subarray(next, next + value).toString("utf8"));
+        if (next + value > payload.length) {
+          throw new MysqlServerError(0, "a row of the server is shorter than its columns");
+        }
+        // Only the beginning of a long value is kept, while the row is read.
+        row.push(
+          payload.subarray(next, next + Math.min(value, DB_MAX_VALUE_BYTES)).toString("utf8"),
+        );
         offset = next + value;
       }
     }
@@ -430,6 +454,7 @@ export async function mysqlQuery(session: MysqlSession, sql: string): Promise<(s
       rows.push(row);
     }
   }
+  throw new MysqlServerError(0, "the query did not finish");
 }
 
 export function mysqlQuit(session: MysqlSession): void {

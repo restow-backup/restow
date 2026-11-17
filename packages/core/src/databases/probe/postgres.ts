@@ -1,13 +1,33 @@
-import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHash, createHmac, pbkdf2, randomBytes, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import type { DbPostgresFacts } from "../facts.js";
 import { DB_MAX_DATABASES } from "../model.js";
-import type { DbConn } from "./conn.js";
+import { type DbConn, DbProbeAbort } from "./conn.js";
+
+const pbkdf2Async = promisify(pbkdf2);
 
 /**
  * The PostgreSQL side of the probe (docs/DATABASES.md 3): the SSLRequest that recognises the
  * engine, the sign-in (SCRAM-SHA-256, MD5 or a plain password, as the server asks) and the
  * read-only queries of the facts. Frontend/backend protocol 3.0, simple queries only.
+ *
+ * What a server may make the probe do is bounded: a message is at most {@link PG_MAX_MESSAGE}
+ * bytes, the sign-in and every query end after a fixed number of messages, and SCRAM computes at
+ * most {@link PG_SCRAM_MAX_ITERATIONS} rounds (off the event loop). The SCRAM exchange runs in
+ * its order (server-first once, server-final after it) and the sign-in only counts when the
+ * server proved it knows the password.
  */
+
+/** The largest message the probe reads (the facts are small; the limit stops a flood). */
+export const PG_MAX_MESSAGE = 1024 * 1024;
+/** SCRAM rounds the probe computes at most (PostgreSQL's default is 4096). */
+export const PG_SCRAM_MAX_ITERATIONS = 100_000;
+/** Messages the sign-in may take (parameters, notices, the key). */
+const PG_SIGN_IN_MAX_MESSAGES = 256;
+/** A value of a row is kept up to this many bytes (the facts are short; the rest is dropped). */
+export const DB_MAX_VALUE_BYTES = 4096;
+/** Messages besides the rows a query may take (notices, the description, the tag). */
+const PG_QUERY_MAX_EXTRA_MESSAGES = 256;
 
 export const PG_SSL_REQUEST = Buffer.from([0x00, 0x00, 0x00, 0x08, 0x04, 0xd2, 0x16, 0x2f]);
 
@@ -38,7 +58,7 @@ async function readMessage(conn: DbConn): Promise<PgMessage> {
   const header = await conn.read(5);
   const type = String.fromCharCode(header.readUInt8(0));
   const length = header.readUInt32BE(1);
-  if (length < 4 || length > 64 * 1024 * 1024) {
+  if (length < 4 || length - 4 > PG_MAX_MESSAGE) {
     throw new PgServerError("08P01", "invalid message length from the server");
   }
   return { type, body: await conn.read(length - 4) };
@@ -124,17 +144,28 @@ export class PgScram {
     return `n,,${this.clientFirstBare}`;
   }
 
-  clientFinal(serverFirst: string): string {
+  async clientFinal(serverFirst: string): Promise<string> {
     const attributes = new Map(
       serverFirst.split(",").map((part) => [part.slice(0, 1), part.slice(2)] as const),
     );
     const nonce = attributes.get("r") ?? "";
     const salt = Buffer.from(attributes.get("s") ?? "", "base64");
-    const iterations = Number(attributes.get("i") ?? "0");
-    if (!nonce.startsWith(this.clientNonce) || iterations < 1 || iterations > 10_000_000) {
-      throw new PgServerError("28000", "the server's SCRAM answer is not valid");
+    const iterationsText = attributes.get("i") ?? "";
+    const iterations = /^\d{1,10}$/.test(iterationsText) ? Number(iterationsText) : 0;
+    if (nonce.length <= this.clientNonce.length || !nonce.startsWith(this.clientNonce)) {
+      throw new PgServerError("08P01", "the server's SCRAM answer is not valid");
     }
-    this.saltedPassword = pbkdf2Sync(
+    if (iterations < 1 || salt.length === 0) {
+      throw new PgServerError("08P01", "the server's SCRAM answer is not valid");
+    }
+    if (iterations > PG_SCRAM_MAX_ITERATIONS) {
+      throw new DbProbeAbort(
+        "db_auth_unsupported",
+        `the server asks for ${iterations} SCRAM iterations; Restow computes at most ${PG_SCRAM_MAX_ITERATIONS}`,
+      );
+    }
+    // On the thread pool: the event loop serves other requests meanwhile.
+    this.saltedPassword = await pbkdf2Async(
       this.password.normalize("NFKC"),
       salt,
       iterations,
@@ -160,7 +191,9 @@ export class PgScram {
       return false;
     }
     const serverKey = hmac(this.saltedPassword, "Server Key");
-    return hmac(serverKey, this.authMessage).toString("base64") === verifier;
+    const expected = hmac(serverKey, this.authMessage);
+    const given = Buffer.from(verifier, "base64");
+    return given.length === expected.length && timingSafeEqual(given, expected);
   }
 }
 
@@ -178,6 +211,8 @@ export async function pgSignIn(
 ): Promise<PgSession> {
   conn.write(startupMessage(user, database));
   let scram: PgScram | null = null;
+  /** start, then password (3, 5) or sasl (10) -> sasl-continue (11) -> sasl-final (12), then ok. */
+  let state: "start" | "password" | "sasl" | "sasl-continue" | "sasl-final" | "ok" = "start";
   const parameters = new Map<string, string>();
   const needPassword = (): string => {
     if (password === null) {
@@ -185,51 +220,84 @@ export async function pgSignIn(
     }
     return password;
   };
-  for (;;) {
+  const outOfOrder = (code: number) =>
+    new PgServerError("08P01", `unexpected authentication message ${code} during the sign-in`);
+  for (let count = 0; count < PG_SIGN_IN_MAX_MESSAGES; count++) {
     const { type, body } = await readMessage(conn);
     if (type === "E") {
       throw errorOf(body);
     }
     if (type === "R") {
+      if (body.length < 4) {
+        throw new PgServerError("08P01", "invalid authentication message from the server");
+      }
       const code = body.readUInt32BE(0);
       if (code === 0) {
+        // Without a password (trust), after a password, or after the server's SCRAM proof.
+        if (state !== "start" && state !== "password" && state !== "sasl-final") {
+          throw new DbProbeAbort(
+            "db_probe_failed",
+            "the server accepted the sign-in without proving the SCRAM exchange",
+          );
+        }
+        state = "ok";
         continue;
       }
-      if (code === 3) {
-        conn.write(message("p", cstring(needPassword())));
-      } else if (code === 5) {
-        conn.write(message("p", cstring(pgMd5Password(user, needPassword(), body.subarray(4, 8)))));
+      const expected = state === "sasl" ? 11 : state === "sasl-continue" ? 12 : null;
+      if (state === "start" ? code === 11 || code === 12 : code !== expected) {
+        throw outOfOrder(code);
+      }
+      if (code === 3 || code === 5) {
+        state = "password";
+        conn.write(
+          code === 3
+            ? message("p", cstring(needPassword()))
+            : message("p", cstring(pgMd5Password(user, needPassword(), body.subarray(4, 8)))),
+        );
       } else if (code === 10) {
         const mechanisms = body.subarray(4).toString("utf8").split("\u0000").filter(Boolean);
         if (!mechanisms.includes("SCRAM-SHA-256")) {
-          throw new PgServerError("28000", `unsupported SASL mechanisms: ${mechanisms.join(", ")}`);
+          throw new DbProbeAbort(
+            "db_auth_unsupported",
+            `unsupported SASL mechanisms: ${mechanisms.join(", ").slice(0, 200)}`,
+          );
         }
         scram = new PgScram(needPassword());
+        state = "sasl";
         const first = Buffer.from(scram.clientFirst(), "utf8");
         const length = Buffer.alloc(4);
         length.writeInt32BE(first.length);
         conn.write(message("p", Buffer.concat([cstring("SCRAM-SHA-256"), length, first])));
       } else if (code === 11 && scram) {
-        conn.write(message("p", Buffer.from(scram.clientFinal(body.subarray(4).toString("utf8")))));
+        state = "sasl-continue";
+        const final = await scram.clientFinal(body.subarray(4).toString("utf8"));
+        conn.write(message("p", Buffer.from(final)));
       } else if (code === 12 && scram) {
         if (!scram.verifyServerFinal(body.subarray(4).toString("utf8"))) {
-          throw new PgServerError("28000", "the server's SCRAM signature does not match");
+          throw new DbProbeAbort("db_probe_failed", "the server's SCRAM signature does not match");
         }
+        state = "sasl-final";
       } else {
-        throw new PgServerError("28000", `unsupported authentication method ${code}`);
+        throw new DbProbeAbort("db_auth_unsupported", `unsupported authentication method ${code}`);
       }
       continue;
     }
     if (type === "S") {
       const [name = "", value = ""] = body.toString("utf8").split("\u0000");
-      parameters.set(name, value);
+      if (parameters.size < 64) {
+        parameters.set(name.slice(0, 64), value.slice(0, 256));
+      }
       continue;
     }
     if (type === "Z") {
+      if (state !== "ok") {
+        throw new PgServerError("08P01", "the server ended the sign-in without accepting it");
+      }
       return { conn, parameters };
     }
     // K (backend key) and N (notice) carry nothing the probe needs.
   }
+  throw new PgServerError("08P01", "the sign-in did not finish");
 }
 
 /** One simple query; every value as text (null for NULL). */
@@ -237,10 +305,18 @@ export async function pgQuery(session: PgSession, sql: string): Promise<(string 
   session.conn.write(message("Q", cstring(sql)));
   const rows: (string | null)[][] = [];
   let failure: PgServerError | null = null;
-  for (;;) {
+  // The probe's queries return at most DB_MAX_DATABASES rows; a server that sends more is cut off.
+  const maxMessages = DB_MAX_DATABASES + 1 + PG_QUERY_MAX_EXTRA_MESSAGES;
+  for (let index = 0; index < maxMessages; index++) {
     const { type, body } = await readMessage(session.conn);
     if (type === "D") {
+      if (body.length < 2) {
+        throw new PgServerError("08P01", "invalid data row from the server");
+      }
       const count = body.readUInt16BE(0);
+      if (count > 64) {
+        throw new PgServerError("08P01", "more columns than the probe asked for");
+      }
       const row: (string | null)[] = [];
       let offset = 2;
       for (let column = 0; column < count; column++) {
@@ -249,7 +325,13 @@ export async function pgQuery(session: PgSession, sql: string): Promise<(string 
         if (length < 0) {
           row.push(null);
         } else {
-          row.push(body.subarray(offset, offset + length).toString("utf8"));
+          if (offset + length > body.length) {
+            throw new PgServerError("08P01", "invalid data row from the server");
+          }
+          // Only the beginning of a long value is kept, while the row is read.
+          row.push(
+            body.subarray(offset, offset + Math.min(length, DB_MAX_VALUE_BYTES)).toString("utf8"),
+          );
           offset += length;
         }
       }
@@ -265,6 +347,7 @@ export async function pgQuery(session: PgSession, sql: string): Promise<(string 
       return rows;
     }
   }
+  throw new PgServerError("08P01", "the query did not finish");
 }
 
 export function pgTerminate(session: PgSession): void {

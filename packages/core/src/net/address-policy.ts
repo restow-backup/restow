@@ -321,6 +321,11 @@ export function refuseHostBeforeConnect(
  * connection fails with a {@link BlockedAddressError}.
  */
 export function guardedLookup(allowPrivateNetworks: boolean): LookupFunction {
+  return guardedLookupWith((address) => isAddressAllowed(address, allowPrivateNetworks));
+}
+
+/** {@link guardedLookup} with a rule of its own for which address may be handed out. */
+export function guardedLookupWith(allow: (address: string) => boolean): LookupFunction {
   return (hostname, options, callback) => {
     dnsLookup(hostname, { ...options, all: true }, (error, found) => {
       if (error) {
@@ -328,9 +333,7 @@ export function guardedLookup(allowPrivateNetworks: boolean): LookupFunction {
         return;
       }
       const addresses: LookupAddress[] = Array.isArray(found) ? found : [];
-      const refused =
-        addresses.length === 0 ||
-        addresses.some((entry) => !isAddressAllowed(entry.address, allowPrivateNetworks));
+      const refused = addresses.length === 0 || addresses.some((entry) => !allow(entry.address));
       if (refused) {
         callback(new BlockedAddressError(hostname), "", 0);
         return;

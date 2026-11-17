@@ -16,6 +16,7 @@
 
 import { randomUUID } from "node:crypto";
 import type PgBoss from "pg-boss";
+import type { DatabaseProbeSweeper } from "./database-probes.js";
 import type { EndpointJobPlanner } from "./endpoints.js";
 import type { FileShareJobPlanner } from "./file-shares.js";
 import { errorMessage, logger } from "./logger.js";
@@ -61,6 +62,8 @@ export interface SchedulerLoopDeps {
   readonly fileShares?: FileShareJobPlanner;
   /** Weekly login probes of shut-down IMAP accounts (./login-probes.ts); omitted, none. */
   readonly loginProbes?: LoginProbePlanner;
+  /** The credentials of database connection tests that may no longer be used (./database-probes.ts); omitted, none. */
+  readonly databaseProbes?: DatabaseProbeSweeper;
   /** Injectable clock and job id source (tests pin them). */
   readonly now?: () => Date;
   readonly newJobId?: () => string;
@@ -168,6 +171,12 @@ export class SchedulerLoop {
         const probes = await this.deps.loginProbes.plan(now);
         if (probes) {
           logger.info("login probes queued", { probes, at: now.toISOString() });
+        }
+      }
+      if (this.deps.databaseProbes && !this.stopped && this.deps.isLeader()) {
+        const deleted = await this.deps.databaseProbes.sweep(now);
+        if (deleted) {
+          logger.info("credentials of database tests deleted", { deleted, at: now.toISOString() });
         }
       }
       if (

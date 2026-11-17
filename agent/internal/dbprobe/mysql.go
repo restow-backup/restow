@@ -209,6 +209,9 @@ func (p *packets) read() ([]byte, error) {
 		return nil, err
 	}
 	n := int(head[0]) | int(head[1])<<8 | int(head[2])<<16
+	if n == 0 || n > maxRead {
+		return nil, fail(CodeProbeFailed, "the server sent a packet the probe does not read")
+	}
 	p.seq = head[3] + 1
 	return p.c.readFull(n)
 }
@@ -253,7 +256,11 @@ func readLenenc(b []byte, off int) (value int, null bool, next int, err error) {
 	case first == 0xfd && off+4 <= len(b):
 		return int(b[off+1]) | int(b[off+2])<<8 | int(b[off+3])<<16, false, off + 4, nil
 	case first == 0xfe && off+9 <= len(b):
-		return int(binary.LittleEndian.Uint64(b[off+1 : off+9])), false, off + 9, nil
+		v := binary.LittleEndian.Uint64(b[off+1 : off+9])
+		if v > maxRead {
+			return 0, false, off, errors.New("a value larger than the packet")
+		}
+		return int(v), false, off + 9, nil
 	}
 	return 0, false, off, errors.New("short packet")
 }
@@ -442,13 +449,18 @@ func (p *packets) query(sql string) ([][]*string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if columns < 1 || columns > mysqlMaxColumns {
+		return nil, errors.New("more columns than the probe asked for")
+	}
 	for i := 0; i < columns+1; i++ { // column definitions, then EOF
 		if _, err := p.read(); err != nil {
 			return nil, err
 		}
 	}
 	var rows [][]*string
-	for {
+	// The probe's queries return at most maxDatabases rows; a server that
+	// sends more is cut off.
+	for count := 0; count <= maxDatabases+1; count++ {
 		payload, err := p.read()
 		if err != nil {
 			return nil, err
@@ -474,7 +486,8 @@ func (p *packets) query(sql string) ([][]*string, error) {
 			if next+n > len(payload) {
 				return nil, errors.New("short row")
 			}
-			v := string(payload[next : next+n])
+			// Only the beginning of a long value is kept, while the row is read.
+			v := string(payload[next : next+min(n, maxValueBytes)])
 			row = append(row, &v)
 			off = next + n
 		}
@@ -482,7 +495,11 @@ func (p *packets) query(sql string) ([][]*string, error) {
 			rows = append(rows, row)
 		}
 	}
+	return nil, errors.New("the query did not finish")
 }
+
+// mysqlMaxColumns bounds the columns of a result.
+const mysqlMaxColumns = 64
 
 func (p *packets) quit() {
 	p.seq = 0

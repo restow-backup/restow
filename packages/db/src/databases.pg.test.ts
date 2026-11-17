@@ -248,4 +248,66 @@ describe.skipIf(!adminUrl)("database module tables against Postgres", () => {
     );
     expect(left.rows).toEqual([]);
   });
+
+  it("drops the sealed credentials of a test with the test and with its machine", async () => {
+    const { connection, endpoint } = await seed(contoso, "Contoso Probes");
+    const probeWithSecret = (status: string, endpointId: string | null = endpoint) =>
+      inTenant(app, contoso, async (client) => {
+        const secret = (
+          await client.query<{ id: string }>(
+            `INSERT INTO secrets (tenant_id, kind, ciphertext)
+             VALUES ($1, 'database_probe_credentials', 'sealed-fixture') RETURNING id`,
+            [contoso],
+          )
+        ).rows[0]?.id as string;
+        const probe = (
+          await client.query<{ id: string }>(
+            `INSERT INTO database_probes (tenant_id, connection_id, executor_kind, executor_endpoint_id, spec, credential_secret_id, status, expires_at)
+             VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, $6, now() + interval '10 minutes') RETURNING id`,
+            [contoso, connection, endpointId ? "agent" : "server", endpointId, secret, status],
+          )
+        ).rows[0]?.id as string;
+        return { secret, probe };
+      });
+    const secretExists = (id: string) =>
+      inTenant(app, contoso, async (client) =>
+        Boolean((await client.query("SELECT 1 FROM secrets WHERE id = $1", [id])).rows.length),
+      );
+
+    // A deleted test takes its credentials along.
+    const deleted = await probeWithSecret("done", null);
+    await inTenant(app, contoso, (client) =>
+      client.query("DELETE FROM database_probes WHERE id = $1", [deleted.probe]),
+    );
+    expect(await secretExists(deleted.secret)).toBe(false);
+
+    // A revoked machine ends its open tests and drops their credentials at once.
+    const pending = await probeWithSecret("pending");
+    const finished = await probeWithSecret("done");
+    await inTenant(app, contoso, (client) =>
+      client.query("UPDATE endpoints SET status = 'revoked', revoked_at = now() WHERE id = $1", [
+        endpoint,
+      ]),
+    );
+    expect(await secretExists(pending.secret)).toBe(false);
+    expect(await secretExists(finished.secret)).toBe(false);
+    const states = await inTenant(app, contoso, (client) =>
+      client.query<{ id: string; status: string; credential_secret_id: string | null }>(
+        "SELECT id, status, credential_secret_id FROM database_probes WHERE id = ANY($1::uuid[])",
+        [[pending.probe, finished.probe]],
+      ),
+    );
+    expect(Object.fromEntries(states.rows.map((row) => [row.id, row]))).toMatchObject({
+      [pending.probe]: { status: "expired", credential_secret_id: null },
+      [finished.probe]: { status: "done", credential_secret_id: null },
+    });
+
+    // A machine deleted outright: its tests go by the cascade, their credentials with them.
+    const other = await seed(contoso, "Contoso Probes 2");
+    const cascaded = await probeWithSecret("pending", other.endpoint);
+    await inTenant(app, contoso, (client) =>
+      client.query("DELETE FROM endpoints WHERE id = $1", [other.endpoint]),
+    );
+    expect(await secretExists(cascaded.secret)).toBe(false);
+  });
 });

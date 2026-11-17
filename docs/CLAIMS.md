@@ -1230,7 +1230,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Der Restow-Server verbindet sich als Ausführer nur mit öffentlichen Adressen und mit Adressen in privaten Netzen, die ein Provider-Admin freigegeben hat (oder die Installation mit `RESTOW_DB_ALLOW_PRIVATE_NETWORKS=true`); link-local und reservierte Adressen (Cloud-Metadaten) nie, eine öffentliche Adresse nie ohne TLS.
 - Fundstelle: docs/DATABASES.md (Abschnitt 4.2 "Restow-Server", Abschnitt 3.2 "TLS", Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/network.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts
+- Tests: packages/core/src/databases/network.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/limits.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/own-database.test.ts, agent/internal/dbprobe/limits_test.go
 - Belegt gegen: Logik (Einheitentests der Regel und des Sockets) und echtes System (PostgreSQL 16, Job test in ci.yml: Freigabe des Provider-Admins beim Speichern, auditiert)
 - Stand: belegt
 

@@ -124,4 +124,58 @@ WHERE NOT (coalesce("modules" -> 'hidden', '[]'::jsonb) ? 'databases')
     WHERE "backup_job_members"."overrides" -> 'sql' ->> 'enabled' = 'true'
   );--> statement-breakpoint
 ALTER TABLE "backup_jobs" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "backup_job_members" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "backup_job_members" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+-- The sealed credentials of a test live as long as the test may use them: a test that is
+-- deleted (by its connection, its machine or the cleanup) takes them along, and a machine that
+-- is revoked or removed ends its open tests and drops their credentials at once, without
+-- waiting for a request of the tenant.
+CREATE OR REPLACE FUNCTION restow_drop_database_probe_secret()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM secrets WHERE id = OLD.credential_secret_id AND tenant_id = OLD.tenant_id;
+  RETURN NULL;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER database_probes_drop_secret
+  AFTER DELETE ON database_probes
+  FOR EACH ROW
+  WHEN (OLD.credential_secret_id IS NOT NULL)
+  EXECUTE FUNCTION restow_drop_database_probe_secret();
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION restow_end_endpoint_database_probes()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  WITH ended AS (
+    UPDATE database_probes p
+       SET status = CASE WHEN p.status IN ('pending', 'running') THEN 'expired' ELSE p.status END,
+           error_code = CASE WHEN p.status IN ('pending', 'running') THEN 'db_runner_offline' ELSE p.error_code END,
+           finished_at = coalesce(p.finished_at, now()),
+           credential_secret_id = NULL
+      FROM (
+        SELECT id, credential_secret_id
+          FROM database_probes
+         WHERE executor_endpoint_id = NEW.id
+           AND tenant_id = NEW.tenant_id
+           AND (status IN ('pending', 'running') OR credential_secret_id IS NOT NULL)
+         FOR UPDATE
+      ) prior
+     WHERE p.id = prior.id
+    RETURNING prior.credential_secret_id AS secret_id
+  )
+  DELETE FROM secrets
+   WHERE tenant_id = NEW.tenant_id
+     AND id IN (SELECT secret_id FROM ended WHERE secret_id IS NOT NULL);
+  RETURN NULL;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER endpoints_end_database_probes
+  AFTER UPDATE OF status, removed_at ON endpoints
+  FOR EACH ROW
+  WHEN (NEW.status <> 'active' OR NEW.removed_at IS NOT NULL)
+  EXECUTE FUNCTION restow_end_endpoint_database_probes();

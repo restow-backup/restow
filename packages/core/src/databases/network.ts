@@ -27,10 +27,40 @@ import {
 /** The installation flag. */
 export const DB_ALLOW_PRIVATE_NETWORKS_ENV = "RESTOW_DB_ALLOW_PRIVATE_NETWORKS";
 
-/** A provider admin's approval of a private address, stored with the connection. */
+/**
+ * A provider admin's approval of a private address, stored with the connection. It holds the
+ * address the approved test connected to and signed in on (or the literal address): the server's
+ * connections reach those and no other private address, so a name that later points elsewhere in
+ * the network gains nothing.
+ */
 export interface DbPrivateNetworkApproval {
   by: string;
   at: string;
+  addresses?: string[];
+}
+
+/** An address as the approval keeps it: lowercase, no brackets, IPv4 without the IPv6 mapping. */
+export function dbCanonicalAddress(address: string): string {
+  const bare = normalizeHost(address);
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(bare);
+  return mapped?.[1] ?? bare;
+}
+
+/** Whether a connection with this approval may reach `address` (public ones are no question). */
+export function dbApprovedAddress(
+  approval:
+    | Pick<DbPrivateNetworkApproval, "addresses">
+    | DbPrivateNetworkApproval
+    | null
+    | undefined,
+  address: string,
+): boolean {
+  const canonical = dbCanonicalAddress(address);
+  const kind = classifyAddress(canonical);
+  return (
+    (kind === "private" || kind === "loopback") &&
+    (approval?.addresses ?? []).some((entry) => dbCanonicalAddress(entry) === canonical)
+  );
 }
 
 export interface DbHostContext {
@@ -48,7 +78,11 @@ export type DbHostDecision =
   | { kind: "refused"; reason: DbHostRefusal };
 
 /** What saving (or testing) a host with this assessment means for the server executor (pure). */
-export function decideDbHost(assessment: HostAssessment, context: DbHostContext): DbHostDecision {
+export function decideDbHost(
+  assessment: HostAssessment,
+  context: DbHostContext,
+  addresses?: readonly string[],
+): DbHostDecision {
   switch (assessment) {
     case "public":
     case "unresolvable":
@@ -60,7 +94,11 @@ export function decideDbHost(assessment: HostAssessment, context: DbHostContext)
       if (context.isProviderAdmin) {
         return {
           kind: "allowed",
-          approval: { by: context.actorEmail, at: context.now.toISOString() },
+          approval: {
+            by: context.actorEmail,
+            at: context.now.toISOString(),
+            addresses: [...new Set((addresses ?? []).map(dbCanonicalAddress))].slice(0, 16),
+          },
         };
       }
       return context.privateNetworksAllowed
@@ -75,15 +113,24 @@ export async function judgeDbHost(
   context: DbHostContext,
   resolve: HostResolver = systemResolver,
 ): Promise<DbHostDecision> {
-  return decideDbHost(await assessHost(host, resolve), context);
+  const assessment = await assessHost(host, resolve);
+  // An approval names the addresses it is for: a literal here; for a name, the address the
+  // probe actually connected to and signed in on is added by the server (never a lookup of
+  // its own, which could see another answer than the probe's connection).
+  const name = normalizeHost(host);
+  const literal = isIP(name) !== 0 && dbPlaintextAllowedFor(classifyAddress(name));
+  return decideDbHost(assessment, context, literal ? [name] : []);
 }
 
-/** Whether the server's connections for a stored connection may reach private networks. */
+/**
+ * Whether the server's connections for a stored connection may reach a private address at all:
+ * with the installation flag any, with an approval only the addresses it names.
+ */
 export function dbMayReachPrivateNetworks(
   approval: DbPrivateNetworkApproval | null | undefined,
   privateNetworksAllowed: boolean,
 ): boolean {
-  return privateNetworksAllowed || Boolean(approval);
+  return privateNetworksAllowed || (approval?.addresses?.length ?? 0) > 0;
 }
 
 /**
