@@ -51,6 +51,10 @@ import { pathToFileURL } from "node:url";
  *                                "true" lets the health checks of every database connection the
  *                                Restow server runs reach loopback and private networks; otherwise
  *                                only connections a provider admin approved (docs/DATABASES.md 4.2)
+ *   RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR
+ *                                the outbound budget of the server's health checks: checks to
+ *                                public targets per tenant and hour (default 600); beyond it a
+ *                                tenant's checks wait (docs/DATABASES.md 16)
  *   IMPORT_DIR                   the server-side mail import folder (default /var/lib/restow/import);
  *                                a tenant reads only <IMPORT_DIR>/<tenant slug>/ (docs/IMPORT.md)
  *   IMPORT_MAX_MESSAGE_BYTES     largest single message an import reads (default 256 MiB)
@@ -116,6 +120,7 @@ import PgBoss from "pg-boss";
 import { ArchiveCaptureService } from "./archive-capture/service.js";
 import { grantContinuation } from "./continuation.js";
 import {
+  DEFAULT_PUBLIC_CHECKS_PER_TENANT_HOUR,
   ownDatabaseTargetsOf,
   ownSystemIdentifierOf,
   startDatabaseHealth,
@@ -675,6 +680,11 @@ async function main(): Promise<void> {
       now: () => new Date(),
       privateNetworksAllowed:
         process.env.RESTOW_DB_ALLOW_PRIVATE_NETWORKS?.trim().toLowerCase() === "true",
+      publicChecksPerTenantHour: positiveInt(
+        process.env,
+        "RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR",
+        DEFAULT_PUBLIC_CHECKS_PER_TENANT_HOUR,
+      ),
       restoreModeActive: async () => (await restoreMode.guard.restoreMode()).active,
       readCredentials: workerCredentialsReader(db, keyrings),
       ownSystemIdentifier: ownSystemIdentifierOf(providerDb),

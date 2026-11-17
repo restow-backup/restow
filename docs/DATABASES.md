@@ -240,6 +240,10 @@ an.
 - Der Restow-Server ist nur für Engines mit Netzprotokoll möglich (PostgreSQL, MySQL/MariaDB).
 - Last: Läufe des Servers zählen gegen `WORKER_CONCURRENCY` in einer eigenen Queue `db`
   (Vorgabe 2 gleichzeitig je Worker-Prozess, `DB_CONCURRENCY`).
+- Je Mandant höchstens 20 Verbindungen mit dem Server als Ausführer
+  (`RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT`), weitere über einen Agenten; die Healthchecks des
+  Servers verteilen sich reihum auf die Mandanten, und Prüfungen zu öffentlichen Zielen zählen
+  gegen ein ausgehendes Budget je Mandant (Abschnitt 16, D2).
 
 ### 4.3 Lauf
 
@@ -721,8 +725,21 @@ E10 (alle Editionen) entschieden.
   dem Speichern erneut um die Zugangsdaten bereinigt.
 - **Restow-Server als Ausführer:** ein Durchlauf je Minute in einem Worker der Installation
   (`apps/worker databases/health.ts`, Advisory Lock): jede eingeschaltete Verbindung, deren
-  Intervall um ist, höchstens 200 je Durchlauf, 4 zugleich; Netzschutz wie beim Test (Adresse vor
-  dem Verbinden, geprüfte Namensauflösung): private Adressen nur mit dem Schalter der Installation
+  Intervall um ist, höchstens 200 je Durchlauf, 4 zugleich. Gerecht verteilt: Die Mandanten
+  kommen reihum dran (von jedem die am längsten fällige, dann von jedem die zweite, …), nach
+  40 Sekunden beginnt in einem Durchlauf keine Prüfung mehr (der Rest ist im nächsten zuerst
+  dran), und die Bewertung samt Alarmen läuft am Anfang jedes Durchlaufs, unabhängig von
+  langsamen Prüfungen (sie nimmt die Prüfungen des vorigen Durchlaufs und die Meldungen der
+  Agenten auf). Ein Mandant hat höchstens 20 Verbindungen mit dem Server als Ausführer
+  (`RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT`); eine weitere wird beim Speichern und beim Wechsel
+  auf den Server mit 422 abgelehnt (`urn:restow:problem:database-server-connection-limit`) und
+  läuft über einen Agenten. **Ausgehendes Budget:** Prüfungen des Servers zu öffentlichen Zielen
+  (Verbindungen ohne Freigabe einer privaten Adresse; mit dem Schalter der Installation auch
+  private Ziele ohne Freigabe) zählen je Mandant gegen ein Budget von höchstens 600 je Stunde
+  (`RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR`, gezählt aus den Prüfungen der letzten Stunde);
+  ist es aufgebraucht, warten die fälligen Prüfungen dieses Mandanten, die Erreichbarkeit wird
+  nach drei Intervallen "unbekannt", ein Alarm kommt daraus nicht. Netzschutz wie beim Test
+  (Adresse vor dem Verbinden, geprüfte Namensauflösung): private Adressen nur mit dem Schalter der Installation
   oder genau die Adressen der Freigabe (eine Freigabe ohne Adressen erreicht keine; der Worker ist
   nie ein Provider-Admin), nie der Ort von Restows eigener Datenbank, aus den Datenbank-URLs des
   Workers gelesen (@restow/core `databaseUrlTargets`). Ist dieser Ort nicht zu ermitteln, warten

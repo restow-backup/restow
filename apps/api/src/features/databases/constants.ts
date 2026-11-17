@@ -17,6 +17,7 @@ export const DATABASE_PROBLEMS = {
   ownDatabaseUnknown: "urn:restow:problem:database-own-database-unknown",
   credentialsRequired: "urn:restow:problem:database-credentials-required",
   confirm: "urn:restow:problem:database-confirm",
+  serverConnectionLimit: "urn:restow:problem:database-server-connection-limit",
 } as const;
 
 /**

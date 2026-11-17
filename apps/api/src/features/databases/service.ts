@@ -107,6 +107,8 @@ export interface DatabaseContext {
   ownDatabaseTargets?: () => Promise<OwnDatabaseTarget[]>;
   /** Tests: `RESTOW_DB_ALLOW_PRIVATE_NETWORKS`. */
   privateNetworksAllowed?: boolean;
+  /** Tests: `RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT`. */
+  serverConnectionsPerTenant?: number;
 }
 
 const nowOf = (ctx: Pick<DatabaseContext, "now">) => ctx.now ?? new Date();
@@ -177,6 +179,39 @@ async function takeProbeSlot(tx: Transaction, tenantId: string, now: Date): Prom
     throw new ProblemError(429, "Too many connection tests", {
       type: P.probeLimit,
       detail: `At most ${PROBE_LIMIT} connection tests in ten minutes. Try again later.`,
+    });
+  }
+}
+
+/**
+ * Room for one more connection of the tenant on the Restow server (4.2): at most
+ * `RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT`, counted in the transaction that saves it (an
+ * advisory lock per tenant, so two saves count one after the other). Its health checks share the
+ * worker's pass with every other tenant; more connections run on an agent.
+ */
+async function assertServerConnectionRoom(
+  tx: Transaction,
+  tenantId: string,
+  ctx: DatabaseContext,
+): Promise<void> {
+  const limit = ctx.serverConnectionsPerTenant ?? config.dbServerConnectionsPerTenant;
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`restow:database_server_connections:${tenantId}`}))`,
+  );
+  const [row] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(databaseConnections)
+    .where(
+      and(
+        eq(databaseConnections.tenantId, tenantId),
+        eq(databaseConnections.executorKind, "server"),
+      ),
+    );
+  if (Number(row?.count ?? 0) >= limit) {
+    throw new ProblemError(422, "Too many connections on the Restow server", {
+      type: P.serverConnectionLimit,
+      detail: `At most ${limit} database connections of a tenant run on the Restow server. Run this one on an agent.`,
+      extensions: { field: "executor", limit },
     });
   }
 }
@@ -1561,6 +1596,9 @@ export async function createConnection(
   const rights = evaluateDbRights(result);
   try {
     return await withTenantTx(db, tenantId, async (tx) => {
+      if (executorKind === "server") {
+        await assertServerConnectionRoom(tx, tenantId, ctx);
+      }
       const secret = tested
         ? await storeSecret(tx, {
             tenantId,
@@ -1858,6 +1896,9 @@ export async function updateConnection(
   }
   try {
     return await withTenantTx(db, tenantId, async (tx) => {
+      if (executor?.kind === "server" && before.executorKind !== "server") {
+        await assertServerConnectionRoom(tx, tenantId, ctx);
+      }
       const changes: Partial<typeof databaseConnections.$inferInsert> = { updatedAt: now };
       const changed: string[] = [];
       if (input.name !== undefined && input.name !== before.name) {

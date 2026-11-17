@@ -4,7 +4,12 @@
  *
  *   - **Checks of the Restow server as executor** (4.2): every enabled connection whose newest
  *     check is older than its interval (1 to 60 minutes, default 5), at most 200 per pass and 4 at
- *     once. The credentials are read from the secret store for the one check and handed to
+ *     once, shared fairly: the tenants take turns (each tenant's most overdue connection first,
+ *     then each one's second, ...), and no new check starts after
+ *     {@link CHECK_BUDGET_MS} of the pass (the rest is due in the next one). Checks to a public
+ *     target (a connection without a provider admin's approval of a private address) count
+ *     toward the tenant's outbound budget, at most `publicChecksPerTenantHour` an hour; beyond it
+ *     they wait. The credentials are read from the secret store for the one check and handed to
  *     @restow/core `checkDatabaseHealthFromServer` only: the address is judged before connecting
  *     and resolved through the guarded lookup (private networks only with the installation flag or
  *     the provider admin's approval of this connection), the confirmed certificate is passed so a
@@ -21,6 +26,8 @@
  *   - **Housekeeping** once a day: raw samples older than 14 days fold into hours, hours older than
  *     400 days go; `db_health` tasks of agents older than a day go. In bounded batches (at most
  *     {@link MAX_COMPACT_BATCHES_PER_PASS} a pass); what is left goes on in the next pass.
+ *
+ * The evaluation runs first in every pass, so slow checks never hold up the alerts.
  *
  * Restore mode (10): no checks with credentials while it is on; evaluation and housekeeping go on.
  * Nothing is ever logged with a credential; a log line names the connection and the code only.
@@ -70,6 +77,10 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
 export const DATABASE_HEALTH_PASS_MS = MINUTE_MS;
 const LOCK_KEY = 0x64626831; // "dbh1"
 const MAX_CHECKS_PER_PASS = 200;
+/** No check starts after this much of a pass: a pass of slow checks ends before the next one. */
+const CHECK_BUDGET_MS = 40 * 1000;
+/** The default outbound budget: server checks to public targets per tenant and hour. */
+export const DEFAULT_PUBLIC_CHECKS_PER_TENANT_HOUR = 600;
 const CHECK_CONCURRENCY = 4;
 const MAX_EVALUATIONS_PER_PASS = 500;
 /** Batches of the housekeeping in one pass (each a bounded statement, @restow/db). */
@@ -91,6 +102,15 @@ export interface DatabaseHealthDeps {
   readonly now: () => Date;
   /** `RESTOW_DB_ALLOW_PRIVATE_NETWORKS`. */
   readonly privateNetworksAllowed: boolean;
+  /**
+   * `RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR`: the server's checks to public targets a
+   * tenant may cause in an hour (default {@link DEFAULT_PUBLIC_CHECKS_PER_TENANT_HOUR}).
+   */
+  readonly publicChecksPerTenantHour?: number;
+  /** Tests: the time budget of the checks in a pass. */
+  readonly checkBudgetMs?: number;
+  /** Tests: the checks of a pass (default 200). */
+  readonly maxChecksPerPass?: number;
   /** Restore mode is on: no checks with credentials (10). */
   readonly restoreModeActive: () => Promise<boolean>;
   /** The sealed user and password of a connection, opened for one check. */
@@ -117,6 +137,10 @@ export interface DatabaseHealthSummary {
   failed: number;
   /** Due checks of the server that waited: where Restow's own database is could not be told. */
   waiting: number;
+  /** Due checks left for the next pass: the time budget of this one ran out. */
+  deferred: number;
+  /** Due checks of tenants whose outbound budget is spent (at least this many). */
+  overBudget: number;
   evaluated: number;
   alerts: number;
   folded: number;
@@ -190,27 +214,55 @@ function rowsOf<T>(result: unknown): T[] {
   return ((result as { rows?: T[] }).rows ?? []) as T[];
 }
 
-/** The server's connections whose check is due (enabled, tenant active), oldest first. */
+/**
+ * The server's connections whose check is due (enabled, tenant active), at most 200: the tenants
+ * take turns (each one's most overdue first, then each one's second, ...), so one tenant with
+ * many connections cannot take the pass. A connection without an approved private address
+ * reaches public targets only; its checks count toward the tenant's outbound budget (the
+ * server's checks of such connections in the last hour), and once that is spent its due checks
+ * wait (`overBudget`).
+ */
 async function dueServerConnections(
   deps: DatabaseHealthDeps,
   now: Date,
-): Promise<{ id: string; tenant_id: string }[]> {
+): Promise<{ id: string; tenant_id: string; over_budget: boolean }[]> {
+  const budget = deps.publicChecksPerTenantHour ?? DEFAULT_PUBLIC_CHECKS_PER_TENANT_HOUR;
   const result = await deps.providerDb.execute(sql`
-    SELECT c.id, c.tenant_id
-      FROM database_connections c
-      JOIN tenants t ON t.id = c.tenant_id
-      LEFT JOIN LATERAL (
-        SELECT max(s.at) AS at FROM database_health_samples s
-         WHERE s.connection_id = c.id AND s.resolution = 'raw'
-      ) last ON true
-     WHERE t.status = 'active'
-       AND c.enabled
-       AND c.executor_kind = 'server'
-       AND (last.at IS NULL
-            OR last.at <= ${now.toISOString()}::timestamptz - make_interval(mins => c.health_interval_minutes))
-     ORDER BY last.at NULLS FIRST, c.id
-     LIMIT ${MAX_CHECKS_PER_PASS}`);
-  return rowsOf<{ id: string; tenant_id: string }>(result);
+    WITH due AS (
+      SELECT c.id, c.tenant_id, last.at AS last_at,
+             c.private_network_approval IS NULL AS public,
+             row_number() OVER (PARTITION BY c.tenant_id ORDER BY last.at NULLS FIRST, c.id) AS turn
+        FROM database_connections c
+        JOIN tenants t ON t.id = c.tenant_id
+        LEFT JOIN LATERAL (
+          SELECT max(s.at) AS at FROM database_health_samples s
+           WHERE s.connection_id = c.id AND s.resolution = 'raw'
+        ) last ON true
+       WHERE t.status = 'active'
+         AND c.enabled
+         AND c.executor_kind = 'server'
+         AND (last.at IS NULL
+              OR last.at <= ${now.toISOString()}::timestamptz - make_interval(mins => c.health_interval_minutes))
+    ), spent AS (
+      SELECT s.tenant_id, count(*)::int AS n
+        FROM database_health_samples s
+        JOIN database_connections c ON c.id = s.connection_id
+       WHERE s.tenant_id IN (SELECT tenant_id FROM due)
+         AND s.executor_kind = 'server' AND s.resolution = 'raw'
+         AND s.at > ${now.toISOString()}::timestamptz - interval '1 hour'
+         AND c.private_network_approval IS NULL
+       GROUP BY s.tenant_id
+    ), ranked AS (
+      SELECT due.*,
+             due.public AND coalesce(spent.n, 0) + sum(due.public::int) OVER (
+               PARTITION BY due.tenant_id ORDER BY due.turn) > ${budget} AS over_budget
+        FROM due LEFT JOIN spent ON spent.tenant_id = due.tenant_id
+    )
+    SELECT id, tenant_id, over_budget
+      FROM ranked
+     ORDER BY over_budget, turn, last_at NULLS FIRST, id
+     LIMIT ${deps.maxChecksPerPass ?? MAX_CHECKS_PER_PASS}`);
+  return rowsOf<{ id: string; tenant_id: string; over_budget: boolean }>(result);
 }
 
 /** Whether the sizes are due: none read in the last hour. */
@@ -334,10 +386,25 @@ async function checkOne(
 async function runServerChecks(
   deps: DatabaseHealthDeps,
   now: Date,
-): Promise<{ checked: number; failed: number; waiting: number }> {
-  const due = await dueServerConnections(deps, now);
+): Promise<{
+  checked: number;
+  failed: number;
+  waiting: number;
+  deferred: number;
+  overBudget: number;
+}> {
+  const rows = await dueServerConnections(deps, now);
+  const due = rows.filter((row) => !row.over_budget);
+  const overBudget = rows.length - due.length;
+  if (overBudget > 0) {
+    const tenants = [...new Set(rows.filter((row) => row.over_budget).map((row) => row.tenant_id))];
+    deps.logger.warn("database health checks wait: the outbound budget of the tenant is spent", {
+      tenantIds: tenants,
+      waiting: overBudget,
+    });
+  }
   if (due.length === 0) {
-    return { checked: 0, failed: 0, waiting: 0 };
+    return { checked: 0, failed: 0, waiting: 0, deferred: 0, overBudget };
   }
   let forbiddenTargets: { address: string; port: number }[];
   try {
@@ -349,13 +416,18 @@ async function runServerChecks(
       errorMessage: error instanceof Error ? error.message.slice(0, 200) : String(error),
       waiting: due.length,
     });
-    return { checked: 0, failed: 0, waiting: due.length };
+    return { checked: 0, failed: 0, waiting: due.length, deferred: 0, overBudget };
   }
   let checked = 0;
   let failed = 0;
   let next = 0;
+  const stopAt = Date.now() + (deps.checkBudgetMs ?? CHECK_BUDGET_MS);
   const worker = async () => {
     for (;;) {
+      // Out of time: what is left stays due and comes first in the next pass.
+      if (Date.now() >= stopAt) {
+        return;
+      }
       const row = due[next++];
       if (!row) {
         return;
@@ -377,7 +449,7 @@ async function runServerChecks(
     }
   };
   await Promise.all(Array.from({ length: CHECK_CONCURRENCY }, worker));
-  return { checked, failed, waiting: 0 };
+  return { checked, failed, waiting: 0, deferred: Math.max(0, due.length - next), overBudget };
 }
 
 /** The connections with samples the state has not taken in yet. */
@@ -525,7 +597,7 @@ async function housekeeping(
   return result;
 }
 
-/** One pass: the server's checks, the evaluation, and (when `compact`) the housekeeping. */
+/** One pass: the evaluation, the server's checks, and (when `compact`) the housekeeping. */
 export async function databaseHealthPass(
   deps: DatabaseHealthDeps,
   options: { compact: boolean; compactLimits?: { hours: number; rows: number } },
@@ -534,6 +606,8 @@ export async function databaseHealthPass(
     checked: 0,
     failed: 0,
     waiting: 0,
+    deferred: 0,
+    overBudget: 0,
     evaluated: 0,
     alerts: 0,
     folded: 0,
@@ -541,12 +615,8 @@ export async function databaseHealthPass(
     housekeepingLeft: 0,
   };
   const now = deps.now();
-  if (!(await deps.restoreModeActive())) {
-    const checks = await runServerChecks(deps, now);
-    summary.checked = checks.checked;
-    summary.failed = checks.failed;
-    summary.waiting = checks.waiting;
-  }
+  // The evaluation first: the alerts never wait for slow checks (it takes up the samples of the
+  // previous pass and the agents' reports).
   for (const row of await connectionsToEvaluate(deps)) {
     try {
       summary.alerts += await evaluate(deps, row, deps.now());
@@ -558,6 +628,14 @@ export async function databaseHealthPass(
         errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error),
       });
     }
+  }
+  if (!(await deps.restoreModeActive())) {
+    const checks = await runServerChecks(deps, now);
+    summary.checked = checks.checked;
+    summary.failed = checks.failed;
+    summary.waiting = checks.waiting;
+    summary.deferred = checks.deferred;
+    summary.overBudget = checks.overBudget;
   }
   if (options.compact) {
     const kept = await housekeeping(deps, now, options.compactLimits);

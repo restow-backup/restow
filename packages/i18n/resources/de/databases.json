@@ -285,7 +285,8 @@
     "probe-busy": "Gerade laufen andere Prüfungen. Versuchen Sie es gleich noch einmal.",
     "credentials-required": "Geben Sie das Kennwort noch einmal ein: Gespeicherte Zugangsdaten gehen nur an den Ausführer, für den sie gespeichert wurden.",
     "own-database-unknown": "Der {appName}-Server kann gerade nicht feststellen, wo seine eigene Datenbank liegt, und prüft deshalb keine Verbindungen. Versuchen Sie es gleich noch einmal.",
-    "confirm": "Es gibt nichts zu bestätigen. Prüfen Sie die Verbindung noch einmal."
+    "confirm": "Es gibt nichts zu bestätigen. Prüfen Sie die Verbindung noch einmal.",
+    "server-connection-limit": "Für diesen Mandanten laufen schon so viele Verbindungen auf dem {appName}-Server, wie erlaubt sind. Lassen Sie diese Verbindung über einen Agenten laufen."
   },
   "health": {
     "title": "Healthchecks",

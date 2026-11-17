@@ -182,7 +182,8 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
 
   it("checks a due connection with its certificate and its network approval, sizes once an hour [DB-004]", async () => {
     const summary = await databaseHealthPass(deps(), { compact: false });
-    expect(summary).toMatchObject({ checked: 1, failed: 0, evaluated: 1, alerts: 0 });
+    // The evaluation comes first in a pass: this check is taken up by the next one.
+    expect(summary).toMatchObject({ checked: 1, failed: 0, evaluated: 0, alerts: 0 });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.target).toMatchObject({
       engine: "postgresql",
@@ -546,5 +547,88 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
       [connectionId, hourOf(0)],
     );
     expect(hours).toEqual([{ checks: 3, ok_checks: 2 }]);
+  });
+
+  it("shares a pass between tenants, keeps each within its outbound budget and its time [DB-004]", async () => {
+    const [provider] = await q<{ provider_id: string }>(
+      "SELECT provider_id FROM tenants WHERE id = $1",
+      [tenantId],
+    );
+    const [other] = await q<{ id: string }>(
+      "INSERT INTO tenants (provider_id, name, slug, status) VALUES ($1, 'Fabrikam', 'fabrikam', 'active') RETURNING id",
+      [provider?.provider_id],
+    );
+    const fabrikam = other?.id as string;
+    const schedule = JSON.stringify({ kind: "interval", intervalMinutes: 60, timeZone: "UTC" });
+    const add = async (tenant: string, name: string, host: string, approved = false) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO database_connections
+           (tenant_id, name, engine, host, port, executor_kind, auth_method, schedule, private_network_approval)
+         VALUES ($1, $2, 'postgresql', $3, 5432, 'server', 'password', $4::jsonb, $5::jsonb) RETURNING id`,
+        [
+          tenant,
+          name,
+          host,
+          schedule,
+          approved
+            ? JSON.stringify({ by: "p@example.test", at: now.toISOString(), addresses: [host] })
+            : null,
+        ],
+      );
+      return row?.id as string;
+    };
+    const hostsOf = (from: number) => calls.slice(from).map((call) => call.target.host);
+    next = () => good(false);
+    now = new Date(now.getTime() + 120 * MINUTE);
+    // Contoso: three connections never checked; Fabrikam: one checked two hours ago.
+    for (const name of ["A1", "A2", "A3"]) {
+      await add(tenantId, name, `${name.toLowerCase()}.example.test`);
+    }
+    const b1 = await add(fabrikam, "B1", "b1.example.test");
+    await q(
+      `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks)
+       VALUES ($1, $2, $3, 'server', 1)`,
+      [fabrikam, b1, new Date(now.getTime() - 120 * MINUTE)],
+    );
+    // Two checks this pass: the tenants take turns, Fabrikam's comes before Contoso's second.
+    let before = calls.length;
+    await databaseHealthPass({ ...deps(), maxChecksPerPass: 2 }, { compact: false });
+    expect(hostsOf(before)).toHaveLength(2);
+    expect(hostsOf(before)).toContain("b1.example.test");
+
+    // An outbound budget of one public check an hour: B1 had it, B2 waits; a connection to an
+    // approved private address does not count toward it.
+    await add(fabrikam, "B2", "b2.example.test");
+    await add(fabrikam, "B3", "10.1.2.3", true);
+    before = calls.length;
+    const budgeted = await databaseHealthPass(
+      { ...deps(), publicChecksPerTenantHour: 1 },
+      { compact: false },
+    );
+    expect(hostsOf(before)).toContain("10.1.2.3");
+    expect(hostsOf(before)).not.toContain("b2.example.test");
+    expect(budgeted.overBudget).toBeGreaterThanOrEqual(1);
+
+    // Slow checks: none starts after the time budget, the rest stays due for the next pass.
+    now = new Date(now.getTime() + 120 * MINUTE);
+    before = calls.length;
+    const slow = await databaseHealthPass(
+      {
+        ...deps(),
+        checkBudgetMs: 1,
+        check: async (target, options) => {
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          calls.push({ target, options });
+          return good(false);
+        },
+      },
+      { compact: false },
+    );
+    expect(slow.checked).toBeLessThanOrEqual(4);
+    expect(slow.deferred).toBeGreaterThan(0);
+    expect(calls.length - before).toBe(slow.checked);
+    await q("DELETE FROM database_connections WHERE tenant_id = $1 OR name IN ('A1', 'A2', 'A3')", [
+      fabrikam,
+    ]);
   });
 });

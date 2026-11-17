@@ -267,6 +267,57 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
     ]);
   });
 
+  it("keeps a tenant within its connections on the Restow server, at saving and at a move [DB-004]", async () => {
+    const ctx = (): DatabaseContext => ({ ...tenantAdmin(), serverConnectionsPerTenant: 1 });
+    const save = async (name: string, executor: Parameters<typeof testInput>[1]) => {
+      const probe = await service.testConnection(
+        shared.db,
+        fixture.tenantId,
+        testInput("postgresql://db.example.test/app", executor),
+        ctx(),
+      );
+      if (executor?.kind === "agent") {
+        const agent = { endpointId: agentId, tenantId: fixture.tenantId };
+        await service.agentFetchProbe(shared.db, agent, probe.id);
+        await service.agentFinishProbe(shared.db, agent, probe.id, pgResult(), {
+          ownSystemIdentifier: async () => OWN_IDENTIFIER,
+        });
+      }
+      return service.createConnection(
+        shared.db,
+        fixture.tenantId,
+        {
+          probeId: probe.id,
+          name,
+          user: USER,
+          password: PASSWORD,
+          allowUnencrypted: false,
+          mode: "backup",
+        },
+        ctx(),
+      );
+    };
+    await save("ERP", { kind: "server" });
+    const limit = { status: 422, type: "urn:restow:problem:database-server-connection-limit" };
+    await expect(save("Shop", { kind: "server" })).rejects.toMatchObject(limit);
+    // Through an agent it is saved; moved to the server it is refused, and stays on the agent.
+    const shop = await save("Shop", { kind: "agent", endpointId: agentId });
+    await expect(
+      service.updateConnection(
+        shared.db,
+        fixture.tenantId,
+        shop.id,
+        { executor: { kind: "server", endpointId: null }, password: PASSWORD },
+        ctx(),
+      ),
+    ).rejects.toMatchObject(limit);
+    const [row] = await fixture.db
+      .select()
+      .from(databaseConnections)
+      .where(eq(databaseConnections.id, shop.id));
+    expect(row?.executorKind).toBe("agent");
+  });
+
   it("refuses private networks to a tenant admin and records a provider admin's approval [DB-003]", async () => {
     await expect(
       service.testConnection(shared.db, fixture.tenantId, testInput("pg.lan:5432"), tenantAdmin()),

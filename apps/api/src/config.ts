@@ -137,6 +137,12 @@ export interface Config {
    */
   dbAllowPrivateNetworks: boolean;
   /**
+   * `RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT`: how many database connections of one tenant may
+   * have the Restow server as executor (default 20; docs/DATABASES.md 4.2, 16). More run on an
+   * agent: the server's health checks of all tenants share one worker pass.
+   */
+  dbServerConnectionsPerTenant: number;
+  /**
    * `RESTOW_DOCS_TROUBLESHOOTING_URL`: where the failure explanations point for
    * more help. The one place this address lives (defaults to the public docs);
    * an installation may point it at its own runbook.
@@ -405,6 +411,7 @@ export function loadConfig(env: Env = process.env): Config {
     graphMailSender: str(env, "GRAPH_MAIL_SENDER"),
     imapAllowPrivateNetworks: bool(env, "IMAP_ALLOW_PRIVATE_NETWORKS"),
     dbAllowPrivateNetworks: bool(env, "RESTOW_DB_ALLOW_PRIVATE_NETWORKS"),
+    dbServerConnectionsPerTenant: positiveInt(env, "RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT", 20),
     docsTroubleshootingUrl: docsTroubleshootingUrl(str(env, "RESTOW_DOCS_TROUBLESHOOTING_URL")),
     demo: {
       enabled: bool(env, "RESTOW_DEMO"),

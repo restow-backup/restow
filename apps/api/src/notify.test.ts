@@ -58,6 +58,7 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
     graphMailSender: undefined,
     imapAllowPrivateNetworks: false,
     dbAllowPrivateNetworks: false,
+    dbServerConnectionsPerTenant: 20,
     docsTroubleshootingUrl: "https://docs.example.test/troubleshooting/",
     demo: {
       enabled: false,
