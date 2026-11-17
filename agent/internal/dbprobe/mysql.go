@@ -427,57 +427,71 @@ func encryptPassword(pemBytes []byte, password string, scramble []byte) ([]byte,
 	return rsa.EncryptOAEP(sha1.New(), randReader, key, plain, nil) // #nosec G401
 }
 
-// mysqlQuery runs one text query; NULL is nil.
+// maxGrantBytes: a line of SHOW GRANTS is kept up to this many bytes (a long
+// column list stays readable); maxGrantLines: at most this many lines.
+const (
+	maxGrantBytes = 64 << 10
+	maxGrantLines = 200
+)
+
+// mysqlQuery runs one text query; NULL is nil. Values are kept up to
+// maxValueBytes.
 func (p *packets) query(sql string) ([][]*string, error) {
+	rows, _, err := p.queryLimited(sql, maxValueBytes)
+	return rows, err
+}
+
+// queryLimited is query with its own limit per value; truncated says whether
+// a value was cut.
+func (p *packets) queryLimited(sql string, limit int) (rows [][]*string, truncated bool, err error) {
 	p.seq = 0
 	if err := p.write(append([]byte{0x03}, sql...)); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	first, err := p.read()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if len(first) == 0 {
-		return nil, errors.New("empty answer")
+		return nil, false, errors.New("empty answer")
 	}
 	switch first[0] {
 	case mysqlErr:
-		return nil, mysqlErrorOf(first)
+		return nil, false, mysqlErrorOf(first)
 	case mysqlOK:
-		return nil, nil
+		return nil, false, nil
 	}
 	columns, _, _, err := readLenenc(first, 0)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if columns < 1 || columns > mysqlMaxColumns {
-		return nil, errors.New("more columns than the probe asked for")
+		return nil, false, errors.New("more columns than the probe asked for")
 	}
 	for i := 0; i < columns+1; i++ { // column definitions, then EOF
 		if _, err := p.read(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	var rows [][]*string
 	// The probe's queries return at most maxDatabases rows; a server that
 	// sends more is cut off.
 	for count := 0; count <= maxDatabases+1; count++ {
 		payload, err := p.read()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if len(payload) > 0 && payload[0] == 0xfe && len(payload) < mysqlEOFMaxLength {
-			return rows, nil
+			return rows, truncated, nil
 		}
 		if len(payload) > 0 && payload[0] == mysqlErr {
-			return nil, mysqlErrorOf(payload)
+			return nil, false, mysqlErrorOf(payload)
 		}
 		row := make([]*string, 0, columns)
 		off := 0
 		for col := 0; col < columns; col++ {
 			n, null, next, err := readLenenc(payload, off)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			if null {
 				row = append(row, nil)
@@ -485,10 +499,13 @@ func (p *packets) query(sql string) ([][]*string, error) {
 				continue
 			}
 			if next+n > len(payload) {
-				return nil, errors.New("short row")
+				return nil, false, errors.New("short row")
 			}
 			// Only the beginning of a long value is kept, while the row is read.
-			v := string(payload[next : next+min(n, maxValueBytes)])
+			if n > limit {
+				truncated = true
+			}
+			v := string(payload[next : next+min(n, limit)])
 			row = append(row, &v)
 			off = next + n
 		}
@@ -496,7 +513,7 @@ func (p *packets) query(sql string) ([][]*string, error) {
 			rows = append(rows, row)
 		}
 	}
-	return nil, errors.New("the query did not finish")
+	return nil, false, errors.New("the query did not finish")
 }
 
 // mysqlMaxColumns bounds the columns of a result.
@@ -552,14 +569,26 @@ func (p *packets) mysqlFacts() (*api.DBMysqlFacts, error) {
 		v := clip(*b, 32)
 		f.BinlogFormat = &v
 	}
-	grants, err := p.query("SHOW GRANTS")
+	// A grant with a long column list can be long; one still cut (or more
+	// lines than are kept) is reported, so no right reads as missing that
+	// could not be read.
+	grants, truncated, err := p.queryLimited("SHOW GRANTS", maxGrantBytes)
 	if err != nil {
 		return nil, err
 	}
 	for i := range grants {
-		if g := redactIdentifiedBy(cell(grants, i, 0)); g != "" && len(f.Grants) < 200 {
-			f.Grants = append(f.Grants, clip(g, 4096))
+		g := redactIdentifiedBy(cell(grants, i, 0))
+		if g == "" {
+			continue
 		}
+		if len(f.Grants) >= maxGrantLines {
+			truncated = true
+			break
+		}
+		f.Grants = append(f.Grants, clip(g, maxGrantBytes))
+	}
+	if truncated {
+		f.GrantsTruncated = true
 	}
 	schemas, err := p.query(fmt.Sprintf("SELECT s.SCHEMA_NAME, (SELECT SUM(t.DATA_LENGTH + t.INDEX_LENGTH) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA = s.SCHEMA_NAME) FROM information_schema.SCHEMATA s ORDER BY s.SCHEMA_NAME LIMIT %d", maxDatabases))
 	if err != nil {

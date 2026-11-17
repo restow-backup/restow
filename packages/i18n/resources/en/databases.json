@@ -122,7 +122,8 @@
       "binlog_off": "The binlog is off.",
       "some_databases": "Only for some databases.",
       "sqlserver_later": "SQL Server is still backed up by the native backup on the machine's page.",
-      "not_signed_in": "Not signed in."
+      "not_signed_in": "Not signed in.",
+      "grants_truncated": "The server's list of grants was too long to read in full, so missing rights cannot be determined reliably."
     },
     "admin": {
       "title": "Admin user",

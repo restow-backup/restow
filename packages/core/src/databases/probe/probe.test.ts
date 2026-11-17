@@ -106,7 +106,19 @@ function lenencString(text: string | null): Buffer {
     return Buffer.from([0xfb]);
   }
   const bytes = Buffer.from(text, "utf8");
-  return Buffer.concat([Buffer.from([bytes.length]), bytes]);
+  if (bytes.length < 251) {
+    return Buffer.concat([Buffer.from([bytes.length]), bytes]);
+  }
+  if (bytes.length < 0x10000) {
+    const head = Buffer.alloc(3);
+    head.writeUInt8(0xfc, 0);
+    head.writeUInt16LE(bytes.length, 1);
+    return Buffer.concat([head, bytes]);
+  }
+  const head = Buffer.alloc(4);
+  head.writeUInt8(0xfd, 0);
+  head.writeUIntLE(bytes.length, 1, 3);
+  return Buffer.concat([head, bytes]);
 }
 
 function resultSet(rows: (string | null)[][], columns: number): Buffer[] {
@@ -603,6 +615,51 @@ describe("the health check of a stored connection (docs/DATABASES.md 8) [DB-004]
       allowLoopback,
     );
     expect(pinned).toMatchObject({ login: "ok", error: null });
+  });
+});
+
+describe("long grant lines (SHOW GRANTS)", () => {
+  const dynamic = Array.from({ length: 400 }, (_, index) => `X_DYNAMIC_PRIVILEGE_${index}_ADMIN`);
+  const grantWith = (padding: string[]) =>
+    `GRANT SELECT, RELOAD, PROCESS, LOCK TABLES, SHOW VIEW, EVENT, ${padding.join(", ")}, TRIGGER ON *.* TO \`restow_backup\`@\`%\``;
+
+  it("reads a grant line of several KiB in full", async () => {
+    const line = grantWith(dynamic);
+    expect(line.length).toBeGreaterThan(8 * 1024);
+    const port = await startMysql({
+      version: "8.4.3",
+      password: "s3cret-pass",
+      plugin: "mysql_native_password",
+      ssl: false,
+      grants: [line],
+      serverUuid: null,
+    });
+    const result = await probeDatabaseFromServer(spec({ port }), allowLoopback);
+    expect(result.error).toBeNull();
+    expect(result.mysql?.grants[0]?.length).toBe(line.length);
+    expect(result.mysql?.grantsTruncated).toBeUndefined();
+    expect(evaluateDbRights(result)?.capabilities.backup.state).toBe("granted");
+  });
+
+  it("says a right is unknown, not missing, when a line was still too long", async () => {
+    const huge = grantWith(Array.from({ length: 6000 }, (_, index) => `X_${index}_ADMIN`));
+    expect(huge.length).toBeGreaterThan(64 * 1024);
+    const port = await startMysql({
+      version: "8.4.3",
+      password: "s3cret-pass",
+      plugin: "mysql_native_password",
+      ssl: false,
+      grants: [huge],
+      serverUuid: null,
+    });
+    const result = await probeDatabaseFromServer(spec({ port }), allowLoopback);
+    expect(result.error).toBeNull();
+    expect(result.mysql?.grantsTruncated).toBe(true);
+    expect(result.mysql?.grants[0]?.length).toBe(64 * 1024);
+    expect(evaluateDbRights(result)?.capabilities.backup).toMatchObject({
+      state: "unknown",
+      note: "grants_truncated",
+    });
   });
 });
 

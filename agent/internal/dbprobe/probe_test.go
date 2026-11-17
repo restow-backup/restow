@@ -95,7 +95,15 @@ func lenencStr(s *string) []byte {
 	if s == nil {
 		return []byte{0xfb}
 	}
-	return append([]byte{byte(len(*s))}, *s...)
+	n := len(*s)
+	switch {
+	case n < 251:
+		return append([]byte{byte(n)}, *s...)
+	case n < 1<<16:
+		return append([]byte{0xfc, byte(n), byte(n >> 8)}, *s...)
+	default:
+		return append([]byte{0xfd, byte(n), byte(n >> 8), byte(n >> 16)}, *s...)
+	}
 }
 
 func resultSet(rows [][]*string, columns int) [][]byte {
@@ -313,6 +321,31 @@ func TestDetectsMySQLAndSignsInWithCachingSHA2OverTLS(t *testing.T) {
 	}
 	if r.MySQL == nil || deref(r.MySQL.ServerUUID) == "" || len(r.MySQL.Databases) != 3 || len(r.MySQL.Grants) != 1 {
 		t.Fatalf("facts %+v", r.MySQL)
+	}
+}
+
+// claim: DB-001
+func TestReadsLongGrantLinesAndReportsWhatWasCut(t *testing.T) {
+	long := "GRANT SELECT (" + strings.Repeat("a_rather_long_column_name, ", 300) + "id) ON `app`.`t` TO `restow_backup`@`%`"
+	f := &fakeMySQL{version: "8.4.3", password: "s3cret-pass", plugin: mysqlAuthNative, grants: []string{long}}
+	r := Run(context.Background(), spec(listen(t, f.serve)), fast)
+	if r.Error != nil || r.MySQL == nil || len(r.MySQL.Grants) != 1 || r.MySQL.Grants[0] != long || r.MySQL.GrantsTruncated {
+		t.Fatalf("long line (%d bytes) not read in full: %+v", len(long), r.MySQL)
+	}
+	huge := "GRANT SELECT (" + strings.Repeat("x", 70<<10) + ") ON `app`.`t` TO `restow_backup`@`%`"
+	f = &fakeMySQL{version: "8.4.3", password: "s3cret-pass", plugin: mysqlAuthNative, grants: []string{huge}}
+	r = Run(context.Background(), spec(listen(t, f.serve)), fast)
+	if r.Error != nil || r.MySQL == nil || len(r.MySQL.Grants) != 1 || len(r.MySQL.Grants[0]) != maxGrantBytes || !r.MySQL.GrantsTruncated {
+		t.Fatalf("over-long line not reported as cut: %+v", r.Error)
+	}
+	many := make([]string, maxGrantLines+5)
+	for i := range many {
+		many[i] = "GRANT USAGE ON *.* TO `restow_backup`@`%`"
+	}
+	f = &fakeMySQL{version: "8.4.3", password: "s3cret-pass", plugin: mysqlAuthNative, grants: many}
+	r = Run(context.Background(), spec(listen(t, f.serve)), fast)
+	if r.Error != nil || r.MySQL == nil || len(r.MySQL.Grants) != maxGrantLines || !r.MySQL.GrantsTruncated {
+		t.Fatalf("too many lines not reported: %+v", r.Error)
 	}
 }
 

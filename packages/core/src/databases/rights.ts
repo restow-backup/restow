@@ -39,6 +39,7 @@ export interface DbCapabilityVerdict {
     | "some_databases"
     | "sqlserver_later"
     | "not_signed_in"
+    | "grants_truncated"
     | null;
 }
 
@@ -256,7 +257,16 @@ function mysqlRights(engine: "mysql" | "mariadb", facts: DbMysqlFacts): DbRights
       "binlog_off",
     );
   }
-  const capabilities = { backup, verifyOnInstance, pitr };
+  // `SHOW GRANTS` was cut: a right that was not read is not known to be missing.
+  const honest = (judged: DbCapabilityVerdict): DbCapabilityVerdict =>
+    facts.grantsTruncated && judged.state !== "granted" && judged.note !== "binlog_off"
+      ? verdict("unknown", judged.missing, "grants_truncated")
+      : judged;
+  const capabilities = {
+    backup: honest(backup),
+    verifyOnInstance: honest(verifyOnInstance),
+    pitr: honest(pitr),
+  };
   const wanted = wantedCapabilities(admin, capabilities);
   return {
     engine,

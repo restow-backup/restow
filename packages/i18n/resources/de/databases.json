@@ -122,7 +122,8 @@
       "binlog_off": "Das Binlog ist ausgeschaltet.",
       "some_databases": "Nur für einzelne Datenbanken.",
       "sqlserver_later": "SQL Server sichert weiterhin die native Sicherung auf der Seite des Rechners.",
-      "not_signed_in": "Nicht angemeldet."
+      "not_signed_in": "Nicht angemeldet.",
+      "grants_truncated": "Die Rechte-Liste des Servers war zu lang, um sie vollständig zu lesen; fehlende Rechte lassen sich deshalb nicht sicher feststellen."
     },
     "admin": {
       "title": "Admin-Benutzer",

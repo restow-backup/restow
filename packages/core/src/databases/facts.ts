@@ -63,7 +63,12 @@ export const dbMysqlFactsSchema = z.object({
   versionComment: optionalText(256),
   currentUser: text(300),
   /** `SHOW GRANTS` of the current user, as the server wrote them. */
-  grants: z.array(text(4096)).max(200),
+  grants: z.array(text(64 * 1024)).max(200),
+  /**
+   * A line was longer than 64 KiB or there were more than 200: what was read may lack rights,
+   * so a right that looks missing is unknown.
+   */
+  grantsTruncated: z.boolean().optional().catch(undefined),
   /** MySQL's `@@server_uuid`; null on MariaDB. */
   serverUuid: optionalText(64),
   serverId: z.number().int().min(0).nullable().catch(null),

@@ -400,8 +400,23 @@ export async function mysqlSignIn(
   throw new MysqlServerError(0, "the sign-in did not finish");
 }
 
+/** A line of `SHOW GRANTS` is kept up to this many bytes (a long column list stays readable). */
+export const DB_MAX_GRANT_BYTES = 64 * 1024;
+/** At most this many lines of `SHOW GRANTS` are kept. */
+export const DB_MAX_GRANT_LINES = 200;
+
+/** How a query keeps its values: up to `maxValueBytes` each; `truncated` is set when one was cut. */
+export interface MysqlQueryLimits {
+  maxValueBytes: number;
+  truncated: boolean;
+}
+
 /** One text query; every value as text (null for NULL). */
-export async function mysqlQuery(session: MysqlSession, sql: string): Promise<(string | null)[][]> {
+export async function mysqlQuery(
+  session: MysqlSession,
+  sql: string,
+  limits: MysqlQueryLimits = { maxValueBytes: DB_MAX_VALUE_BYTES, truncated: false },
+): Promise<(string | null)[][]> {
   const { packets } = session;
   packets.sequence = 0;
   packets.write(Buffer.concat([Buffer.from([0x03]), Buffer.from(sql, "utf8")]));
@@ -444,8 +459,11 @@ export async function mysqlQuery(session: MysqlSession, sql: string): Promise<(s
           throw new MysqlServerError(0, "a row of the server is shorter than its columns");
         }
         // Only the beginning of a long value is kept, while the row is read.
+        if (value > limits.maxValueBytes) {
+          limits.truncated = true;
+        }
         row.push(
-          payload.subarray(next, next + Math.min(value, DB_MAX_VALUE_BYTES)).toString("utf8"),
+          payload.subarray(next, next + Math.min(value, limits.maxValueBytes)).toString("utf8"),
         );
         offset = next + value;
       }
@@ -487,11 +505,16 @@ export async function mysqlFacts(session: MysqlSession): Promise<DbMysqlFacts> {
   const serverUuid = await optionalValue(session, "SELECT @@server_uuid");
   const logBin = await optionalValue(session, "SELECT @@log_bin");
   const binlogFormat = await optionalValue(session, "SELECT @@binlog_format");
-  const grants = (await mysqlQuery(session, "SHOW GRANTS"))
+  // A grant with a long column list can be long; one that is still cut (or more lines than are
+  // kept) is reported, so the matrix does not call a right missing that it could not read.
+  const grantLimits: MysqlQueryLimits = { maxValueBytes: DB_MAX_GRANT_BYTES, truncated: false };
+  const grantLines = (await mysqlQuery(session, "SHOW GRANTS", grantLimits))
     .map((row) => redactIdentifiedBy(row[0] ?? ""))
-    .filter((line) => line.length > 0)
-    .slice(0, 200)
-    .map((line) => line.slice(0, 4096));
+    .filter((line) => line.length > 0);
+  const grants = grantLines
+    .slice(0, DB_MAX_GRANT_LINES)
+    .map((line) => line.slice(0, DB_MAX_GRANT_BYTES));
+  const grantsTruncated = grantLimits.truncated || grantLines.length > DB_MAX_GRANT_LINES;
   const schemas = await mysqlQuery(
     session,
     `SELECT s.SCHEMA_NAME, (SELECT SUM(t.DATA_LENGTH + t.INDEX_LENGTH) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA = s.SCHEMA_NAME) FROM information_schema.SCHEMATA s ORDER BY s.SCHEMA_NAME LIMIT ${DB_MAX_DATABASES}`,
@@ -502,6 +525,7 @@ export async function mysqlFacts(session: MysqlSession): Promise<DbMysqlFacts> {
     versionComment: head?.[1]?.slice(0, 256) ?? null,
     currentUser: (head?.[2] ?? "").slice(0, 300),
     grants,
+    ...(grantsTruncated ? { grantsTruncated: true } : {}),
     serverUuid: serverUuid && serverUuid.length <= 64 ? serverUuid : null,
     serverId: Number.isInteger(serverId) && serverId >= 0 ? serverId : null,
     datadir: head?.[4]?.slice(0, 1024) ?? null,

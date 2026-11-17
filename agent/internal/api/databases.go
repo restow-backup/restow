@@ -142,16 +142,19 @@ type DBMysqlDatabase struct {
 
 // DBMysqlFacts are the facts of a MySQL or MariaDB sign-in.
 type DBMysqlFacts struct {
-	Version        string            `json:"version"`
-	VersionComment *string           `json:"versionComment"`
-	CurrentUser    string            `json:"currentUser"`
-	Grants         []string          `json:"grants"`
-	ServerUUID     *string           `json:"serverUuid"`
-	ServerID       *int64            `json:"serverId"`
-	Datadir        *string           `json:"datadir"`
-	LogBin         *bool             `json:"logBin"`
-	BinlogFormat   *string           `json:"binlogFormat"`
-	Databases      []DBMysqlDatabase `json:"databases"`
+	Version        string   `json:"version"`
+	VersionComment *string  `json:"versionComment"`
+	CurrentUser    string   `json:"currentUser"`
+	Grants         []string `json:"grants"`
+	// GrantsTruncated: a line of SHOW GRANTS was longer than 64 KiB or there
+	// were more than 200; the server then calls no right missing.
+	GrantsTruncated bool              `json:"grantsTruncated,omitempty"`
+	ServerUUID      *string           `json:"serverUuid"`
+	ServerID        *int64            `json:"serverId"`
+	Datadir         *string           `json:"datadir"`
+	LogBin          *bool             `json:"logBin"`
+	BinlogFormat    *string           `json:"binlogFormat"`
+	Databases       []DBMysqlDatabase `json:"databases"`
 }
 
 // DBSQLServerFacts are what a PRELOGIN answer says.
