@@ -364,3 +364,70 @@ func TestRootWipePartitions(t *testing.T) {
 		t.Errorf("the file system of the old partition is still there (%s)\n%s", left, strings.Join(logs, "\n"))
 	}
 }
+
+// rereadExec runs the commands, and plays udev reading the partition
+// table of dev again after a writer closed the disk (E8): before the
+// first wipefs of a partition the kernel drops the partitions (partx -d,
+// their nodes leave devtmpfs), and udevadm settle adds them again.
+type rereadExec struct {
+	Exec
+	t       *testing.T
+	dev     string
+	dropped bool
+	once    bool
+}
+
+func (e *rereadExec) Run(ctx context.Context, s RunSpec) (RunResult, error) {
+	switch {
+	case s.Argv[0] == "wipefs" && !e.once && strings.HasPrefix(s.Argv[len(s.Argv)-1], e.dev+"p"):
+		e.dropped, e.once = true, true
+		sh(e.t, "partx", "-d", e.dev)
+	case s.Argv[0] == "udevadm" && e.dropped:
+		e.dropped = false
+		if _, err := os.Stat(e.dev + "p1"); err != nil {
+			sh(e.t, "partx", "-a", e.dev)
+		}
+	}
+	return e.Exec.Run(ctx, s)
+}
+
+// TestRootWipePartitionsReread: the partitions of the disk are dropped
+// and added again while the step runs (udev after the write probe of
+// the guard). wipefs finds no node, the step waits for udev and wipes
+// the old file system all the same; before the fix it failed with
+// "probing initialization failed: No such file or directory".
+func TestRootWipePartitionsReread(t *testing.T) {
+	work := rootOnly(t)
+	if miss := missingTools("mkfs.ext4", "blkid", "wipefs", "partx"); len(miss) > 0 {
+		t.Skipf("needs %s", strings.Join(miss, ", "))
+	}
+	const at = int64(40) << 20
+	dev := loopDev(t, work, "reread", 128)
+	writeMBR(t, dev, [][2]int64{{1, 8}, {40, 32}})
+	sh(t, "partx", "-a", dev)
+	t.Cleanup(func() { _ = exec.Command("partx", "-d", dev).Run() })
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(dev + "p2"); err == nil || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	sh(t, "mkfs.ext4", "-q", "-F", "-L", "OLDDATA", dev+"p2")
+	if got := signatureAt(dev, at); got != "ext4" {
+		t.Fatalf("fixture: no ext4 at 40 MiB of %s (%q)", dev, got)
+	}
+	var logs []string
+	exe := &rereadExec{Exec: CmdExec{Runner: cmdrun.ExecRunner{OwnProcessGroup: true}, Log: func(s string) { logs = append(logs, s) }}, t: t, dev: dev}
+	ops := &LinuxOps{Exec: exe, Holders: &Holders{Exec: exe}, TmpDir: filepath.Join(work, "tmp")}
+	x := &Executor{Exec: exe, Ops: ops, Secrets: &Secrets{}, Log: func(s string) { logs = append(logs, s) }}
+	if err := x.wipePartitions(context.Background(), []string{dev}); err != nil {
+		t.Fatalf("wipe-partitions: %v\n%s", err, strings.Join(logs, "\n"))
+	}
+	if !strings.Contains(strings.Join(logs, "\n"), "No such file or directory") {
+		t.Errorf("fixture: wipefs never missed a node\n%s", strings.Join(logs, "\n"))
+	}
+	if got := signatureAt(dev, at); got != "" {
+		t.Errorf("the file system of the old partition is still there (%s)\n%s", got, strings.Join(logs, "\n"))
+	}
+}

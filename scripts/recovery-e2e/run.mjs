@@ -326,6 +326,35 @@ export function restoreStarted(recovery) {
 }
 
 /**
+ * How long after the start of the restore the power goes off. A small restore is over in seconds
+ * (E8: 808 MiB in about 15 s, the whole run 35 s, CI run 44039710530), so the interrupt follows the
+ * start almost at once: a few seconds for restic to write files, not more.
+ */
+export const POWER_LOSS_AFTER_MS = 5_000;
+
+/** The status of the first `RESTOW-RECOVER-RESULT` line of an ISO's console log, or null. */
+export function recoverResult(text) {
+  const match = /RESTOW-RECOVER-RESULT ([a-z_]+)/.exec(text ?? "");
+  return match ? match[1] : null;
+}
+
+/**
+ * That an interrupted recovery stopped before its last step. The instance stores a cancel at once
+ * as `cancelled`, also when the ISO ran to the end before it saw it (it polls every 5 s); such a
+ * run leaves nothing to resume, and the next code erases the disks anew instead of resuming. The
+ * progress is what the ISO reported last (it reports a step as it starts it).
+ */
+export function assertInterrupted(interrupt, recovery) {
+  const progress = recovery?.progress ?? null;
+  const total = progress?.stepsTotal ?? 0;
+  if (total > 0 && progress.step < total) return;
+  throw new Error(
+    `the ${interrupt} came too late: the ISO had reached step ${progress?.step ?? "?"} of ` +
+      `${total || "?"} (${progress?.phase ?? "no progress"}), nothing is left to resume`,
+  );
+}
+
+/**
  * The restored disks as the operator starts them on BIOS: recover cannot set the start order and
  * names the disk to select (hint `bios_boot_disk`, docs/BAREMETAL.md 10.5); the driver selects it
  * as the firmware's first boot device. Without the hint the disks stay as they are.
@@ -1120,19 +1149,35 @@ async function restore(testCase, context, source, { interrupt } = {}) {
   // longer than that, so the approval signs in anew.
   await (await api(context)).post(`${recoveryPath}/approve`, {}, { tenantId });
   if (interrupt) {
+    // The interrupt must land in the restore, not after it: the restore of a small system takes
+    // seconds (see POWER_LOSS_AFTER_MS), so its start is polled every second.
     await waitUntil(
       "the restore to start",
       async () => restoreStarted(await client.get(recoveryPath, { tenantId })),
-      { timeoutMs: 30 * 60_000 },
+      { timeoutMs: 30 * 60_000, intervalMs: 1000 },
     );
-    await sleep(30_000);
-    if (interrupt === "cancel") await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
-    else {
+    if (interrupt === "cancel") {
+      await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
+      // The ISO sees the cancel within 5 s, stops cleanly and prints its result.
+      await waitUntil(
+        "the ISO to stop the cancelled recovery",
+        async () =>
+          isoEnded !== null ||
+          recoverResult(existsSync(log) ? readFileSync(log, "utf8") : "") !== null,
+        { timeoutMs: 10 * 60_000, intervalMs: 2000 },
+      );
+    } else {
+      await sleep(POWER_LOSS_AFTER_MS);
       await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
       // After a power loss the session stays active until the code expires (plus 30 minutes);
       // the admin ends it, as before a second code.
       await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
     }
+    assertInterrupted(interrupt, await client.get(recoveryPath, { tenantId }));
+    // An unattended ISO whose recovery did not succeed starts recover again (systemd
+    // Restart=on-failure) with the same, used code: 409 every few seconds until the instance
+    // answers 429. The machine has done its part; it goes off now.
+    await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
   }
   const final = await waitUntil(
     "the end of the recovery",

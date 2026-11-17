@@ -34,6 +34,7 @@ import {
   DISK_SERIAL,
 } from "./no-autoactivation.mjs";
 import {
+  assertInterrupted,
   backupProgressLine,
   bootPattern,
   bootThroughPassphrase,
@@ -52,8 +53,10 @@ import {
   labEnv,
   mbrNote,
   needsPassphraseAtBoot,
+  POWER_LOSS_AFTER_MS,
   parseArgs,
   probeOutcome,
+  recoverResult,
   recoveryLogTail,
   restoreStarted,
   targetSummary,
@@ -364,6 +367,35 @@ describe("the answers file", () => {
 });
 
 describe("the restore of a case", () => {
+  it("interrupts a restore that is over in seconds while it runs (E8, CI run 44039710530)", () => {
+    // E8's restore ran 35 s from the first step to the check; the interrupt came 30 s after the
+    // restore started, after the end, and the next code erased the disks anew.
+    assert.ok(POWER_LOSS_AFTER_MS <= 10_000);
+    assertInterrupted("cancel", { progress: { phase: "restoring", step: 13, stepsTotal: 24 } });
+    assertInterrupted("power-loss", {
+      progress: { phase: "configuring", step: 21, stepsTotal: 24 },
+    });
+    assert.throws(
+      () =>
+        assertInterrupted("cancel", { progress: { phase: "verifying", step: 24, stepsTotal: 24 } }),
+      /the cancel came too late: the ISO had reached step 24 of 24 \(verifying\)/,
+    );
+    assert.throws(() => assertInterrupted("power-loss", { progress: null }), /came too late/);
+  });
+
+  it("reads the result of recover from the ISO's console", () => {
+    const console = [
+      "Step 13/24: Restore the files of the snapshot",
+      "\u001b[KThe recovery was cancelled.\r",
+      "RESTOW-RECOVER-RESULT cancelled\r",
+      "Restow Recovery 0.0.0-dev",
+      "RESTOW-RECOVER-RESULT failed",
+    ].join("\n");
+    assert.equal(recoverResult(console), "cancelled");
+    assert.equal(recoverResult("Step 1/24: Release everything"), null);
+    assert.equal(recoverResult(""), null);
+  });
+
   it("waits for the restore to start, and stops at once when the recovery ended before", () => {
     assert.equal(restoreStarted({ status: "running", phase: "restoring" }), true);
     assert.equal(restoreStarted({ status: "running", phase: "planning" }), false);

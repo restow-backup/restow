@@ -238,6 +238,9 @@ type Executor struct {
 	released    bool
 	resumeOff   map[string]int64
 	stepTimeout func(kind string) time.Duration
+	// nodeWait is how long wipe-partitions waits for the device node of
+	// a partition that went away (zero: 10 seconds).
+	nodeWait time.Duration
 	// resumeChecked: ResumeCheck ran (in rootMounted); resumeNext is its
 	// plan, taken at the first restore step (resumeApplied).
 	resumeChecked bool
@@ -699,21 +702,127 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 // that starts beyond the zeroed ends of the disk would show again in a
 // new partition at the same place. The plan cannot list these partitions
 // (it does not know the old content of the target); the kernel does.
+//
+// What the kernel lists can change under the step: a writer that closes
+// the disk (the write probe of the guard, 10.6) makes udev read its
+// partition table again, and while the kernel drops and adds the
+// partitions their device nodes are gone (wipefs: "probing
+// initialization failed: No such file or directory"). So udev settles
+// before the list is read, a wipefs that fails runs again once udev has
+// settled and the node is there, and a partition is left without wipefs
+// only when its node stayed away and the kernel no longer lists it. The
+// list is read again until it names no partition that was not wiped.
 func (x *Executor) wipePartitions(ctx context.Context, a []string) error {
 	if len(a) != 1 || !strings.HasPrefix(a[0], "/dev/") {
 		return fmt.Errorf("wipe-partitions: %q", a)
 	}
-	parts, err := x.Ops.Partitions(a[0])
-	if err != nil {
-		return fmt.Errorf("list the partitions of %s: %w", a[0], err)
-	}
-	for _, p := range parts {
-		if _, err := x.Exec.Run(ctx, RunSpec{Argv: []string{"wipefs", "-a", p}, NoKill: true, Timeout: DefaultStepTimeout}); err != nil {
-			return err
+	dev := a[0]
+	wiped := map[string]bool{}
+	for round := 0; ; round++ {
+		x.settle(ctx)
+		parts, err := x.Ops.Partitions(dev)
+		if err != nil {
+			return fmt.Errorf("list the partitions of %s: %w", dev, err)
+		}
+		var left []string
+		for _, p := range parts {
+			if !wiped[p] {
+				left = append(left, p)
+			}
+		}
+		if len(left) == 0 {
+			break
+		}
+		if round == wipeRounds {
+			return fmt.Errorf("the partitions of %s keep changing; not wiped: %s", dev, strings.Join(left, " "))
+		}
+		for _, p := range left {
+			ok, err := x.wipePartition(ctx, dev, p)
+			if err != nil {
+				return err
+			}
+			wiped[p] = ok
 		}
 	}
-	x.log("wiped the signatures of %d partitions of %s", len(parts), a[0])
+	n := 0
+	for _, ok := range wiped {
+		if ok {
+			n++
+		}
+	}
+	x.log("wiped the signatures of %d partitions of %s", n, dev)
 	return nil
+}
+
+// wipeRounds and wipeTries bound wipePartitions: how often the list of
+// partitions is read anew, and how often wipefs runs on one partition.
+const (
+	wipeRounds = 4
+	wipeTries  = 3
+)
+
+// wipePartition runs wipefs on one partition of dev. ok is false when the
+// partition went away before wipefs could run and the kernel no longer
+// lists it (nothing is left to wipe); a partition the kernel lists is
+// never let go without wipefs.
+func (x *Executor) wipePartition(ctx context.Context, dev, p string) (ok bool, err error) {
+	for try := 0; try < wipeTries; try++ {
+		if try > 0 {
+			x.log("wipefs %s: %v; again once udev has settled", p, err)
+			x.settle(ctx)
+			if !x.waitNode(ctx, p) {
+				parts, lerr := x.Ops.Partitions(dev)
+				if lerr != nil {
+					return false, fmt.Errorf("%w (list the partitions of %s: %v)", err, dev, lerr)
+				}
+				for _, q := range parts {
+					if q == p {
+						return false, fmt.Errorf("%w (the kernel lists %s, its device node did not come back)", err, p)
+					}
+				}
+				x.log("%s went away while the partition table of %s was read again; the kernel no longer lists it", p, dev)
+				return false, nil
+			}
+		}
+		if _, err = x.Exec.Run(ctx, RunSpec{Argv: []string{"wipefs", "-a", p}, NoKill: true, Timeout: DefaultStepTimeout}); err == nil {
+			return true, nil
+		}
+		if ctx.Err() != nil {
+			return false, err
+		}
+	}
+	return false, err
+}
+
+// waitNode waits until the device node p exists (nodeWait, default 10
+// seconds).
+func (x *Executor) waitNode(ctx context.Context, p string) bool {
+	wait := x.nodeWait
+	if wait <= 0 {
+		wait = 10 * time.Second
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		if x.Ops.Exists(p) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// settle waits until udev has handled the events of the block devices
+// (device nodes and links after a change of a partition table).
+func (x *Executor) settle(ctx context.Context) {
+	if _, err := x.Exec.Run(ctx, RunSpec{Argv: []string{"udevadm", "settle", "--timeout=30"}, Timeout: time.Minute}); err != nil {
+		x.log("udevadm settle: %v", err)
+	}
 }
 
 // program runs a program of the ISO (mkfs, sfdisk, mdadm, cryptsetup,
@@ -977,9 +1086,7 @@ func (x *Executor) readbackPartition(ctx context.Context, s *baremetal.Step) err
 		}
 	}
 	sort.Strings(uuids)
-	if _, err := x.Exec.Run(ctx, RunSpec{Argv: []string{"udevadm", "settle", "--timeout=30"}, Timeout: time.Minute}); err != nil {
-		x.log("udevadm settle: %v", err)
-	}
+	x.settle(ctx)
 	if want.label == "gpt" && len(uuids) > 0 {
 		if err := x.Ops.WaitPartUUIDs(ctx, uuids, 30*time.Second); err != nil {
 			return stepProblem(ProblemPartitionReadbackMismatch, "%s: %v", dev, err)

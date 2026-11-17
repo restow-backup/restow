@@ -320,11 +320,12 @@ func TestExecuteWipePartitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := h.exec.lines()
-	want := "op release /dev/nvme0n1\nwipefs -a /dev/nvme0n1p1\nwipefs -a /dev/nvme0n1p2\nwipefs -a /dev/nvme0n1\nop blkzero /dev/nvme0n1 16777216 16777216\nsfdisk --no-reread --wipe always --wipe-partitions always /dev/nvme0n1 "
+	want := "op release /dev/nvme0n1\nudevadm settle --timeout=30\nwipefs -a /dev/nvme0n1p1\nwipefs -a /dev/nvme0n1p2\nudevadm settle --timeout=30\nwipefs -a /dev/nvme0n1\nop blkzero /dev/nvme0n1 16777216 16777216\nsfdisk --no-reread --wipe always --wipe-partitions always /dev/nvme0n1 "
 	if !strings.HasPrefix(lines, want) {
 		t.Errorf("the first calls:\n%s", lines[:min(len(lines), 400)])
 	}
 	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.exec.exists["/dev/nvme0n1p1"], h.exec.exists["/dev/nvme0n1p2"] = true, true
 	h.exec.fail = func(a []string) error {
 		if a[0] == "wipefs" && a[len(a)-1] == "/dev/nvme0n1p2" {
 			return errors.New("wipefs: /dev/nvme0n1p2: probing initialization failed: Device or resource busy")
@@ -345,6 +346,134 @@ func TestExecuteWipePartitions(t *testing.T) {
 	}
 	if !Operations["wipe-partitions"] {
 		t.Error("wipe-partitions is not among the operations")
+	}
+}
+
+// TestExecuteWipePartitionsReread: the write probe of the guard closes
+// the disk, and udev reads its partition table again: for a moment the
+// kernel lists no partitions, then their nodes are missing (E8, CI run
+// 44039710530: wipefs -a /dev/sda1 "probing initialization failed: No
+// such file or directory" a second after the probe). The step waits for
+// udev, wipes what comes back and never lets a listed partition go.
+func TestExecuteWipePartitionsReread(t *testing.T) {
+	const p1, p2 = "/dev/nvme0n1p1", "/dev/nvme0n1p2"
+	setParts := func(h *harness, parts ...string) {
+		h.ops.mu.Lock()
+		h.ops.parts["/dev/nvme0n1"] = parts
+		h.ops.mu.Unlock()
+	}
+	wipes := func(h *harness) []string {
+		var out []string
+		for _, l := range strings.Split(h.exec.lines(), "\n") {
+			if strings.HasPrefix(l, "wipefs -a /dev/nvme0n1p") {
+				out = append(out, strings.TrimPrefix(l, "wipefs -a "))
+			}
+		}
+		return out
+	}
+	enoent := func(p string) error {
+		return errors.New("wipefs: error: " + p + ": probing initialization failed: No such file or directory")
+	}
+
+	// The partitions are dropped while the step starts: they are back
+	// once udev has settled, and both are wiped.
+	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	setParts(h)
+	h.exec.exists[p1], h.exec.exists[p2] = true, true
+	h.exec.fail = func(a []string) error {
+		if a[0] == "udevadm" {
+			setParts(h, p1, p2)
+		}
+		return nil
+	}
+	if _, err := h.x.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v\n%s", err, h.exec.lines())
+	}
+	if got := wipes(h); strings.Join(got, " ") != p1+" "+p2 {
+		t.Errorf("wiped %v, want both partitions:\n%s", got, h.exec.lines())
+	}
+
+	// The node of p1 is gone when wipefs runs and comes back with udev:
+	// wipefs runs again, and the table goes only after both are wiped.
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.exec.exists[p1], h.exec.exists[p2] = true, true
+	gone := 1
+	h.exec.fail = func(a []string) error {
+		switch {
+		case a[0] == "wipefs" && a[len(a)-1] == p1 && gone > 0:
+			gone--
+			h.exec.exists[p1] = false
+			return enoent(p1)
+		case a[0] == "udevadm":
+			h.exec.exists[p1] = true
+		}
+		return nil
+	}
+	if _, err := h.x.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v\n%s", err, h.exec.lines())
+	}
+	if got := wipes(h); strings.Join(got, " ") != p1+" "+p1+" "+p2 {
+		t.Errorf("wipefs ran on %v:\n%s", got, h.exec.lines())
+	}
+	lines := h.exec.lines()
+	if strings.Index(lines, "wipefs -a "+p2) > strings.Index(lines, "wipefs -a /dev/nvme0n1\n") {
+		t.Errorf("the table went before the partitions were wiped:\n%s", lines)
+	}
+
+	// p2 went away for good (the kernel no longer lists it): nothing is
+	// left to wipe there, and the run goes on.
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.x.nodeWait = 100 * time.Millisecond
+	h.exec.exists[p1] = true
+	h.exec.fail = func(a []string) error {
+		if a[0] == "wipefs" && a[len(a)-1] == p2 {
+			setParts(h, p1)
+			return enoent(p2)
+		}
+		return nil
+	}
+	if _, err := h.x.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v\n%s", err, h.exec.lines())
+	}
+	h.mu.Lock()
+	log := strings.Join(h.log, "\n")
+	h.mu.Unlock()
+	if !strings.Contains(log, p2+" went away") || !strings.Contains(log, "wiped the signatures of 1 partitions of /dev/nvme0n1") {
+		t.Errorf("log:\n%s", log)
+	}
+
+	// The kernel still lists p2 but its node stays away: the run stops
+	// before the table goes; a listed partition is never skipped.
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.x.nodeWait = 100 * time.Millisecond
+	h.exec.exists[p1] = true
+	h.exec.fail = func(a []string) error {
+		if a[0] == "wipefs" && a[len(a)-1] == p2 {
+			return enoent(p2)
+		}
+		return nil
+	}
+	rep, err := h.x.Run(context.Background())
+	if err == nil || rep.FailedKind != "wipe_partitions" || !strings.Contains(err.Error(), "did not come back") {
+		t.Fatalf("err %v, failed at %q", err, rep.FailedKind)
+	}
+	if strings.Contains(h.exec.lines(), "wipefs -a /dev/nvme0n1\n") || strings.Contains(h.exec.lines(), "sfdisk") {
+		t.Errorf("the table went although a listed partition kept its signatures:\n%s", h.exec.lines())
+	}
+
+	// A table that keeps changing (a new partition each time the list is
+	// read) stops the step after a few rounds.
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	n := 0
+	h.exec.fail = func(a []string) error {
+		if a[0] == "udevadm" {
+			n++
+			setParts(h, fmt.Sprintf("/dev/nvme0n1p%d", n))
+		}
+		return nil
+	}
+	if rep, err := h.x.Run(context.Background()); err == nil || rep.FailedKind != "wipe_partitions" || !strings.Contains(err.Error(), "keep changing") {
+		t.Fatalf("err %v, failed at %q", err, rep.FailedKind)
 	}
 }
 

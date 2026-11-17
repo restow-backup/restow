@@ -2133,11 +2133,17 @@ Vor jedem Schritt prüft der Wächter, dass die zugeordneten Platten noch die be
    alter Partitionen, LVM-Label, GPT-Kopie). Die vorhandenen Partitionen kennt nur der
    Kernel der Zielmaschine, nicht der Planer; der Plan nennt darum vor `wipefs -a <platte>`
    die Operation `wipe-partitions <platte>` (Schritt `wipe_partitions`), und `recover` führt
-   `wipefs -a` für jede Partition aus, die sysfs für die Platte zeigt. Ohne das bliebe alles
-   stehen, was hinter den ersten 16 MiB beginnt (das alte Wurzel-Dateisystem, ein LUKS-Kopf,
-   ein md-Superblock), und erschiene in einer neuen Partition an derselben Stelle wieder; die
-   neue Tabelle legt die Partitionen meist genau dorthin. `blkdiscard` auf Wunsch (Standard
-   aus, auf SSDs angeboten).
+   `wipefs -a` für jede Partition aus, die sysfs für die Platte zeigt. Vorher wartet es auf
+   udev (`udevadm settle`): Die Schreibprobe des Wächters (10.6) schließt die Platte nach dem
+   Schreiben, udev liest darauf ihre Partitionstabelle neu, und solange der Kernel die
+   Partitionen entfernt und wieder anlegt, fehlen ihre Geräteknoten. Scheitert `wipefs` an einer
+   Partition, läuft es nach `udevadm settle` erneut, sobald ihr Knoten wieder da ist; ohne
+   `wipefs` bleibt eine Partition nur, wenn ihr Knoten ausbleibt und sysfs sie nicht mehr zeigt.
+   Danach liest `recover` die Liste erneut, bis sie keine ungelöschte Partition mehr nennt.
+   Ohne diesen Schritt bliebe alles stehen, was hinter den ersten 16 MiB beginnt (das alte
+   Wurzel-Dateisystem, ein LUKS-Kopf, ein md-Superblock), und erschiene in einer neuen
+   Partition an derselben Stelle wieder; die neue Tabelle legt die Partitionen meist genau
+   dorthin. `blkdiscard` auf Wunsch (Standard aus, auf SSDs angeboten).
 3. **Partitionstabelle** mit `sfdisk` aus einem erzeugten Skript (`sfdisk --dump`-Format):
    `label: gpt|dos`, `label-id:` (Disk-GUID bzw. MBR-Kennung, damit PARTUUIDs gleich
    bleiben; bei MBR ist die PARTUUID `<kennung>-<nummer>`), `unit: sectors`,
