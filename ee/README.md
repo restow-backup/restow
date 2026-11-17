@@ -95,6 +95,7 @@ installation without a key runs as Community.
 | Customer monthly report (0.5.0): HTML mail and PDF to a tenant's contacts | `reports.customer` (Service Provider) | `api/src/reports/customer.ts` | `reportCustomer` feature hook, feature gate `reports.customer` |
 | Further tenants beyond the installation's first | `provider.tenantManagement` (Service Provider) | `api/src/license/gate.ts`, nav lock of the core's tenants entry in `web/src/license` | feature gate `tenants.additional`, nav locks |
 | Cross-tenant provider API (`/provider/*`) and provider API keys (Installation → Provider API) | `provider.crossTenantApi` (Service Provider) | `api/src/provider-api`, `web/src/provider-api` | integration routes, feature gate `apiKeys.provider`, `installationSections` |
+| Monthly billing close (0.6.0): a daily sample per tenant and billed quantity, the month closed automatically on the 1st at 00:00 in the installation's time zone at the month's peak, immutable, with correction entries (`/provider/billing/periods`) | `provider.crossTenantApi` (Service Provider) | `api/src/billing-close`, `api/src/provider-api` | background service, integration routes, feature gate `apiKeys.provider` |
 | Provider view of the dashboard (tenant matrix, alerts) and statistics across tenants | `provider.tenantReporting` (Service Provider) | `api/src/provider-dashboard`, `web/src/provider-dashboard` | `providerDashboard` feature hook, `dashboard.provider` slot, feature gates `dashboard.allTenants` and `stats.allTenants` |
 
 ### Extension points of the core
