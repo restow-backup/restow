@@ -271,6 +271,19 @@ function Confirmations({
     !check ||
     (check.errorCode !== "db_tls_changed" && check.errorCode !== "db_instance_changed")
   ) {
+    // A health check saw it first (D2): only a test of the connection can be confirmed.
+    const seen = connection.health.errorCode;
+    if (seen === "db_tls_changed" || seen === "db_instance_changed") {
+      return (
+        <Alert variant="destructive" data-slot="confirm-from-health">
+          <ShieldAlert aria-hidden="true" />
+          <AlertTitle>
+            {t(seen === "db_tls_changed" ? "confirm.tlsTitle" : "confirm.instanceTitle")}
+          </AlertTitle>
+          <AlertDescription>{t("confirm.fromHealth")}</AlertDescription>
+        </Alert>
+      );
+    }
     return null;
   }
   const tls = check.errorCode === "db_tls_changed";

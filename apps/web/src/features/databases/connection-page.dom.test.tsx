@@ -191,4 +191,36 @@ describe("a database connection", () => {
     // Never green: a connection that answers proves nothing about its backups.
     expect(document.querySelector('[data-slot="health-band"] [fill*="success"]')).toBeNull();
   });
+
+  it("sends an administrator to a test when a health check saw another certificate", async () => {
+    rendered = await render(<ConnectionPage connectionId="conn-1" />, {
+      routes: {
+        "GET /databases/connections/conn-1": () =>
+          json({
+            ...detail({ state: "red", notices: ["db_tls_changed"], lastCheck: null }),
+            health: {
+              ...connectionFixture().health,
+              reachability: "unreachable",
+              consecutiveFailures: 1,
+              failingSince: "2026-11-17T10:50:00.000Z",
+              errorCode: "db_tls_changed",
+            },
+            band: [],
+          }),
+        "GET /databases/connections/conn-1/health": () =>
+          json({
+            from: "2026-11-16T11:00:00.000Z",
+            to: "2026-11-17T11:00:00.000Z",
+            bucketSeconds: 420,
+            availability: { day: null, week: null, month: null },
+            points: [],
+            events: [],
+            lastError: null,
+          }),
+      },
+    });
+    await flush(3);
+    expect(slot("confirm-change")).toBeNull();
+    expect(slot("confirm-from-health")?.textContent).toContain("Test connection");
+  });
 });

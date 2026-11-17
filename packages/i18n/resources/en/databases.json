@@ -206,7 +206,8 @@
     "instanceTitle": "Another instance under the address",
     "instanceDescription": "Another instance answers under the address, for example after a move or a failover. {appName} does not keep backing up silently.",
     "instanceQuestion": "Confirm that the new instance has the same job. Its databases get a history of their own; the old instance's stays separate. The confirmation is recorded in the audit log.",
-    "instanceAction": "Confirm new instance"
+    "instanceAction": "Confirm new instance",
+    "fromHealth": "The health check sees it and did not sign in for it. Test the connection (\"Test connection\") to confirm it afterwards."
   },
   "settings": {
     "title": "Settings",

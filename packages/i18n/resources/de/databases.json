@@ -206,7 +206,8 @@
     "instanceTitle": "Andere Instanz unter der Adresse",
     "instanceDescription": "Unter der Adresse antwortet eine andere Instanz, etwa nach einem Umzug oder Failover. {appName} sichert nicht still weiter.",
     "instanceQuestion": "Bestätigen Sie, dass die neue Instanz dieselbe Aufgabe hat. Ihre Datenbanken bekommen eine eigene Geschichte; die der alten Instanz bleibt getrennt. Die Bestätigung wird im Audit-Log festgehalten.",
-    "instanceAction": "Neue Instanz bestätigen"
+    "instanceAction": "Neue Instanz bestätigen",
+    "fromHealth": "Der Healthcheck sieht es und hat sich dafür nicht angemeldet. Prüfen Sie die Verbindung („Verbindung prüfen“), um es danach zu bestätigen."
   },
   "settings": {
     "title": "Einstellungen",
