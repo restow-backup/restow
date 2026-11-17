@@ -4,6 +4,7 @@ export * from "./health.js";
 export * from "./identity.js";
 export * from "./model.js";
 export * from "./network.js";
+export * from "./own-database.js";
 export * from "./probe/health-check.js";
 export * from "./probe/probe.js";
 export * from "./rating.js";

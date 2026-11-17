@@ -116,6 +116,7 @@ import PgBoss from "pg-boss";
 import { ArchiveCaptureService } from "./archive-capture/service.js";
 import { grantContinuation } from "./continuation.js";
 import {
+  ownDatabaseTargetsOf,
   ownSystemIdentifierOf,
   startDatabaseHealth,
   workerCredentialsReader,
@@ -677,6 +678,7 @@ async function main(): Promise<void> {
       restoreModeActive: async () => (await restoreMode.guard.restoreMode()).active,
       readCredentials: workerCredentialsReader(db, keyrings),
       ownSystemIdentifier: ownSystemIdentifierOf(providerDb),
+      ownDatabaseTargets: ownDatabaseTargetsOf([config.databaseUrl, config.databaseProviderUrl]),
     },
     runtime.shutdownSignal,
   );

@@ -258,7 +258,7 @@ export async function agentFetchHealth(
           allowUnencrypted: connection.allowUnencrypted,
           timeoutSeconds: DB_HEALTH_TIMEOUT_SECONDS,
           purpose: "health",
-          tlsFingerprint: connection.tlsFingerprint,
+          pinnedFingerprintSha256: connection.tlsFingerprint,
           sizes,
         },
       });

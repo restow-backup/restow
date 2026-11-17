@@ -169,6 +169,11 @@ export const dbProbeResultSchema = z.object({
   sqlserver: dbSqlServerFactsSchema.optional(),
   sqlite: dbSqliteFactsSchema.optional(),
   health: dbHealthFactsSchema.optional(),
+  /**
+   * The address the connection that signed in reached (the Restow server's probe): a provider
+   * admin's approval of a private network names this address and no other.
+   */
+  connectedAddress: z.string().max(64).nullable().optional(),
   durationMs: z
     .number()
     .int()
@@ -199,19 +204,20 @@ export const dbProbeSpecSchema = z.object({
   allowUnencrypted: z.boolean(),
   timeoutSeconds: z.number().int().min(1).max(120),
   /**
-   * `probe` ("Test connection", 3.2): every fact of the rights matrix. `health` (8): the light
-   * health check of a stored connection. Absent: `probe` (an agent from D1).
+   * The certificate the connection confirmed (SHA-256, as `AB:CD:...`): the executor stops right
+   * after the TLS handshake, before any sign-in, when the server shows another one or no TLS.
    */
-  purpose: z.enum(["probe", "health"]).optional(),
-  /**
-   * The confirmed certificate of a stored connection (3.2). An executor that sees another one
-   * after the TLS handshake stops before it sends the credentials (`db_tls_changed`).
-   */
-  tlsFingerprint: z
+  pinnedFingerprintSha256: z
     .string()
-    .regex(/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/)
+    .regex(/^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$/)
     .nullable()
     .optional(),
+  /**
+   * `probe` ("Test connection", 3.2): every fact of the rights matrix. `health` (8): the light
+   * health check of a stored connection, with its confirmed certificate as
+   * `pinnedFingerprintSha256`. Absent: `probe` (an agent from D1).
+   */
+  purpose: z.enum(["probe", "health"]).optional(),
   /** Health checks: read the size of each database too (at most once an hour, 8). */
   sizes: z.boolean().optional(),
 });

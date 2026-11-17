@@ -9,5 +9,6 @@
   "user": "restow_backup",
   "password": "example-only",
   "allowUnencrypted": false,
-  "timeoutSeconds": 30
+  "timeoutSeconds": 30,
+  "pinnedFingerprintSha256": "3A:91:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F:0F"
 }

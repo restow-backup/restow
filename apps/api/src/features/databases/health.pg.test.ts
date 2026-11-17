@@ -249,7 +249,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
             user: USER,
             password: PASSWORD,
             purpose: "health",
-            tlsFingerprint: FINGERPRINT,
+            pinnedFingerprintSha256: FINGERPRINT,
             sizes: true,
             timeoutSeconds: 10,
           }),

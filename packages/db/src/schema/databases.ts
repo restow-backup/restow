@@ -53,7 +53,7 @@ export type DatabaseSelection = {
 };
 
 /** A provider admin's approval of a private address for the server executor (4.2). */
-export type DatabasePrivateNetworkApproval = { by: string; at: string };
+export type DatabasePrivateNetworkApproval = { by: string; at: string; addresses?: string[] };
 
 /**
  * What the last test of a connection found, without credentials: the rights matrix (@restow/core

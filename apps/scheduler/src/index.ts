@@ -30,6 +30,7 @@ import {
 } from "@restow/db";
 import PgBoss from "pg-boss";
 import { loadConfig } from "./config.js";
+import { DatabaseProbeSweeper } from "./database-probes.js";
 import { ENDPOINT_QUEUE_OPTIONS, EndpointJobPlanner } from "./endpoints.js";
 import { FILE_SHARE_QUEUE_OPTIONS, FileShareJobPlanner } from "./file-shares.js";
 import { LeaderElection } from "./leader.js";
@@ -148,6 +149,8 @@ async function main(): Promise<void> {
       { tenant: db.$client, installation: providerDb.$client },
       boss,
     ),
+    // Credentials of database connection tests that may no longer be used.
+    databaseProbes: new DatabaseProbeSweeper(providerDb.$client),
     // Read leadership lazily; `election` is initialised just below and the tick
     // that calls this only runs after startup completes.
     isLeader: () => election.isLeader(),

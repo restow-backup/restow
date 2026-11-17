@@ -148,7 +148,7 @@ describe.skipIf(!adminUrl)("probe against a real PostgreSQL 16", () => {
   it("checks the health with the confirmed certificate, sizes only when asked [DB-004]", async () => {
     const first = await probeDatabaseFromServer(spec({ port }), loopback);
     const fingerprint = first.tls.fingerprintSha256;
-    const check = (tlsFingerprint: string | null, sizes = false) =>
+    const check = (pinnedFingerprintSha256: string | null, sizes = false) =>
       checkDatabaseHealthFromServer(
         {
           engine: "postgresql",
@@ -158,10 +158,10 @@ describe.skipIf(!adminUrl)("probe against a real PostgreSQL 16", () => {
           user: ROLE,
           password: PASSWORD,
           allowUnencrypted: false,
-          tlsFingerprint,
+          pinnedFingerprintSha256,
           sizes,
         },
-        loopback,
+        { ...loopback, approvedAddresses: [], forbiddenTargets: [] },
       );
     const health = await check(fingerprint);
     expect(health).toMatchObject({ engine: "postgresql", login: "ok", error: null });

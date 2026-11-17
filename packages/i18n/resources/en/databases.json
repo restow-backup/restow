@@ -281,6 +281,9 @@
     "name-taken": "Another connection already has this name.",
     "probe-limit": "Too many tests in a short time. Try again in a few minutes.",
     "probe-used": "This test was already fetched.",
+    "probe-busy": "Other tests are running. Try again in a moment.",
+    "credentials-required": "Enter the password again: stored credentials only go to the executor they were stored for.",
+    "own-database-unknown": "The {appName} server cannot tell right now where its own database is, so it tests no connections. Try again in a moment.",
     "confirm": "There is nothing to confirm. Test the connection again."
   },
   "health": {

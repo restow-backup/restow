@@ -583,7 +583,7 @@ describe("the health check of a stored connection (docs/DATABASES.md 8) [DB-004]
     const port = await startMysql(fake);
     const other = `${"AB:".repeat(31)}AB`;
     const result = await probeDatabaseFromServer(
-      spec({ port, engine: "mariadb", purpose: "health", tlsFingerprint: other }),
+      spec({ port, engine: "mariadb", purpose: "health", pinnedFingerprintSha256: other }),
       allowLoopback,
     );
     expect(result.error?.code).toBe("db_tls_changed");
@@ -598,7 +598,7 @@ describe("the health check of a stored connection (docs/DATABASES.md 8) [DB-004]
         port,
         engine: "mariadb",
         purpose: "health",
-        tlsFingerprint: result.tls.fingerprintSha256,
+        pinnedFingerprintSha256: result.tls.fingerprintSha256,
       }),
       allowLoopback,
     );

@@ -85,6 +85,9 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
   let databaseId: string;
   let now = new Date("2026-11-17T10:00:00.000Z");
   let restoreMode = false;
+  let ownTargets: () => Promise<{ address: string; port: number }[]> = async () => [
+    { address: "10.9.9.9", port: 5432 },
+  ];
   let next: () => DbProbeResult = () => good(true);
   const calls: { target: DbHealthCheckTarget; options: DbHealthCheckOptions }[] = [];
 
@@ -104,6 +107,7 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
       return next();
     },
     ownSystemIdentifier: async () => "6000000000000000001",
+    ownDatabaseTargets: () => ownTargets(),
   });
 
   const events = (event: string) =>
@@ -183,12 +187,16 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
     expect(calls[0]?.target).toMatchObject({
       engine: "postgresql",
       host: "db.example.test",
-      tlsFingerprint: FINGERPRINT,
+      pinnedFingerprintSha256: FINGERPRINT,
       user: USER,
       password: PASSWORD,
       sizes: true,
     });
-    expect(calls[0]?.options).toEqual({ allowPrivateNetworks: false });
+    expect(calls[0]?.options).toEqual({
+      allowPrivateNetworks: false,
+      approvedAddresses: [],
+      forbiddenTargets: [{ address: "10.9.9.9", port: 5432 }],
+    });
     const [sample] = await q<{
       ok_checks: number;
       latency_ms: number;
@@ -217,14 +225,37 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
     expect((await databaseHealthPass(deps(), { compact: false })).checked).toBe(1);
     expect(calls.at(-1)?.target.sizes).toBe(false);
 
-    // A provider admin's approval lets the check reach private networks, and only this one.
+    // A provider admin's approval reaches the addresses it names and no others; private networks
+    // as a whole only with the installation flag. An approval without addresses reaches none.
+    const approval = {
+      by: "p@example.test",
+      at: "2026-11-17T00:00:00Z",
+      addresses: ["192.168.10.20"],
+    };
+    await q("UPDATE database_connections SET private_network_approval = $2::jsonb WHERE id = $1", [
+      connectionId,
+      JSON.stringify(approval),
+    ]);
+    now = new Date(now.getTime() + 6 * MINUTE);
+    await databaseHealthPass(deps(), { compact: false });
+    expect(calls.at(-1)?.options).toMatchObject({
+      allowPrivateNetworks: false,
+      approvedAddresses: ["192.168.10.20"],
+    });
     await q(
       `UPDATE database_connections SET private_network_approval = '{"by":"p@example.test","at":"2026-11-17T00:00:00Z"}'::jsonb WHERE id = $1`,
       [connectionId],
     );
     now = new Date(now.getTime() + 6 * MINUTE);
     await databaseHealthPass(deps(), { compact: false });
-    expect(calls.at(-1)?.options).toEqual({ allowPrivateNetworks: true });
+    expect(calls.at(-1)?.options).toMatchObject({
+      allowPrivateNetworks: false,
+      approvedAddresses: [],
+    });
+    await q("UPDATE database_connections SET private_network_approval = $2::jsonb WHERE id = $1", [
+      connectionId,
+      JSON.stringify(approval),
+    ]);
   });
 
   it("raises database.unreachable after three failures in a row and database.reachable once after", async () => {
@@ -305,6 +336,46 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
       server_version: null,
       instance_key: null,
     });
+  });
+
+  it("waits instead of checking unguarded when Restow's own database cannot be located", async () => {
+    ownTargets = async () => {
+      throw new Error("the database host db does not resolve");
+    };
+    const before = calls.length;
+    now = new Date(now.getTime() + 60 * MINUTE);
+    const summary = await databaseHealthPass(deps(), { compact: false });
+    expect(summary).toMatchObject({ checked: 0, waiting: 1 });
+    expect(calls.length).toBe(before);
+    ownTargets = async () => [{ address: "10.9.9.9", port: 5432 }];
+  });
+
+  it("never renews an approval or takes a certificate it sees", async () => {
+    const [before] = await q<{ approval: unknown; fingerprint: string; confirmed: string }>(
+      "SELECT private_network_approval AS approval, tls_fingerprint AS fingerprint, tls_confirmed_at::text AS confirmed FROM database_connections WHERE id = $1",
+      [connectionId],
+    );
+    next = () => ({
+      ...good(false),
+      login: "skipped",
+      health: undefined,
+      tls: { ...good(false).tls, fingerprintSha256: `${"0F:".repeat(31)}0F` },
+      error: { code: "db_tls_changed", message: "another certificate" },
+    });
+    now = new Date(now.getTime() + 60 * MINUTE);
+    await databaseHealthPass(deps(), { compact: false });
+    const [after] = await q<{ approval: unknown; fingerprint: string; confirmed: string }>(
+      "SELECT private_network_approval AS approval, tls_fingerprint AS fingerprint, tls_confirmed_at::text AS confirmed FROM database_connections WHERE id = $1",
+      [connectionId],
+    );
+    expect(after).toEqual(before);
+    expect(after?.fingerprint).toBe(FINGERPRINT);
+    const [sample] = await q<{ error_code: string }>(
+      "SELECT error_code FROM database_health_samples WHERE connection_id = $1 ORDER BY at DESC LIMIT 1",
+      [connectionId],
+    );
+    expect(sample?.error_code).toBe("db_tls_changed");
+    next = () => good(false);
   });
 
   it("checks nothing while restore mode is on", async () => {

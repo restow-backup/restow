@@ -8,6 +8,8 @@ import {
   type DbProbeSpec,
   type DbRights,
   type DbServerProbeOptions,
+  dbApprovedAddress,
+  dbCanonicalAddress,
   dbExecutorRefusal,
   dbFoundDatabases,
   dbInstanceIdentityOf,
@@ -24,6 +26,7 @@ import {
   probeDatabaseFromServer,
   rateDatabase,
   sanitizeDbMessage,
+  systemResolver,
 } from "@restow/core";
 import {
   type DatabaseConnection,
@@ -38,7 +41,7 @@ import {
   endpointTasks,
   type ProtectedDatabase,
 } from "@restow/db";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
@@ -51,10 +54,13 @@ import {
   DATABASE_AUDIT_ACTIONS as A,
   AGENT_PROBE_TTL_MS,
   DATABASE_PROBLEMS as P,
+  PROBE_CREDENTIALS_KEEP_MS,
   PROBE_KEEP_MS,
   PROBE_LIMIT,
   PROBE_WINDOW_MS,
   SERVER_PROBE_TIMEOUT_SECONDS,
+  SERVER_PROBES_PER_TENANT,
+  SERVER_PROBES_TOTAL,
 } from "./constants.js";
 import {
   type DatabaseHealthDto,
@@ -62,6 +68,11 @@ import {
   healthBands,
   healthDto,
 } from "./health-dto.js";
+import {
+  databaseUrlTargets,
+  type OwnDatabaseTarget,
+  OwnDatabaseUnknownError,
+} from "./own-database.js";
 import type {
   CreateConnectionInput,
   TestConnectionInput,
@@ -92,6 +103,8 @@ export interface DatabaseContext {
   probe?: (spec: DbProbeSpec, options: DbServerProbeOptions) => Promise<DbProbeResult>;
   /** Tests: the system identifier of Restow's own database. */
   ownSystemIdentifier?: () => Promise<string | null>;
+  /** Tests: the addresses and ports Restow's own database listens on. */
+  ownDatabaseTargets?: () => Promise<OwnDatabaseTarget[]>;
   /** Tests: `RESTOW_DB_ALLOW_PRIVATE_NETWORKS`. */
   privateNetworksAllowed?: boolean;
 }
@@ -142,23 +155,67 @@ async function assertNoRestoreMode(): Promise<void> {
 // Rate limit of tests (a tenant admin must not scan ports through Restow)
 // ---------------------------------------------------------------------------
 
-const probeTimes = new Map<string, number[]>();
-
-function takeProbeSlot(tenantId: string, now: number): void {
-  const recent = (probeTimes.get(tenantId) ?? []).filter((time) => now - time < PROBE_WINDOW_MS);
-  if (recent.length >= PROBE_LIMIT) {
+/**
+ * Take one of the tenant's tests in the window, counted from the stored tests (every test is a
+ * row, a refused address included), so a restart or another api replica starts from the same
+ * count. The advisory lock makes two requests of one tenant count one after the other.
+ */
+async function takeProbeSlot(tx: Transaction, tenantId: string, now: Date): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`restow:database_probes:${tenantId}`}))`,
+  );
+  const [row] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(databaseProbes)
+    .where(
+      and(
+        eq(databaseProbes.tenantId, tenantId),
+        gt(databaseProbes.createdAt, new Date(now.getTime() - PROBE_WINDOW_MS)),
+      ),
+    );
+  if (Number(row?.count ?? 0) >= PROBE_LIMIT) {
     throw new ProblemError(429, "Too many connection tests", {
       type: P.probeLimit,
       detail: `At most ${PROBE_LIMIT} connection tests in ten minutes. Try again later.`,
     });
   }
-  recent.push(now);
-  probeTimes.set(tenantId, recent);
 }
 
-/** Tests: forget the tests counted so far. */
+/** Tests of the Restow server running in this process, per tenant and in all. */
+const runningServerProbes = new Map<string, number>();
+let runningServerProbesTotal = 0;
+
+/** Hold one of the server's test runs; the answer releases it. */
+function takeServerProbeRun(tenantId: string): () => void {
+  const mine = runningServerProbes.get(tenantId) ?? 0;
+  if (mine >= SERVER_PROBES_PER_TENANT || runningServerProbesTotal >= SERVER_PROBES_TOTAL) {
+    throw new ProblemError(429, "Connection tests busy", {
+      type: P.probeBusy,
+      detail: "Other connection tests are running. Try again in a moment.",
+    });
+  }
+  runningServerProbes.set(tenantId, mine + 1);
+  runningServerProbesTotal += 1;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    runningServerProbesTotal -= 1;
+    const left = (runningServerProbes.get(tenantId) ?? 1) - 1;
+    if (left > 0) {
+      runningServerProbes.set(tenantId, left);
+    } else {
+      runningServerProbes.delete(tenantId);
+    }
+  };
+}
+
+/** Tests: forget the running tests counted so far (the window is counted from the rows). */
 export function resetDatabaseProbeLimit(): void {
-  probeTimes.clear();
+  runningServerProbes.clear();
+  runningServerProbesTotal = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +248,44 @@ async function ownSystemIdentifier(ctx: DatabaseContext): Promise<string | null>
       return null;
     });
   return ownIdentifier;
+}
+
+let ownTargets: { at: number; targets: OwnDatabaseTarget[] } | null = null;
+const OWN_TARGETS_KEEP_MS = 5 * 60 * 1000;
+
+/**
+ * The addresses and ports of Restow's own database (4.2), from `DATABASE_URL` and
+ * `DATABASE_PROVIDER_URL`: the server executor refuses them by the address it reached, before it
+ * signs in (the system identifier after the sign-in is the backstop). A result is kept a few
+ * minutes; a failure is not kept, and a test of the Restow server is refused while it lasts.
+ */
+async function ownDatabaseTargets(ctx: DatabaseContext): Promise<OwnDatabaseTarget[]> {
+  const now = Date.now();
+  if (!ctx.ownDatabaseTargets && ownTargets && now - ownTargets.at <= OWN_TARGETS_KEEP_MS) {
+    return ownTargets.targets;
+  }
+  try {
+    if (ctx.ownDatabaseTargets) {
+      return await ctx.ownDatabaseTargets();
+    }
+    const urls = [config.databaseUrl, config.databaseProviderUrl].filter((url) => url !== "");
+    if (urls.length === 0) {
+      throw new OwnDatabaseUnknownError("no database URL is configured");
+    }
+    const lists = await Promise.all(urls.map((url) => databaseUrlTargets(url, systemResolver)));
+    ownTargets = { at: now, targets: lists.flat() };
+    return ownTargets.targets;
+  } catch (error) {
+    if (!ctx.ownDatabaseTargets) {
+      ownTargets = null;
+    }
+    throw new ProblemError(503, "Restow's own database cannot be located", {
+      type: P.ownDatabaseUnknown,
+      detail: `The Restow server does not test connections while it cannot tell where its own database is (${
+        error instanceof OwnDatabaseUnknownError ? error.message : "unknown error"
+      }). Try again in a moment.`,
+    });
+  }
 }
 
 /**
@@ -421,7 +516,7 @@ export interface DatabaseConnectionDto {
     confirmedAt: string | null;
     confirmedBy: string | null;
   };
-  privateNetworkApproval: { by: string; at: string } | null;
+  privateNetworkApproval: { by: string; at: string; addresses?: string[] } | null;
   mode: DatabaseConnection["mode"];
   schedule: DatabaseConnection["schedule"];
   selection: DatabaseSelection;
@@ -652,15 +747,42 @@ interface ProbeTarget {
   executorEndpointId: string | null;
   connectionId: string | null;
   /** A stored connection's approval of its private address. */
-  approval: { by: string; at: string } | null;
+  approval: DbPrivateNetworkApproval | null;
+  /** The certificate a stored connection confirmed: the executor checks it before signing in. */
+  pinnedFingerprint: string | null;
+}
+
+type DbPrivateNetworkApproval = { by: string; at: string; addresses?: string[] };
+
+/**
+ * A provider admin's approval as it is stored: for the address the test connected to and signed
+ * in on, never for what a lookup of its own finds (null without a private address to approve).
+ */
+function approvalFor(
+  judged: DbPrivateNetworkApproval | null,
+  result: DbProbeResult,
+  ctx: DatabaseContext,
+  now: Date,
+): DbPrivateNetworkApproval | null {
+  const connected = result.connectedAddress ?? null;
+  if (!judged || !connected || !dbApprovedAddress({ addresses: [connected] }, connected)) {
+    return null;
+  }
+  return { by: ctx.actor.label, at: now.toISOString(), addresses: [dbCanonicalAddress(connected)] };
+}
+
+function sameAddresses(a: DbPrivateNetworkApproval | null, b: DbPrivateNetworkApproval | null) {
+  const list = (approval: DbPrivateNetworkApproval | null) =>
+    [...(approval?.addresses ?? [])].sort().join(",");
+  return list(a) === list(b);
 }
 
 /** Judge the address for the server executor; the approval to store when a provider admin saves it. */
 async function judgeServerHost(
   host: string,
   ctx: DatabaseContext,
-  approval: { by: string; at: string } | null,
-): Promise<{ by: string; at: string } | null> {
+  approval: DbPrivateNetworkApproval | null,
+): Promise<DbPrivateNetworkApproval | null> {
   const decision = await judgeDbHost(
     host,
     {
@@ -686,10 +808,6 @@ async function startProbe(
 ): Promise<DatabaseProbeDto> {
   await assertNoRestoreMode();
   const now = nowOf(ctx);
-  if (target.executorKind === "server" && target.host) {
-    await judgeServerHost(target.host, ctx, target.approval);
-  }
-  takeProbeSlot(tenantId, now.getTime());
   const probeId = randomUUID();
   const spec: Omit<DbProbeSpec, "user" | "password"> = {
     probeId,
@@ -701,61 +819,143 @@ async function startProbe(
     authMethod: target.authMethod,
     allowUnencrypted: target.allowUnencrypted,
     timeoutSeconds: SERVER_PROBE_TIMEOUT_SECONDS,
+    pinnedFingerprintSha256: target.pinnedFingerprint,
   };
+  // The credentials of a test are sealed with it: for the agent, which fetches them once, and
+  // for settings that are not saved yet, so that saving takes exactly what was tested (3.2).
+  const sealCredentials =
+    target.authMethod === "password" &&
+    (target.executorKind === "agent" || target.connectionId === null);
+  const sealed = (tx: Transaction) =>
+    sealCredentials
+      ? storeSecret(tx, {
+          tenantId,
+          kind: "database_probe_credentials",
+          plaintext: JSON.stringify(credentials),
+        })
+      : Promise.resolve(null);
 
   if (target.executorKind === "server") {
-    const run = ctx.probe ?? probeDatabaseFromServer;
-    const raw = await run(
-      { ...spec, user: credentials.user, password: credentials.password },
-      {
-        // A provider admin tests what they could approve by saving it (as for IMAP).
-        allowPrivateNetworks:
-          privateAllowedOf(ctx) || ctx.isProviderAdmin || target.approval !== null,
-      },
-    );
-    const result = await judgeResult(raw, credentials, ctx);
-    return withTenantTx(db, tenantId, async (tx) => {
-      await cleanupProbes(tx, tenantId, now);
-      const [row] = await tx
-        .insert(databaseProbes)
-        .values({
+    const release = takeServerProbeRun(tenantId);
+    try {
+      // Where Restow's own database is, before anything is counted or stored.
+      const forbiddenTargets = await ownDatabaseTargets(ctx);
+      // The slot comes first: a test the network protection refuses counts, too.
+      await withTenantTx(db, tenantId, async (tx) => {
+        await cleanupProbes(tx, tenantId, now);
+        await takeProbeSlot(tx, tenantId, now);
+        const secret = await sealed(tx);
+        await tx.insert(databaseProbes).values({
           id: probeId,
           tenantId,
           connectionId: target.connectionId,
           executorKind: "server",
           spec,
-          status: "done",
-          result: result as unknown as Record<string, unknown>,
-          errorCode: result.error?.code ?? null,
+          credentialSecretId: secret?.id ?? null,
+          status: "running",
           createdBy: ctx.actor.userId,
           createdAt: now,
-          finishedAt: new Date(),
-          expiresAt: new Date(now.getTime() + PROBE_KEEP_MS),
-        })
-        .returning();
-      if (!row) {
-        throw new Error("probe insert returned no row");
+          expiresAt: new Date(now.getTime() + (SERVER_PROBE_TIMEOUT_SECONDS + 60) * 1000),
+        });
+      });
+      let approval: DbPrivateNetworkApproval | null = null;
+      let raw: unknown;
+      try {
+        if (target.host) {
+          approval = await judgeServerHost(target.host, ctx, target.approval);
+        }
+        const run = ctx.probe ?? probeDatabaseFromServer;
+        raw = await run(
+          { ...spec, user: credentials.user, password: credentials.password },
+          {
+            // A provider admin tests what they could approve by saving it (as for IMAP); a
+            // stored approval reaches the addresses it was given for, no others.
+            allowPrivateNetworks: privateAllowedOf(ctx) || ctx.isProviderAdmin,
+            approvedAddresses: target.approval?.addresses ?? [],
+            forbiddenTargets,
+          },
+        );
+      } catch (error) {
+        const reason =
+          error instanceof ProblemError
+            ? (error.extensions?.reason as string | undefined)
+            : undefined;
+        await withTenantTx(db, tenantId, (tx) =>
+          tx
+            .update(databaseProbes)
+            .set({
+              status: "failed",
+              errorCode: reason && isDbErrorCode(reason) ? reason : "db_probe_failed",
+              finishedAt: new Date(),
+              expiresAt: new Date(now.getTime() + PROBE_KEEP_MS),
+            })
+            .where(and(eq(databaseProbes.tenantId, tenantId), eq(databaseProbes.id, probeId))),
+        );
+        throw error;
       }
-      if (target.connectionId) {
-        await applyProbeToConnection(tx, tenantId, target.connectionId, row, result, now);
-      }
-      return probeDto(row);
-    });
+      const result = await judgeResult(raw, credentials, ctx);
+      return await withTenantTx(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .update(databaseProbes)
+          .set({
+            status: "done",
+            result: result as unknown as Record<string, unknown>,
+            errorCode: result.error?.code ?? null,
+            finishedAt: new Date(),
+            expiresAt: new Date(now.getTime() + PROBE_KEEP_MS),
+          })
+          .where(and(eq(databaseProbes.tenantId, tenantId), eq(databaseProbes.id, probeId)))
+          .returning();
+        if (!row) {
+          throw new Error("probe update returned no row");
+        }
+        if (target.connectionId) {
+          await applyProbeToConnection(tx, tenantId, target.connectionId, row, result, now);
+          // A provider admin's good test of a stored connection with a private address renews
+          // its approval for the address this test connected to and signed in on (audited).
+          const renewed = approvalFor(approval, result, ctx, now);
+          if (
+            ctx.isProviderAdmin &&
+            renewed &&
+            result.login === "ok" &&
+            !sameAddresses(renewed, target.approval)
+          ) {
+            await tx
+              .update(databaseConnections)
+              .set({ privateNetworkApproval: renewed, updatedAt: now })
+              .where(
+                and(
+                  eq(databaseConnections.tenantId, tenantId),
+                  eq(databaseConnections.id, target.connectionId),
+                ),
+              );
+            await audit(tx, {
+              tenantId,
+              actor: ctx.actor.label,
+              actorUserId: ctx.actor.userId,
+              ip: ctx.actor.ip,
+              action: A.privateNetworkApproved,
+              target: target.connectionId,
+              targetType: "database_connection",
+              details: { address: target.host, addresses: renewed.addresses ?? [] },
+            });
+          }
+        }
+        return probeDto(row);
+      });
+    } finally {
+      release();
+    }
   }
 
   return withTenantTx(db, tenantId, async (tx) => {
     await cleanupProbes(tx, tenantId, now);
+    await takeProbeSlot(tx, tenantId, now);
     const expiresAt = new Date(now.getTime() + AGENT_PROBE_TTL_MS);
     // The agent fetches the credentials once (GET /agent/v1/databases/probes/:id); they are
-    // sealed for this probe alone and deleted when its result arrives or it expires.
-    const secret =
-      target.authMethod === "password"
-        ? await storeSecret(tx, {
-            tenantId,
-            kind: "database_probe_credentials",
-            plaintext: JSON.stringify(credentials),
-          })
-        : null;
+    // sealed for this probe alone and deleted when its result arrives (a stored connection)
+    // or when they are saved or expire (unsaved settings).
+    const secret = await sealed(tx);
     const [row] = await tx
       .insert(databaseProbes)
       .values({
@@ -802,6 +1002,23 @@ async function cleanupProbes(tx: Transaction, tenantId: string, now: Date): Prom
     )
     .returning({ secret: databaseProbes.credentialSecretId });
   for (const { secret } of expired) {
+    if (secret) {
+      await deleteSecret(tx, { id: secret, tenantId });
+    }
+  }
+  // The tested credentials of unsaved settings are kept a short while for saving them.
+  const stale = await tx
+    .select({ secret: databaseProbes.credentialSecretId })
+    .from(databaseProbes)
+    .where(
+      and(
+        eq(databaseProbes.tenantId, tenantId),
+        isNotNull(databaseProbes.credentialSecretId),
+        inArray(databaseProbes.status, ["done", "failed", "expired"]),
+        lt(databaseProbes.finishedAt, new Date(now.getTime() - PROBE_CREDENTIALS_KEEP_MS)),
+      ),
+    );
+  for (const { secret } of stale) {
     if (secret) {
       await deleteSecret(tx, { id: secret, tenantId });
     }
@@ -858,6 +1075,7 @@ export async function testConnection(
       executorEndpointId: endpoint?.id ?? null,
       connectionId: null,
       approval: null,
+      pinnedFingerprint: null,
     },
     credentials,
     ctx,
@@ -903,6 +1121,7 @@ export async function testStoredConnection(
       executorEndpointId: connection.executorEndpointId,
       connectionId: connection.id,
       approval: connection.privateNetworkApproval ?? null,
+      pinnedFingerprint: connection.tlsFingerprint,
     },
     credentials,
     ctx,
@@ -1182,13 +1401,14 @@ export async function agentFinishProbe(
         status: "done",
         result: result as unknown as Record<string, unknown>,
         errorCode: result.error?.code ?? null,
-        credentialSecretId: null,
         finishedAt: now,
         expiresAt: new Date(now.getTime() + PROBE_KEEP_MS),
       })
       .where(and(eq(databaseProbes.id, probeId), eq(databaseProbes.status, "running")))
       .returning();
-    if (loaded.row.credentialSecretId) {
+    // A stored connection keeps its own credentials: the test's copy goes now. Unsaved settings
+    // keep it a short while, for saving exactly what was tested.
+    if (loaded.row.credentialSecretId && loaded.row.connectionId) {
       await deleteSecret(tx, { id: loaded.row.credentialSecretId, tenantId: agent.tenantId });
     }
     if (row?.connectionId) {
@@ -1298,10 +1518,42 @@ export async function createConnection(
       extensions: { field: "allowUnencrypted" },
     });
   }
-  const approval =
+  // A test is good for saving a short while: its sealed credentials and what it saw are recent.
+  if (probe.finishedAt && now.getTime() - probe.finishedAt.getTime() > PROBE_CREDENTIALS_KEEP_MS) {
+    throw probeRequired("The test is too old to be saved. Test again and save.");
+  }
+  const judged =
     executorKind === "server" && spec.host ? await judgeServerHost(spec.host, ctx, null) : null;
-  if (authMethod === "password" && !input.user) {
-    throw invalid("user", "A user is needed for the sign-in with a password.");
+  // A private address is approved for the address the test signed in on.
+  const approval = judged ? approvalFor(judged, result, ctx, now) : null;
+  if (judged && !approval) {
+    throw probeRequired(
+      "The test did not report the private address it signed in on. Test again and save.",
+    );
+  }
+  // The connection keeps the credentials the test used, sealed with it (3.2): other ones would
+  // reach the server untested.
+  const tested =
+    authMethod === "password"
+      ? await withTenantTx(db, tenantId, (tx) =>
+          readCredentials(tx, tenantId, probe.credentialSecretId),
+        )
+      : null;
+  if (tested) {
+    if (!probe.credentialSecretId) {
+      throw probeRequired("The credentials of this test are no longer kept. Test again and save.");
+    }
+    if (!tested.user) {
+      throw invalid("user", "A user is needed for the sign-in with a password.");
+    }
+    const differs =
+      (input.user != null && input.user !== tested.user) ||
+      (input.password != null && input.password !== (tested.password ?? ""));
+    if (differs) {
+      throw probeRequired(
+        "The user or password differs from the test. Test the connection with them, then save.",
+      );
+    }
   }
   const timeZone =
     input.schedule?.timeZone ?? (await loadInstallationTimeZone(providerDb)).timeZone;
@@ -1309,14 +1561,13 @@ export async function createConnection(
   const rights = evaluateDbRights(result);
   try {
     return await withTenantTx(db, tenantId, async (tx) => {
-      const secret =
-        authMethod === "password"
-          ? await storeSecret(tx, {
-              tenantId,
-              kind: "database_credentials",
-              plaintext: JSON.stringify({ user: input.user, password: input.password ?? "" }),
-            })
-          : null;
+      const secret = tested
+        ? await storeSecret(tx, {
+            tenantId,
+            kind: "database_credentials",
+            plaintext: JSON.stringify({ user: tested.user, password: tested.password ?? "" }),
+          })
+        : null;
       const name = input.name ?? defaultName(probe.spec);
       const [connection] = await tx
         .insert(databaseConnections)
@@ -1375,6 +1626,10 @@ export async function createConnection(
         .update(databaseProbes)
         .set({ connectionId: connection.id })
         .where(eq(databaseProbes.id, probe.id));
+      // The test's copy of the credentials is not needed any more.
+      if (probe.credentialSecretId) {
+        await deleteSecret(tx, { id: probe.credentialSecretId, tenantId });
+      }
       await syncDatabases(tx, tenantId, connection.id, connection.instanceKey, result, now);
       const details = {
         name,
@@ -1546,6 +1801,25 @@ export async function updateConnection(
   if (executor) {
     assertExecutorFits(executor.kind, before.engine, before.authMethod, endpoint);
   }
+  // Stored credentials only travel to the executor they were stored for: another executor gets
+  // them when the administrator enters the password again in the same change (audited).
+  const executorChanged =
+    executor !== undefined &&
+    (executor.kind !== before.executorKind ||
+      (endpoint?.id ?? null) !== (before.executorEndpointId ?? null));
+  if (
+    executorChanged &&
+    before.authMethod === "password" &&
+    before.credentialSecretId &&
+    input.password === undefined
+  ) {
+    throw new ProblemError(422, "Password required", {
+      type: P.credentialsRequired,
+      detail:
+        "Enter the password again to move the connection to another executor: stored credentials only go to the executor they were stored for.",
+      extensions: { field: "password", issues: [{ path: ["password"], message: "required" }] },
+    });
+  }
   // Moving to the server judges the address as when it is saved (4.2).
   let approval = before.privateNetworkApproval ?? null;
   const approvedNow = executor?.kind === "server" && before.executorKind !== "server";
@@ -1709,7 +1983,10 @@ export async function updateConnection(
         await event(A.connectionUpdated, { changed, executor: after.executorKind });
       }
       if (credentialsChanged) {
-        await event(A.credentialsChanged, { userChanged: input.user !== undefined });
+        await event(A.credentialsChanged, {
+          userChanged: input.user !== undefined,
+          ...(executorChanged ? { executor: after.executorKind } : {}),
+        });
       }
       if (approvedNow && approval) {
         await event(A.privateNetworkApproved, { address: formatDbAddress(after) });
@@ -1762,6 +2039,16 @@ export async function deleteConnection(
       .where(
         and(eq(databaseProbes.connectionId, id), isNotNull(databaseProbes.credentialSecretId)),
       );
+    // The connection's tests stay as rows until they are old (the rate limit counts them), but
+    // nothing can be saved from them any more.
+    await tx
+      .update(databaseProbes)
+      .set({
+        connectionId: null,
+        status: "expired",
+        finishedAt: sql`coalesce(${databaseProbes.finishedAt}, now())`,
+      })
+      .where(and(eq(databaseProbes.tenantId, tenantId), eq(databaseProbes.connectionId, id)));
     await tx.delete(databaseConnections).where(eq(databaseConnections.id, id));
     for (const secretId of [connection.credentialSecretId, ...probeSecrets.map((row) => row.id)]) {
       if (secretId) {

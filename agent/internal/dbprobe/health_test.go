@@ -2,22 +2,11 @@ package dbprobe
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
 	"net"
 	"strings"
 	"testing"
 	"time"
 )
-
-func fingerprintOf(der []byte) string {
-	sum := sha256.Sum256(der)
-	parts := make([]string, len(sum))
-	for i, b := range sum {
-		parts[i] = fmt.Sprintf("%02X", b)
-	}
-	return strings.Join(parts, ":")
-}
 
 // claim: DB-004
 func TestHealthCheckReadsTheHealthFactsWithTheConfirmedCertificate(t *testing.T) {
@@ -26,7 +15,7 @@ func TestHealthCheckReadsTheHealthFactsWithTheConfirmedCertificate(t *testing.T)
 	port := listen(t, f.serve)
 	s := spec(port)
 	s.Engine = sp(EngineMariaDB)
-	s.TLSFingerprint = sp(fingerprintOf(cert.Certificate[0]))
+	s.PinnedFingerprintSHA256 = sp(certFingerprint(cert))
 	r := Health(context.Background(), s, fast)
 	if r.Error != nil || r.Login != LoginOK || r.MySQL != nil || r.Health == nil {
 		t.Fatalf("result %+v %+v", r, r.Error)
@@ -53,7 +42,7 @@ func TestHealthCheckSendsNoCredentialToAnotherCertificate(t *testing.T) {
 	port := listen(t, f.serve)
 	s := spec(port)
 	s.Engine = sp(EngineMySQL)
-	s.TLSFingerprint = sp(strings.Repeat("AB:", 31) + "AB")
+	s.PinnedFingerprintSHA256 = sp(strings.Repeat("AB:", 31) + "AB")
 	r := Health(context.Background(), s, fast)
 	if r.Error == nil || r.Error.Code != CodeTLSChanged || r.Login != LoginSkipped {
 		t.Fatalf("result %+v %+v", r, r.Error)
@@ -62,7 +51,7 @@ func TestHealthCheckSendsNoCredentialToAnotherCertificate(t *testing.T) {
 	if !f.sawTLS || f.sawUser != "" {
 		t.Fatalf("the server saw tls=%v user=%q", f.sawTLS, f.sawUser)
 	}
-	if r.TLS.FingerprintSHA256 == nil || *r.TLS.FingerprintSHA256 == *s.TLSFingerprint {
+	if r.TLS.FingerprintSHA256 == nil || *r.TLS.FingerprintSHA256 == *s.PinnedFingerprintSHA256 {
 		t.Fatalf("tls %+v", r.TLS)
 	}
 }
@@ -97,3 +86,4 @@ func TestHealthCheckEndsAtItsDeadlineAndClosesItsConnections(t *testing.T) {
 		t.Fatal("the connection stayed open after the deadline")
 	}
 }
+

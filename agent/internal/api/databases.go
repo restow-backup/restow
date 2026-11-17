@@ -81,13 +81,14 @@ type DBProbeSpec struct {
 	Password         *string `json:"password"`
 	AllowUnencrypted bool    `json:"allowUnencrypted"`
 	TimeoutSeconds   int     `json:"timeoutSeconds"`
+	// PinnedFingerprintSHA256 is the certificate the connection confirmed
+	// ("AB:CD:..."): the probe stops right after the TLS handshake, before any
+	// sign-in, when the server shows another one or no TLS. Health checks (D2)
+	// always carry it for a connection with a confirmed certificate.
+	PinnedFingerprintSHA256 *string `json:"pinnedFingerprintSha256,omitempty"`
 	// Purpose is "probe" (a connection test, also when empty) or "health"
 	// (the light health check of a stored connection, D2).
 	Purpose string `json:"purpose,omitempty"`
-	// TLSFingerprint is the certificate an administrator confirmed: another
-	// one ends the check after the TLS handshake, before any credential is
-	// sent (db_tls_changed).
-	TLSFingerprint *string `json:"tlsFingerprint,omitempty"`
 	// Sizes asks a health check for the size of each database too.
 	Sizes bool `json:"sizes,omitempty"`
 }

@@ -33,10 +33,12 @@ import {
   type DbHealthJudgement,
   type DbHealthState,
   type DbProbeResult,
-  dbMayReachPrivateNetworks,
+  databaseUrlTargets,
   formatDbAddress,
+  type HostResolver,
   judgeDbHealth,
   sanitizeDbMessage,
+  systemResolver,
 } from "@restow/core";
 import {
   compactDatabaseHealthSamples,
@@ -95,13 +97,20 @@ export interface DatabaseHealthDeps {
     target: DbHealthCheckTarget,
     options: DbHealthCheckOptions,
   ) => Promise<DbProbeResult>;
-  /** The system identifier of Restow's own database (4.2: never the own database). */
+  /** The system identifier of Restow's own database (4.2: never the own database), the backstop. */
   readonly ownSystemIdentifier: () => Promise<string | null>;
+  /**
+   * Where Restow's own database listens (4.2): refused by the address a check reached, before the
+   * sign-in. Throws when it cannot be told; the server's checks then wait (none runs unguarded).
+   */
+  readonly ownDatabaseTargets: () => Promise<{ address: string; port: number }[]>;
 }
 
 export interface DatabaseHealthSummary {
   checked: number;
   failed: number;
+  /** Due checks of the server that waited: where Restow's own database is could not be told. */
+  waiting: number;
   evaluated: number;
   alerts: number;
   folded: number;
@@ -123,6 +132,31 @@ export function workerCredentialsReader(
     }
     const parsed = JSON.parse(plaintext) as { user?: string | null; password?: string | null };
     return { user: parsed.user ?? null, password: parsed.password ?? null };
+  };
+}
+
+/**
+ * Where Restow's own database listens, from the worker's own database URLs (as the API reads its
+ * own, @restow/core `databaseUrlTargets`); kept five minutes, a failure is not kept.
+ */
+export function ownDatabaseTargetsOf(
+  urls: readonly string[],
+  resolve?: HostResolver,
+): () => Promise<{ address: string; port: number }[]> {
+  let kept: { at: number; targets: { address: string; port: number }[] } | null = null;
+  return async () => {
+    if (kept && Date.now() - kept.at <= 5 * 60 * 1000) {
+      return kept.targets;
+    }
+    const present = urls.filter((url) => url.trim() !== "");
+    if (present.length === 0) {
+      throw new Error("no database URL is configured");
+    }
+    const lists = await Promise.all(
+      present.map((url) => databaseUrlTargets(url, resolve ?? systemResolver)),
+    );
+    kept = { at: Date.now(), targets: lists.flat() };
+    return kept.targets;
   };
 }
 
@@ -210,6 +244,7 @@ async function checkOne(
   deps: DatabaseHealthDeps,
   row: { id: string; tenant_id: string },
   now: Date,
+  forbiddenTargets: readonly { address: string; port: number }[],
 ): Promise<boolean | null> {
   const tenantId = row.tenant_id;
   const loaded = await withTenantTx(deps.db, tenantId, async (tx) => {
@@ -242,14 +277,16 @@ async function checkOne(
       user: credentials.user,
       password: credentials.password,
       allowUnencrypted: connection.allowUnencrypted,
-      tlsFingerprint: connection.tlsFingerprint,
+      pinnedFingerprintSha256: connection.tlsFingerprint,
       sizes: loaded.sizes,
     },
     {
-      allowPrivateNetworks: dbMayReachPrivateNetworks(
-        connection.privateNetworkApproval,
-        deps.privateNetworksAllowed,
-      ),
+      // Private networks: the installation flag, else exactly the addresses the provider admin's
+      // approval names (an approval without addresses reaches none). A health check never
+      // renews an approval and never takes a certificate: it only reads.
+      allowPrivateNetworks: deps.privateNetworksAllowed,
+      approvedAddresses: connection.privateNetworkApproval?.addresses ?? [],
+      forbiddenTargets,
     },
   );
   const cleaned: DbProbeResult = result.error
@@ -289,8 +326,23 @@ async function checkOne(
 async function runServerChecks(
   deps: DatabaseHealthDeps,
   now: Date,
-): Promise<{ checked: number; failed: number }> {
+): Promise<{ checked: number; failed: number; waiting: number }> {
   const due = await dueServerConnections(deps, now);
+  if (due.length === 0) {
+    return { checked: 0, failed: 0, waiting: 0 };
+  }
+  let forbiddenTargets: { address: string; port: number }[];
+  try {
+    forbiddenTargets = await deps.ownDatabaseTargets();
+  } catch (error) {
+    // Not run unguarded: the connections stay without a new sample (their reachability turns
+    // "unknown" after three intervals) until the own database can be told again.
+    deps.logger.warn("database health checks wait: Restow's own database cannot be located", {
+      errorMessage: error instanceof Error ? error.message.slice(0, 200) : String(error),
+      waiting: due.length,
+    });
+    return { checked: 0, failed: 0, waiting: due.length };
+  }
   let checked = 0;
   let failed = 0;
   let next = 0;
@@ -301,7 +353,7 @@ async function runServerChecks(
         return;
       }
       try {
-        const ok = await checkOne(deps, row, now);
+        const ok = await checkOne(deps, row, now, forbiddenTargets);
         if (ok !== null) {
           checked++;
           if (!ok) failed++;
@@ -317,7 +369,7 @@ async function runServerChecks(
     }
   };
   await Promise.all(Array.from({ length: CHECK_CONCURRENCY }, worker));
-  return { checked, failed };
+  return { checked, failed, waiting: 0 };
 }
 
 /** The connections with samples the state has not taken in yet. */
@@ -459,6 +511,7 @@ export async function databaseHealthPass(
   const summary: DatabaseHealthSummary = {
     checked: 0,
     failed: 0,
+    waiting: 0,
     evaluated: 0,
     alerts: 0,
     folded: 0,
@@ -469,6 +522,7 @@ export async function databaseHealthPass(
     const checks = await runServerChecks(deps, now);
     summary.checked = checks.checked;
     summary.failed = checks.failed;
+    summary.waiting = checks.waiting;
   }
   for (const row of await connectionsToEvaluate(deps)) {
     try {

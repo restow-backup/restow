@@ -19,7 +19,7 @@
         "allowUnencrypted": false,
         "timeoutSeconds": 10,
         "purpose": "health",
-        "tlsFingerprint": "3A:91:5C:0E:7B:12:44:9F:A0:B3:C8:DD:01:2E:6F:70:81:92:A3:B4:C5:D6:E7:F8:09:1A:2B:3C:4D:5E:6F:70",
+        "pinnedFingerprintSha256": "3A:91:5C:0E:7B:12:44:9F:A0:B3:C8:DD:01:2E:6F:70:81:92:A3:B4:C5:D6:E7:F8:09:1A:2B:3C:4D:5E:6F:70",
         "sizes": true
       }
     },

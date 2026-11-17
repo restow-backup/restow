@@ -109,7 +109,7 @@ func TestDatabaseHealthTask(t *testing.T) {
 		ConnectionID: "c-1", FirstAfterSeconds: 0, IntervalSeconds: 300,
 		Spec: api.DBProbeSpec{ProbeID: "t-h", Engine: strp("postgresql"), Host: strp("db.example.test"), AuthMethod: "password",
 			User: strp("restow_backup"), Password: strp("s3cret"), TimeoutSeconds: 10, Purpose: api.PurposeHealth,
-			TLSFingerprint: fingerprint, Sizes: true},
+			PinnedFingerprintSHA256: fingerprint, Sizes: true},
 	}}}}
 	h.srv.Unlock()
 	params, _ := json.Marshal(api.DBHealthTaskParams{WindowSeconds: 30})
@@ -140,7 +140,7 @@ func TestDatabaseHealthTask(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(got) != 1 || *got[0].Password != "s3cret" || deref(got[0].TLSFingerprint) != *fingerprint || !got[0].Sizes || got[0].Purpose != api.PurposeHealth {
+	if len(got) != 1 || *got[0].Password != "s3cret" || deref(got[0].PinnedFingerprintSHA256) != *fingerprint || !got[0].Sizes || got[0].Purpose != api.PurposeHealth {
 		t.Fatalf("the check got %+v", got)
 	}
 }

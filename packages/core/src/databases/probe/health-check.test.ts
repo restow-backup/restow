@@ -26,7 +26,7 @@ function target(overrides: Partial<DbHealthCheckTarget> = {}): DbHealthCheckTarg
     user: "restow_backup",
     password: "s3cret-pass",
     allowUnencrypted: false,
-    tlsFingerprint: null,
+    pinnedFingerprintSha256: null,
     sizes: false,
     ...overrides,
   };
@@ -51,31 +51,31 @@ describe("the server's health check [DB-004]", () => {
     const started = Date.now();
     const result = await checkDatabaseHealthFromServer(target({ port }), {
       allowPrivateNetworks: true,
-      deadlineMs: 400,
+      approvedAddresses: [],
+      forbiddenTargets: [],
+      timeoutSeconds: 1,
     });
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(3000);
     expect(result).toMatchObject({ login: "skipped", error: { code: "db_unreachable" } });
     expect(closed.length).toBeGreaterThan(0);
     await Promise.all(closed);
   });
 
   it("refuses loopback and reserved addresses before connecting", async () => {
-    expect(
-      (await checkDatabaseHealthFromServer(target(), { allowPrivateNetworks: false })).error?.code,
-    ).toBe("db_private_network");
+    const none = { allowPrivateNetworks: false, approvedAddresses: [], forbiddenTargets: [] };
+    expect((await checkDatabaseHealthFromServer(target(), none)).error?.code).toBe(
+      "db_private_network",
+    );
     expect(
       (
         await checkDatabaseHealthFromServer(target({ host: "169.254.169.254" }), {
+          ...none,
           allowPrivateNetworks: true,
         })
       ).error?.code,
     ).toBe("db_forbidden_address");
     expect(
-      (
-        await checkDatabaseHealthFromServer(target({ host: "localhost" }), {
-          allowPrivateNetworks: false,
-        })
-      ).error?.code,
+      (await checkDatabaseHealthFromServer(target({ host: "localhost" }), none)).error?.code,
     ).toBe("db_private_network");
   });
 });

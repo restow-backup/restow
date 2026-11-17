@@ -22,6 +22,7 @@ describe("the database contract shared with the agent (docs/DATABASES.md 9)", ()
       database: "erp",
       authMethod: "password",
       allowUnencrypted: false,
+      pinnedFingerprintSha256: expect.stringMatching(/^3A:91:/),
     });
     const task = fixture("task-db-probe.json");
     expect(task).toMatchObject({ kind: "db_probe", params: { probeId: expect.any(String) } });
@@ -82,14 +83,14 @@ describe("the database contract shared with the agent (docs/DATABASES.md 9)", ()
     };
     const specs = plan.checks.map((check) => dbProbeSpecSchema.parse(check.spec));
     expect(specs[0]).toMatchObject({ purpose: "health", sizes: true, timeoutSeconds: 10 });
-    expect(specs[0]?.tlsFingerprint).toMatch(/^3A:91/);
+    expect(specs[0]?.pinnedFingerprintSha256).toMatch(/^3A:91/);
     expect(specs[1]).toMatchObject({ engine: "sqlite", path: "/srv/app/data.db" });
     const samples = (fixture("db-health-samples.json") as { samples: { result: unknown }[] })
       .samples;
     const connection = {
       engine: "postgresql" as const,
       instanceKey: "postgresql:7300000000000000042",
-      tlsFingerprint: specs[0]?.tlsFingerprint ?? null,
+      tlsFingerprint: specs[0]?.pinnedFingerprintSha256 ?? null,
     };
     const [good, pinned] = samples.map((sample) => {
       const result = parseDbProbeResult(sample.result);
