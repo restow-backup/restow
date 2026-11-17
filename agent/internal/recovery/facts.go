@@ -120,7 +120,12 @@ func GatherFacts(ctx context.Context, rr ResticReader, m *baremetal.Manifest, sn
 			}
 			return ""
 		}
-		kf.ModulesAlias, kf.ModulesBuiltin, kf.ModulesBuiltinModinfo = dump("modules.alias"), dump("modules.builtin"), dump("modules.builtin.modinfo")
+		// modules.builtin.modinfo separates its entries with NULs; the facts carry it with a
+		// line break for each (C-M2-2, as stage 1 on the server sends it). Read as it is, the
+		// planner saw no alias of a built-in driver (Ubuntu builds sd_mod in: "scsi:t-0x00"
+		// of every SATA or SCSI disk had no driver, storage_driver_missing).
+		kf.ModulesAlias, kf.ModulesBuiltin = dump("modules.alias"), dump("modules.builtin")
+		kf.ModulesBuiltinModinfo = strings.ReplaceAll(dump("modules.builtin.modinfo"), "\x00", "\n")
 		f.Kernels = append(f.Kernels, kf)
 	}
 	for _, mf := range m.Linux.MokFiles {

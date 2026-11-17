@@ -192,6 +192,46 @@ func TestReadManifestAndFacts(t *testing.T) {
 	}
 }
 
+// modules.builtin.modinfo separates its entries with NULs (Ubuntu 22.04's 5.15 builds sd_mod
+// in, and only this file names its alias): the facts carry line breaks, and the driver of a
+// SATA disk (scsi:t-0x00) is found.
+func TestGatherFactsBuiltinModinfoNULs(t *testing.T) {
+	raw, err := os.ReadFile("../baremetal/testdata/manifests/debian12-uefi-luks-lvm.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := baremetal.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := fakeReader{files: map[string][]byte{
+		"/lib/modules/6.1.0-27-amd64/modules.alias":           []byte("alias pci:v*d*sv*sd*bc01sc06i01* ahci\n"),
+		"/lib/modules/6.1.0-27-amd64/modules.builtin":         []byte("kernel/drivers/scsi/sd_mod.ko\n"),
+		"/lib/modules/6.1.0-27-amd64/modules.builtin.modinfo": []byte("sd_mod.alias=scsi:t-0x0e*\x00sd_mod.alias=scsi:t-0x00*\x00sd_mod.file=drivers/scsi/sd_mod\x00"),
+	}}
+	f, _, err := GatherFacts(context.Background(), rr, m, "snap", map[string]api.RecoveryRestoreSize{"/": {Bytes: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Kernels) == 0 || strings.Contains(f.Kernels[0].ModulesBuiltinModinfo, "\x00") || !strings.Contains(f.Kernels[0].ModulesBuiltinModinfo, "sd_mod.alias=scsi:t-0x00*\n") {
+		t.Fatalf("modinfo %q", f.Kernels[0].ModulesBuiltinModinfo)
+	}
+	if _, err := baremetal.ParseFacts(mustJSON(t, f)); err != nil {
+		t.Errorf("facts invalid: %v", err)
+	}
+	tg := &baremetal.Target{Disks: []baremetal.TargetDisk{{ID: "t0", DriverChain: []string{"sd", "ahci"},
+		DriverModaliases: []string{"scsi:t-0x00", "pci:v00008086d00002922sv00001AF4sd00001100bc01sc06i01"}}}}
+	dc, findings := baremetal.CheckDrivers(m, f, tg, []string{"t0"}, false)
+	for _, fd := range findings {
+		if fd.Code == baremetal.ProblemStorageDriverMissing {
+			t.Errorf("driver missing: %v", fd.Params)
+		}
+	}
+	if len(dc.Storage) == 0 || !dc.Storage[0].Found || !dc.Storage[0].Builtin || deref(dc.Storage[0].Module) != "sd_mod" {
+		t.Errorf("storage %+v", dc.Storage)
+	}
+}
+
 func mustJSON(t *testing.T, v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
