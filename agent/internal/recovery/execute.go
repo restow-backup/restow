@@ -678,7 +678,14 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 	case "keyfile":
 		return x.keyfile(ctx, args[1:])
 	case "nvram":
-		return x.nvram(ctx, args[1:])
+		err := x.nvram(ctx, args[1:])
+		if err != nil && s.Kind == "nvram_added" {
+			// The backup has no entry: the system started over the fallback
+			// path, which stays; the check reports that (only_fallback).
+			x.log("the boot entry for %s was not written (%v); the system starts over the fallback path", deref(s.Target), err)
+			return nil
+		}
+		return err
 	case "fallback-path":
 		return x.fallbackPath(args[1:])
 	case "probe-boot":

@@ -1834,6 +1834,7 @@ func (pl *planner) postSteps() {
 				hasFallback = true
 			}
 		}
+		entries := 0
 		for _, e := range l.Firmware.Entries {
 			if !e.Active || e.Loader == nil || e.PartUUID == nil || isMicrosoftLoader(strings.ReplaceAll(*e.Loader, `\`, "/")) {
 				continue
@@ -1853,6 +1854,10 @@ func (pl *planner) postSteps() {
 				continue
 			}
 			pl.step("post", "nvram", *e.PartUUID, []string{"nvram", "--label", e.Label, "--partuuid", *e.PartUUID, "--loader", *e.Loader}, nil, "", "create the boot entry "+e.Label)
+			entries++
+		}
+		if entries == 0 {
+			pl.addedBootEntry()
 		}
 		if !hasFallback && len(roots) > 0 {
 			pl.step("post", "fallback_path", roots[0], []string{"fallback-path", "{target_root}" + roots[0]}, nil, "", "set up \\EFI\\BOOT\\BOOTX64.EFI for firmware that forgets boot entries")
@@ -1862,6 +1867,85 @@ func (pl *planner) postSteps() {
 		pl.step("post", "selinux", "", []string{"selinux"}, nil, "", "check the SELinux labels of the restore; relabel only what recover created or changed")
 	}
 	pl.step("post", "verify", "", []string{"verify"}, nil, "", "check the restored system (identities, fstab, boot files)")
+}
+
+// addedBootEntry plans a boot entry for a system whose backup has none
+// (10.15): such a source started over the fallback path \EFI\BOOT\BOOTX64.EFI
+// (bootctl install --no-variables, grub-install --no-nvram, a disk moved from
+// another machine), and whether the firmware of the target starts that path
+// from a fixed disk, and in which order with its other options, is up to the
+// firmware. The entry starts the very loader the fallback path starts: the
+// copy in its own folder on the same ESP when the backup has one with the same
+// Authenticode hash (\EFI\systemd\systemd-bootx64.efi "Linux Boot Manager",
+// as bootctl install writes it; \EFI\<vendor>\shimx64.efi under the vendor's
+// name, as grub-install does), else the fallback loader itself. Nothing is
+// planned when the fallback loader is Windows' (its system is not restored),
+// when the ESP is not a plain partition (md RAID1) or not on the target.
+// Unlike the entries of the backup, the step may fail: the fallback path
+// stays, and the check reports the system as starting only over it.
+func (pl *planner) addedBootEntry() {
+	x := pl.x
+	for _, id := range pl.l.Bootloader.ESPs {
+		fs := x.fs[id]
+		if fs == nil || len(fs.Devices) != 1 || fs.Devices[0].Kind != RefPartition || !pl.present(fs.Devices[0]) {
+			continue
+		}
+		part := x.parts[fs.Devices[0].key()]
+		if part == nil || part.UUID == nil || *part.UUID == "" {
+			continue
+		}
+		for _, mnt := range x.mounts[id] {
+			rel := func(p string) (string, bool) {
+				r, ok := strings.CutPrefix(p, strings.TrimSuffix(mnt, "/")+"/")
+				return r, ok && r != ""
+			}
+			var fallback *Loader
+			for i := range pl.l.Loaders {
+				ld := &pl.l.Loaders[i]
+				if r, ok := rel(ld.Path); ok && ld.AuthenticodeSha256 != "" && !ld.UKI &&
+					(strings.EqualFold(r, "EFI/BOOT/BOOTX64.EFI") || strings.EqualFold(r, "EFI/BOOT/BOOTAA64.EFI")) {
+					fallback = ld
+					break
+				}
+			}
+			if fallback == nil {
+				continue
+			}
+			var same []string
+			for _, ld := range pl.l.Loaders {
+				r, ok := rel(ld.Path)
+				if !ok || ld.UKI || !strings.EqualFold(ld.AuthenticodeSha256, fallback.AuthenticodeSha256) {
+					continue
+				}
+				if isMicrosoftLoader("/" + strings.ToLower(r)) {
+					return
+				}
+				parts := strings.Split(r, "/")
+				if len(parts) == 3 && strings.EqualFold(parts[0], "EFI") && !strings.EqualFold(parts[1], "BOOT") && !strings.EqualFold(parts[1], "Linux") {
+					same = append(same, r)
+				}
+			}
+			sort.Strings(same)
+			loader, _ := rel(fallback.Path)
+			label := deref(pl.l.OS.PrettyName)
+			if label == "" {
+				label = "Linux"
+			}
+			if len(same) > 0 {
+				loader, label = same[0], strings.Split(same[0], "/")[1]
+				for _, r := range same {
+					if strings.EqualFold(strings.Split(r, "/")[1], "systemd") {
+						loader, label = r, "Linux Boot Manager"
+						break
+					}
+				}
+			}
+			fw := `\` + strings.ReplaceAll(loader, "/", `\`)
+			pl.step("post", "nvram_added", fw, []string{"nvram", "--label", label, "--partuuid", *part.UUID, "--loader", fw}, nil, "",
+				"create a boot entry "+label+" for "+fw+": the backup has none, the source started over the fallback path")
+			return
+		}
+	}
 }
 
 // systemPaths are the paths a restore must bring back completely (10.12):

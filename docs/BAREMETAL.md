@@ -2622,6 +2622,22 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   Einträge mit gleichem Pfad und gleicher PARTUUID werden nicht doppelt angelegt) und setzt
   `BootOrder` mit diesen vorn. Liegt die ESP auf md RAID1 mit Metadaten 1.0, entsteht je
   Mitglied ein Eintrag (die Firmware sieht die Mitglieder, nicht `/dev/mdX`).
+- **Kein Eintrag in der Sicherung** (`bootctl install --no-variables`, `grub-install
+  --no-nvram`, eine Platte aus einem anderen Rechner): Die Quelle startete über den
+  Rückfallpfad. Ob die Firmware des Ziels `\EFI\BOOT\BOOTX64.EFI` einer festen Platte
+  überhaupt startet und an welcher Stelle ihrer übrigen Optionen (PXE, ein USB-Stick, eine
+  eingebaute Shell), entscheidet jede Firmware anders; OVMF etwa reiht die Platte nach dem
+  Start des ISOs hinter seine EFI-Shell. Darum legt `recover` dann einen Eintrag an (Schritt
+  `nvram_added`, vorn in `BootOrder`) für genau den Loader, den der Rückfallpfad startet: die
+  Kopie mit gleichem Authenticode-Hash in ihrem eigenen Ordner derselben ESP
+  (`\EFI\systemd\systemd-bootx64.efi` als "Linux Boot Manager" wie `bootctl install`,
+  `\EFI\<vendor>\shimx64.efi` unter dem Namen des Ordners wie `grub-install`), sonst
+  `\EFI\BOOT\BOOTX64.EFI` selbst unter dem Namen des Systems. Kein Eintrag entsteht, wenn
+  der Rückfallpfad den Windows-Loader startet (Windows wird nicht wiederhergestellt), wenn
+  die ESP keine einfache Partition ist (md RAID1) oder wenn es keinen Rückfallpfad gibt.
+  Anders als ein Eintrag der Sicherung darf dieser scheitern: Lehnt die Firmware ihn ab,
+  läuft die Wiederherstellung weiter (Protokollzeile), der Rückfallpfad bleibt, und die
+  Prüfung meldet den Start nur über ihn als Warnung.
 - **Rückfallpfad:** Fehlt auf der ESP `\EFI\BOOT\BOOTX64.EFI`, richtet `recover` ihn ein
   (Option, Vorgabe an), weil manche Firmware NVRAM-Einträge vergisst oder nicht schreiben
   lässt. Liegt `fbx64.efi` samt `BOOTX64.CSV` im Herstellerordner, nutzt `recover` die
@@ -2702,10 +2718,11 @@ Gleiche MAC (gleiche Hardware): nichts zu tun. Testfall in E2: netplan mit `maca
    (Datei vorhanden, Authenticode-Hash gleich dem gesicherten); der Rückfallpfad ist
    vollständig (Loader, Nachbarn, `grub.cfg`-Stub bzw. `fbx64.efi` und `BOOTX64.CSV`).
    Geprüft wird gegen den Plan, nicht nur gegen das Geschriebene: weniger Einträge als
-   `nvram`-Schritte ist `failed`; ein Loader, den das Manifest nicht führt, muss auf der ESP
-   liegen (sonst `failed`) und ist dann eine Warnung, weil nichts seinen Inhalt belegt; ein
-   geplanter und nicht abgewählter Rückfallpfad, der fehlt, ist `failed`. Ohne jeden Eintrag
-   startet das System nur über den Rückfallpfad (Warnung), ohne beides gar nicht (`failed`).
+   `nvram`-Schritte ist `failed` (ein `nvram_added`-Schritt zählt nicht mit, 10.15); ein
+   Loader, den das Manifest nicht führt, muss auf der ESP liegen (sonst `failed`) und ist
+   dann eine Warnung, weil nichts seinen Inhalt belegt; ein geplanter und nicht abgewählter
+   Rückfallpfad, der fehlt, ist `failed`. Ohne jeden Eintrag startet das System nur über den
+   Rückfallpfad (Warnung), ohne beides gar nicht (`failed`).
    BIOS: GRUB-Bootcode im MBR jeder Zielplatte (Kennung wie in `captureBootCode`),
    `core.img` in der BIOS-Boot-Partition bzw. hinter dem MBR, PMBR-Flag wie gesichert.
 7. GRUB-Konfiguration bzw. Loader-Einträge nennen nur UUIDs, die es gibt.
@@ -4198,7 +4215,7 @@ Code-Erzeugung (Gleichverteilung grob, Alphabet), `canonicalOrigin`, Pfadabbildu
 | E3 | AlmaLinux 9, UEFI, LVM mit `system.devices` (Platten mit `serial=`), XFS, dracut `hostonly`, SELinux `enforcing`, BLS, `vconsole.conf` mit `de` | SATA (AHCI) statt virtio, andere Seriennummern | nachts |
 | E4 | Fedora (aktuell), UEFI, btrfs mit Subvolumes `root`, `home`, verschachteltem `/var/lib/machines` und Docker mit btrfs-Treiber, `compress=zstd:1`, zram | größer | nachts |
 | E5 | openSUSE Leap 15.6, btrfs mit Snapper nach `snapper rollback` (Wurzel = Snapshot N ≠ 1), Quota an, GRUB2 | gleich | nachts |
-| E6 | Debian 13, UEFI ohne Secure Boot, LVM thin, systemd-boot (selbst eingerichtet) | 4Kn-Platte | nachts |
+| E6 | Debian 13, UEFI ohne Secure Boot, LVM thin, systemd-boot (selbst eingerichtet, ohne Starteintrag) | 4Kn-Platte (SCSI); einmal zusätzlich mit leeren NVRAM-Variablen | nachts |
 | E6b | Arch Linux, systemd-boot mit UKI (mkinitcpio `default_uki`), ESP mit `x-systemd.automount` | NVMe statt virtio | nachts |
 | E7 | Debian 12, LUKS1 mit verschlüsseltem `/boot` (GRUB entsperrt, Eingabe über QMP `send-key`), BIOS + GPT + BIOS-Boot-Partition, Passphrase mit `z`, `y` und `-` | gleich | nachts |
 | E8 | Abbruch mitten im Restore und Fortsetzen; zweiter Code nach "Stromausfall" (QEMU hart beendet), `--overwrite always` | – | nachts |
@@ -5023,8 +5040,8 @@ Karte und i18n im Web.
     übernommenes VG), `mkfs` (`mkfs`, `mkswap`, `btrfs_subvolume`, `btrfs_default`, `mount` und
     `umount` der obersten btrfs-Ebene), `mount` (`mount`, `nocow` für `chattr +C` vor dem
     Restore), `restore` (`restore`), `post` (`mkdirs`, `swapfile`, `keyfile`, `fixup`,
-    `lvm_devices`, `initramfs`, `grub_config`, `bootloader_bios`, `nvram`, `fallback_path`,
-    `verify`).
+    `lvm_devices`, `initramfs`, `grub_config`, `bootloader_bios`, `nvram`, `nvram_added`,
+    `fallback_path`, `verify`).
   - `args[0]` ist ein Programm oder eine Operation, die `recover` selbst ausführt:
     `release-holders`, `wipe-partitions`, `blkzero`, `fixup`, `mkdirs`, `swapfile`, `nvram`,
     `fallback-path`,

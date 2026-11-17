@@ -509,8 +509,10 @@ func (v StandardVerifier) initramfs(ctx context.Context, x *Executor, r Rootfs) 
 // BootOrder, and its loader is on the ESP (with the backed-up Authenticode
 // hash when the backup has one; a loader the backup does not list is a
 // warning, because nothing proves its content); the fallback path the plan
-// set up exists. With no entry at all the system starts only over the
-// fallback path (a warning), and without that it does not start (failed).
+// set up exists. The entry the plan adds for a backup without one
+// (nvram_added) may be missing: the firmware may refuse it. With no entry at
+// all the system starts only over the fallback path (a warning), and
+// without that it does not start (failed).
 // BIOS: GRUB boot code in the MBR of every boot disk.
 func (v StandardVerifier) bootEntries(x *Executor, r Rootfs) *Check {
 	c := NewCheck(CheckBootEntries)

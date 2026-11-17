@@ -150,6 +150,10 @@ export const CASES = Object.freeze([
     },
     target: {
       firmware: "uefi",
+      // The source has no boot entry (bootctl --no-variables): the first boot proves the entry
+      // recover adds (the ISO's boot left OVMF's EFI shell ahead of the disk), the second one,
+      // with empty NVRAM variables, the fallback path on the 4Kn ESP.
+      alsoEmptyNvram: true,
       disks: [{ serial: "restow-e2e-target0", size: GiB(16), bus: "scsi", sectorSize: 4096 }],
     },
     answers: {},

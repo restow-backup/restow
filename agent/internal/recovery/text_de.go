@@ -375,6 +375,7 @@ var textDE = map[string]string{
 	"step.bootloader_bios": "BIOS-Startcode von GRUB auf {target} installieren",
 	"step.bootctl_install": "systemd-boot auf {target} installieren (nur wenn seine Dateien fehlen)",
 	"step.nvram":           "Starteintrag in der Firmware anlegen",
+	"step.nvram_added":     "Starteintrag für {target} in der Firmware anlegen (die Sicherung hat keinen)",
 	"step.fallback_path":   "Rückfallpfad \\EFI\\BOOT auf {target} einrichten",
 	"step.mok_import":      "Maschinenschlüssel {target} für das Eintragen beim ersten Start vormerken",
 	"step.selinux":         "SELinux-Kontexte der Wiederherstellung prüfen",

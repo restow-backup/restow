@@ -890,3 +890,72 @@ func TestPlanCrossNoPanic(t *testing.T) {
 		tgs = tgs[:len(targets)]
 	}
 }
+
+// TestPlanAddedBootEntry: a UEFI system whose backup has no boot entry
+// gets one for the loader its fallback path starts (10.15): the copy in its
+// own folder with the same hash (systemd-boot as "Linux Boot Manager", shim
+// under the vendor's name), else the fallback loader itself; none for a
+// system with entries or for a fallback path that starts Windows.
+func TestPlanAddedBootEntry(t *testing.T) {
+	added := func(m *Manifest) []Step {
+		t.Helper()
+		tg, c, err := SyntheticTarget(m, TargetSame, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, _ := Plan(m, tg, nil, c)
+		if !p.OK {
+			t.Fatalf("plan: %+v", p.Problems)
+		}
+		var out []Step
+		for _, s := range p.Steps {
+			switch s.Kind {
+			case "nvram_added":
+				out = append(out, s)
+			case "nvram":
+				if len(m.Linux.Firmware.Entries) == 0 {
+					t.Errorf("an nvram step without entries in the backup: %q", s.Args)
+				}
+			}
+		}
+		return out
+	}
+	want := func(name string, got []Step, label, partUUID, loader string) {
+		t.Helper()
+		if len(got) != 1 {
+			t.Fatalf("%s: %d added entries, want 1", name, len(got))
+		}
+		args := []string{"nvram", "--label", label, "--partuuid", partUUID, "--loader", loader}
+		if strings.Join(got[0].Args, "|") != strings.Join(args, "|") || deref(got[0].Target) != loader {
+			t.Errorf("%s: %q (target %s), want %q", name, got[0].Args, deref(got[0].Target), args)
+		}
+	}
+
+	want("systemd-boot", added(loadManifest(t, "lvm-thin")),
+		"Linux Boot Manager", "a9000000-0000-4000-8000-000000000001", `\EFI\systemd\systemd-bootx64.efi`)
+
+	m := loadManifest(t, "lvm-thin")
+	m.Linux.Loaders = m.Linux.Loaders[:1] // only \EFI\BOOT\BOOTX64.EFI
+	want("fallback only", added(m), "Debian GNU/Linux 13 (trixie)", "a9000000-0000-4000-8000-000000000001", `\EFI\BOOT\BOOTX64.EFI`)
+
+	m = loadManifest(t, "debian12-uefi-luks-lvm")
+	if got := added(m); len(got) != 0 {
+		t.Errorf("with entries in the backup: %q", got[0].Args)
+	}
+	part := m.Linux.Firmware.Entries[0].PartUUID
+	for _, e := range m.Linux.Firmware.Entries {
+		if e.PartUUID != nil {
+			part = e.PartUUID
+		}
+	}
+	m.Linux.Firmware.Entries = nil
+	want("shim", added(m), "debian", *part, `\EFI\debian\shimx64.efi`)
+
+	m = loadManifest(t, "lvm-thin")
+	win := m.Linux.Loaders[0]
+	win.Path = "/boot/efi/EFI/Microsoft/Boot/bootmgfw.efi"
+	m.Linux.Loaders = append(m.Linux.Loaders, win)
+	if got := added(m); len(got) != 0 {
+		t.Errorf("a fallback path that starts Windows: %q", got[0].Args)
+	}
+}

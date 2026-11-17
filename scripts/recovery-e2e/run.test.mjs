@@ -133,6 +133,12 @@ describe("cases", () => {
     assert.equal(byId("E6").target.disks[0].sectorSize, 4096);
   });
 
+  it("starts the restored systems without a boot entry in the source also with empty NVRAM", () => {
+    // E2 (grub-install --no-nvram) and E6 (bootctl --no-variables): recover adds the entry, the
+    // second boot proves the fallback path without it.
+    for (const id of ["E2", "E6"]) assert.equal(byId(id).target.alsoEmptyNvram, true, id);
+  });
+
   it("names every source disk where the target has fewer disks (docs/BAREMETAL.md 10.7)", () => {
     // The automatic mapping needs as many target disks as source disks; an unnamed source disk
     // stops the plan ("No target disk for d1", E8 in November 2026).

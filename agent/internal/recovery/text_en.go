@@ -381,6 +381,7 @@ var textEN = map[string]string{
 	"step.bootloader_bios": "Install the BIOS boot code of GRUB on {target}",
 	"step.bootctl_install": "Install systemd-boot on {target} (only if its files are missing)",
 	"step.nvram":           "Create the boot entry in the firmware",
+	"step.nvram_added":     "Create a boot entry for {target} in the firmware (the backup has none)",
 	"step.fallback_path":   "Set up the fallback boot path \\EFI\\BOOT on {target}",
 	"step.mok_import":      "Queue the machine owner key {target} for enrolment at the first start",
 	"step.selinux":         "Check the SELinux labels of the restore",

@@ -690,3 +690,31 @@ func TestExecuteAdoptCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestNvramAddedStep: the boot entry the plan adds for a backup without
+// one is written like the backup's entries; when the firmware refuses it the
+// run goes on (the fallback path stays, the check reports it), while an
+// entry of the backup that cannot be written stops the run.
+func TestNvramAddedStep(t *testing.T) {
+	args := []string{"nvram", "--label", "Linux Boot Manager", "--partuuid", "a9000000-0000-4000-8000-000000000001", "--loader", `\EFI\systemd\systemd-bootx64.efi`}
+	loader := `\EFI\systemd\systemd-bootx64.efi`
+	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	if err := h.x.step(context.Background(), &baremetal.Step{Kind: "nvram_added", Target: &loader, Args: args}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.x.report.BootEntries) != 1 || len(h.ops.ops) != 1 || h.ops.ops[0] != "nvram Linux Boot Manager a9000000-0000-4000-8000-000000000001 "+loader {
+		t.Errorf("entries %v, ops %q", h.x.report.BootEntries, h.ops.ops)
+	}
+
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.ops.fail = "nvram"
+	if err := h.x.step(context.Background(), &baremetal.Step{Kind: "nvram_added", Target: &loader, Args: args}); err != nil {
+		t.Errorf("a refused added entry stopped the run: %v", err)
+	}
+	if len(h.x.report.BootEntries) != 0 || !strings.Contains(strings.Join(h.log, "\n"), "starts over the fallback path") {
+		t.Errorf("entries %v, log %q", h.x.report.BootEntries, h.log)
+	}
+	if err := h.x.step(context.Background(), &baremetal.Step{Kind: "nvram", Args: args}); err == nil {
+		t.Error("a refused entry of the backup did not stop the run")
+	}
+}
