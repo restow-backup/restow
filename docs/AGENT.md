@@ -934,8 +934,10 @@ Kundennetz. In D1 heißt das:
   Minute), bis das Fenster endet (höchstens 10 Minuten) oder eine neuere Aufgabe sie ablöst, und
   schickt jede Prüfung sofort (`POST …/samples`). `dbprobe.Health` prüft mit `purpose: health`
   (Antwortzeit, Startzeit, Verbindungen, Identität, Größen auf Wunsch), mit dem bestätigten
-  Zertifikat (ein anderes beendet die Prüfung vor der Anmeldung, `db_tls_changed`) und einer
-  Frist von 10 Sekunden, nach der jede ihrer Verbindungen geschlossen wird. Eine abgebrochene
+  Zertifikat `pinnedFingerprintSha256` (ein anderes oder kein TLS beendet die Prüfung vor der
+  Anmeldung) im Rahmen jeder Prüfung (`Run`: Frist, höchstens 10 Sekunden, Lesebudget, alle
+  Verbindungen geschlossen, SQLite ohne Warten geöffnet). Die Aufgabe enthält nur Verbindungen,
+  die der Agent gerade ausführt; nach einem Umzug bekommt sie der neue Agent. Eine abgebrochene
   Prüfung wird nicht gemeldet; ins Log kommen nur Verbindung und Code.
 
 Vertrag: `agent/internal/api/testdata/contract/db-*.json`, `task-db-probe.json`,

@@ -705,10 +705,14 @@ E10 (alle Editionen) entschieden.
   (`pg_stat_activity` der Client-Backends, `Threads_connected`) gegen `max_connections`, die
   Identität der Instanz und höchstens stündlich die Größe je Datenbank. SQLite: der Dateikopf wie
   beim Test; SQL Server: die Antwort auf PRELOGIN (angemeldet wird ab D5). Jede Prüfung bekommt
-  das bestätigte Zertifikat mit; zeigt der Server ein anderes, endet sie nach dem TLS-Handshake
-  und **vor** der Anmeldung (`db_tls_changed`), es geht kein Zugangsdatum hinaus. Eine Frist von
-  10 Sekunden gilt für die ganze Prüfung und schließt danach jede Verbindung, die sie geöffnet hat
-  (`checkDatabaseHealthFromServer`, `dbprobe.Health`).
+  das bestätigte Zertifikat mit (`pinnedFingerprintSha256`); zeigt der Server ein anderes oder kein
+  TLS, endet sie nach dem TLS-Handshake und **vor** der Anmeldung (`db_tls_changed`,
+  `db_tls_missing`), es geht kein Zugangsdatum hinaus. Sie läuft im Rahmen der Prüfung aus D1
+  (`checkDatabaseHealthFromServer`, `dbprobe.Health` rufen nur diese auf): eine Frist von
+  10 Sekunden, nach der jede ihrer Verbindungen geschlossen ist, ein Lesebudget für alle
+  Verbindungen, jeder Wert beim Lesen gekürzt, auch bei den Größen; eine SQLite-Datei wird ohne
+  Warten und ohne Link geöffnet. Ein Healthcheck erneuert keine Freigabe und übernimmt kein
+  Zertifikat.
 - **Bewertung:** Der Server bewertet jede Prüfung wie einen Test (`judgeDbHealth`): gut nur mit
   Anmeldung und `SELECT 1`; eine andere Engine, Instanz oder ein anderes Zertifikat ist ein
   Fehlschlag mit dem Code des Tests und macht die Verbindung rot, bis ein Admin nach einem Test
@@ -717,7 +721,12 @@ E10 (alle Editionen) entschieden.
 - **Restow-Server als Ausführer:** ein Durchlauf je Minute in einem Worker der Installation
   (`apps/worker databases/health.ts`, Advisory Lock): jede eingeschaltete Verbindung, deren
   Intervall um ist, höchstens 200 je Durchlauf, 4 zugleich; Netzschutz wie beim Test (Adresse vor
-  dem Verbinden, geprüfte Namensauflösung, private Netze nur mit Schalter oder Freigabe).
+  dem Verbinden, geprüfte Namensauflösung): private Adressen nur mit dem Schalter der Installation
+  oder genau die Adressen der Freigabe (eine Freigabe ohne Adressen erreicht keine; der Worker ist
+  nie ein Provider-Admin), nie der Ort von Restows eigener Datenbank, aus den Datenbank-URLs des
+  Workers gelesen (@restow/core `databaseUrlTargets`). Ist dieser Ort nicht zu ermitteln, warten
+  die Prüfungen des Servers (keine Probe, die Erreichbarkeit wird "unbekannt"), statt
+  ungeschützt zu laufen.
 - **Agent als Ausführer:** Der Heartbeat gibt höchstens alle 4 Minuten eine gebündelte Aufgabe
   `db_health` für alle eingeschalteten Verbindungen des Agenten. Der Agent holt deren Prüfungen
   genau einmal mit den Zugangsdaten (`GET /agent/v1/databases/health/:taskId`), prüft jede
