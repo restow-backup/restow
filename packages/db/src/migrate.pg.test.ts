@@ -2516,12 +2516,13 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only 0102, 0103 (the log's key block mark) and 0104 (the boot probe) are left to apply.
+      // Only 0102, 0103 (the log's key block mark), 0104 (the boot probe) and what came after
+      // (0.6.0) are left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(105);
+      expect(Number(applied[0]?.count)).toBe(journal.entries.length);
       const { rows: column } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,

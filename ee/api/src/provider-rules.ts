@@ -56,6 +56,11 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
 
   // The cross-tenant provider API, reachable with a session too.
   "GET /api/v1/provider/billing": view(scope.provider),
+  // The closed billing months (0.6.0): read like the live figures; a correction changes what a
+  // customer is billed, so only an owner may enter one.
+  "GET /api/v1/provider/billing/periods": view(scope.provider),
+  "GET /api/v1/provider/billing/periods/:period": view(scope.provider),
+  "POST /api/v1/provider/billing/periods/:period/corrections": own(),
   "GET /api/v1/provider/tenants": view(scope.provider),
   "GET /api/v1/provider/users": view(scope.provider),
 };

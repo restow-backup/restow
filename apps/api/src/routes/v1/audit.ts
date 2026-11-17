@@ -14,6 +14,8 @@ export const V1_AUDIT_ACTIONS = {
   providerUsersRead: "api.provider.users.read",
   providerTenantsRead: "api.provider.tenants.read",
   providerBillingRead: "api.provider.billing.read",
+  // A closed month of the billing close (0.6.0, Service Provider).
+  providerBillingPeriodRead: "api.provider.billing.period.read",
   jobsRead: "api.jobs.read",
   jobRead: "api.job.read",
   jobEventsOpened: "api.job.events.opened",

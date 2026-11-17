@@ -8,6 +8,34 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Monthly billing close (Service Provider; integration API contract 1.11.0, additive): every
+  tenant's billed quantities (protected mailboxes, stored data, servers, clients, VMs,
+  containers, file shares) are sampled once a day, counted exactly like `GET /provider/billing`,
+  and each month is closed automatically on the 1st at 00:00 in the installation's time zone
+  (Installation › Server, else `RESTOW_TIME_ZONE`, `TZ`, Europe/Berlin). A closed month bills the
+  peak, the highest daily quantity of the month per tenant and line, at the prices in force at
+  the close, and never changes: the database refuses any update or deletion of it. Corrections
+  are separate entries next to the close. A server that was off on the 1st closes the missed
+  months on its next start; days on which it was off have no sample and are shown as such
+  (`sampledDays`). New endpoints: `GET /api/v1/provider/billing/periods` (the closed months and
+  when the open one closes), `GET /api/v1/provider/billing/periods/{YYYY-MM}` (the closed month
+  in the shape of `GET /provider/billing` plus the peak date of each line, the close time and
+  the corrections; `404 urn:restow:problem:billing-period-open` for the current month) and
+  `POST /api/v1/provider/billing/periods/{YYYY-MM}/corrections` with the new provider-only scope
+  `billing:write` ("Billing corrections" in the web UI). Audited: `billing.period.closed`
+  (installation chain), `billing.correction.created` and `api.provider.billing.period.read`
+  (each tenant's chain). Database migration 0106 adds the tables. The `billing.period_closed`
+  webhook is not part of this yet, as webhooks exist per tenant only.
+
+### Changed
+
+- The integration API contract moves from 1.10.0 to 1.11.0; every change is additive (new
+  endpoints and the scope `billing:write`).
+
 ## [0.5.0] - 2026-11-17
 
 Beta release. Run it alongside your existing backups, not as your only one, until

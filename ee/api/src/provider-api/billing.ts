@@ -20,8 +20,8 @@ import { timestampSchema, uuidSchema } from "../../../../apps/api/src/routes/v1/
  * tenant comes with its customer number (the key a billing tool matches its customer by) and one
  * line per priced quantity: quantity, unit, unit price, where the price comes from, amount.
  *
- * The figures are live, as of `generatedAt`. A fixed figure for an invoice (the month's close,
- * with a webhook) comes with 0.6.0; until then a tool reads on the day it bills.
+ * The figures are live, as of `generatedAt`. The fixed figure for an invoice is the month's close
+ * (0.6.0, ../billing-close and ./billing-periods.ts, GET /provider/billing/periods/{YYYY-MM}).
  */
 
 export const BILLING_LINE_TYPES = [

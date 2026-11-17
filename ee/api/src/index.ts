@@ -1,5 +1,6 @@
 import type { ApiExtension } from "../../../apps/api/src/extensions.js";
 import { auditLogRoutes } from "./audit-log/routes.js";
+import { billingCloseService } from "./billing-close/job.js";
 import { forwardingRoutes } from "./forwarding/routes.js";
 import { journalRoutes } from "./journal/routes.js";
 import { journalReceiverService } from "./journal/service.js";
@@ -39,7 +40,7 @@ export const eeApiExtension: ApiExtension = {
   integrationRoutes: [registerProviderRoutes],
   authRouteGuards: [microsoftSignInGuard],
   signInProviders: [microsoftSignInProvider],
-  services: [journalReceiverService, pendingLicenseKeyService],
+  services: [journalReceiverService, pendingLicenseKeyService, billingCloseService],
   hooks: {
     ...reportsExtensionHooks,
     providerDashboard: providerDashboardLoader,

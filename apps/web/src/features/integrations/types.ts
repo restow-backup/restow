@@ -19,6 +19,7 @@ export const API_SCOPES = [
   "users:read",
   "archive:read",
   "billing:read",
+  "billing:write",
   "restore:write",
   "verify:write",
   "users:write",

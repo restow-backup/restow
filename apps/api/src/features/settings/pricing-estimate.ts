@@ -243,8 +243,11 @@ export function estimateTenant(input: {
   };
 }
 
-/** The tenant's figures, inside its pinned transaction. */
-async function readFigures(db: Database, tenantId: string): Promise<TenantFigures> {
+/**
+ * The tenant's figures, inside its pinned transaction. Also the daily sample of the monthly
+ * billing close (0.6.0, ee/api billing-close), so the closed month counts exactly as the estimate.
+ */
+export async function readTenantFigures(db: Database, tenantId: string): Promise<TenantFigures> {
   return withTenantTx(db, tenantId, async (tx) => ({
     mailboxes: await countTenantMailboxes(tx, tenantId),
     storedBytes: await loadPhysicalBytes(tx, tenantId),
@@ -303,7 +306,7 @@ export async function loadPricingEstimate(
       return { row, overrides, figures: null, priced };
     }
     try {
-      const load = () => readFigures(db, row.id);
+      const load = () => readTenantFigures(db, row.id);
       return { row, overrides, figures: await (cache ? cache.get(row.id, load) : load()), priced };
     } catch (error) {
       console.error(

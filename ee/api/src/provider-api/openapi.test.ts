@@ -79,8 +79,11 @@ describe("the provider operations in the v1 OpenAPI document", () => {
       .filter((operation) => operation.includes("/provider/"));
     expect(documented.sort()).toEqual([
       "GET /provider/billing",
+      "GET /provider/billing/periods",
+      "GET /provider/billing/periods/{period}",
       "GET /provider/tenants",
       "GET /provider/users",
+      "POST /provider/billing/periods/{period}/corrections",
     ]);
   });
 
@@ -94,6 +97,15 @@ describe("the provider operations in the v1 OpenAPI document", () => {
     expect(billing.security).toEqual([{ apiKey: ["billing:read"] }]);
     expect(JSON.stringify(billing.parameters)).not.toContain("TenantHeader");
     expect(billing["x-restow-audited"]).toBe(true);
+    // The closed months (0.6.0): read with billing:read and audited per tenant; corrected
+    // with billing:write.
+    const period = paths["/provider/billing/periods/{period}"]?.get as JsonSchema;
+    expect(period.security).toEqual([{ apiKey: ["billing:read"] }]);
+    expect(period["x-restow-audited"]).toBe(true);
+    const periods = paths["/provider/billing/periods"]?.get as JsonSchema;
+    expect(periods.security).toEqual([{ apiKey: ["billing:read"] }]);
+    const correction = paths["/provider/billing/periods/{period}/corrections"]?.post as JsonSchema;
+    expect(correction.security).toEqual([{ apiKey: ["billing:write"] }]);
     // Reading contact persons (personal data) through the provider tenant list
     // is a read of user data and must be audited, same as /provider/users.
     const providerTenants = paths["/provider/tenants"]?.get as JsonSchema;

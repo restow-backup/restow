@@ -54,12 +54,15 @@ export const SCOPE_GROUPS: readonly { id: ScopeGroupId; scopes: readonly ApiScop
       "billing:read",
     ],
   },
-  { id: "act", scopes: ["restore:write", "verify:write", "users:write"] },
+  { id: "act", scopes: ["restore:write", "verify:write", "users:write", "billing:write"] },
   { id: "manage", scopes: ["webhooks:manage"] },
 ];
 
-/** Scopes only a provider key carries (they read across tenants; the server refuses them on a tenant key). */
-export const PROVIDER_ONLY_SCOPES: readonly ApiScope[] = ["billing:read"];
+/**
+ * Scopes only a provider key carries (they read across tenants or correct a closed billing month;
+ * the server refuses them on a tenant key).
+ */
+export const PROVIDER_ONLY_SCOPES: readonly ApiScope[] = ["billing:read", "billing:write"];
 
 /** The scope groups the create dialog offers for a key of `kind`. */
 export function scopeGroupsFor(

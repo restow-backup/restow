@@ -30,7 +30,7 @@ const ALL_SCOPES: ApiScope[] = [
 ];
 
 /** A provider key also reads the provider-only scopes (features/apikeys/scopes.ts). */
-const ALL_PROVIDER_SCOPES: ApiScope[] = [...ALL_SCOPES, "billing:read"];
+const ALL_PROVIDER_SCOPES: ApiScope[] = [...ALL_SCOPES, "billing:read", "billing:write"];
 
 /**
  * A key context as the middleware builds it. Display fields the middleware may

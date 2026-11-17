@@ -166,7 +166,8 @@
     "branding": "Branding",
     "provider_notifications": "Provider-Benachrichtigungen",
     "installation": "Installation",
-    "cluster": "Worker-Knoten"
+    "cluster": "Worker-Knoten",
+    "billing": "Abrechnung"
   },
   "events": {
     "account": {
@@ -197,7 +198,10 @@
       },
       "provider": {
         "billing": {
-          "read": "Abrechnungszahlen über die API gelesen"
+          "read": "Abrechnungszahlen über die API gelesen",
+          "period": {
+            "read": "Abgeschlossener Abrechnungsmonat über die API gelesen"
+          }
         },
         "tenants": {
           "read": "Ansprechpartner eines Mandanten über die API gelesen"
@@ -815,6 +819,14 @@
         "join_refused": "Beitritt eines Worker-Knotens abgelehnt",
         "removed": "Worker-Knoten entfernt"
       }
+    },
+    "billing": {
+      "period": {
+        "closed": "Abrechnungsmonat abgeschlossen"
+      },
+      "correction": {
+        "created": "Korrektur zu einem abgeschlossenen Abrechnungsmonat eingetragen"
+      }
     }
   },
   "targetTypes": {
@@ -873,7 +885,9 @@
     "notification_recipients": "Benachrichtigungsempfänger",
     "summary_report": "Zusammenfassung",
     "cluster_join_token": "Beitrittstoken",
-    "cluster_node": "Worker-Knoten"
+    "cluster_node": "Worker-Knoten",
+    "billing_period": "Abrechnungsmonat",
+    "billing_correction": "Abrechnungskorrektur"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {

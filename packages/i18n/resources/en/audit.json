@@ -166,7 +166,8 @@
     "branding": "Branding",
     "provider_notifications": "Provider notifications",
     "installation": "Installation",
-    "cluster": "Worker nodes"
+    "cluster": "Worker nodes",
+    "billing": "Billing"
   },
   "events": {
     "account": {
@@ -197,7 +198,10 @@
       },
       "provider": {
         "billing": {
-          "read": "Billing figures read via API"
+          "read": "Billing figures read via API",
+          "period": {
+            "read": "Closed billing month read via API"
+          }
         },
         "tenants": {
           "read": "Tenant contacts read via API"
@@ -815,6 +819,14 @@
         "join_refused": "Join of a worker node refused",
         "removed": "Worker node removed"
       }
+    },
+    "billing": {
+      "period": {
+        "closed": "Billing month closed"
+      },
+      "correction": {
+        "created": "Correction to a closed billing month entered"
+      }
     }
   },
   "targetTypes": {
@@ -873,7 +885,9 @@
     "notification_recipients": "Notification recipients",
     "summary_report": "Summary report",
     "cluster_join_token": "Join token",
-    "cluster_node": "Worker node"
+    "cluster_node": "Worker node",
+    "billing_period": "Billing month",
+    "billing_correction": "Billing correction"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {
