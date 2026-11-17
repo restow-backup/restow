@@ -105,6 +105,49 @@ export const dbSqliteFactsSchema = z.object({
 });
 export type DbSqliteFacts = z.infer<typeof dbSqliteFactsSchema>;
 
+/**
+ * What a health check found besides the sign-in (docs/DATABASES.md 8): the response time
+ * (connection, TLS, sign-in and `SELECT 1`), when the instance started, the connections in use
+ * against the limit, the identity of the instance and, at most once an hour, the size of each
+ * database. Only in a result of a spec with `purpose: "health"`; read-only, never a rights fact.
+ */
+export const dbHealthFactsSchema = z.object({
+  latencyMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(10 * 60 * 1000),
+  startedAt: optionalText(64),
+  connectionsUsed: z.number().int().min(0).nullable().catch(null),
+  connectionsMax: z.number().int().min(0).nullable().catch(null),
+  /** PostgreSQL: `system_identifier`; MySQL: `@@server_uuid`; MariaDB: `@@server_id`, `@@datadir`. */
+  systemIdentifier: z
+    .string()
+    .regex(/^\d{1,20}$/)
+    .nullable()
+    .catch(null),
+  serverUuid: optionalText(64),
+  serverId: z.number().int().min(0).nullable().catch(null),
+  datadir: optionalText(1024),
+  /** Read only when the spec asked for sizes; null otherwise. */
+  databases: z
+    .array(
+      z.object({
+        name: text(128),
+        /** PostgreSQL: the OID; null for MySQL and MariaDB schemas. */
+        oid: z
+          .string()
+          .regex(/^\d{1,10}$/)
+          .nullable()
+          .catch(null),
+        sizeBytes: z.number().int().min(0).nullable().catch(null),
+      }),
+    )
+    .max(DB_MAX_DATABASES)
+    .nullable(),
+});
+export type DbHealthFacts = z.infer<typeof dbHealthFactsSchema>;
+
 export const dbProbeErrorSchema = z.object({
   code: z.enum(DB_ERROR_CODES).catch("db_probe_failed"),
   message: z.string().max(2000).catch(""),
@@ -125,6 +168,7 @@ export const dbProbeResultSchema = z.object({
   mysql: dbMysqlFactsSchema.optional(),
   sqlserver: dbSqlServerFactsSchema.optional(),
   sqlite: dbSqliteFactsSchema.optional(),
+  health: dbHealthFactsSchema.optional(),
   durationMs: z
     .number()
     .int()
@@ -154,6 +198,22 @@ export const dbProbeSpecSchema = z.object({
   /** Without TLS only when the administrator ticked "connect unencrypted". */
   allowUnencrypted: z.boolean(),
   timeoutSeconds: z.number().int().min(1).max(120),
+  /**
+   * `probe` ("Test connection", 3.2): every fact of the rights matrix. `health` (8): the light
+   * health check of a stored connection. Absent: `probe` (an agent from D1).
+   */
+  purpose: z.enum(["probe", "health"]).optional(),
+  /**
+   * The confirmed certificate of a stored connection (3.2). An executor that sees another one
+   * after the TLS handshake stops before it sends the credentials (`db_tls_changed`).
+   */
+  tlsFingerprint: z
+    .string()
+    .regex(/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/)
+    .nullable()
+    .optional(),
+  /** Health checks: read the size of each database too (at most once an hour, 8). */
+  sizes: z.boolean().optional(),
 });
 export type DbProbeSpec = z.infer<typeof dbProbeSpecSchema>;
 

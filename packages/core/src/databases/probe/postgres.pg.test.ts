@@ -9,9 +9,11 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbProbeSpec } from "../facts.js";
+import { dbHealthIdentityOf, judgeDbHealth } from "../health.js";
 import { dbInstanceIdentityOf, dbInstanceKey } from "../identity.js";
 import { evaluateDbRights } from "../rights.js";
 import { DbConn } from "./conn.js";
+import { checkDatabaseHealthFromServer } from "./health-check.js";
 import { PG_SSL_REQUEST, pgQuery, pgSignIn, pgTerminate } from "./postgres.js";
 import { probeDatabaseFromServer } from "./probe.js";
 
@@ -141,5 +143,55 @@ describe.skipIf(!adminUrl)("probe against a real PostgreSQL 16", () => {
     });
     expect(result.error?.code).toBe("db_private_network");
     expect(result.engine).toBeNull();
+  });
+
+  it("checks the health with the confirmed certificate, sizes only when asked [DB-004]", async () => {
+    const first = await probeDatabaseFromServer(spec({ port }), loopback);
+    const fingerprint = first.tls.fingerprintSha256;
+    const check = (tlsFingerprint: string | null, sizes = false) =>
+      checkDatabaseHealthFromServer(
+        {
+          engine: "postgresql",
+          host,
+          port,
+          database: null,
+          user: ROLE,
+          password: PASSWORD,
+          allowUnencrypted: false,
+          tlsFingerprint,
+          sizes,
+        },
+        loopback,
+      );
+    const health = await check(fingerprint);
+    expect(health).toMatchObject({ engine: "postgresql", login: "ok", error: null });
+    expect(health.postgresql).toBeUndefined();
+    expect(health.health).toMatchObject({ systemIdentifier, databases: null });
+    expect(health.health?.connectionsUsed).toBeGreaterThanOrEqual(1);
+    expect(health.health?.connectionsMax).toBeGreaterThan(0);
+    expect(Date.parse(health.health?.startedAt ?? "")).toBeLessThan(Date.now());
+    const identity = dbHealthIdentityOf(health);
+    expect(identity && dbInstanceKey(identity)).toBe(`postgresql:${systemIdentifier}`);
+    const judged = judgeDbHealth(health, {
+      engine: "postgresql",
+      instanceKey: `postgresql:${systemIdentifier}`,
+      tlsFingerprint: fingerprint,
+    });
+    expect(judged).toMatchObject({ ok: true, errorCode: null, tlsFingerprint: fingerprint });
+
+    const sized = await check(fingerprint, true);
+    expect(sized.health?.databases?.some((database) => database.name === "postgres")).toBe(true);
+
+    // Another certificate than the confirmed one: no sign-in, so the password never left.
+    const other = `${"0F:".repeat(31)}0F`;
+    const refused = await check(other);
+    expect(refused).toMatchObject({ login: "skipped", error: { code: "db_tls_changed" } });
+    expect(
+      judgeDbHealth(refused, {
+        engine: "postgresql",
+        instanceKey: `postgresql:${systemIdentifier}`,
+        tlsFingerprint: other,
+      }),
+    ).toMatchObject({ ok: false, errorCode: "db_tls_changed" });
   });
 });

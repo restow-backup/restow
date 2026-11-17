@@ -1223,6 +1223,22 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: Logik (Einheitentests der Regel und des Sockets) und echtes System (PostgreSQL 16, Job test in ci.yml: Freigabe des Provider-Admins beim Speichern, auditiert)
 - Stand: belegt
 
+### DB-004
+- Aussage: Der Healthcheck einer gespeicherten Verbindung sendet die Zugangsdaten nur an das bestätigte TLS-Zertifikat: Zeigt der Server ein anderes, endet die Prüfung nach dem TLS-Handshake und vor der Anmeldung (`db_tls_changed`). Jede Prüfung des Restow-Servers läuft unter dem Netzschutz (Adresse vor dem Verbinden, Namensauflösung über die geprüfte Suche) und endet nach spätestens 10 Sekunden mit allen Sockets.
+- Fundstelle: docs/DATABASES.md (Abschnitt 8 "Healthchecks und Verlauf", Abschnitt 3.2 "TLS", Abschnitt 4.2, Abschnitt 16 "D2")
+- Öffentliche Seite: nicht abgeglichen
+- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, packages/core/src/databases/probe/health-check.test.ts
+- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml; MariaDB als Simulator, der festhält, ob eine Anmeldung ankam)
+- Stand: belegt
+
+### DB-005
+- Aussage: Drei fehlgeschlagene Healthchecks einer Datenbankverbindung in Folge lösen `database.unreachable` einmal je Episode aus, der erste erfolgreiche danach `database.reachable`; eine Verbindung, die nur ab und zu ausfällt, löst nichts aus.
+- Fundstelle: docs/DATABASES.md (Abschnitt 2.4 "Bewertung und Alarme", Abschnitt 8)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: packages/core/src/databases/health.test.ts
+- Belegt gegen: Logik (Einheitentest der Episode)
+- Stand: belegt
+
 ## Prüfungen gegen echte Systeme, die es gibt, die aber in der Pipeline nicht laufen
 
 Diese Prüfungen stehen im Repository und würden mehrere Aussagen gegen das echte System

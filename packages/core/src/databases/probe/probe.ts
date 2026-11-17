@@ -17,6 +17,7 @@ import {
   type MysqlGreeting,
   MysqlServerError,
   mysqlFacts,
+  mysqlHealth,
   mysqlOffersTls,
   mysqlQuit,
   mysqlReadGreeting,
@@ -30,6 +31,7 @@ import {
   PG_SSL_REQUEST,
   PgServerError,
   pgFacts,
+  pgHealth,
   pgShortVersion,
   pgSignIn,
   pgTerminate,
@@ -214,6 +216,20 @@ function tlsMissing(): ProbeFailure {
   );
 }
 
+/**
+ * A stored connection's certificate (3.2): after the TLS handshake and before a credential is
+ * sent, another certificate ends the probe (`db_tls_changed`). The facts keep what was seen.
+ */
+function assertPinnedCertificate(conn: DbConn, spec: DbProbeSpec): void {
+  const pinned = spec.tlsFingerprint ?? null;
+  if (pinned && conn.tls.fingerprintSha256 !== pinned) {
+    throw new ProbeFailure(
+      "db_tls_changed",
+      "The server shows another TLS certificate than the one confirmed; no credentials were sent.",
+    );
+  }
+}
+
 /** Run one probe from the Restow server. Never throws: every failure is part of the result. */
 export async function probeDatabaseFromServer(
   spec: DbProbeSpec,
@@ -341,6 +357,7 @@ export async function probeDatabaseFromServer(
       if (tlsOffered) {
         await conn.startTls(isIP(host) === 0 ? host : null);
         result.tls = { offered: true, ...conn.tls };
+        assertPinnedCertificate(conn, spec);
       } else if (!plaintextAllowed(conn, spec)) {
         conn.close();
         return finish(tlsMissing());
@@ -358,9 +375,19 @@ export async function probeDatabaseFromServer(
           if (index > 0) {
             // The first database does not exist: a new connection for the next one.
             current = await reopenPostgres(open, detected.port, host, tlsOffered);
+            assertPinnedCertificate(current, spec);
           }
           session = await pgSignIn(current, user, spec.password, database);
           result.login = "ok";
+          if (spec.purpose === "health") {
+            const health = await pgHealth(session, started, spec.sizes === true);
+            result.health = health.facts;
+            result.serverVersion =
+              pgShortVersion(health.version) ?? session.parameters.get("server_version") ?? null;
+            pgTerminate(session);
+            current.close();
+            return finish(null);
+          }
           const facts = await pgFacts(session);
           result.postgresql = facts;
           result.serverVersion =
@@ -402,12 +429,24 @@ export async function probeDatabaseFromServer(
       user,
       password: spec.password,
       database: spec.database,
-      startTls: offered ? () => conn.startTls(isIP(host) === 0 ? host : null) : null,
+      startTls: offered
+        ? async () => {
+            await conn.startTls(isIP(host) === 0 ? host : null);
+            result.tls = { offered: true, ...conn.tls };
+            assertPinnedCertificate(conn, spec);
+          }
+        : null,
     });
     if (offered) {
       result.tls = { offered: true, ...conn.tls };
     }
     result.login = "ok";
+    if (spec.purpose === "health") {
+      result.health = await mysqlHealth(session, started, spec.sizes === true);
+      mysqlQuit(session);
+      conn.close();
+      return finish(null);
+    }
     result.mysql = await mysqlFacts(session);
     mysqlQuit(session);
     conn.close();

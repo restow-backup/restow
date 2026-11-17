@@ -274,6 +274,18 @@ function startMysql(fake: FakeMysql): Promise<number> {
           fake.serverUuid === null
             ? [mysqlError(1193, "Unknown system variable 'server_uuid'")]
             : resultSet([[fake.serverUuid]], 1);
+      } else if (sql === "SELECT 1") {
+        answer = resultSet([["1"]], 1);
+      } else if (sql === "SELECT @@max_connections, @@server_id, @@datadir") {
+        answer = resultSet([["151", "7", "/var/lib/mysql/"]], 3);
+      } else if (sql.startsWith("SHOW GLOBAL STATUS")) {
+        answer = resultSet(
+          [
+            ["Threads_connected", "4"],
+            ["Uptime", "3600"],
+          ],
+          2,
+        );
       } else if (sql === "SELECT @@log_bin") {
         answer = resultSet([["1"]], 1);
       } else if (sql === "SELECT @@binlog_format") {
@@ -520,6 +532,77 @@ describe("the server executor's network protection [DB-003]", () => {
       (await probeDatabaseFromServer(spec({ authMethod: "socket", port: 1 }), allowLoopback)).error
         ?.code,
     ).toBe("db_auth_unsupported");
+  });
+});
+
+describe("the health check of a stored connection (docs/DATABASES.md 8) [DB-004]", () => {
+  const maria: FakeMysql = {
+    version: "5.5.5-11.4.4-MariaDB",
+    password: "s3cret-pass",
+    plugin: "mysql_native_password",
+    ssl: true,
+    grants: [],
+    serverUuid: null,
+  };
+
+  it("reads response time, start, connections and identity, sizes only when asked", async () => {
+    const fake = { ...maria };
+    const port = await startMysql(fake);
+    const result = await probeDatabaseFromServer(
+      spec({ port, engine: "mariadb", purpose: "health" }),
+      allowLoopback,
+    );
+    expect(result.error).toBeNull();
+    expect(result).toMatchObject({ engine: "mariadb", login: "ok", serverVersion: "11.4.4" });
+    expect(result.mysql).toBeUndefined();
+    expect(result.health).toMatchObject({
+      connectionsUsed: 4,
+      connectionsMax: 151,
+      serverId: 7,
+      datadir: "/var/lib/mysql/",
+      databases: null,
+    });
+    expect(result.health?.latencyMs).toBeGreaterThanOrEqual(0);
+    const started = Date.parse(result.health?.startedAt ?? "");
+    expect(Math.abs(Date.now() - 3600_000 - started)).toBeLessThan(60_000);
+
+    const sized = await probeDatabaseFromServer(
+      spec({ port, engine: "mariadb", purpose: "health", sizes: true }),
+      allowLoopback,
+    );
+    expect(sized.health?.databases).toEqual([
+      { name: "app", oid: null, sizeBytes: 16384 },
+      { name: "information_schema", oid: null, sizeBytes: null },
+      { name: "mysql", oid: null, sizeBytes: 2048 },
+      { name: "shop", oid: null, sizeBytes: null },
+    ]);
+  });
+
+  it("stops before the credentials when the certificate is not the confirmed one", async () => {
+    const fake = { ...maria };
+    const port = await startMysql(fake);
+    const other = `${"AB:".repeat(31)}AB`;
+    const result = await probeDatabaseFromServer(
+      spec({ port, engine: "mariadb", purpose: "health", tlsFingerprint: other }),
+      allowLoopback,
+    );
+    expect(result.error?.code).toBe("db_tls_changed");
+    expect(result.login).toBe("skipped");
+    // The TLS session was opened, but no handshake response with the user ever reached it.
+    expect(fake.seen).toBeUndefined();
+    expect(result.tls.fingerprintSha256).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+    expect(result.tls.fingerprintSha256).not.toBe(other);
+
+    const pinned = await probeDatabaseFromServer(
+      spec({
+        port,
+        engine: "mariadb",
+        purpose: "health",
+        tlsFingerprint: result.tls.fingerprintSha256,
+      }),
+      allowLoopback,
+    );
+    expect(pinned).toMatchObject({ login: "ok", error: null });
   });
 });
 

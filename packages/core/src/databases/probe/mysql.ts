@@ -1,5 +1,5 @@
 import { constants, createHash, publicEncrypt } from "node:crypto";
-import type { DbMysqlFacts } from "../facts.js";
+import type { DbHealthFacts, DbMysqlFacts } from "../facts.js";
 import { DB_MAX_DATABASES } from "../model.js";
 import { redactIdentifiedBy } from "../sanitize.js";
 import type { DbConn } from "./conn.js";
@@ -487,5 +487,56 @@ export async function mysqlFacts(session: MysqlSession): Promise<DbMysqlFacts> {
       sizeBytes:
         row[1] !== null && row[1] !== undefined && /^\d+$/.test(row[1]) ? Number(row[1]) : null,
     })),
+  };
+}
+
+const count = (value: string | null | undefined): number | null =>
+  value && /^\d{1,18}$/.test(value) ? Number(value) : null;
+
+/**
+ * The health check (docs/DATABASES.md 8), read-only: `SELECT 1` ends the response time (counted
+ * from `started`), then `Uptime` and `Threads_connected` against `max_connections`, the identity
+ * of the instance and, when asked, the size of every schema.
+ */
+export async function mysqlHealth(
+  session: MysqlSession,
+  started: number,
+  sizes: boolean,
+): Promise<DbHealthFacts> {
+  await mysqlQuery(session, "SELECT 1");
+  const latencyMs = Math.max(0, Date.now() - started);
+  const [head] = await mysqlQuery(session, "SELECT @@max_connections, @@server_id, @@datadir");
+  const serverUuid = await optionalValue(session, "SELECT @@server_uuid");
+  const status = new Map<string, string | null>();
+  for (const row of await mysqlQuery(
+    session,
+    "SHOW GLOBAL STATUS WHERE Variable_name IN ('Uptime', 'Threads_connected')",
+  )) {
+    status.set((row[0] ?? "").toLowerCase(), row[1] ?? null);
+  }
+  const uptime = count(status.get("uptime"));
+  const serverId = count(head?.[1]);
+  const schemas = sizes
+    ? await mysqlQuery(
+        session,
+        `SELECT s.SCHEMA_NAME, (SELECT SUM(t.DATA_LENGTH + t.INDEX_LENGTH) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA = s.SCHEMA_NAME) FROM information_schema.SCHEMATA s ORDER BY s.SCHEMA_NAME LIMIT ${DB_MAX_DATABASES}`,
+      )
+    : null;
+  return {
+    latencyMs,
+    // Whole seconds: a start time that moves by a second or two is no restart.
+    startedAt: uptime !== null ? new Date(Date.now() - uptime * 1000).toISOString() : null,
+    connectionsUsed: count(status.get("threads_connected")),
+    connectionsMax: count(head?.[0]),
+    systemIdentifier: null,
+    serverUuid: serverUuid && serverUuid.length <= 64 ? serverUuid : null,
+    serverId,
+    datadir: head?.[2]?.slice(0, 1024) ?? null,
+    databases:
+      schemas?.map((row) => ({
+        name: (row[0] ?? "").slice(0, 128),
+        oid: null,
+        sizeBytes: count(row[1]),
+      })) ?? null,
   };
 }

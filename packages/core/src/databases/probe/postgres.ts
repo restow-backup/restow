@@ -1,5 +1,5 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
-import type { DbPostgresFacts } from "../facts.js";
+import type { DbHealthFacts, DbPostgresFacts } from "../facts.js";
 import { DB_MAX_DATABASES } from "../model.js";
 import type { DbConn } from "./conn.js";
 
@@ -315,6 +315,54 @@ export async function pgFacts(session: PgSession): Promise<DbPostgresFacts> {
       canConnect: bool(row[3]),
       sizeBytes: row[4] ? Number(row[4]) : null,
     })),
+  };
+}
+
+const count = (value: string | null | undefined): number | null =>
+  value && /^\d{1,10}$/.test(value) ? Number(value) : null;
+
+/**
+ * The health check (docs/DATABASES.md 8), read-only: `SELECT 1` ends the response time (counted
+ * from `started`, the start of the check), then the start time of the postmaster, the client
+ * connections against `max_connections`, the cluster's identity and, when asked, the size of
+ * every database the user may connect to.
+ */
+export async function pgHealth(
+  session: PgSession,
+  started: number,
+  sizes: boolean,
+): Promise<{ facts: DbHealthFacts; version: string }> {
+  await pgQuery(session, "SELECT 1");
+  const latencyMs = Math.max(0, Date.now() - started);
+  const [head] = await pgQuery(
+    session,
+    "SELECT version(), extract(epoch FROM pg_postmaster_start_time())::bigint::text, (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend')::text, current_setting('max_connections'), (SELECT system_identifier::text FROM pg_control_system())",
+  );
+  const epoch = count(head?.[1]);
+  const databases = sizes
+    ? await pgQuery(
+        session,
+        `SELECT d.oid::text, d.datname, pg_database_size(d.oid)::text FROM pg_database d WHERE NOT d.datistemplate AND d.datallowconn AND has_database_privilege(d.oid, 'CONNECT') ORDER BY d.datname LIMIT ${DB_MAX_DATABASES}`,
+      )
+    : null;
+  return {
+    version: (head?.[0] ?? "").slice(0, 512),
+    facts: {
+      latencyMs,
+      startedAt: epoch !== null ? new Date(epoch * 1000).toISOString() : null,
+      connectionsUsed: count(head?.[2]),
+      connectionsMax: count(head?.[3]),
+      systemIdentifier: head?.[4] && /^\d{1,20}$/.test(head[4]) ? head[4] : null,
+      serverUuid: null,
+      serverId: null,
+      datadir: null,
+      databases:
+        databases?.map((row) => ({
+          oid: row[0] && /^\d{1,10}$/.test(row[0]) ? row[0] : null,
+          name: (row[1] ?? "").slice(0, 128),
+          sizeBytes: row[2] && /^\d+$/.test(row[2]) ? Number(row[2]) : null,
+        })) ?? null,
+    },
   };
 }
 
