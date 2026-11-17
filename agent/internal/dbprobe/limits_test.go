@@ -29,6 +29,7 @@ import (
 type fakePG struct {
 	ssl      func(index int) byte
 	cert     tls.Certificate
+	certFor  func(index int) tls.Certificate
 	startup  func(c net.Conn, index int)
 	message  func(c net.Conn, typ byte, body []byte, index int)
 	startups atomic.Int32
@@ -75,7 +76,11 @@ func (f *fakePG) serve(raw net.Conn, index int) {
 		return
 	}
 	if answer == 'S' {
-		tc := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{f.cert}, MinVersion: tls.VersionTLS12})
+		cert := f.cert
+		if f.certFor != nil {
+			cert = f.certFor(index)
+		}
+		tc := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		if err := tc.Handshake(); err != nil {
 			return
 		}
@@ -136,7 +141,7 @@ func pgSpec(port int) api.DBProbeSpec {
 	return s
 }
 
-func fingerprintOf(cert tls.Certificate) string {
+func certFingerprint(cert tls.Certificate) string {
 	sum := sha256.Sum256(cert.Certificate[0])
 	parts := make([]string, len(sum))
 	for i, b := range sum {
@@ -274,17 +279,17 @@ func TestConfirmedCertificateBeforeTheSignIn(t *testing.T) {
 	if code(r) != CodeTLSChanged || f.startups.Load() != 0 {
 		t.Fatalf("result %+v startups=%d", r.Error, f.startups.Load())
 	}
-	if !r.TLS.Used || deref(r.TLS.FingerprintSHA256) != fingerprintOf(cert) {
+	if !r.TLS.Used || deref(r.TLS.FingerprintSHA256) != certFingerprint(cert) {
 		t.Fatalf("tls %+v", r.TLS)
 	}
-	s.PinnedFingerprintSHA256 = sp(fingerprintOf(cert))
+	s.PinnedFingerprintSHA256 = sp(certFingerprint(cert))
 	if r := Run(context.Background(), s, fast); code(r) != CodeLoginFailed || f.startups.Load() != 1 {
 		t.Fatalf("matching certificate: %+v startups=%d", r.Error, f.startups.Load())
 	}
 
 	plain := &fakePG{startup: func(c net.Conn, _ int) { _, _ = c.Write(authMsg(3, "")) }}
 	s = pgSpec(plain.listen(t))
-	s.PinnedFingerprintSHA256 = sp(fingerprintOf(cert))
+	s.PinnedFingerprintSHA256 = sp(certFingerprint(cert))
 	if r := Run(context.Background(), s, fast); code(r) != CodeTLSMissing || plain.startups.Load() != 0 {
 		t.Fatalf("no TLS: %+v startups=%d", r.Error, plain.startups.Load())
 	}
@@ -294,35 +299,6 @@ func TestConfirmedCertificateBeforeTheSignIn(t *testing.T) {
 	ms.PinnedFingerprintSHA256 = sp(strings.Repeat("AB:", 31) + "AB")
 	if r := Run(context.Background(), ms, fast); code(r) != CodeTLSChanged || m.sawUser != "" {
 		t.Fatalf("mysql: %+v user=%q", r.Error, m.sawUser)
-	}
-}
-
-func TestPasswordNeverWeakWithoutTheConfirmedCertificate(t *testing.T) {
-	got := make(chan byte, 4)
-	f := &fakePG{
-		startup: func(c net.Conn, _ int) { _, _ = c.Write(authMsg(3, "")) },
-		message: func(_ net.Conn, typ byte, _ []byte, _ int) { got <- typ },
-	}
-	port := f.listen(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	c, err := openConn(ctx, defaultDial, "tcp", addressOf("127.0.0.1", port), 2*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.close()
-	_ = c.write(pgSSLRequest)
-	if _, err := c.readFull(1); err != nil {
-		t.Fatal(err)
-	}
-	_, err = c.pgSignIn("restow_backup", sp("s3cret-pass"), "postgres", true)
-	if classify(err).code != CodeTLSChanged {
-		t.Fatalf("err %v", err)
-	}
-	select {
-	case typ := <-got:
-		t.Fatalf("the server received %q", typ)
-	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -376,5 +352,92 @@ func TestSocketPlacesAreNotWorldWritable(t *testing.T) {
 		if place == "/tmp" || strings.HasPrefix(place, "/tmp/") || strings.HasPrefix(place, "/var/tmp") {
 			t.Fatalf("socket place %q is writable by every user", place)
 		}
+	}
+}
+
+// openPG lets anyone in and answers every query with the given values (one column).
+func openPG(values func() [][]byte) *fakePG {
+	return &fakePG{
+		startup: func(c net.Conn, _ int) {
+			_, _ = c.Write(append(authMsg(0, ""), pgMessage('Z', []byte("I"))...))
+		},
+		message: func(c net.Conn, typ byte, _ []byte, _ int) {
+			if typ != 'Q' {
+				return
+			}
+			for _, v := range values() {
+				row := make([]byte, 6, 6+len(v))
+				binary.BigEndian.PutUint16(row, 1)
+				binary.BigEndian.PutUint32(row[2:], uint32(len(v)))
+				if _, err := c.Write(pgMessage('D', append(row, v...))); err != nil {
+					return
+				}
+			}
+			_, _ = c.Write(append(pgMessage('C', []byte("SELECT\x00")), pgMessage('Z', []byte("I"))...))
+		},
+	}
+}
+
+func TestProbeReadsAtMostItsBudget(t *testing.T) {
+	big := []byte(strings.Repeat("a", 900<<10))
+	f := openPG(func() [][]byte {
+		out := make([][]byte, 20)
+		for i := range out {
+			out[i] = big
+		}
+		return out
+	})
+	r := Run(context.Background(), pgSpec(f.listen(t)), fast)
+	if code(r) != CodeProbeFailed || r.PostgreSQL != nil {
+		t.Fatalf("result %+v", r.Error)
+	}
+}
+
+func TestLongValuesAreShortenedWhileRead(t *testing.T) {
+	f := openPG(func() [][]byte { return [][]byte{[]byte(strings.Repeat("b", 500<<10))} })
+	port := f.listen(t)
+	ctx, cancel := context.WithTimeout(withReadBudget(context.Background(), readBudgetBytes), 5*time.Second)
+	defer cancel()
+	c, err := openConn(ctx, defaultDial, "tcp", addressOf("127.0.0.1", port), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.close()
+	_ = c.write(pgSSLRequest)
+	if _, err := c.readFull(1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.pgSignIn("restow_backup", nil, "postgres"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := c.pgQuery("SELECT version()")
+	if err != nil || len(rows) != 1 || len(deref(rows[0][0])) != maxValueBytes {
+		t.Fatalf("rows %d err %v", len(rows), err)
+	}
+}
+
+func TestSecondConnectionShowsTheSameCertificate(t *testing.T) {
+	first, other := selfSigned(t), selfSigned(t)
+	f := &fakePG{
+		ssl: func(int) byte { return 'S' },
+		certFor: func(index int) tls.Certificate {
+			if index == 0 {
+				return first
+			}
+			return other
+		},
+		startup: func(c net.Conn, index int) {
+			if index == 0 {
+				_, _ = c.Write(errMsg("3D000", `database "app" does not exist`))
+				return
+			}
+			_, _ = c.Write(authMsg(3, ""))
+		},
+	}
+	s := pgSpec(f.listen(t))
+	s.Database = sp("app")
+	r := Run(context.Background(), s, fast)
+	if code(r) != CodeTLSChanged || f.startups.Load() != 1 {
+		t.Fatalf("result %+v startups=%d", r.Error, f.startups.Load())
 	}
 }

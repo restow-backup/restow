@@ -261,6 +261,13 @@ func tlsFacts(c *conn) api.DBTLSFacts {
 	return t
 }
 
+func fingerprintOf(c *conn) string {
+	if c.cert == nil {
+		return ""
+	}
+	return c.cert.fingerprint
+}
+
 // assertPinned stops before the sign-in when the connection has a confirmed
 // certificate and the server shows another one, or no TLS (3.2).
 func assertPinned(c *conn, spec api.DBProbeSpec) error {
@@ -275,13 +282,6 @@ func assertPinned(c *conn, spec api.DBProbeSpec) error {
 		return fail(CodeTLSChanged, "the server shows another TLS certificate than the one confirmed")
 	}
 	return nil
-}
-
-// weakAuthRefused: without the confirmed certificate the password never goes
-// out as it is or as MD5.
-func weakAuthRefused(c *conn, spec api.DBProbeSpec) bool {
-	pin := deref(spec.PinnedFingerprintSHA256)
-	return pin != "" && (c.cert == nil || c.cert.fingerprint != pin)
 }
 
 func serverName(host string) string {
@@ -304,8 +304,9 @@ func probeTimeout(spec api.DBProbeSpec) time.Duration {
 // result, with a message cleaned of the credentials.
 func Run(ctx context.Context, spec api.DBProbeSpec, o Options) api.DBProbeResult {
 	started := time.Now()
-	// One deadline for the whole probe; its end closes every connection it opened.
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout(spec))
+	// One deadline and one read budget for the whole probe; its end closes
+	// every connection it opened.
+	ctx, cancel := context.WithTimeout(withReadBudget(ctx, readBudgetBytes), probeTimeout(spec))
 	defer cancel()
 	res := api.DBProbeResult{TLS: emptyTLS(nil), Login: LoginSkipped}
 	err := run(ctx, spec, o, &res)
@@ -422,7 +423,7 @@ func run(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeR
 // reopenChecked opens a further connection to the same PostgreSQL with the
 // same checks as the first one: the same answer to the SSLRequest, TLS when it
 // was used, the confirmed certificate.
-func reopenChecked(reopen func() (*conn, byte, error), tlsOffered bool, host string, spec api.DBProbeSpec) (*conn, error) {
+func reopenChecked(reopen func() (*conn, byte, error), first *conn, tlsOffered bool, host string, spec api.DBProbeSpec) (*conn, error) {
 	next, answer, err := reopen()
 	if err != nil {
 		return nil, err
@@ -442,7 +443,14 @@ func reopenChecked(reopen func() (*conn, byte, error), tlsOffered bool, host str
 		case !plaintextAllowed(spec):
 			return fail(CodeTLSMissing, "the server offers no TLS; connect without TLS only when the connection allows it")
 		}
-		return assertPinned(next, spec)
+		if err := assertPinned(next, spec); err != nil {
+			return err
+		}
+		// Without a confirmed certificate: the same certificate as on the first connection.
+		if tlsOffered && fingerprintOf(next) != fingerprintOf(first) {
+			return fail(CodeTLSChanged, "the server showed another TLS certificate on its second connection")
+		}
+		return nil
 	}
 	if err := check(); err != nil {
 		next.close()
@@ -477,14 +485,14 @@ func postgresSession(c *conn, tlsOffered bool, host string, spec api.DBProbeSpec
 	current := c
 	for i, database := range databases {
 		if i > 0 {
-			next, err := reopenChecked(reopen, tlsOffered, host, spec)
+			next, err := reopenChecked(reopen, c, tlsOffered, host, spec)
 			if err != nil {
 				return err
 			}
 			defer next.close()
 			current = next
 		}
-		params, err := current.pgSignIn(user, spec.Password, database, weakAuthRefused(current, spec))
+		params, err := current.pgSignIn(user, spec.Password, database)
 		if err != nil {
 			var pe *pgError
 			if errors.As(err, &pe) && pe.SQLState == "3D000" {
@@ -626,7 +634,7 @@ func runSocket(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DB
 // socket of the spec's port and signs in as that user without a password.
 func RunPostgresPeer(ctx context.Context, spec api.DBProbeSpec, o Options, osUser string) api.DBProbeResult {
 	started := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout(spec))
+	ctx, cancel := context.WithTimeout(withReadBudget(ctx, readBudgetBytes), probeTimeout(spec))
 	defer cancel()
 	res := api.DBProbeResult{TLS: emptyTLS(boolp(false)), Login: LoginSkipped, Engine: str(EnginePostgreSQL)}
 	port := 5432

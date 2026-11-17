@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,6 +35,7 @@ type conn struct {
 	raw     net.Conn
 	r       *bufio.Reader
 	ctx     context.Context
+	budget  *readBudget
 	step    time.Duration
 	tlsUsed bool
 	cert    *certFacts
@@ -42,6 +44,24 @@ type conn struct {
 
 // maxRead is the largest single read of the probe (a message or a packet).
 const maxRead = 1 << 20
+
+// readBudgetBytes is what one probe reads at most, over all its connections.
+const readBudgetBytes = 8 << 20
+
+// maxValueBytes: a value of a row is kept up to this many bytes.
+const maxValueBytes = 4096
+
+// readBudget counts what the connections of one probe read.
+type readBudget struct{ left atomic.Int64 }
+
+type budgetKey struct{}
+
+// withReadBudget gives the probe's context a budget its connections share.
+func withReadBudget(ctx context.Context, bytes int64) context.Context {
+	b := &readBudget{}
+	b.left.Store(bytes)
+	return context.WithValue(ctx, budgetKey{}, b)
+}
 
 // errTooLarge: the server announced more data than the probe reads.
 var errTooLarge = errors.New("the server sent more data than the probe reads")
@@ -72,6 +92,7 @@ func openConn(ctx context.Context, dial dialer, network, address string, step ti
 		return nil, err
 	}
 	c := &conn{raw: raw, r: bufio.NewReader(raw), ctx: ctx, step: step}
+	c.budget, _ = ctx.Value(budgetKey{}).(*readBudget)
 	// The probe's end or deadline closes the connection (and wakes every read).
 	c.stop = context.AfterFunc(ctx, func() { _ = raw.Close() })
 	return c, nil
@@ -89,6 +110,9 @@ func (c *conn) deadline() {
 // readFull reads exactly n bytes within one step.
 func (c *conn) readFull(n int) ([]byte, error) {
 	if n < 0 || n > maxRead {
+		return nil, errTooLarge
+	}
+	if c.budget != nil && c.budget.left.Add(-int64(n)) < 0 {
 		return nil, errTooLarge
 	}
 	if err := c.ctx.Err(); err != nil {

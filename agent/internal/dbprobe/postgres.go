@@ -194,9 +194,7 @@ const (
 )
 
 // pgSignIn signs in after the SSLRequest (and TLS when the server offered it).
-// refuseWeak: the password may not go out as it is (cleartext) or as MD5,
-// because the connection lacks the confirmed certificate.
-func (c *conn) pgSignIn(user string, password *string, database string, refuseWeak bool) (map[string]string, error) {
+func (c *conn) pgSignIn(user string, password *string, database string) (map[string]string, error) {
 	if err := c.write(pgStartup(user, database)); err != nil {
 		return nil, err
 	}
@@ -248,9 +246,6 @@ func (c *conn) pgSignIn(user string, password *string, database string, refuseWe
 			}
 			if (state == pgStateStart && (code == 11 || code == 12)) || (state != pgStateStart && code != expected) {
 				return nil, &pgError{SQLState: "08P01", Message: fmt.Sprintf("unexpected authentication message %d during the sign-in", code)}
-			}
-			if (code == 3 || code == 5) && refuseWeak {
-				return nil, fail(CodeTLSChanged, "the server asks for the password in a weak form on a connection without the confirmed certificate")
 			}
 			var reply []byte
 			switch code {
@@ -359,7 +354,8 @@ func (c *conn) pgQuery(sql string) ([][]*string, error) {
 				if off+l > len(body) {
 					return nil, errors.New("short data row")
 				}
-				v := string(body[off : off+l])
+				// Only the beginning of a long value is kept, while the row is read.
+				v := string(body[off : off+min(l, maxValueBytes)])
 				off += l
 				row = append(row, &v)
 			}

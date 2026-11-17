@@ -486,7 +486,8 @@ func (p *packets) query(sql string) ([][]*string, error) {
 			if next+n > len(payload) {
 				return nil, errors.New("short row")
 			}
-			v := string(payload[next : next+n])
+			// Only the beginning of a long value is kept, while the row is read.
+			v := string(payload[next : next+min(n, maxValueBytes)])
 			row = append(row, &v)
 			off = next + n
 		}
