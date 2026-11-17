@@ -244,6 +244,9 @@ export const CASES = Object.freeze([
     eraseAlso: ["serial.e2e-src0"],
     // An adopted unit is named with its kind, as the planner reads it (mapping.go, unitDisks:
     // "md:<id|kname|name>", "vg:<name>", "luks:<id>", "fs:<id>"); a bare "md0" is unknown_adopt.
+    // md:md0 adopts the disks of the array and with them the VG and the file system on it,
+    // which the scan cannot see: recover checks them after assembling the array, before it
+    // erases anything (the adopt phase, docs/BAREMETAL.md 10.7).
     answers: { diskMapping: { d0: "serial.restow-e2e-target0" }, adopt: ["md:md0"] },
   },
   {

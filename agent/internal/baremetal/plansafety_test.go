@@ -1,6 +1,7 @@
 package baremetal
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -668,4 +669,98 @@ func minimumSizesOf(t *testing.T, m *Manifest) map[string]int64 {
 		out[f.FS] = f.MinBytes
 	}
 	return out
+}
+
+// TestAdoptInsideAfterAssembly (10.7, E9): the scan of the ISO reads the
+// disks and partitions with blkid -p and assembles nothing, so it sees the
+// md superblocks of a data RAID but not the PV on the array or the file
+// system on its LV. When the operator adopts the array, the plan adopts
+// the stack and checks those identities in the adopt phase, after the
+// array is assembled and before the first step that erases; the automatic
+// mapping does not adopt what it cannot see; a resumed plan keeps its
+// order.
+func TestAdoptInsideAfterAssembly(t *testing.T) {
+	m := loadManifest(t, "raid5-spare")
+	f := readFacts(t, "raid5-spare")
+	scan := func() *Target {
+		tg := adoptTarget(true)(t, m)
+		for i := range tg.Disks {
+			var seen []TargetSignature
+			for _, s := range tg.Disks[i].Signatures {
+				if s.Kind != "pv" && s.Kind != "fs" {
+					seen = append(seen, s)
+				}
+			}
+			tg.Disks[i].Signatures = seen
+		}
+		return tg
+	}
+	for name, c := range map[string]Choices{
+		"adopt":                {Adopt: []string{"md:" + m.Linux.MD[0].KName}},
+		"diskMapping adopt":    {DiskMapping: map[string]string{"d0": "t0", "d1": "adopt", "d2": "adopt", "d3": "adopt", "d4": "adopt"}},
+		"adopt the md by name": {DiskMapping: map[string]string{"d0": "t0"}, Adopt: []string{"md:" + deref(m.Linux.MD[0].Name)}},
+	} {
+		p, _ := Plan(m, scan(), f, c)
+		if !p.OK {
+			t.Fatalf("%s: %v", name, p.Problems)
+		}
+		var kinds []string
+		first := -1
+		for i, s := range p.Steps {
+			if s.Phase == "adopt" {
+				if first >= 0 {
+					t.Errorf("%s: step %d of the adopt phase after the first erasing step", name, s.N)
+				}
+				kinds = append(kinds, s.Kind+" "+strings.Join(s.Args, " "))
+			} else if first < 0 {
+				first = i
+			}
+		}
+		want := []string{
+			"md_assemble mdadm --assemble --uuid=" + m.Linux.MD[0].UUID + " /dev/md/data /dev/sda1 /dev/sdb1 /dev/sdc1 /dev/sdd1",
+			"adopt_check adopt-check pv " + m.Linux.LVM.PVs[0].UUID + " LVM2_member /dev/md/data",
+			"vg_activate vgchange --devices /dev/md/data -ay data",
+			"adopt_check adopt-check fs " + deref(m.Linux.Filesystems[2].UUID) + " xfs /dev/data/share",
+		}
+		if strings.Join(kinds, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s: adopt phase\n%s\nwant\n%s", name, strings.Join(kinds, "\n"), strings.Join(want, "\n"))
+		}
+		if p.Steps[first].Kind != "release_holders" {
+			t.Errorf("%s: the adopt phase is followed by %s", name, p.Steps[first].Kind)
+		}
+		for _, s := range p.Steps[first:] {
+			if s.Kind == "md_assemble" || s.Kind == "vg_activate" || s.Kind == "pv_create" || s.Kind == "md_create" {
+				t.Errorf("%s: %s again after the adopt phase", name, s.Kind)
+			}
+		}
+	}
+	// The automatic mapping: the disks carry the identities of the
+	// backup, but the PV and the file system cannot be seen.
+	p, _ := Plan(m, scan(), f, Choices{})
+	var reasons []string
+	for _, pr := range p.Problems {
+		if pr.Code == ProblemAdoptIncomplete {
+			reasons = append(reasons, fmt.Sprint(pr.Params["reason"]))
+		}
+	}
+	if p.OK || len(reasons) != 2 || !strings.Contains(reasons[0], "lies on md m0, which the scan does not open; adopt it explicitly") {
+		t.Errorf("automatic adoption: ok %v, %v", p.OK, reasons)
+	}
+	// A disk that is not on the target stays incomplete, chosen or not.
+	tg := scan()
+	tg.Disks = tg.Disks[:3]
+	if p, _ := Plan(m, tg, f, Choices{Adopt: []string{"md:" + m.Linux.MD[0].KName}}); p.OK || !hasFinding(p.Problems, ProblemAdoptIncomplete) {
+		t.Errorf("two of five members: ok %v, %v", p.OK, codes(p.Problems))
+	}
+	// A resumed plan: no adopt phase, the order of the first resume plan.
+	rp, _ := PlanWith(m, scan(), f, Choices{DiskMapping: map[string]string{"d0": "t0", "d1": "adopt", "d2": "adopt", "d3": "adopt", "d4": "adopt"}},
+		PlanOptions{Resume: ResumeClean})
+	for _, s := range rp.Steps {
+		if s.Phase == "adopt" {
+			t.Errorf("resumed plan with an adopt phase: step %d %s", s.N, s.Kind)
+		}
+	}
+	if len(stepsOf(rp, "md_assemble")) != 1 || len(stepsOf(rp, "vg_activate")) != 1 {
+		t.Errorf("resumed plan: %v", rp.Steps)
+	}
 }

@@ -67,6 +67,8 @@ type planner struct {
 	snapshot string
 	resume   string
 	probe    *ProbeOptions
+	// adoptFirst: the adopted parts come first, in the adopt phase.
+	adoptFirst bool
 
 	partSize   map[string]int64 // planned partition sizes (node key)
 	lvSize     map[string]int64 // planned LV sizes (vg/lv)
@@ -1011,6 +1013,15 @@ func (pl *planner) steps() {
 			erased = append(erased, d)
 		}
 	}
+	// adopt: the adopted parts are assembled, opened and activated before
+	// anything is erased, and what the scan could not see inside them is
+	// checked (adopt_check, 10.7); a part that does not match stops the
+	// run with every disk untouched. A resumed plan erases nothing and
+	// keeps its order (resumedPlan compares it with the first plan).
+	pl.adoptFirst = pl.resume == ""
+	if pl.adoptFirst {
+		pl.stackSteps(true)
+	}
 	// prepare
 	for _, d := range erased {
 		dev := pl.devPath(DiskRef(d.ID))
@@ -1036,7 +1047,7 @@ func (pl *planner) steps() {
 		pl.partitionSteps(d, pd)
 	}
 	// md, luks, lvm in dependency order
-	pl.stackSteps()
+	pl.stackSteps(false)
 	// mkfs
 	pl.mkfsSteps()
 	// mount and restore
@@ -1157,10 +1168,20 @@ func (pl *planner) lvmArgs(cmd string, vg string) []string {
 }
 
 // stackSteps creates (or assembles) md arrays, LUKS volumes and LVM in
-// the order their devices become available.
-func (pl *planner) stackSteps() {
+// the order their devices become available. With adopt it emits only the
+// adopted parts (phase adopt, each followed by the checks of what lies on
+// it); without, it leaves out what the adopt phase did.
+func (pl *planner) stackSteps(adopt bool) {
 	x := pl.x
 	mp := pl.mp
+	phase := func(p string) string {
+		if adopt {
+			return "adopt"
+		}
+		return p
+	}
+	// skip: the part belongs to the other pass.
+	skip := func(adopted bool) bool { return adopt && !adopted || !adopt && adopted && pl.adoptFirst }
 	ready := map[string]bool{}
 	for _, d := range pl.l.Disks {
 		if pl.present(DiskRef(d.ID)) {
@@ -1180,6 +1201,9 @@ func (pl *planner) stackSteps() {
 			if doneMD[md.ID] || !pl.present(MDRef(md.ID)) {
 				continue
 			}
+			if adopt && !mp.adopted[MDRef(md.ID).key()] {
+				continue
+			}
 			all := true
 			for _, mem := range md.Members {
 				if pl.present(mem.Device) && !ready[mem.Device.key()] {
@@ -1192,6 +1216,9 @@ func (pl *planner) stackSteps() {
 			doneMD[md.ID], progress = true, true
 			ready[MDRef(md.ID).key()] = true
 			dev := pl.devPath(MDRef(md.ID))
+			if skip(mp.adopted[MDRef(md.ID).key()]) {
+				continue
+			}
 			if mp.adopted[MDRef(md.ID).key()] || pl.resume != "" {
 				args := []string{"mdadm", "--assemble", "--uuid=" + md.UUID, dev}
 				for _, mem := range md.Members {
@@ -1206,7 +1233,10 @@ func (pl *planner) stackSteps() {
 				if !mp.adopted[MDRef(md.ID).key()] {
 					reason = "assemble the array " + md.KName + " the first run created"
 				}
-				pl.step("md", "md_assemble", dev, args, nil, "", reason)
+				pl.step(phase("md"), "md_assemble", dev, args, nil, "", reason)
+				if adopt {
+					pl.adoptCheck(MDRef(md.ID))
+				}
 				continue
 			}
 			args := []string{"mdadm", "--create", dev, "--run", "--level=" + md.Level, "--raid-devices=" + itoa(md.RaidDevices),
@@ -1264,12 +1294,21 @@ func (pl *planner) stackSteps() {
 			if doneLUKS[c.ID] || !ready[c.Device.key()] {
 				continue
 			}
+			if adopt && !mp.adopted[LUKSRef(c.ID).key()] {
+				continue
+			}
 			doneLUKS[c.ID], progress = true, true
 			ready[LUKSRef(c.ID).key()] = true
 			dev := pl.devPath(c.Device)
 			name := luksName(c)
+			if skip(mp.adopted[LUKSRef(c.ID).key()]) {
+				continue
+			}
 			if mp.adopted[LUKSRef(c.ID).key()] {
-				pl.step("luks", "luks_open", dev, []string{"cryptsetup", "open", "--key-file", "-", dev, name}, nil, "old_passphrase", "open the adopted LUKS volume "+c.ID+" with its old passphrase")
+				pl.step(phase("luks"), "luks_open", dev, []string{"cryptsetup", "open", "--key-file", "-", dev, name}, nil, "old_passphrase", "open the adopted LUKS volume "+c.ID+" with its old passphrase")
+				if adopt {
+					pl.adoptCheck(LUKSRef(c.ID))
+				}
 				continue
 			}
 			if pl.resume != "" {
@@ -1324,17 +1363,38 @@ func (pl *planner) stackSteps() {
 			if !all {
 				continue
 			}
+			adopted := len(vg.LVs) > 0 && mp.adopted[LVRef(vg.Name, vg.LVs[0].Name).key()]
+			if adopt && !adopted {
+				continue
+			}
 			doneVG[vg.Name], progress = true, true
 			for _, lv := range vg.LVs {
 				ready[LVRef(vg.Name, lv.Name).key()] = true
 			}
-			if adopted := len(vg.LVs) > 0 && mp.adopted[LVRef(vg.Name, vg.LVs[0].Name).key()]; adopted || pl.resume != "" {
+			if skip(adopted) {
+				continue
+			}
+			if adopted || pl.resume != "" {
 				args := append(pl.lvmArgs("vgchange", vg.Name), "-ay", vg.Name)
+				if adopt {
+					// Before the partitions of the plan exist: only the
+					// volume group's own physical volumes.
+					var devs []string
+					for _, pv := range pvs {
+						devs = append(devs, pl.devPath(pv.Device))
+					}
+					args[2] = strings.Join(uniqueSorted(devs), ",")
+				}
 				reason := "activate the adopted volume group " + vg.Name + "; nothing on it is erased"
 				if !adopted {
 					reason = "activate the volume group " + vg.Name + " the first run created"
 				}
-				pl.step("lvm", "vg_activate", vg.Name, args, nil, "", reason)
+				pl.step(phase("lvm"), "vg_activate", vg.Name, args, nil, "", reason)
+				if adopt {
+					for _, lv := range vg.LVs {
+						pl.adoptCheck(LVRef(vg.Name, lv.Name))
+					}
+				}
 				continue
 			}
 			var devs []string
@@ -1419,6 +1479,34 @@ func (pl *planner) stackSteps() {
 			break
 		}
 	}
+}
+
+// adoptCheck checks, in the adopt phase, that the adopted device r carries
+// what the manifest has on it (blkid -p: type and UUID). The scan cannot
+// see inside an array, a LUKS mapping or an LV; a mismatch stops the run
+// before anything is erased.
+func (pl *planner) adoptCheck(r BlockRef) {
+	kind, v := pl.x.contentOf(r.key())
+	var what, uuid, typ string
+	switch kind {
+	case contentFS, contentBtrfs:
+		fs := v.(*Filesystem)
+		what, uuid, typ = "fs", deref(fs.UUID), fs.Type
+	case contentLUKS:
+		what, uuid, typ = "luks", v.(*LUKSVolume).UUID, "crypto_LUKS"
+	case contentPV:
+		what, uuid, typ = "pv", v.(*PV).UUID, "LVM2_member"
+	case contentMD:
+		what, uuid, typ = "md", v.(*MDArray).UUID, "linux_raid_member"
+	default:
+		return
+	}
+	if uuid == "" || typ == "" {
+		return
+	}
+	dev := pl.devPath(r)
+	pl.step("adopt", "adopt_check", dev, []string{"adopt-check", what, uuid, typ, dev}, nil, "",
+		"check that the adopted "+dev+" carries "+what+" "+uuid+" ("+typ+") of the backup, before anything is erased")
 }
 
 // mkfsSteps creates the file systems, swap areas and btrfs subvolumes.

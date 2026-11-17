@@ -190,11 +190,78 @@
   "steps": [
     {
       "args": [
+        "mdadm",
+        "--assemble",
+        "--uuid=c8000000:00004000:80000000:00000127",
+        "/dev/md/data",
+        "/dev/sda1",
+        "/dev/sdb1",
+        "/dev/sdc1",
+        "/dev/sdd1"
+      ],
+      "kind": "md_assemble",
+      "n": 1,
+      "phase": "adopt",
+      "reason": "assemble the adopted array md127; nothing on it is erased",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/data"
+    },
+    {
+      "args": [
+        "adopt-check",
+        "pv",
+        "pvraid-0000",
+        "LVM2_member",
+        "/dev/md/data"
+      ],
+      "kind": "adopt_check",
+      "n": 2,
+      "phase": "adopt",
+      "reason": "check that the adopted /dev/md/data carries pv pvraid-0000 (LVM2_member) of the backup, before anything is erased",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/data"
+    },
+    {
+      "args": [
+        "vgchange",
+        "--devices",
+        "/dev/md/data",
+        "-ay",
+        "data"
+      ],
+      "kind": "vg_activate",
+      "n": 3,
+      "phase": "adopt",
+      "reason": "activate the adopted volume group data; nothing on it is erased",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "data"
+    },
+    {
+      "args": [
+        "adopt-check",
+        "fs",
+        "a8000000-0000-4000-8000-0000000000d1",
+        "xfs",
+        "/dev/data/share"
+      ],
+      "kind": "adopt_check",
+      "n": 4,
+      "phase": "adopt",
+      "reason": "check that the adopted /dev/data/share carries fs a8000000-0000-4000-8000-0000000000d1 (xfs) of the backup, before anything is erased",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/data/share"
+    },
+    {
+      "args": [
         "release-holders",
         "/dev/nvme0n1"
       ],
       "kind": "release_holders",
-      "n": 1,
+      "n": 5,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/nvme0n1 (mounts, swap, LVM, md, dm)",
       "stdin": null,
@@ -207,7 +274,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "wipe_partitions",
-      "n": 2,
+      "n": 6,
       "phase": "prepare",
       "reason": "remove the signatures on every partition /dev/nvme0n1 has now",
       "stdin": null,
@@ -221,7 +288,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "wipe",
-      "n": 3,
+      "n": 7,
       "phase": "prepare",
       "reason": "remove the partition table and the signatures of /dev/nvme0n1",
       "stdin": null,
@@ -236,7 +303,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "zero_range",
-      "n": 4,
+      "n": 8,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
       "stdin": null,
@@ -254,47 +321,12 @@
         "/dev/nvme0n1"
       ],
       "kind": "partition",
-      "n": 5,
+      "n": 9,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 8394A5B6-C7D8-49EA-FB0C-1D2E3F405162\nunit: sectors\nsector-size: 512\n\n/dev/nvme0n1p1 : start=2048, size=1048576, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=a8100000-0000-4000-8000-000000000001\n/dev/nvme0n1p2 : start=1050624, size=497664000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=a8100000-0000-4000-8000-000000000002\n",
       "stdinSecret": null,
       "target": "/dev/nvme0n1"
-    },
-    {
-      "args": [
-        "mdadm",
-        "--assemble",
-        "--uuid=c8000000:00004000:80000000:00000127",
-        "/dev/md/data",
-        "/dev/sda1",
-        "/dev/sdb1",
-        "/dev/sdc1",
-        "/dev/sdd1"
-      ],
-      "kind": "md_assemble",
-      "n": 6,
-      "phase": "md",
-      "reason": "assemble the adopted array md127; nothing on it is erased",
-      "stdin": null,
-      "stdinSecret": null,
-      "target": "/dev/md/data"
-    },
-    {
-      "args": [
-        "vgchange",
-        "--devices",
-        "/dev/md/data",
-        "-ay",
-        "data"
-      ],
-      "kind": "vg_activate",
-      "n": 7,
-      "phase": "lvm",
-      "reason": "activate the adopted volume group data; nothing on it is erased",
-      "stdin": null,
-      "stdinSecret": null,
-      "target": "data"
     },
     {
       "args": [
@@ -310,7 +342,7 @@
         "/dev/nvme0n1p1"
       ],
       "kind": "mkfs",
-      "n": 8,
+      "n": 10,
       "phase": "mkfs",
       "reason": "create vfat f0 with its UUID and recorded features",
       "stdin": null,
@@ -342,7 +374,7 @@
         "/dev/nvme0n1p2"
       ],
       "kind": "mkfs",
-      "n": 9,
+      "n": 11,
       "phase": "mkfs",
       "reason": "create ext4 f1 with its UUID and recorded features",
       "stdin": null,
@@ -358,7 +390,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 10,
+      "n": 12,
       "phase": "mount",
       "reason": "mount f1 at /",
       "stdin": null,
@@ -376,7 +408,7 @@
         "{target_root}/boot/efi"
       ],
       "kind": "mount",
-      "n": 11,
+      "n": 13,
       "phase": "mount",
       "reason": "mount f0 at /boot/efi",
       "stdin": null,
@@ -392,7 +424,7 @@
         "{target_root}/srv/share"
       ],
       "kind": "mount",
-      "n": 12,
+      "n": 14,
       "phase": "mount",
       "reason": "mount f2 at /srv/share (adopted: left out of the restore)",
       "stdin": null,
@@ -417,7 +449,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 13,
+      "n": 15,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -437,7 +469,7 @@
         "/var/tmp:1777"
       ],
       "kind": "mkdirs",
-      "n": 14,
+      "n": 16,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -451,7 +483,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 15,
+      "n": 17,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -465,7 +497,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 16,
+      "n": 18,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -479,7 +511,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 17,
+      "n": 19,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm.conf",
       "stdin": null,
@@ -493,7 +525,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 18,
+      "n": 20,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
       "stdin": null,
@@ -509,7 +541,7 @@
         "6.1.0-27-amd64"
       ],
       "kind": "initramfs",
-      "n": 19,
+      "n": 21,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
       "stdin": null,
@@ -524,7 +556,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 20,
+      "n": 22,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -542,7 +574,7 @@
         "\\EFI\\debian\\shimx64.efi"
       ],
       "kind": "nvram",
-      "n": 21,
+      "n": 23,
       "phase": "post",
       "reason": "create the boot entry debian",
       "stdin": null,
@@ -554,7 +586,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 22,
+      "n": 24,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,
