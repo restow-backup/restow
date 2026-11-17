@@ -2,16 +2,17 @@ import { isIP, type LookupFunction, type Socket } from "node:net";
 import {
   BlockedAddressError,
   classifyAddress,
-  guardedLookup,
+  guardedLookupWith,
+  isAddressAllowed,
   isBlockedAddressError,
+  isLocalHostname,
   normalizeHost,
-  refuseHostBeforeConnect,
 } from "../../net/address-policy.js";
 import type { DbProbeError, DbProbeResult, DbProbeSpec, DbTlsFacts } from "../facts.js";
 import { DB_DEFAULT_PORTS, DB_DETECTION_PORTS, type DbEngine, type DbErrorCode } from "../model.js";
-import { dbPlaintextAllowedFor } from "../network.js";
+import { dbApprovedAddress, dbCanonicalAddress, dbPlaintextAllowedFor } from "../network.js";
 import { sanitizeDbMessage } from "../sanitize.js";
-import { DbConn, DbConnError } from "./conn.js";
+import { DbConn, DbConnError, DbProbeAbort, DbProbeScope } from "./conn.js";
 import {
   isMysqlLoginError,
   type MysqlGreeting,
@@ -46,11 +47,23 @@ import { parseTdsPreloginResponse, tdsPacketLength, tdsPreloginPacket } from "./
  * local-only name are refused before connecting, every other name through the guarded lookup,
  * so the address that was checked is the address that is connected to. The server never signs in
  * to a public address without TLS, even when the connection allows it unencrypted.
+ *
+ * One deadline (`spec.timeoutSeconds`) bounds the whole probe, and every socket it opened is
+ * closed when it ends. A connection with a confirmed certificate stops right after the TLS
+ * handshake when the server shows another one (or no TLS), before anything of the sign-in is
+ * sent. Restow's own database is refused by its address before the sign-in, too.
  */
 
 export interface DbServerProbeOptions {
-  /** Private networks and loopback: the installation flag or the provider admin's approval. */
+  /** Private networks and loopback: the installation flag or a provider admin testing. */
   allowPrivateNetworks: boolean;
+  /**
+   * The private addresses a provider admin approved for this connection: only these, when
+   * private networks are not allowed as a whole.
+   */
+  approvedAddresses?: readonly string[];
+  /** Where Restow's own database listens: never signed in to. */
+  forbiddenTargets?: readonly { address: string; port: number }[];
   /** Tests: a socket factory instead of the guarded network. */
   connect?: (host: string, port: number) => Socket;
   /** Tests: a lookup instead of the guarded system resolver. */
@@ -108,37 +121,10 @@ async function detectOn(
 ): Promise<Detected | null> {
   const tdsFirst = spec.engine === "sqlserver" || (spec.engine === null && port === 1433);
   if (!tdsFirst) {
-    const conn = await open(port);
-    const waitMs =
-      spec.engine === "mysql" || spec.engine === "mariadb"
-        ? options.stepTimeoutMs
-        : spec.engine === "postgresql"
-          ? 0
-          : options.greetingWaitMs;
-    let early = waitMs > 0 ? await conn.peek(waitMs) : Buffer.alloc(0);
-    if (early.length === 0 && !conn.closed) {
-      // Nothing on its own: ask as PostgreSQL. A MySQL server that was slow to greet answers
-      // with its greeting instead (that connection is not used further).
-      conn.write(PG_SSL_REQUEST);
-      early = await conn.peek(options.stepTimeoutMs);
-      const first = early[0];
-      if (early.length === 1 && (first === 0x53 || first === 0x4e)) {
-        await conn.read(1);
-        return { engine: "postgresql", conn, port, tlsOffered: first === 0x53 };
-      }
+    const found = await detectPostgresOrMysql(spec, port, open, options);
+    if (found !== "neither") {
+      return found;
     }
-    const packet = splitMysqlPacket(early);
-    if (packet) {
-      const greeting = parseMysqlGreeting(packet.payload);
-      if (greeting || packet.payload.readUInt8(0) === 0xff) {
-        conn.close();
-        // Sign in on a fresh connection: this one may have seen the SSLRequest.
-        const fresh = await open(port);
-        const again = await mysqlReadGreeting(fresh);
-        return { engine: again.mariadb ? "mariadb" : "mysql", conn: fresh, port, greeting: again };
-      }
-    }
-    conn.close();
     if (spec.engine === "postgresql" || spec.engine === "mysql" || spec.engine === "mariadb") {
       return null;
     }
@@ -166,9 +152,65 @@ async function detectOn(
   }
 }
 
+/** The first exchange of PostgreSQL and MySQL; every connection that is not handed on is closed. */
+async function detectPostgresOrMysql(
+  spec: DbProbeSpec,
+  port: number,
+  open: (port: number) => Promise<DbConn>,
+  options: Required<Pick<DbServerProbeOptions, "greetingWaitMs" | "stepTimeoutMs">>,
+): Promise<Detected | null | "neither"> {
+  const conn = await open(port);
+  let handedOn = false;
+  try {
+    const waitMs =
+      spec.engine === "mysql" || spec.engine === "mariadb"
+        ? options.stepTimeoutMs
+        : spec.engine === "postgresql"
+          ? 0
+          : options.greetingWaitMs;
+    let early = waitMs > 0 ? await conn.peek(waitMs) : Buffer.alloc(0);
+    if (early.length === 0 && !conn.closed) {
+      // Nothing on its own: ask as PostgreSQL. A MySQL server that was slow to greet answers
+      // with its greeting instead (that connection is not used further).
+      conn.write(PG_SSL_REQUEST);
+      early = await conn.peek(options.stepTimeoutMs);
+      const first = early[0];
+      if (early.length === 1 && (first === 0x53 || first === 0x4e)) {
+        await conn.read(1);
+        handedOn = true;
+        return { engine: "postgresql", conn, port, tlsOffered: first === 0x53 };
+      }
+    }
+    const packet = splitMysqlPacket(early);
+    if (!packet || packet.payload.length === 0) {
+      return "neither";
+    }
+    const greeting = parseMysqlGreeting(packet.payload);
+    if (!greeting && packet.payload.readUInt8(0) !== 0xff) {
+      return "neither";
+    }
+  } finally {
+    if (!handedOn) {
+      conn.close();
+    }
+  }
+  // Sign in on a fresh connection: the first one may have seen the SSLRequest.
+  const fresh = await open(port);
+  try {
+    const again = await mysqlReadGreeting(fresh);
+    return { engine: again.mariadb ? "mariadb" : "mysql", conn: fresh, port, greeting: again };
+  } catch (error) {
+    fresh.close();
+    throw error;
+  }
+}
+
 function failureOf(error: unknown, host: string | null = null): ProbeFailure {
   if (error instanceof ProbeFailure) {
     return error;
+  }
+  if (error instanceof DbProbeAbort) {
+    return new ProbeFailure(error.code, error.message);
   }
   if (error instanceof BlockedAddressError || isBlockedAddressError(error)) {
     const literal = host ? normalizeHost(host) : "";
@@ -184,7 +226,10 @@ function failureOf(error: unknown, host: string | null = null): ProbeFailure {
         );
   }
   if (error instanceof DbConnError) {
-    return new ProbeFailure("db_unreachable", error.message);
+    return new ProbeFailure(
+      error.kind === "limit" ? "db_probe_failed" : "db_unreachable",
+      error.message,
+    );
   }
   if (isPgLoginError(error) || isMysqlLoginError(error)) {
     return new ProbeFailure("db_login_failed", (error as Error).message);
@@ -207,6 +252,46 @@ function plaintextAllowed(conn: DbConn, spec: DbProbeSpec): boolean {
   return remote !== null && isIP(remote) !== 0 && dbPlaintextAllowedFor(classifyAddress(remote));
 }
 
+/** Stop before the sign-in when the server does not show the confirmed certificate. */
+function assertPinned(conn: DbConn, spec: DbProbeSpec): void {
+  const pinned = spec.pinnedFingerprintSha256;
+  if (!pinned) {
+    return;
+  }
+  if (!conn.tls.used) {
+    throw new DbProbeAbort(
+      "db_tls_missing",
+      "The server no longer offers TLS; the connection has a confirmed certificate.",
+    );
+  }
+  if (conn.tls.fingerprintSha256 !== pinned) {
+    throw new DbProbeAbort(
+      "db_tls_changed",
+      "The server shows another TLS certificate than the one confirmed.",
+    );
+  }
+}
+
+/** Restow's own database, by the address and port the socket reached (4.2). */
+function assertNotRestow(conn: DbConn, options: DbServerProbeOptions): void {
+  const remote = conn.remoteAddress;
+  const port = conn.remotePort;
+  if (!remote || !port || !options.forbiddenTargets?.length) {
+    return;
+  }
+  const address = dbCanonicalAddress(remote);
+  if (
+    options.forbiddenTargets.some(
+      (target) => target.port === port && dbCanonicalAddress(target.address) === address,
+    )
+  ) {
+    throw new DbProbeAbort(
+      "db_target_is_restow",
+      "This is the database of this Restow installation. It is backed up as described in the backup guide of the installation, not by this module.",
+    );
+  }
+}
+
 function tlsMissing(): ProbeFailure {
   return new ProbeFailure(
     "db_tls_missing",
@@ -220,9 +305,23 @@ export async function probeDatabaseFromServer(
   options: DbServerProbeOptions,
 ): Promise<DbProbeResult> {
   const started = Date.now();
+  const scope = new DbProbeScope(started + spec.timeoutSeconds * 1000);
+  try {
+    return await runServerProbe(spec, options, scope, started);
+  } finally {
+    // Whatever happened: no socket of this probe stays open.
+    scope.close();
+  }
+}
+
+async function runServerProbe(
+  spec: DbProbeSpec,
+  options: DbServerProbeOptions,
+  scope: DbProbeScope,
+  started: number,
+): Promise<DbProbeResult> {
   const stepTimeoutMs = options.stepTimeoutMs ?? 5000;
   const greetingWaitMs = options.greetingWaitMs ?? 400;
-  const deadline = started + spec.timeoutSeconds * 1000;
   const result: DbProbeResult = {
     engine: null,
     port: null,
@@ -260,21 +359,38 @@ export async function probeDatabaseFromServer(
     );
   }
   const host = spec.host;
-  const refusal = options.connect
-    ? null
-    : refuseHostBeforeConnect(host, options.allowPrivateNetworks);
-  if (refusal) {
-    return finish(failureOf(refusal, host));
+  const approved = options.approvedAddresses ?? [];
+  // Public addresses always; private ones with the installation flag or the approval's addresses.
+  const allowAddress = (address: string) =>
+    isAddressAllowed(address, options.allowPrivateNetworks) ||
+    dbApprovedAddress({ addresses: [...approved] }, address);
+  const name = normalizeHost(host);
+  const refused = options.connect
+    ? false
+    : isIP(name) !== 0
+      ? !allowAddress(name)
+      : isLocalHostname(name) && !options.allowPrivateNetworks && approved.length === 0;
+  if (refused) {
+    return finish(failureOf(new BlockedAddressError(host), host));
   }
-  const lookup = options.lookup ?? guardedLookup(options.allowPrivateNetworks);
-  const open = (port: number) =>
-    DbConn.open({
+  const lookup = options.lookup ?? guardedLookupWith(allowAddress);
+  const open = async (port: number) => {
+    const conn = await DbConn.open({
       host,
       port,
-      timeoutMs: Math.max(1000, Math.min(stepTimeoutMs, deadline - Date.now())),
+      timeoutMs: stepTimeoutMs,
+      scope,
       lookup,
       ...(options.connect ? { connect: options.connect } : {}),
     });
+    try {
+      assertNotRestow(conn, options);
+    } catch (error) {
+      conn.close();
+      throw error;
+    }
+    return conn;
+  };
 
   let detected: Detected | null = null;
   let lastFailure: ProbeFailure | null = null;
@@ -284,6 +400,9 @@ export async function probeDatabaseFromServer(
       if (detected) {
         break;
       }
+      if (scope.expired) {
+        return finish(new ProbeFailure("db_unreachable", "the probe did not finish in time"));
+      }
       lastFailure = new ProbeFailure(
         "db_not_a_database",
         `Port ${port} answers, but not as PostgreSQL, MySQL, MariaDB or SQL Server.`,
@@ -292,7 +411,9 @@ export async function probeDatabaseFromServer(
       lastFailure = failureOf(error, host);
       if (
         lastFailure.code === "db_private_network" ||
-        lastFailure.code === "db_forbidden_address"
+        lastFailure.code === "db_forbidden_address" ||
+        lastFailure.code === "db_target_is_restow" ||
+        scope.expired
       ) {
         return finish(lastFailure);
       }
@@ -345,6 +466,7 @@ export async function probeDatabaseFromServer(
         conn.close();
         return finish(tlsMissing());
       }
+      assertPinned(conn, spec);
       if (!user) {
         conn.close();
         return finish(new ProbeFailure("db_login_failed", "No user was given."));
@@ -357,9 +479,13 @@ export async function probeDatabaseFromServer(
         try {
           if (index > 0) {
             // The first database does not exist: a new connection for the next one.
-            current = await reopenPostgres(open, detected.port, host, tlsOffered);
+            current = await reopenPostgres(open, detected.port, host, tlsOffered, spec);
           }
-          session = await pgSignIn(current, user, spec.password, database);
+          session = await pgSignIn(current, user, spec.password, database, {
+            refuseWeakPasswordAuth:
+              Boolean(spec.pinnedFingerprintSha256) &&
+              current.tls.fingerprintSha256 !== spec.pinnedFingerprintSha256,
+          });
           result.login = "ok";
           const facts = await pgFacts(session);
           result.postgresql = facts;
@@ -371,7 +497,7 @@ export async function probeDatabaseFromServer(
         } catch (error) {
           current.close();
           lastError = error;
-          if (!(error instanceof PgServerError && error.sqlState === "3D000")) {
+          if (!(error instanceof PgServerError && error.sqlState === "3D000") || scope.expired) {
             break;
           }
         }
@@ -394,6 +520,9 @@ export async function probeDatabaseFromServer(
       conn.close();
       return finish(tlsMissing());
     }
+    if (!offered) {
+      assertPinned(conn, spec);
+    }
     if (!user) {
       conn.close();
       return finish(new ProbeFailure("db_login_failed", "No user was given."));
@@ -402,7 +531,14 @@ export async function probeDatabaseFromServer(
       user,
       password: spec.password,
       database: spec.database,
-      startTls: offered ? () => conn.startTls(isIP(host) === 0 ? host : null) : null,
+      startTls: offered
+        ? async () => {
+            await conn.startTls(isIP(host) === 0 ? host : null);
+            result.tls = { offered: true, ...conn.tls };
+            // Before the sign-in packet: a server with another certificate learns nothing.
+            assertPinned(conn, spec);
+          }
+        : null,
     });
     if (offered) {
       result.tls = { offered: true, ...conn.tls };
@@ -425,23 +561,38 @@ export async function probeDatabaseFromServer(
   }
 }
 
+/** A further connection to the same PostgreSQL, with the same checks as the first one. */
 async function reopenPostgres(
   open: (port: number) => Promise<DbConn>,
   port: number,
   host: string,
   tls: boolean,
+  spec: DbProbeSpec,
 ): Promise<DbConn> {
   const conn = await open(port);
-  conn.write(PG_SSL_REQUEST);
-  const answer = await conn.read(1);
-  if (tls) {
-    if (answer.readUInt8(0) !== 0x53) {
-      conn.close();
-      throw new ProbeFailure("db_tls_missing", "The server stopped offering TLS.");
+  try {
+    conn.write(PG_SSL_REQUEST);
+    const answer = (await conn.read(1)).readUInt8(0);
+    if (answer !== 0x53 && answer !== 0x4e) {
+      throw new ProbeFailure("db_probe_failed", "The server's answer to the SSLRequest changed.");
     }
-    await conn.startTls(isIP(host) === 0 ? host : null);
+    if (tls) {
+      if (answer !== 0x53) {
+        throw new ProbeFailure("db_tls_missing", "The server stopped offering TLS.");
+      }
+      await conn.startTls(isIP(host) === 0 ? host : null);
+    } else if (answer === 0x53) {
+      // TLS offered now: the first connection's decision (no TLS) does not carry over.
+      throw new ProbeFailure("db_probe_failed", "The server's answer to the SSLRequest changed.");
+    } else if (!plaintextAllowed(conn, spec)) {
+      throw tlsMissing();
+    }
+    assertPinned(conn, spec);
+    return conn;
+  } catch (error) {
+    conn.close();
+    throw error;
   }
-  return conn;
 }
 
 /** The engines a probe may report for a URL scheme (a `mysql://` URL may reach MariaDB). */

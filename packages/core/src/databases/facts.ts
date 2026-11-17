@@ -154,6 +154,15 @@ export const dbProbeSpecSchema = z.object({
   /** Without TLS only when the administrator ticked "connect unencrypted". */
   allowUnencrypted: z.boolean(),
   timeoutSeconds: z.number().int().min(1).max(120),
+  /**
+   * The certificate the connection confirmed (SHA-256, as `AB:CD:...`): the executor stops right
+   * after the TLS handshake, before any sign-in, when the server shows another one or no TLS.
+   */
+  pinnedFingerprintSha256: z
+    .string()
+    .regex(/^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$/)
+    .nullable()
+    .optional(),
 });
 export type DbProbeSpec = z.infer<typeof dbProbeSpecSchema>;
 

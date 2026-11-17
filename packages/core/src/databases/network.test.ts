@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  dbApprovedAddress,
+  dbCanonicalAddress,
   dbHostClass,
   dbMayReachPrivateNetworks,
   dbPlaintextAllowedFor,
@@ -43,14 +45,44 @@ describe("network protection of the server executor (docs/DATABASES.md 4.2) [DB-
   it("records a provider admin's approval, or follows the installation flag", async () => {
     expect(await judgeDbHost("10.0.0.5", { ...context, isProviderAdmin: true })).toEqual({
       kind: "allowed",
-      approval: { by: "admin@tenant.example", at: "2026-11-17T10:00:00.000Z" },
+      approval: {
+        by: "admin@tenant.example",
+        at: "2026-11-17T10:00:00.000Z",
+        addresses: ["10.0.0.5"],
+      },
     });
     expect(await judgeDbHost("10.0.0.5", { ...context, privateNetworksAllowed: true })).toEqual({
       kind: "allowed",
       approval: null,
     });
     expect(dbMayReachPrivateNetworks(null, false)).toBe(false);
-    expect(dbMayReachPrivateNetworks({ by: "x", at: "y" }, false)).toBe(true);
+    expect(dbMayReachPrivateNetworks({ by: "x", at: "y", addresses: ["10.0.0.5"] }, false)).toBe(
+      true,
+    );
+  });
+
+  it("binds an approval to the addresses the name stood for when it was approved", async () => {
+    const resolve = resolver({ postgres: ["172.18.0.4"], "lan.example.com": ["10.1.2.3"] });
+    const admin = { ...context, isProviderAdmin: true };
+    const byName = await judgeDbHost("postgres", admin, resolve);
+    expect(byName).toEqual({
+      kind: "allowed",
+      approval: {
+        by: "admin@tenant.example",
+        at: "2026-11-17T10:00:00.000Z",
+        addresses: ["172.18.0.4"],
+      },
+    });
+    const approval = byName.kind === "allowed" ? byName.approval : null;
+    expect(dbApprovedAddress(approval, "172.18.0.4")).toBe(true);
+    expect(dbApprovedAddress(approval, "::ffff:172.18.0.4")).toBe(true);
+    // Another private or loopback address under the same name is not approved.
+    expect(dbApprovedAddress(approval, "172.18.0.5")).toBe(false);
+    expect(dbApprovedAddress(approval, "127.0.0.1")).toBe(false);
+    // An approval without addresses (or none) approves nothing.
+    expect(dbApprovedAddress({ by: "x", at: "y" }, "172.18.0.4")).toBe(false);
+    expect(dbMayReachPrivateNetworks({ by: "x", at: "y" }, false)).toBe(false);
+    expect(dbCanonicalAddress("[FD00::1]")).toBe("fd00::1");
   });
 
   it("refuses link-local, metadata and reserved addresses for everyone", async () => {
