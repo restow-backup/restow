@@ -227,6 +227,12 @@ func (f *fakeMySQL) serve(c net.Conn) {
 			} else {
 				parts = resultSet([][]*string{{f.serverUUID}}, 1)
 			}
+		case sql == "SELECT 1":
+			parts = resultSet([][]*string{{sp("1")}}, 1)
+		case sql == "SELECT @@max_connections, @@server_id, @@datadir":
+			parts = resultSet([][]*string{{sp("151"), sp("7"), sp("/var/lib/mysql/")}}, 3)
+		case strings.HasPrefix(sql, "SHOW GLOBAL STATUS"):
+			parts = resultSet([][]*string{{sp("Threads_connected"), sp("4")}, {sp("Uptime"), sp("3600")}}, 2)
 		case sql == "SELECT @@log_bin":
 			parts = resultSet([][]*string{{sp("1")}}, 1)
 		case sql == "SELECT @@binlog_format":

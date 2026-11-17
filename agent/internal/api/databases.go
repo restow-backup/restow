@@ -13,6 +13,44 @@ import (
 // are the contract with the server (@restow/core databases/facts.ts reads
 // the same files).
 
+// TaskDBHealth hands the agent the health checks of the connections it runs
+// (D2, docs/DATABASES.md 8): it fetches them once with their credentials,
+// runs each one when due within the window and posts the samples. It ends on
+// delivery; a newer one replaces the running one.
+const TaskDBHealth = "db_health"
+
+// DBHealthTaskParams are the parameters of a db_health task.
+type DBHealthTaskParams struct {
+	WindowSeconds int `json:"windowSeconds"`
+}
+
+// DBHealthCheck is one connection of a health task.
+type DBHealthCheck struct {
+	ConnectionID      string      `json:"connectionId"`
+	FirstAfterSeconds int         `json:"firstAfterSeconds"`
+	IntervalSeconds   int         `json:"intervalSeconds"`
+	Spec              DBProbeSpec `json:"spec"`
+}
+
+// DBHealthPlan is what GET /agent/v1/databases/health/:taskId returns, once.
+type DBHealthPlan struct {
+	TaskID        string          `json:"taskId"`
+	WindowSeconds int             `json:"windowSeconds"`
+	Checks        []DBHealthCheck `json:"checks"`
+}
+
+// DBHealthSample is one check as the agent reports it.
+type DBHealthSample struct {
+	ConnectionID string        `json:"connectionId"`
+	At           time.Time     `json:"at"`
+	Result       DBProbeResult `json:"result"`
+}
+
+// DBHealthSamples is the body of POST /agent/v1/databases/health/:taskId/samples.
+type DBHealthSamples struct {
+	Samples []DBHealthSample `json:"samples"`
+}
+
 // TaskDBProbe is a connection test: the agent fetches the probe (with its
 // credentials, once), runs it and posts the facts. It ends on delivery.
 const TaskDBProbe = "db_probe"
@@ -43,7 +81,19 @@ type DBProbeSpec struct {
 	Password         *string `json:"password"`
 	AllowUnencrypted bool    `json:"allowUnencrypted"`
 	TimeoutSeconds   int     `json:"timeoutSeconds"`
+	// Purpose is "probe" (a connection test, also when empty) or "health"
+	// (the light health check of a stored connection, D2).
+	Purpose string `json:"purpose,omitempty"`
+	// TLSFingerprint is the certificate an administrator confirmed: another
+	// one ends the check after the TLS handshake, before any credential is
+	// sent (db_tls_changed).
+	TLSFingerprint *string `json:"tlsFingerprint,omitempty"`
+	// Sizes asks a health check for the size of each database too.
+	Sizes bool `json:"sizes,omitempty"`
 }
+
+// PurposeHealth is the Purpose of a health check.
+const PurposeHealth = "health"
 
 // DBTLSFacts is what the TLS session showed.
 type DBTLSFacts struct {
@@ -120,6 +170,26 @@ type DBSQLiteFacts struct {
 	ModifiedAt *string `json:"modifiedAt"`
 }
 
+// DBHealthDatabase is the size of one database a health check read.
+type DBHealthDatabase struct {
+	Name      string  `json:"name"`
+	OID       *string `json:"oid"`
+	SizeBytes *int64  `json:"sizeBytes"`
+}
+
+// DBHealthFacts are what a health check found besides the sign-in.
+type DBHealthFacts struct {
+	LatencyMs        int64              `json:"latencyMs"`
+	StartedAt        *string            `json:"startedAt"`
+	ConnectionsUsed  *int64             `json:"connectionsUsed"`
+	ConnectionsMax   *int64             `json:"connectionsMax"`
+	SystemIdentifier *string            `json:"systemIdentifier"`
+	ServerUUID       *string            `json:"serverUuid"`
+	ServerID         *int64             `json:"serverId"`
+	Datadir          *string            `json:"datadir"`
+	Databases        []DBHealthDatabase `json:"databases"`
+}
+
 // DBProbeResult is the body of POST /agent/v1/databases/probes/:id/result:
 // facts only, the server judges them.
 type DBProbeResult struct {
@@ -133,6 +203,7 @@ type DBProbeResult struct {
 	MySQL         *DBMysqlFacts     `json:"mysql,omitempty"`
 	SQLServer     *DBSQLServerFacts `json:"sqlserver,omitempty"`
 	SQLite        *DBSQLiteFacts    `json:"sqlite,omitempty"`
+	Health        *DBHealthFacts    `json:"health,omitempty"`
 	DurationMs    int64             `json:"durationMs"`
 }
 
@@ -170,4 +241,24 @@ func (c *Client) FinishDBProbe(ctx context.Context, probeID string, result DBPro
 	retry := RetryPolicy{MaxAttempts: 5, BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second}
 	return c.do(ctx, call{method: http.MethodPost, path: "/agent/v1/databases/probes/" + url.PathEscape(probeID) + "/result",
 		body: result, retry: &retry, idempotent: true, tolerate: []int{http.StatusNotFound}})
+}
+
+// FetchDBHealth fetches the health checks of a db_health task with their
+// credentials. The server hands them out once; a second call fails with 409.
+func (c *Client) FetchDBHealth(ctx context.Context, taskID string) (*DBHealthPlan, error) {
+	var out DBHealthPlan
+	once := RetryPolicy{MaxAttempts: 2, BaseDelay: time.Second, MaxDelay: 5 * time.Second}
+	if err := c.do(ctx, call{method: http.MethodGet, path: "/agent/v1/databases/health/" + url.PathEscape(taskID), out: &out, retry: &once}); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ReportDBHealth posts the samples of a health task. A closed task (409) or
+// one the server no longer knows (404) is not retried: the samples are lost,
+// the next task brings new ones.
+func (c *Client) ReportDBHealth(ctx context.Context, taskID string, samples []DBHealthSample) error {
+	retry := RetryPolicy{MaxAttempts: 3, BaseDelay: 2 * time.Second, MaxDelay: 10 * time.Second}
+	return c.do(ctx, call{method: http.MethodPost, path: "/agent/v1/databases/health/" + url.PathEscape(taskID) + "/samples",
+		body: DBHealthSamples{Samples: samples}, retry: &retry, tolerate: []int{http.StatusNotFound, http.StatusConflict}})
 }

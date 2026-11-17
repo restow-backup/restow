@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +66,11 @@ type Server struct {
 	DBProbes       map[string]api.DBProbeSpec
 	DBProbeFetches map[string]int
 	DBProbeResults map[string]api.DBProbeResult
+	// DBHealth are the health tasks the agent may fetch (once each), by task
+	// id; DBHealthFetches counts the fetches, DBHealthSamples records the posts.
+	DBHealth        map[string]api.DBHealthPlan
+	DBHealthFetches map[string]int
+	DBHealthSamples map[string][]api.DBHealthSample
 
 	pendingTasks []api.Task
 	nextRun      int
@@ -123,6 +129,7 @@ func NewWithOptions(o Options) *Server {
 	mux.HandleFunc("/agent/v1/runs/", s.auth(s.handleRunSub))
 	mux.HandleFunc("/agent/v1/update", s.auth(s.handleUpdate))
 	mux.HandleFunc("/agent/v1/databases/probes/", s.auth(s.handleDBProbe))
+	mux.HandleFunc("/agent/v1/databases/health/", s.auth(s.handleDBHealth))
 	if !o.NoReleases {
 		mux.HandleFunc("/install/agent/", s.handleRelease)
 	}
@@ -405,6 +412,46 @@ func (s *Server) handleDBProbe(w http.ResponseWriter, r *http.Request) {
 		}
 		s.DBProbeResults[id] = res
 		w.WriteHeader(http.StatusNoContent)
+	default:
+		problem(w, http.StatusNotFound, "Not Found", "")
+	}
+}
+
+// handleDBHealth serves GET /agent/v1/databases/health/:id (once) and POST .../:id/samples.
+func (s *Server) handleDBHealth(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/agent/v1/databases/health/")
+	id, sub, _ := strings.Cut(rest, "/")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case r.Method == http.MethodGet && sub == "":
+		plan, ok := s.DBHealth[id]
+		if !ok {
+			problem(w, http.StatusNotFound, "Not Found", "no such task")
+			return
+		}
+		if s.DBHealthFetches == nil {
+			s.DBHealthFetches = map[string]int{}
+		}
+		s.DBHealthFetches[id]++
+		if s.DBHealthFetches[id] > 1 {
+			problem(w, http.StatusConflict, "Conflict", "already fetched")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(plan)
+	case r.Method == http.MethodPost && sub == "samples":
+		var body api.DBHealthSamples
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			problem(w, http.StatusBadRequest, "Bad Request", err.Error())
+			return
+		}
+		if s.DBHealthSamples == nil {
+			s.DBHealthSamples = map[string][]api.DBHealthSample{}
+		}
+		s.DBHealthSamples[id] = append(s.DBHealthSamples[id], body.Samples...)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"accepted":`+strconv.Itoa(len(body.Samples))+`}`)
 	default:
 		problem(w, http.StatusNotFound, "Not Found", "")
 	}

@@ -1227,8 +1227,8 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Der Healthcheck einer gespeicherten Verbindung sendet die Zugangsdaten nur an das bestätigte TLS-Zertifikat: Zeigt der Server ein anderes, endet die Prüfung nach dem TLS-Handshake und vor der Anmeldung (`db_tls_changed`). Jede Prüfung des Restow-Servers läuft unter dem Netzschutz (Adresse vor dem Verbinden, Namensauflösung über die geprüfte Suche) und endet nach spätestens 10 Sekunden mit allen Sockets.
 - Fundstelle: docs/DATABASES.md (Abschnitt 8 "Healthchecks und Verlauf", Abschnitt 3.2 "TLS", Abschnitt 4.2, Abschnitt 16 "D2")
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, packages/core/src/databases/probe/health-check.test.ts, apps/worker/src/databases/health.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts
-- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml; MariaDB als Simulator, der festhält, ob eine Anmeldung ankam; der Worker gegen echtes PostgreSQL mit einer nachgestellten Prüfung: Zertifikat und Netzfreigabe gehen an jede Prüfung)
+- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, packages/core/src/databases/probe/health-check.test.ts, apps/worker/src/databases/health.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/health_test.go
+- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml; MariaDB als Simulator, der festhält, ob eine Anmeldung ankam, für den Server und den Agenten; der Worker gegen echtes PostgreSQL mit einer nachgestellten Prüfung: Zertifikat und Netzfreigabe gehen an jede Prüfung)
 - Stand: belegt
 
 ### DB-005

@@ -252,6 +252,8 @@ type harness struct {
 	// empty inventory, so no test runs the programs of the test machine).
 	dbProbe     func(ctx context.Context, spec api.DBProbeSpec) api.DBProbeResult
 	dbInventory func(ctx context.Context) []api.DBInventoryInstance
+	// dbHealth is Deps.DBHealth.
+	dbHealth func(ctx context.Context, spec api.DBProbeSpec) api.DBProbeResult
 
 	cancel context.CancelFunc
 	done   chan error
@@ -336,7 +338,7 @@ func (h *harness) build() {
 	h.agent = New(Deps{
 		Layout: h.layout, State: st, Server: client, Restic: runner, Status: store, Logger: logging.Discard(),
 		Power: h.powerFn, BinDir: h.binDir, UpdateKey: h.updateKey, Uninstall: h.uninst,
-		Machine: h.machineFn(), SQL: h.sql, DBProbe: h.dbProbe, DBInventory: h.dbInventoryFn(),
+		Machine: h.machineFn(), SQL: h.sql, DBProbe: h.dbProbe, DBHealth: h.dbHealth, DBInventory: h.dbInventoryFn(),
 	}, Options{
 		HeartbeatInterval: 40 * time.Millisecond, HeartbeatRetryBase: 30 * time.Millisecond, HeartbeatJitter: time.Nanosecond, Tick: 15 * time.Millisecond,
 		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second, PauseRecheck: 20 * time.Millisecond,

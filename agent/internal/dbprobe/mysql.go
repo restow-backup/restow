@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
 )
@@ -555,4 +556,54 @@ func (p *packets) mysqlFacts() (*api.DBMysqlFacts, error) {
 		f.Databases = append(f.Databases, d)
 	}
 	return f, nil
+}
+
+// mysqlHealth is the health check (docs/DATABASES.md 8), read-only: SELECT 1
+// ends the response time (from started), then Uptime and Threads_connected
+// against max_connections, the instance's identity and, when asked, the size
+// of each schema.
+func (p *packets) mysqlHealth(started time.Time, sizes bool) (*api.DBHealthFacts, error) {
+	if _, err := p.query("SELECT 1"); err != nil {
+		return nil, err
+	}
+	h := &api.DBHealthFacts{LatencyMs: time.Since(started).Milliseconds()}
+	head, err := p.query("SELECT @@max_connections, @@server_id, @@datadir")
+	if err != nil {
+		return nil, err
+	}
+	h.ConnectionsMax = int64p(cell(head, 0, 0))
+	h.ServerID = int64p(cell(head, 0, 1))
+	if d := cell(head, 0, 2); d != "" {
+		d = clip(d, 1024)
+		h.Datadir = &d
+	}
+	if u := p.optional("SELECT @@server_uuid"); u != nil && len(*u) <= 64 {
+		h.ServerUUID = u
+	}
+	status, err := p.query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Uptime', 'Threads_connected')")
+	if err != nil {
+		return nil, err
+	}
+	for i := range status {
+		switch strings.ToLower(cell(status, i, 0)) {
+		case "uptime":
+			if up := int64p(cell(status, i, 1)); up != nil {
+				t := time.Now().Add(-time.Duration(*up) * time.Second).UTC().Format(time.RFC3339)
+				h.StartedAt = &t
+			}
+		case "threads_connected":
+			h.ConnectionsUsed = int64p(cell(status, i, 1))
+		}
+	}
+	if sizes {
+		schemas, err := p.query(fmt.Sprintf("SELECT s.SCHEMA_NAME, (SELECT SUM(t.DATA_LENGTH + t.INDEX_LENGTH) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA = s.SCHEMA_NAME) FROM information_schema.SCHEMATA s ORDER BY s.SCHEMA_NAME LIMIT %d", maxDatabases))
+		if err != nil {
+			return nil, err
+		}
+		h.Databases = []api.DBHealthDatabase{}
+		for i := range schemas {
+			h.Databases = append(h.Databases, api.DBHealthDatabase{Name: clip(cell(schemas, i, 0), 128), SizeBytes: int64p(cell(schemas, i, 1))})
+		}
+	}
+	return h, nil
 }

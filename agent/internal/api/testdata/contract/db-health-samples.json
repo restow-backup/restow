@@ -1,0 +1,58 @@
+{
+  "samples": [
+    {
+      "connectionId": "0b5c6d7e-8f9a-4b1c-9d2e-3f4a5b6c7d8e",
+      "at": "2026-11-17T10:00:01Z",
+      "result": {
+        "engine": "postgresql",
+        "port": 5432,
+        "serverVersion": "16.4",
+        "tls": {
+          "offered": true,
+          "used": true,
+          "fingerprintSha256": "3A:91:5C:0E:7B:12:44:9F:A0:B3:C8:DD:01:2E:6F:70:81:92:A3:B4:C5:D6:E7:F8:09:1A:2B:3C:4D:5E:6F:70",
+          "subject": "CN=db01.corp.example",
+          "issuer": "CN=Corp CA",
+          "notAfter": "2027-11-17T00:00:00Z"
+        },
+        "login": "ok",
+        "error": null,
+        "health": {
+          "latencyMs": 18,
+          "startedAt": "2026-11-01T06:12:00Z",
+          "connectionsUsed": 12,
+          "connectionsMax": 100,
+          "systemIdentifier": "7300000000000000042",
+          "serverUuid": null,
+          "serverId": null,
+          "datadir": null,
+          "databases": [{ "name": "erp", "oid": "16384", "sizeBytes": 734003200 }]
+        },
+        "durationMs": 22
+      }
+    },
+    {
+      "connectionId": "1c6d7e8f-9a0b-4c2d-8e3f-4a5b6c7d8e9f",
+      "at": "2026-11-17T10:02:00Z",
+      "result": {
+        "engine": "postgresql",
+        "port": 5432,
+        "serverVersion": null,
+        "tls": {
+          "offered": true,
+          "used": true,
+          "fingerprintSha256": "AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB",
+          "subject": null,
+          "issuer": null,
+          "notAfter": null
+        },
+        "login": "skipped",
+        "error": {
+          "code": "db_tls_changed",
+          "message": "the server shows another TLS certificate than the one confirmed; no credentials were sent"
+        },
+        "durationMs": 9
+      }
+    }
+  ]
+}

@@ -143,6 +143,9 @@ type Deps struct {
 	// DBPeer runs the PostgreSQL socket sign-in as another system user (the
 	// agent's own binary as that user); nil: not available.
 	DBPeer func(ctx context.Context, osUser string, spec api.DBProbeSpec) (*api.DBProbeResult, error)
+	// DBHealth runs one database health check (databases.go); nil selects
+	// dbprobe.Health.
+	DBHealth func(ctx context.Context, spec api.DBProbeSpec) api.DBProbeResult
 	// DBInventory finds the database instances of the machine; nil selects
 	// dbprobe.Inventory on Linux and none elsewhere.
 	DBInventory func(ctx context.Context) []api.DBInventoryInstance
@@ -224,7 +227,9 @@ type Agent struct {
 	sqlInv   *sqlserver.Inventory
 	sqlInvAt time.Time
 	// dbInvAt is when the database inventory was last collected (databases.go).
-	dbInvAt       time.Time
+	dbInvAt time.Time
+	// dbHealthStop ends the running db_health task when a newer one arrives.
+	dbHealthStop  context.CancelFunc
 	sqlInvPending bool
 	// sqlInvGen counts changes of the cache (a heartbeat marks only the
 	// inventory it sent as delivered).
@@ -827,6 +832,9 @@ func (a *Agent) dispatchTasks(ctx context.Context, tasks []api.Task) {
 			a.enqueue(job{kind: jobSQLVerify, trigger: triggerTask, task: &t})
 		case api.TaskSQLRestore:
 			a.enqueue(job{kind: jobSQLRestore, trigger: triggerTask, task: &t})
+		case api.TaskDBHealth:
+			// Ends on delivery; the samples go to the task, a newer task replaces it.
+			a.runDBHealth(ctx, t)
 		case api.TaskDBProbe:
 			// Ends on delivery; the result goes to the probe, not into a run.
 			a.runDBProbe(ctx, t)

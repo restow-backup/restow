@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
 )
@@ -379,6 +380,54 @@ func (c *conn) pgFacts() (*api.DBPostgresFacts, error) {
 		f.Databases = append(f.Databases, d)
 	}
 	return f, nil
+}
+
+// pgHealth is the health check (docs/DATABASES.md 8), read-only: SELECT 1
+// ends the response time (from started), then the postmaster's start, the
+// client connections against max_connections, the cluster's identity and,
+// when asked, the size of each database the user may connect to.
+func (c *conn) pgHealth(started time.Time, sizes bool) (*api.DBHealthFacts, string, error) {
+	if _, err := c.pgQuery("SELECT 1"); err != nil {
+		return nil, "", err
+	}
+	h := &api.DBHealthFacts{LatencyMs: time.Since(started).Milliseconds()}
+	head, err := c.pgQuery("SELECT version(), extract(epoch FROM pg_postmaster_start_time())::bigint::text, (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend')::text, current_setting('max_connections'), (SELECT system_identifier::text FROM pg_control_system())")
+	if err != nil {
+		return nil, "", err
+	}
+	if n, err := strconv.ParseInt(cell(head, 0, 1), 10, 64); err == nil {
+		t := time.Unix(n, 0).UTC().Format(time.RFC3339)
+		h.StartedAt = &t
+	}
+	h.ConnectionsUsed = int64p(cell(head, 0, 2))
+	h.ConnectionsMax = int64p(cell(head, 0, 3))
+	if id := cell(head, 0, 4); digits.MatchString(id) {
+		h.SystemIdentifier = &id
+	}
+	if sizes {
+		rows, err := c.pgQuery(fmt.Sprintf("SELECT d.oid::text, d.datname, pg_database_size(d.oid)::text FROM pg_database d WHERE NOT d.datistemplate AND d.datallowconn AND has_database_privilege(d.oid, 'CONNECT') ORDER BY d.datname LIMIT %d", maxDatabases))
+		if err != nil {
+			return nil, "", err
+		}
+		h.Databases = []api.DBHealthDatabase{}
+		for i := range rows {
+			d := api.DBHealthDatabase{Name: clip(cell(rows, i, 1), 128), SizeBytes: int64p(cell(rows, i, 2))}
+			if oid := cell(rows, i, 0); digits.MatchString(oid) {
+				d.OID = &oid
+			}
+			h.Databases = append(h.Databases, d)
+		}
+	}
+	return h, clip(cell(head, 0, 0), 512), nil
+}
+
+// int64p is a non-negative decimal as a pointer, nil otherwise.
+func int64p(s string) *int64 {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 {
+		return nil
+	}
+	return &n
 }
 
 var pgVersionRe = regexp.MustCompile(`PostgreSQL\s+([0-9][0-9.]*\w*)`)

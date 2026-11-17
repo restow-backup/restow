@@ -88,6 +88,9 @@ func TestContractFixturesRoundTrip(t *testing.T) {
 		{"db-probe-result-failed.json", func() any { return &DBProbeResult{} }, false},
 		{"db-probe-result-sqlite.json", func() any { return &DBProbeResult{} }, false},
 		{"heartbeat-db-inventory.json", func() any { return &HeartbeatRequest{} }, true},
+		// D2: the health checks of a db_health task and what the agent posts.
+		{"db-health-plan.json", func() any { return &DBHealthPlan{} }, false},
+		{"db-health-samples.json", func() any { return &DBHealthSamples{} }, false},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -107,6 +110,7 @@ func TestContractTasks(t *testing.T) {
 		{"task-sql-verify.json", TaskSQLVerify, func() any { return &SQLVerifyParams{} }},
 		{"task-sql-restore.json", TaskSQLRestore, func() any { return &SQLRestoreParams{} }},
 		{"task-db-probe.json", TaskDBProbe, func() any { return &DBProbeTaskParams{} }},
+		{"task-db-health.json", TaskDBHealth, func() any { return &DBHealthTaskParams{} }},
 	} {
 		t.Run(c.file, func(t *testing.T) {
 			raw := readFixture(t, c.file)

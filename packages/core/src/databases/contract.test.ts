@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { dbProbeSpecSchema, parseDbInventory, parseDbProbeResult } from "./facts.js";
+import { judgeDbHealth } from "./health.js";
 import { dbFoundDatabases, dbInstanceIdentityOf, dbInstanceKey } from "./identity.js";
 import { evaluateDbRights } from "./rights.js";
 
@@ -69,5 +70,38 @@ describe("the database contract shared with the agent (docs/DATABASES.md 9)", ()
       "16/main",
       "shop-db",
     ]);
+  });
+
+  it("reads the health checks of a db_health task and what the agent posts (D2)", () => {
+    expect(fixture("task-db-health.json")).toMatchObject({
+      kind: "db_health",
+      params: { windowSeconds: 360 },
+    });
+    const plan = fixture("db-health-plan.json") as {
+      checks: { spec: unknown; intervalSeconds: number }[];
+    };
+    const specs = plan.checks.map((check) => dbProbeSpecSchema.parse(check.spec));
+    expect(specs[0]).toMatchObject({ purpose: "health", sizes: true, timeoutSeconds: 10 });
+    expect(specs[0]?.tlsFingerprint).toMatch(/^3A:91/);
+    expect(specs[1]).toMatchObject({ engine: "sqlite", path: "/srv/app/data.db" });
+    const samples = (fixture("db-health-samples.json") as { samples: { result: unknown }[] })
+      .samples;
+    const connection = {
+      engine: "postgresql" as const,
+      instanceKey: "postgresql:7300000000000000042",
+      tlsFingerprint: specs[0]?.tlsFingerprint ?? null,
+    };
+    const [good, pinned] = samples.map((sample) => {
+      const result = parseDbProbeResult(sample.result);
+      if (!result) throw new Error("not read");
+      return judgeDbHealth(result, connection);
+    });
+    expect(good).toMatchObject({
+      ok: true,
+      latencyMs: 18,
+      connectionsUsed: 12,
+      sizes: [{ name: "erp", identity: "16384", sizeBytes: 734003200 }],
+    });
+    expect(pinned).toMatchObject({ ok: false, errorCode: "db_tls_changed" });
   });
 });

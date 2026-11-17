@@ -32,6 +32,7 @@ const (
 	CodeLoginFailed       = "db_login_failed"
 	CodeEngineChanged     = "db_engine_changed"
 	CodeTLSMissing        = "db_tls_missing"
+	CodeTLSChanged        = "db_tls_changed"
 	CodeNotADatabase      = "db_not_a_database"
 	CodeEngineUnsupported = "db_engine_unsupported"
 	CodeAuthUnsupported   = "db_auth_unsupported"
@@ -252,6 +253,18 @@ func tlsFacts(c *conn) api.DBTLSFacts {
 	return t
 }
 
+// checkPin stops before the sign-in when a stored connection's confirmed
+// certificate is not the one the server shows (3.2): no credential leaves.
+func checkPin(c *conn, spec api.DBProbeSpec) error {
+	if spec.TLSFingerprint == nil || *spec.TLSFingerprint == "" {
+		return nil
+	}
+	if c.cert == nil || c.cert.fingerprint != *spec.TLSFingerprint {
+		return fail(CodeTLSChanged, "the server shows another TLS certificate than the one confirmed; no credentials were sent")
+	}
+	return nil
+}
+
 func serverName(host string) string {
 	if net.ParseIP(host) != nil {
 		return ""
@@ -270,7 +283,7 @@ func Run(ctx context.Context, spec api.DBProbeSpec, o Options) api.DBProbeResult
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	res := api.DBProbeResult{TLS: emptyTLS(nil), Login: LoginSkipped}
-	err := run(ctx, spec, o, &res)
+	err := run(ctx, spec, o, &res, started)
 	if err != nil {
 		f := classify(err)
 		res.Error = &api.DBProbeError{Code: f.code, Message: Sanitize(f.msg, deref(spec.User), deref(spec.Password))}
@@ -282,7 +295,7 @@ func Run(ctx context.Context, spec api.DBProbeSpec, o Options) api.DBProbeResult
 	return res
 }
 
-func run(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeResult) error {
+func run(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeResult, started time.Time) error {
 	if deref(spec.Engine) == EngineSQLite || spec.Path != nil {
 		res.Engine = str(EngineSQLite)
 		facts, err := probeSQLite(deref(spec.Path))
@@ -300,7 +313,7 @@ func run(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeR
 		return nil
 	}
 	if spec.AuthMethod == AuthSocket {
-		return runSocket(ctx, spec, o, res)
+		return runSocket(ctx, spec, o, res, started)
 	}
 	host := deref(spec.Host)
 	if host == "" {
@@ -359,7 +372,7 @@ func run(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeR
 		return nil
 	case EnginePostgreSQL:
 		defer d.c.close()
-		return postgresSession(d.c, d.tlsOffered, host, spec, res, func() (*conn, error) {
+		return postgresSession(d.c, d.tlsOffered, host, spec, res, started, func() (*conn, error) {
 			c, err := openConn(ctx, o.dial(), "tcp", addressOf(host, d.port), o.step())
 			if err != nil {
 				return nil, err
@@ -376,19 +389,22 @@ func run(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeR
 		})
 	default:
 		defer d.c.close()
-		return mysqlSession(d.c, d.greeting, host, spec, res)
+		return mysqlSession(d.c, d.greeting, host, spec, res, started)
 	}
 }
 
 // postgresSession signs in on a detected connection and reads the facts. A
 // database that does not exist is retried with template1 on a fresh connection.
-func postgresSession(c *conn, tlsOffered bool, host string, spec api.DBProbeSpec, res *api.DBProbeResult, reopen func() (*conn, error)) error {
+func postgresSession(c *conn, tlsOffered bool, host string, spec api.DBProbeSpec, res *api.DBProbeResult, started time.Time, reopen func() (*conn, error)) error {
 	res.TLS = emptyTLS(boolp(tlsOffered))
 	if tlsOffered {
 		if err := c.startTLS(serverName(host)); err != nil {
 			return err
 		}
 		res.TLS = tlsFacts(c)
+		if err := checkPin(c, spec); err != nil {
+			return err
+		}
 	} else if !plaintextAllowed(spec) {
 		return fail(CodeTLSMissing, "the server offers no TLS; connect without TLS only when the connection allows it")
 	}
@@ -412,6 +428,10 @@ func postgresSession(c *conn, tlsOffered bool, host string, spec api.DBProbeSpec
 					next.close()
 					return err
 				}
+				if err := checkPin(next, spec); err != nil {
+					next.close()
+					return err
+				}
 			}
 			defer next.close()
 			current = next
@@ -425,6 +445,22 @@ func postgresSession(c *conn, tlsOffered bool, host string, spec api.DBProbeSpec
 			return err
 		}
 		res.Login = LoginOK
+		if spec.Purpose == api.PurposeHealth {
+			health, version, err := current.pgHealth(started, spec.Sizes)
+			if err != nil {
+				return err
+			}
+			res.Health = health
+			v := pgShortVersion(version)
+			if v == "" {
+				v = params["server_version"]
+			}
+			if v != "" {
+				res.ServerVersion = str(v)
+			}
+			current.pgTerminate()
+			return nil
+		}
 		facts, err := current.pgFacts()
 		if err != nil {
 			return err
@@ -443,7 +479,7 @@ func postgresSession(c *conn, tlsOffered bool, host string, spec api.DBProbeSpec
 	return fail(CodeLoginFailed, "neither the named database nor template1 exists")
 }
 
-func mysqlSession(c *conn, g *greeting, host string, spec api.DBProbeSpec, res *api.DBProbeResult) error {
+func mysqlSession(c *conn, g *greeting, host string, spec api.DBProbeSpec, res *api.DBProbeResult, started time.Time) error {
 	res.ServerVersion = str(mysqlShortVersion(g.version))
 	offered := g.capabilities&clientSSL != 0
 	res.TLS = emptyTLS(boolp(offered))
@@ -456,7 +492,13 @@ func mysqlSession(c *conn, g *greeting, host string, spec api.DBProbeSpec, res *
 	}
 	var startTLS func() error
 	if offered {
-		startTLS = func() error { return c.startTLS(serverName(host)) }
+		startTLS = func() error {
+			if err := c.startTLS(serverName(host)); err != nil {
+				return err
+			}
+			res.TLS = tlsFacts(c)
+			return checkPin(c, spec)
+		}
 	}
 	p, err := c.mysqlSignIn(g, user, spec.Password, deref(spec.Database), startTLS)
 	if c.tlsUsed {
@@ -466,19 +508,33 @@ func mysqlSession(c *conn, g *greeting, host string, spec api.DBProbeSpec, res *
 		return err
 	}
 	res.Login = LoginOK
+	return mysqlFactsOrHealth(p, spec, res, started)
+}
+
+// mysqlFactsOrHealth reads the facts of a test or, for a health check, the
+// health facts, and ends the session.
+func mysqlFactsOrHealth(p *packets, spec api.DBProbeSpec, res *api.DBProbeResult, started time.Time) error {
+	defer p.quit()
+	if spec.Purpose == api.PurposeHealth {
+		health, err := p.mysqlHealth(started, spec.Sizes)
+		if err != nil {
+			return err
+		}
+		res.Health = health
+		return nil
+	}
 	facts, err := p.mysqlFacts()
 	if err != nil {
 		return err
 	}
 	res.MySQL = facts
-	p.quit()
 	return nil
 }
 
 // runSocket signs in over the local socket (docs/DATABASES.md 3.2): MariaDB
 // and MySQL as root (unix_socket, auth_socket), PostgreSQL as `postgres`
 // through `peer`, which needs the process to run as that user.
-func runSocket(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeResult) error {
+func runSocket(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DBProbeResult, started time.Time) error {
 	engine := deref(spec.Engine)
 	port := 0
 	if spec.Port != nil {
@@ -530,13 +586,7 @@ func runSocket(ctx context.Context, spec api.DBProbeSpec, o Options, res *api.DB
 			return err
 		}
 		res.Login = LoginOK
-		facts, err := p.mysqlFacts()
-		if err != nil {
-			return err
-		}
-		res.MySQL = facts
-		p.quit()
-		return nil
+		return mysqlFactsOrHealth(p, spec, res, started)
 	}
 	return fail(CodeUnreachable, "no MySQL or MariaDB socket on this machine")
 }
@@ -570,7 +620,7 @@ func RunPostgresPeer(ctx context.Context, spec api.DBProbeSpec, o Options, osUse
 		spec.Password = nil
 		err = func() error {
 			defer c.close()
-			return postgresSession(c, false, "", api.DBProbeSpec{User: spec.User, Database: spec.Database, AllowUnencrypted: true}, &res, func() (*conn, error) {
+			return postgresSession(c, false, "", api.DBProbeSpec{User: spec.User, Database: spec.Database, AllowUnencrypted: true, Purpose: spec.Purpose, Sizes: spec.Sizes}, &res, started, func() (*conn, error) {
 				return openConn(ctx, o.dial(), "unix", path, o.step())
 			})
 		}()
