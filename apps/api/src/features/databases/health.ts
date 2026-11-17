@@ -344,6 +344,8 @@ export async function agentReportHealth(
               eq(databaseConnections.id, sample.connectionId),
               eq(databaseConnections.executorKind, "agent"),
               eq(databaseConnections.executorEndpointId, agent.endpointId),
+              // Switched off while the task ran: its checks stopped with it.
+              eq(databaseConnections.enabled, true),
             ),
           )
           .limit(1);
