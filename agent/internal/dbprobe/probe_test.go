@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -124,8 +125,16 @@ type fakeMySQL struct {
 	serverUUID                *string
 	cert                      tls.Certificate
 	rsaKey                    *rsa.PrivateKey
+	mu                        sync.Mutex
 	sawTLS                    bool
 	sawUser                   string
+}
+
+// seen is what the server saw, read under its lock (the server runs in its own goroutine).
+func (f *fakeMySQL) seen() (tls bool, user string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sawTLS, f.sawUser
 }
 
 func readPacket(c net.Conn) (byte, []byte, error) {
@@ -164,13 +173,18 @@ func (f *fakeMySQL) serve(c net.Conn) {
 			return
 		}
 		c = tc
+		f.mu.Lock()
 		f.sawTLS = true
+		f.mu.Unlock()
 		if seq, p, err = readPacket(c); err != nil {
 			return
 		}
 	}
 	end := bytes.IndexByte(p[32:], 0)
-	f.sawUser = string(p[32 : 32+end])
+	user := string(p[32 : 32+end])
+	f.mu.Lock()
+	f.sawUser = user
+	f.mu.Unlock()
 	n := int(p[32+end+1])
 	token := p[32+end+2 : 32+end+2+n]
 	var good bool
@@ -181,7 +195,7 @@ func (f *fakeMySQL) serve(c net.Conn) {
 	}
 	ok := []byte{0, 0, 0, 2, 0, 0, 0}
 	if !good {
-		_, _ = c.Write(mysqlPacket(seq+1, errPacket(1045, "Access denied for user '"+f.sawUser+"'@'localhost'")))
+		_, _ = c.Write(mysqlPacket(seq+1, errPacket(1045, "Access denied for user '"+user+"'@'localhost'")))
 		return
 	}
 	next := seq + 1
@@ -294,8 +308,8 @@ func TestDetectsMySQLAndSignsInWithCachingSHA2OverTLS(t *testing.T) {
 	if !r.TLS.Used || r.TLS.FingerprintSHA256 == nil || !strings.HasPrefix(*r.TLS.FingerprintSHA256, strings.ToUpper(hexPair(sum[0]))) {
 		t.Fatalf("tls %+v", r.TLS)
 	}
-	if !f.sawTLS || f.sawUser != "restow_backup" {
-		t.Fatalf("server saw tls=%v user=%q", f.sawTLS, f.sawUser)
+	if sawTLS, sawUser := f.seen(); !sawTLS || sawUser != "restow_backup" {
+		t.Fatalf("server saw tls=%v user=%q", sawTLS, sawUser)
 	}
 	if r.MySQL == nil || deref(r.MySQL.ServerUUID) == "" || len(r.MySQL.Databases) != 3 || len(r.MySQL.Grants) != 1 {
 		t.Fatalf("facts %+v", r.MySQL)
@@ -354,8 +368,8 @@ func TestNeverSignsInWithoutTLSUnlessAllowed(t *testing.T) {
 	s := spec(port)
 	s.AllowUnencrypted = false
 	r := Run(context.Background(), s, fast)
-	if r.Error == nil || r.Error.Code != CodeTLSMissing || r.Login != LoginSkipped || f.sawUser != "" {
-		t.Fatalf("result %+v %+v, server saw %q", r, r.Error, f.sawUser)
+	if _, sawUser := f.seen(); r.Error == nil || r.Error.Code != CodeTLSMissing || r.Login != LoginSkipped || sawUser != "" {
+		t.Fatalf("result %+v %+v, server saw %q", r, r.Error, sawUser)
 	}
 }
 

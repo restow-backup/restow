@@ -31,8 +31,18 @@ func Health(ctx context.Context, spec api.DBProbeSpec, o Options) api.DBProbeRes
 	res := Run(hctx, spec, o)
 	// A check its deadline ended failed because nothing answered in time, whatever step it
 	// was in (a closed connection may look like a port that answers as no database).
-	if res.Error != nil && res.Login != LoginOK && errors.Is(hctx.Err(), context.DeadlineExceeded) {
+	if res.Error != nil && res.Login != LoginOK && deadlinePassed(hctx) {
 		res.Error = &api.DBProbeError{Code: CodeUnreachable, Message: "the check did not finish within " + timeout.String()}
 	}
 	return res
+}
+
+// deadlinePassed: the check's deadline is (about) over. A read whose socket
+// deadline is the check's own can end a moment before the context says so.
+func deadlinePassed(ctx context.Context) bool {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && time.Until(deadline) <= 100*time.Millisecond
 }

@@ -297,8 +297,11 @@ func TestConfirmedCertificateBeforeTheSignIn(t *testing.T) {
 	m := &fakeMySQL{version: "8.4.3", password: "s3cret-pass", plugin: mysqlAuthCachingSHA2, ssl: true, cert: cert}
 	ms := spec(listen(t, m.serve))
 	ms.PinnedFingerprintSHA256 = sp(strings.Repeat("AB:", 31) + "AB")
-	if r := Run(context.Background(), ms, fast); code(r) != CodeTLSChanged || m.sawUser != "" {
-		t.Fatalf("mysql: %+v user=%q", r.Error, m.sawUser)
+	if r := Run(context.Background(), ms, fast); code(r) != CodeTLSChanged {
+		t.Fatalf("mysql: %+v", r.Error)
+	}
+	if _, sawUser := m.seen(); sawUser != "" {
+		t.Fatalf("mysql: the server saw user %q", sawUser)
 	}
 }
 

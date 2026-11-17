@@ -48,8 +48,8 @@ func TestHealthCheckSendsNoCredentialToAnotherCertificate(t *testing.T) {
 		t.Fatalf("result %+v %+v", r, r.Error)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if !f.sawTLS || f.sawUser != "" {
-		t.Fatalf("the server saw tls=%v user=%q", f.sawTLS, f.sawUser)
+	if sawTLS, sawUser := f.seen(); !sawTLS || sawUser != "" {
+		t.Fatalf("the server saw tls=%v user=%q", sawTLS, sawUser)
 	}
 	if r.TLS.FingerprintSHA256 == nil || *r.TLS.FingerprintSHA256 == *s.PinnedFingerprintSHA256 {
 		t.Fatalf("tls %+v", r.TLS)
