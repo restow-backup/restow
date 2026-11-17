@@ -764,3 +764,32 @@ func TestAdoptInsideAfterAssembly(t *testing.T) {
 		t.Errorf("resumed plan: %v", rp.Steps)
 	}
 }
+
+// An adopted array whose content is not adopted is no adoption: the
+// volume group data also has a PV on the system disk, which is erased, so
+// the group is created anew, and pvcreate would run on the kept array.
+func TestAdoptedArrayCarriesUnadoptedPV(t *testing.T) {
+	m := loadManifest(t, "raid5-spare")
+	f := readFacts(t, "raid5-spare")
+	tg := adoptTarget(true)(t, m)
+	vg := "data"
+	m.Linux.LVM.PVs = append(m.Linux.LVM.PVs, PV{Device: PartRef("d0", 2), UUID: "pvsys-0000", SizeBytes: 1 << 30, VG: &vg})
+	var keep []Filesystem
+	for _, fs := range m.Linux.Filesystems {
+		if len(fs.Devices) == 1 && fs.Devices[0] == PartRef("d0", 2) {
+			continue
+		}
+		keep = append(keep, fs)
+	}
+	m.Linux.Filesystems = keep
+	p, _ := Plan(m, tg, f, Choices{DiskMapping: map[string]string{"d0": "t0"}, Adopt: []string{"md:" + m.Linux.MD[0].KName}})
+	found := false
+	for _, pr := range p.Problems {
+		if pr.Code == ProblemAdoptIncomplete && fmt.Sprint(pr.Params["unit"]) == "md m0" {
+			found = true
+		}
+	}
+	if p.OK || !found {
+		t.Errorf("adopted array with a PV of a group that is created anew: ok %v, %v", p.OK, p.Problems)
+	}
+}

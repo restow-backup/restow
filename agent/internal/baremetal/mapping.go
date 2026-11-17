@@ -781,6 +781,24 @@ func (mp *mapper) resolveAdoption() {
 			}
 		}
 	}
+	// Nor an adopted array or LUKS volume: what sits on it is adopted too,
+	// or the plan would create it anew on the kept device (a PV of a
+	// volume group that also lies on an erased disk: pvcreate on the
+	// adopted array).
+	for _, u := range mp.units {
+		var r BlockRef
+		switch u.Kind {
+		case "md":
+			r = MDRef(u.Ref)
+		case "luks":
+			r = LUKSRef(u.Ref)
+		default:
+			continue
+		}
+		if !mp.contentAdopted(r.key()) {
+			mp.add(newFinding(ProblemAdoptIncomplete, u.Ref, "unit", u.Kind+" "+u.Ref, "reason", "what it carries is not adopted"))
+		}
+	}
 }
 
 // contentAdopted: what sits on the device is adopted (or nothing sits on it).

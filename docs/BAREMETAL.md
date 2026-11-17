@@ -1984,7 +1984,10 @@ liegt (`blkid -p -o export`: `TYPE` und UUID wie im Manifest; PV `LVM2_member`, 
 `crypto_LUKS`, Dateisystem sein Typ). Passt etwas nicht, endet der Lauf dort mit
 `step_failed`; die Konsole sagt "Es wurde nichts gelöscht" (die zuvor auf ausdrückliches Wort
 geleerte Konfliktplatte ausgenommen). Ein fortgesetzter Lauf (10.18) löscht nichts und behält
-die Reihenfolge des ersten Plans des Fortsetzens (ohne Phase `adopt`). Der Plan zeigt
+die Reihenfolge des ersten Plans des Fortsetzens (ohne Phase `adopt`). Ein Array oder
+LUKS-Volume gilt nur als übernommen, wenn auch alles darauf übernommen wird; liegt darauf
+etwa ein PV einer VG, die auch auf einer gelöschten Platte liegt, legte der Plan die VG neu
+an und schriebe `pvcreate` auf das behaltene Array, daher `adopt_incomplete`. Der Plan zeigt
 übernommene Teile grün ("bleibt, wird nicht gelöscht"). **Automatisch** ordnet `recover` nie
 eine Platte zum Löschen zu, die Signaturen trägt, die zum Manifest passen; die Vorgabe ist
 dann "übernehmen".
