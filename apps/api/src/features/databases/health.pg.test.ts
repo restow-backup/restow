@@ -195,7 +195,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
             tenantId: fixture.tenantId,
             hostname,
             os: "linux" as const,
-            arch: "amd64",
+            arch: "amd64" as const,
             profile: "server" as const,
             secretHash: "x",
             config: {} as never,
