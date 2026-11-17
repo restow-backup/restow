@@ -20,7 +20,9 @@ lvcreate -q -V 8G --thinpool vg0/pool -n root
 mkfs_ext4 debian13 /dev/vg0/root root
 root=/mnt/e2e
 mkdir -p "$root" && mount /dev/vg0/root "$root" && mkdir -p "$root/boot/efi" && mount "$(part "$d" 1)" "$root/boot/efi"
-bootstrap trixie "$root" "$FACTORY_MIRROR" debian-archive-keyring.gpg linux-image-amd64 lvm2 thin-provisioning-tools initramfs-tools
+# e2fsprogs is no longer part of a minbase trixie; without it the agent records no ext
+# parameters and the planner cannot create the root file system (mkfs_unsupported_type).
+bootstrap trixie "$root" "$FACTORY_MIRROR" debian-archive-keyring.gpg linux-image-amd64 lvm2 thin-provisioning-tools e2fsprogs initramfs-tools
 {
   fstab_uuid /dev/vg0/root / ext4 errors=remount-ro 1
   fstab_uuid "$(part "$d" 1)" /boot/efi vfat umask=0077 1
