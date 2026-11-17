@@ -8,7 +8,7 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [0.5.0] - 2026-11-16
+## [0.5.0] - 2026-11-17
 
 Beta release. Run it alongside your existing backups, not as your only one, until
 you have verified restores against your own data.
@@ -827,6 +827,26 @@ Breaking Changes and Upgrade Notes before you update.
   cannot exist (overlapping partitions, one behind the end of the disk, a logical partition
   without an extended one and the like) is refused by the plan with the reason instead of
   failing at `sfdisk` after the erase.
+  An old disk that is still attached and carries identities of the backup (an identity
+  conflict) can now be emptied by `recover` instead of only being named: at the console after a
+  yes and the last four characters of its identity, unattended only when `confirmErase` names it
+  together with exactly the disks the plan erases. It runs `wipefs -a` on its partitions and the
+  disk, reads the disks again and plans anew; a disk the plan erases or adopts, one holding an
+  adopted part, a shared identity or a SAN LUN is never wiped, and with one refusal none is.
+  Adopting a RAID now also adopts what lies on it (an LVM volume group, its file systems): the
+  ISO assembles nothing while it scans, so these are checked right after the array is assembled
+  and before the first disk is erased (a new `adopt` phase with `adopt_check` steps); a mismatch
+  stops the run with nothing erased. An adopted array or LUKS volume whose content would be
+  created anew (a PV of a volume group that also lies on an erased disk) is refused as
+  `adopt_incomplete` instead of running `pvcreate` on the kept array. When the backup has no
+  firmware boot entry, `recover` now adds one for the loader the fallback path starts (systemd-boot
+  as "Linux Boot Manager", shim under its vendor folder); a refused write leaves the fallback path
+  and the check says so. Wiping the partitions of a target waits for udev and tries again when
+  the kernel reread the partition table under it (after the write probe of the disk guard), and a
+  file kept before it is replaced on a file system without hard links (the ESP) is now a copy.
+  An unattended run whose code was redeemed and whose session ended without success no longer
+  restarts with the used code every few seconds (exit code 4, `RestartPreventExitStatus=4`); a
+  boot probe then powers the machine off so the lab has the result at once.
   The result is honest: the server no longer takes the recovery ISO's word for a successful
   bare metal recovery. A finish that reports `succeeded` is stored as such only when the
   `restow-verify-v1` report it carries bears that out: it parses, none of its checks failed, all
@@ -1012,6 +1032,9 @@ Breaking Changes and Upgrade Notes before you update.
 
 ### Changed
 
+- The menu entries that lead to a restore ("Restore explorer", "File restore") carry a
+  turn-back arrow in a Lapis circle at their right end, beside their own icon, so the way back to
+  data stands out. Lapis, not green: green stays proof of a passed restore check.
 - Public demo: Postgres is set up for its 512M limit (`max_connections=64`, `shared_buffers=64MB`,
   small `work_mem` and `maintenance_work_mem`, two autovacuum workers), and api, worker and
   scheduler open smaller pools, 48 connections in all instead of the default 90
