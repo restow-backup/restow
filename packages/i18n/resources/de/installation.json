@@ -75,7 +75,8 @@
       "fileShares": "{count, plural, one {# Freigabe} other {# Freigaben}}",
       "jobs": "{count, plural, one {# Job} other {# Jobs}}",
       "nodes": "{count, plural, one {# Knoten} other {# Knoten}}",
-      "guests": "{count, plural, one {# VM oder Container} other {# VMs und Container}}"
+      "guests": "{count, plural, one {# VM oder Container} other {# VMs und Container}}",
+      "databases": "{count, plural, one {# Datenbank} other {# Datenbanken}}"
     }
   },
   "locked": {

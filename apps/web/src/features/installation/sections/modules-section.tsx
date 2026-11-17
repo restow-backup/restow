@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { ARCHIVE_PATH } from "@/features/archive/paths";
+import { DATABASES_PATH } from "@/features/databases/paths";
 import { INVENTORY_PATH } from "@/features/endpoints/paths";
 import { PVE_PATH } from "@/features/pve/paths";
 import { queryKeys } from "@/lib/api";
@@ -44,6 +45,8 @@ function modulePage(
       return { to: INVENTORY_PATH };
     case "pve":
       return { to: PVE_PATH };
+    case "databases":
+      return { to: DATABASES_PATH };
   }
 }
 

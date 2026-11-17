@@ -119,6 +119,10 @@
       "pve": {
         "title": "Proxmox VE",
         "description": "VMs and containers of your Proxmox VE nodes."
+      },
+      "databases": {
+        "title": "Databases",
+        "description": "PostgreSQL, MySQL, MariaDB, SQL Server and SQLite, protected by address and user, without backing up the whole server."
       }
     },
     "hidden": {

@@ -1,0 +1,284 @@
+{
+  "nav": {
+    "label": "Datenbanken"
+  },
+  "list": {
+    "title": "Datenbanken",
+    "description": "Datenbanken, die {appName} über Adresse und Benutzer schützt, ohne den ganzen Server zu sichern.",
+    "refresh": "Aktualisieren",
+    "add": "Datenbank hinzufügen",
+    "loadError": "Die Datenbanken konnten nicht geladen werden",
+    "noTenant": {
+      "title": "Kein Mandant gewählt",
+      "description": "Wählen Sie oben einen Mandanten, um seine Datenbanken zu sehen."
+    },
+    "empty": {
+      "title": "Noch keine Datenbank",
+      "description": "Geben Sie eine Adresse und einen Benutzer ein. {appName} erkennt die Engine, zeigt, was der Benutzer erlaubt, und speichert erst danach."
+    },
+    "noneMatch": "Keine Datenbank passt zu diesen Filtern.",
+    "unknown": "unbekannt",
+    "never": "noch nie",
+    "filters": {
+      "engine": "Engine",
+      "connection": "Verbindung",
+      "rating": "Bewertung",
+      "allEngines": "Alle Engines",
+      "allConnections": "Alle Verbindungen",
+      "allRatings": "Alle Bewertungen"
+    },
+    "columns": {
+      "database": "Datenbank",
+      "engine": "Engine",
+      "connection": "Verbindung",
+      "mode": "Modus",
+      "size": "Größe",
+      "lastBackup": "Letzte Sicherung",
+      "lastCheck": "Letzte Prüfung",
+      "reachability": "Erreichbarkeit",
+      "rating": "Bewertung"
+    },
+    "connections": {
+      "title": "Verbindungen",
+      "description": "Je Verbindung eine Instanz oder eine SQLite-Datei mit Anmeldung, Ausführer und Zeitplan.",
+      "name": "Verbindung",
+      "executor": "Ausführer",
+      "state": "Zustand"
+    }
+  },
+  "suggestions": {
+    "title": "Gefunden, nicht geschützt",
+    "description": "Die Agenten Ihrer Rechner haben diese Datenbanken gefunden. Eine Verbindung entsteht erst, wenn Sie sie prüfen und speichern.",
+    "found": "{engine} {name} auf {hostname}",
+    "protect": "Schützen",
+    "noPort": "Läuft in einem Container ohne veröffentlichten Port; geben Sie die Adresse selbst ein."
+  },
+  "add": {
+    "title": "Datenbank hinzufügen",
+    "description": "Adresse, Benutzer und Kennwort genügen. Prüfen Sie die Verbindung; gespeichert wird erst danach.",
+    "address": "Adresse",
+    "addressHint": "Eine URL (postgresql://, mysql://, mariadb://, sqlserver://), host:port, nur der Host oder der Pfad einer SQLite-Datei. Benutzer und Kennwort in der URL werden in die Felder übernommen.",
+    "executor": "Ausführer",
+    "executorHint": "Wer die Verbindung aufbaut: der {appName}-Server selbst (PostgreSQL, MySQL, MariaDB) oder ein Agent im Netz der Datenbank. SQLite und SQL Server brauchen einen Agenten auf ihrem Rechner.",
+    "executorServer": "{appName}-Server",
+    "executorAgent": "Agent auf {hostname}",
+    "executorAgentOffline": "Agent auf {hostname} (zurzeit nicht erreichbar)",
+    "socket": "Über den lokalen Socket anmelden, ohne Kennwort",
+    "socketHint": "Nur mit einem Agenten auf dem Datenbankrechner: PostgreSQL als postgres (peer), MariaDB und MySQL als root.",
+    "user": "Benutzer",
+    "userHint": "Empfohlen ist ein eigener Backup-Benutzer; ein Admin-Benutzer geht auch.",
+    "password": "Kennwort",
+    "unencrypted": "Unverschlüsselt verbinden, wenn der Server kein TLS anbietet",
+    "unencryptedHint": "Der Hinweis bleibt an der Verbindung stehen. Der {appName}-Server verbindet sich mit einer öffentlichen Adresse nie ohne TLS.",
+    "test": "Verbindung prüfen",
+    "waiting": "Der Agent prüft die Verbindung",
+    "waitingHint": "Er holt die Prüfung bei seinem nächsten Kontakt ab, spätestens in etwa fünf Minuten. Sie können das Fenster offen lassen.",
+    "expired": "Der Agent hat sich in 15 Minuten nicht gemeldet. Prüfen Sie, ob er läuft, oder wählen Sie einen anderen Ausführer.",
+    "name": "Name",
+    "nameHint": "Ohne Angabe heißt die Verbindung wie ihre Adresse.",
+    "mode": "Modus",
+    "modeHint": "Point-in-Time und die warme Kopie folgen in späteren Versionen.",
+    "interval": "Sicherung",
+    "selection": "Geschützte Datenbanken",
+    "selectionHint": "Datenbanken, die später hinzukommen, sind automatisch dabei.",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "saved": "Verbindung {name} gespeichert."
+  },
+  "probe": {
+    "engine": "Engine",
+    "engineUnknown": "nicht erkannt",
+    "port": "(Port {port})",
+    "tls": "Verschlüsselung",
+    "tlsUsed": "TLS, Zertifikat mit diesem Fingerabdruck (SHA-256):",
+    "tlsNotOffered": "Der Server bietet kein TLS an.",
+    "tlsNotUsed": "Ohne TLS",
+    "certificate": "Ausgestellt für {subject}, von {issuer}",
+    "copyFingerprint": "Fingerabdruck kopieren",
+    "databases": "{count, plural, one {# Datenbank gefunden} other {# Datenbanken gefunden}}",
+    "identityUnknown": "Die Identität der Instanz ist mit diesem Benutzer nicht lesbar; ein Wechsel der Instanz fällt dann nicht auf.",
+    "schemasByName": "Schemas werden über den Namen erkannt: Ein gelöschtes und neu angelegtes Schema gleichen Namens gilt als dasselbe."
+  },
+  "rights": {
+    "title": "Was dieser Benutzer erlaubt",
+    "capability": "Fähigkeit",
+    "status": "Stand",
+    "missing": "Fehlt",
+    "capabilities": {
+      "backup": "Sicherung",
+      "verifyOnInstance": "Prüfung und Restore auf derselben Instanz",
+      "pitr": "Point-in-Time"
+    },
+    "state": {
+      "granted": "Erlaubt",
+      "missing": "Fehlt",
+      "partial": "Nur teilweise",
+      "unknown": "Nicht prüfbar",
+      "notApplicable": "Entfällt"
+    },
+    "notes": {
+      "pg_before_14": "Vor PostgreSQL 14 lässt sich das Leserecht auf alle Objekte nicht vorab prüfen.",
+      "pg_hba_unchecked": "Den Eintrag replication in pg_hba.conf kann {appName} mit diesem Benutzer nicht sehen.",
+      "binlog_off": "Das Binlog ist ausgeschaltet.",
+      "some_databases": "Nur für einzelne Datenbanken.",
+      "sqlserver_later": "SQL Server sichert weiterhin die native Sicherung auf der Seite des Rechners.",
+      "not_signed_in": "Nicht angemeldet."
+    },
+    "admin": {
+      "title": "Admin-Benutzer",
+      "description": "Dieser Benutzer darf alles ({rights}). {appName} braucht davon nur die Rechte des Backup-Benutzers unten."
+    },
+    "grant": {
+      "missing": "Diese Anweisungen legen einen Backup-Benutzer restow_backup mit genau den fehlenden Rechten an:",
+      "recommended": "Empfohlen: ein Backup-Benutzer restow_backup mit genau diesen Rechten:",
+      "copy": "SQL kopieren",
+      "savesAnyway": "Sie können die Verbindung trotzdem speichern; sie kann dann, was der Benutzer erlaubt."
+    }
+  },
+  "modes": {
+    "backup": "Sicherung",
+    "pitr": "Point-in-Time",
+    "warm_copy": "Warme Kopie"
+  },
+  "intervals": {
+    "minutes": "{count, plural, =15 {alle 15 Minuten} =30 {alle 30 Minuten} =60 {stündlich} =120 {alle 2 Stunden} =240 {alle 4 Stunden} =360 {alle 6 Stunden} =720 {alle 12 Stunden} =1440 {täglich} other {alle # Minuten}}"
+  },
+  "rating": {
+    "red": "Rot",
+    "overdue": "Überfällig",
+    "unverified": "Gesichert, ungeprüft",
+    "notProtected": "Noch nicht gesichert",
+    "green": "Geprüft"
+  },
+  "reachability": {
+    "reachable": "Erreichbar",
+    "unreachable": "Nicht erreichbar",
+    "unknown": "Unbekannt"
+  },
+  "executor": {
+    "server": "{appName}-Server",
+    "agentOnline": "Agent auf {hostname}",
+    "agentOffline": "Agent auf {hostname}, seit über 15 Minuten ohne Kontakt",
+    "missing": "Kein Ausführer (der Rechner wurde entfernt)"
+  },
+  "connection": {
+    "loadError": "Die Verbindung konnte nicht geladen werden",
+    "test": "Verbindung prüfen",
+    "testResult": "Ergebnis der Prüfung",
+    "facts": "Verbindung",
+    "engine": "Engine",
+    "address": "Adresse",
+    "executor": "Ausführer",
+    "signIn": "Anmeldung",
+    "socket": "Über den lokalen Socket, ohne Kennwort",
+    "credentialSet": "Benutzer und Kennwort sind verschlüsselt gespeichert",
+    "credentialMissing": "Keine Zugangsdaten gespeichert",
+    "tls": "TLS-Zertifikat",
+    "tlsConfirmed": "Bestätigt von {by} am {at}",
+    "unencrypted": "Unverschlüsselt (ausdrücklich erlaubt)",
+    "approval": "Privates Netz",
+    "approvedBy": "Freigegeben von {by} am {at}",
+    "mode": "Modus",
+    "schedule": "Zeitplan",
+    "lastCheck": "Letzte Prüfung",
+    "identity": "Instanz",
+    "databases": "Datenbanken",
+    "databasesDescription": "Eine gelöschte und neu angelegte Datenbank gleichen Namens ist eine andere Datenbank mit eigener Geschichte.",
+    "dropped": "Nicht mehr vorhanden seit {at}",
+    "excluded": "Von der Auswahl ausgenommen",
+    "delete": "Verbindung löschen",
+    "deleteTitle": "Verbindung {name} löschen?",
+    "deleteDescription": "Die Verbindung, ihre Datenbanken und die gespeicherten Zugangsdaten werden gelöscht. Geben Sie zur Bestätigung den Namen ein.",
+    "deleted": "Verbindung {name} gelöscht.",
+    "state": {
+      "ok": "Anmeldung geht",
+      "attention": "Braucht Aufmerksamkeit",
+      "red": "Rot",
+      "unchecked": "Noch nicht geprüft"
+    }
+  },
+  "confirm": {
+    "tlsTitle": "Anderes TLS-Zertifikat",
+    "tlsDescription": "Der Server zeigt ein anderes Zertifikat als das bestätigte. Bis Sie es bestätigen, verbindet sich {appName} nicht weiter. Prüfen Sie den Fingerabdruck:",
+    "tlsQuestion": "Bestätigen Sie nur, wenn Sie wissen, dass das Zertifikat erneuert wurde. Die Bestätigung wird im Audit-Log festgehalten.",
+    "tlsAction": "Neues Zertifikat bestätigen",
+    "instanceTitle": "Andere Instanz unter der Adresse",
+    "instanceDescription": "Unter der Adresse antwortet eine andere Instanz, etwa nach einem Umzug oder Failover. {appName} sichert nicht still weiter.",
+    "instanceQuestion": "Bestätigen Sie, dass die neue Instanz dieselbe Aufgabe hat. Ihre Datenbanken bekommen eine eigene Geschichte; die der alten Instanz bleibt getrennt. Die Bestätigung wird im Audit-Log festgehalten.",
+    "instanceAction": "Neue Instanz bestätigen"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "newUser": "Neuer Benutzer",
+    "newPassword": "Neues Kennwort",
+    "credentialsHint": "Leer lassen, um die gespeicherten Zugangsdaten zu behalten. Gespeicherte Zugangsdaten werden nie angezeigt.",
+    "enabled": "Verbindung aktiv",
+    "save": "Speichern",
+    "saved": "Einstellungen gespeichert."
+  },
+  "database": {
+    "loadError": "Die Datenbank konnte nicht geladen werden",
+    "facts": "Datenbank",
+    "identity": "Identität",
+    "identityKnown": "Über Name und Kennung der Datenbank",
+    "identityByName": "Über den Namen",
+    "firstSeen": "Zuerst gefunden",
+    "selection": "Auswahl",
+    "dropped": "Nicht mehr vorhanden",
+    "noBackups": {
+      "title": "Noch keine Sicherung",
+      "description": "Sicherungen, Prüfberichte und der Verlauf der Größe erscheinen hier, sobald die Datenbank gesichert wird."
+    }
+  },
+  "codes": {
+    "db_unreachable": "Nicht erreichbar",
+    "db_login_failed": "Anmeldung abgelehnt",
+    "db_permission_missing": "Rechte fehlen",
+    "db_engine_changed": "Unter der Adresse antwortet eine andere Engine",
+    "db_instance_changed": "Unter der Adresse antwortet eine andere Instanz",
+    "db_target_is_restow": "Das ist die Datenbank dieser {appName}-Installation",
+    "db_private_network": "Adresse in einem privaten Netz",
+    "db_forbidden_address": "Adresse gesperrt (link-local oder reserviert)",
+    "db_tls_changed": "Anderes TLS-Zertifikat",
+    "db_tls_missing": "Kein TLS",
+    "db_not_a_database": "Unter der Adresse antwortet keine bekannte Datenbank",
+    "db_engine_unsupported": "Diese Engine braucht einen Agenten auf ihrem Rechner",
+    "db_auth_unsupported": "Anmeldung über den Socket hier nicht möglich",
+    "db_dump_failed": "Dump fehlgeschlagen",
+    "db_snapshot_failed": "Snapshot fehlgeschlagen",
+    "db_tool_missing": "Programm fehlt",
+    "db_tool_too_old": "Programm zu alt",
+    "db_no_space": "Kein Platz",
+    "db_restore_name_taken": "Name schon vergeben",
+    "db_restore_failed": "Wiederherstellung fehlgeschlagen",
+    "db_backup_mismatch": "Prüfsumme weicht ab",
+    "db_verify_no_space": "Kein Platz für die Prüfung",
+    "db_verify_timeout": "Prüfung abgebrochen (Zeitlimit)",
+    "db_runner_offline": "Ausführer nicht erreichbar",
+    "db_pitr_slot_unbounded": "Replikationsslot ohne Grenze",
+    "db_pitr_gap": "Lücke im Log",
+    "db_warm_copy_name_taken": "Name auf dem Ziel schon vergeben",
+    "db_probe_failed": "Prüfung fehlgeschlagen",
+    "db_nontransactional_tables": "Tabellen ohne Transaktionen",
+    "db_version_untested": "Version nicht getestet",
+    "db_too_large_to_verify": "Zu groß für die Prüfung",
+    "db_run_overlap": "Lauf ausgelassen, der vorige lief noch",
+    "db_run_slow": "Lauf dauert lange",
+    "db_unencrypted": "Unverschlüsselt"
+  },
+  "problems": {
+    "generic": "Das hat nicht geklappt. Versuchen Sie es noch einmal.",
+    "invalid": "Die Angaben sind nicht vollständig.",
+    "address": "Die Adresse ist ungültig.",
+    "executor": "Dieser Ausführer kann die Verbindung nicht aufbauen.",
+    "db_private_network": "Die Adresse liegt in einem privaten Netz oder ist ein Container-Name. Nur ein Provider-Admin kann sie für den {appName}-Server freigeben; ein Agent in diesem Netz kann sie erreichen.",
+    "db_forbidden_address": "Die Adresse ist link-local oder reserviert (etwa der Metadatendienst einer Cloud). Der {appName}-Server verbindet sich dort nie.",
+    "probe-required": "Prüfen Sie die Verbindung, bevor Sie speichern.",
+    "tls-missing": "Der Server bietet kein TLS an. Setzen Sie den Haken für unverschlüsselte Verbindungen, um trotzdem zu speichern.",
+    "target-is-restow": "Das ist die Datenbank dieser {appName}-Installation. Sie wird über die Sicherung der Installation geschützt, nicht in diesem Modul.",
+    "name-taken": "Eine andere Verbindung trägt schon diesen Namen.",
+    "probe-limit": "Zu viele Prüfungen in kurzer Zeit. Versuchen Sie es in ein paar Minuten noch einmal.",
+    "probe-used": "Diese Prüfung wurde schon abgeholt.",
+    "confirm": "Es gibt nichts zu bestätigen. Prüfen Sie die Verbindung noch einmal."
+  }
+}

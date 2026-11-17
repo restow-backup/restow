@@ -1117,6 +1117,8 @@ describe("setup wizard, what to set up", () => {
 
 describe("setup wizard, what to protect", () => {
   const MODULES = ["microsoft365", "imap", "archive", "endpoints", "pve"] as const;
+  /** Offered too, but not ticked to begin with (docs/DATABASES.md 2.1). */
+  const OFF_BY_DEFAULT = "databases";
 
   async function toModulesStep(): Promise<void> {
     await mount(freshState);
@@ -1128,7 +1130,7 @@ describe("setup wizard, what to protect", () => {
   }
 
   /** The box of one module on the step. */
-  function moduleBox(module: (typeof MODULES)[number]): HTMLButtonElement {
+  function moduleBox(module: (typeof MODULES)[number] | typeof OFF_BY_DEFAULT): HTMLButtonElement {
     const box = container.querySelector<HTMLButtonElement>(
       `[data-module="${module}"] [role="checkbox"]`,
     );
@@ -1141,12 +1143,14 @@ describe("setup wizard, what to protect", () => {
   const ticked = () =>
     MODULES.filter((module) => moduleBox(module).getAttribute("aria-checked") === "true");
 
-  it("follows the notice: one box per module, each named and described, all ticked to begin with", async () => {
+  it("follows the notice: one box per module, each named and described, all but Databases ticked to begin with", async () => {
     await toModulesStep();
 
     expect(container.textContent).toContain("What do you want to protect with Restow?");
-    expect(container.querySelectorAll('[data-module] [role="checkbox"]')).toHaveLength(5);
+    expect(container.querySelectorAll('[data-module] [role="checkbox"]')).toHaveLength(6);
     expect(ticked()).toEqual([...MODULES]);
+    expect(moduleBox(OFF_BY_DEFAULT).getAttribute("aria-checked")).toBe("false");
+    expect(container.textContent).toContain("Databases");
     for (const text of [
       "Microsoft 365",
       "Mailboxes, OneDrive, SharePoint sites, groups and teams.",

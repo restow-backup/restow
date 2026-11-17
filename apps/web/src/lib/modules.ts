@@ -9,6 +9,8 @@
  *   archive       the mail archive
  *   endpoints     servers and clients with the agent, and file shares
  *   pve           Proxmox VE: VMs and containers
+ *   databases     databases protected by address and user (0.6.0, docs/DATABASES.md); off unless
+ *                 chosen
  *
  * A module that is off is hidden, nothing more: its menu entries, its cards on the overview, its
  * entries where something new is created and in the command palette. Its pages stay reachable by
@@ -18,9 +20,21 @@
  * and what names none belongs to every installation. Editions (gated features and the locks of
  * extensions) are decided separately and are not touched by modules.
  */
-export const MODULE_IDS = ["microsoft365", "imap", "archive", "endpoints", "pve"] as const;
+export const MODULE_IDS = [
+  "microsoft365",
+  "imap",
+  "archive",
+  "endpoints",
+  "pve",
+  "databases",
+] as const;
 
 export type ModuleId = (typeof MODULE_IDS)[number];
+
+/** What the setup wizard ticks to begin with: every module but `databases` (docs/DATABASES.md 2.1). */
+export const DEFAULT_MODULE_IDS: readonly ModuleId[] = MODULE_IDS.filter(
+  (id) => id !== "databases",
+);
 
 /** Something that belongs to modules; without the field it belongs to every installation. */
 export interface ModuleScoped {

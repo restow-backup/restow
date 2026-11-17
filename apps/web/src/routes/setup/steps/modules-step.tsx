@@ -13,9 +13,9 @@ interface ModulesStepProps {
 
 /**
  * "What do you want to protect?": one box per module of the installation (lib/modules.ts), all
- * ticked to begin with, at least one to continue. The answer only decides what the menu, the
- * overview and the offers to create something show; Installation > Modules changes it at any
- * time, and nothing is lost by leaving a module out here.
+ * but Databases ticked to begin with (DEFAULT_MODULE_IDS), at least one to continue. The answer
+ * only decides what the menu, the overview and the offers to create something show;
+ * Installation > Modules changes it at any time, and nothing is lost by leaving a module out here.
  */
 export function ModulesStep({ form }: ModulesStepProps) {
   const { t } = useTranslation("setup");
