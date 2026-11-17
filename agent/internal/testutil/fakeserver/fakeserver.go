@@ -60,6 +60,12 @@ type Server struct {
 	RefuseTasks   map[string]bool
 	RunStartTries int
 
+	// DBProbes are the database tests the agent may fetch (once each), by id;
+	// DBProbeFetches counts the fetches and DBProbeResults records the results.
+	DBProbes       map[string]api.DBProbeSpec
+	DBProbeFetches map[string]int
+	DBProbeResults map[string]api.DBProbeResult
+
 	pendingTasks []api.Task
 	nextRun      int
 }
@@ -116,6 +122,7 @@ func NewWithOptions(o Options) *Server {
 	mux.HandleFunc("/agent/v1/runs", s.auth(s.handleRuns))
 	mux.HandleFunc("/agent/v1/runs/", s.auth(s.handleRunSub))
 	mux.HandleFunc("/agent/v1/update", s.auth(s.handleUpdate))
+	mux.HandleFunc("/agent/v1/databases/probes/", s.auth(s.handleDBProbe))
 	if !o.NoReleases {
 		mux.HandleFunc("/install/agent/", s.handleRelease)
 	}
@@ -358,6 +365,45 @@ func (s *Server) handleRunSub(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		run.Finish = &f
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		problem(w, http.StatusNotFound, "Not Found", "")
+	}
+}
+
+// handleDBProbe serves GET /agent/v1/databases/probes/:id (once) and POST .../:id/result.
+func (s *Server) handleDBProbe(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/agent/v1/databases/probes/")
+	id, sub, _ := strings.Cut(rest, "/")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case r.Method == http.MethodGet && sub == "":
+		spec, ok := s.DBProbes[id]
+		if !ok {
+			problem(w, http.StatusNotFound, "Not Found", "no such probe")
+			return
+		}
+		if s.DBProbeFetches == nil {
+			s.DBProbeFetches = map[string]int{}
+		}
+		s.DBProbeFetches[id]++
+		if s.DBProbeFetches[id] > 1 {
+			problem(w, http.StatusConflict, "Conflict", "already fetched")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(spec)
+	case r.Method == http.MethodPost && sub == "result":
+		var res api.DBProbeResult
+		if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
+			problem(w, http.StatusBadRequest, "Bad Request", err.Error())
+			return
+		}
+		if s.DBProbeResults == nil {
+			s.DBProbeResults = map[string]api.DBProbeResult{}
+		}
+		s.DBProbeResults[id] = res
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		problem(w, http.StatusNotFound, "Not Found", "")

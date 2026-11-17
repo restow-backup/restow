@@ -1,0 +1,16 @@
+{
+  "engine": "mysql",
+  "port": 3306,
+  "serverVersion": "8.4.3",
+  "tls": {
+    "offered": true,
+    "used": true,
+    "fingerprintSha256": null,
+    "subject": null,
+    "issuer": null,
+    "notAfter": null
+  },
+  "login": "failed",
+  "error": { "code": "db_login_failed", "message": "Access denied for user '***'@'10.0.0.7' (using password: YES)" },
+  "durationMs": 41
+}

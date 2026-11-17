@@ -81,6 +81,13 @@ func TestContractFixturesRoundTrip(t *testing.T) {
 		{"finish-sql-verify-red.json", func() any { return &FinishRequest{} }, false},
 		{"finish-sql-verify-incomplete.json", func() any { return &FinishRequest{} }, false},
 		{"finish-backup-notices.json", func() any { return &FinishRequest{} }, true},
+		// The module "Databases" (D1): a connection test and the inventory.
+		{"db-probe-spec.json", func() any { return &DBProbeSpec{} }, false},
+		{"db-probe-result-postgresql.json", func() any { return &DBProbeResult{} }, false},
+		{"db-probe-result-mariadb.json", func() any { return &DBProbeResult{} }, false},
+		{"db-probe-result-failed.json", func() any { return &DBProbeResult{} }, false},
+		{"db-probe-result-sqlite.json", func() any { return &DBProbeResult{} }, false},
+		{"heartbeat-db-inventory.json", func() any { return &HeartbeatRequest{} }, true},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -99,6 +106,7 @@ func TestContractTasks(t *testing.T) {
 	}{
 		{"task-sql-verify.json", TaskSQLVerify, func() any { return &SQLVerifyParams{} }},
 		{"task-sql-restore.json", TaskSQLRestore, func() any { return &SQLRestoreParams{} }},
+		{"task-db-probe.json", TaskDBProbe, func() any { return &DBProbeTaskParams{} }},
 	} {
 		t.Run(c.file, func(t *testing.T) {
 			raw := readFixture(t, c.file)

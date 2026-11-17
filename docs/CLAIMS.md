@@ -1201,8 +1201,8 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Restow erkennt PostgreSQL, MySQL, MariaDB und SQL Server an der Adresse allein: am ersten Austausch des Protokolls (Begrüßung von MySQL und MariaDB, Antwort auf die `SSLRequest` von PostgreSQL, Antwort auf ein TDS-`PRELOGIN` von SQL Server), ohne Port in der Reihenfolge 5432, 3306, 1433.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.1 "Adresse und Erkennung der Engine", Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts
-- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml; MySQL, MariaDB und SQL Server als Simulator nach der Protokollbeschreibung, echte Server wären MySQL 8.0/8.4, MariaDB 10.6 bis 11.8 und SQL Server 2019/2022)
+- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, agent/internal/dbprobe/probe_test.go, agent/internal/dbprobe/postgres_test.go
+- Belegt gegen: beides (PostgreSQL 16 echt für die Prüfung des Restow-Servers, Job test in ci.yml; MySQL, MariaDB und SQL Server als Simulator nach der Protokollbeschreibung, echte Server wären MySQL 8.0/8.4, MariaDB 10.6 bis 11.8 und SQL Server 2019/2022. Der Agent prüft gegen dieselben Simulatoren; sein Test gegen echtes PostgreSQL läuft nur mit RESTOW_TEST_DATABASE_URL, die der Job agent nicht setzt.)
 - Stand: belegt
 - Hinweis: Die Versionsmatrix gegen echte Server je Version ist Stufe D7 (docs/DATABASES.md 13).
 
@@ -1210,7 +1210,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Zugangsdaten einer Datenbank liegen nur verschlüsselt auf dem Server und erscheinen in keiner API-Antwort und keinem Fehlertext; Fehlertexte der Clients werden vor dem Speichern um URL, Benutzer und Kennwort bereinigt.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.2 "Zugangsdaten", Abschnitt 10, Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts
+- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, agent/internal/dbprobe/probe_test.go
 - Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log und gespeicherte Prüfungen; MySQL als Simulator)
 - Stand: belegt
 - Hinweis: "keine Kommandozeile" gilt mit den Dump-Programmen ab Stufe D3 und wird dort belegt.

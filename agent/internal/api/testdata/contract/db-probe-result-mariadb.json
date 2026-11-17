@@ -1,0 +1,34 @@
+{
+  "engine": "mariadb",
+  "port": 3306,
+  "serverVersion": "10.11.6",
+  "tls": {
+    "offered": false,
+    "used": false,
+    "fingerprintSha256": null,
+    "subject": null,
+    "issuer": null,
+    "notAfter": null
+  },
+  "login": "ok",
+  "error": null,
+  "mysql": {
+    "version": "10.11.6-MariaDB-0+deb12u1",
+    "versionComment": "Debian 12",
+    "currentUser": "restow_backup@%",
+    "grants": [
+      "GRANT SELECT, RELOAD, PROCESS, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER ON *.* TO `restow_backup`@`%` IDENTIFIED BY PASSWORD '***'"
+    ],
+    "serverUuid": null,
+    "serverId": 1,
+    "datadir": "/var/lib/mysql/",
+    "logBin": false,
+    "binlogFormat": "MIXED",
+    "databases": [
+      { "name": "information_schema", "sizeBytes": null },
+      { "name": "mysql", "sizeBytes": 2654208 },
+      { "name": "shop", "sizeBytes": 52428800 }
+    ]
+  },
+  "durationMs": 97
+}

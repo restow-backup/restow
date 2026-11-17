@@ -1,0 +1,25 @@
+{
+  "engine": "sqlite",
+  "port": null,
+  "serverVersion": null,
+  "tls": {
+    "offered": null,
+    "used": false,
+    "fingerprintSha256": null,
+    "subject": null,
+    "issuer": null,
+    "notAfter": null
+  },
+  "login": "skipped",
+  "error": null,
+  "sqlite": {
+    "path": "/var/lib/app/data.db",
+    "sizeBytes": 2097152,
+    "pageSize": 4096,
+    "inode": "1835021",
+    "device": "2049",
+    "createdAt": null,
+    "modifiedAt": "2026-11-17T09:58:12Z"
+  },
+  "durationMs": 3
+}

@@ -137,6 +137,15 @@ type Deps struct {
 	// exist on Windows only (sqlserver.ErrUnsupported elsewhere). Tests pass
 	// fakes.
 	SQL func() (*SQLSupport, error)
+	// DBProbe runs a database connection test (databases.go); nil selects
+	// dbprobe.Run. Tests pass fakes.
+	DBProbe func(ctx context.Context, spec api.DBProbeSpec) api.DBProbeResult
+	// DBPeer runs the PostgreSQL socket sign-in as another system user (the
+	// agent's own binary as that user); nil: not available.
+	DBPeer func(ctx context.Context, osUser string, spec api.DBProbeSpec) (*api.DBProbeResult, error)
+	// DBInventory finds the database instances of the machine; nil selects
+	// dbprobe.Inventory on Linux and none elsewhere.
+	DBInventory func(ctx context.Context) []api.DBInventoryInstance
 }
 
 // machineRefresh is how long the facts of the machine are reused before the
@@ -210,10 +219,12 @@ type Agent struct {
 	// The native SQL Server backup (sql.go): its support (looked up once),
 	// the cached inventory, when it was last collected, whether a fresh one
 	// waits for the heartbeat, and the single-flight state of a collection.
-	sqlOnce       sync.Once
-	sql           *SQLSupport
-	sqlInv        *sqlserver.Inventory
-	sqlInvAt      time.Time
+	sqlOnce  sync.Once
+	sql      *SQLSupport
+	sqlInv   *sqlserver.Inventory
+	sqlInvAt time.Time
+	// dbInvAt is when the database inventory was last collected (databases.go).
+	dbInvAt       time.Time
 	sqlInvPending bool
 	// sqlInvGen counts changes of the cache (a heartbeat marks only the
 	// inventory it sent as delivered).
@@ -534,6 +545,7 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 	req.Capabilities = Capabilities(a.sqlSupport() != nil)
 	var inventorySent func()
 	req.SQLInventory, inventorySent = a.sqlInventoryForHeartbeat()
+	req.DatabaseInventory = a.dbInventoryForHeartbeat(ctx)
 	st := a.d.Status.Snapshot()
 	if !st.NextRunAt.IsZero() {
 		t := st.NextRunAt
@@ -815,6 +827,9 @@ func (a *Agent) dispatchTasks(ctx context.Context, tasks []api.Task) {
 			a.enqueue(job{kind: jobSQLVerify, trigger: triggerTask, task: &t})
 		case api.TaskSQLRestore:
 			a.enqueue(job{kind: jobSQLRestore, trigger: triggerTask, task: &t})
+		case api.TaskDBProbe:
+			// Ends on delivery; the result goes to the probe, not into a run.
+			a.runDBProbe(ctx, t)
 		case api.TaskSQLInventory:
 			// Ends on delivery (like update_config); the inventory goes out with
 			// the next heartbeat once it is collected.

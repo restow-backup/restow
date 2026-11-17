@@ -34,12 +34,14 @@ type SQLSupport struct {
 const sqlInventoryInterval = 6 * time.Hour
 
 // Capabilities are what this agent can do beyond the base protocol (sent at
-// enrollment and in each heartbeat).
+// enrollment and in each heartbeat): every agent runs database connections
+// (docs/DATABASES.md 4.1), a Windows agent with SQL Server also backs it up
+// natively.
 func Capabilities(sqlSupported bool) []string {
 	if sqlSupported {
-		return []string{api.CapabilitySQLNative}
+		return []string{api.CapabilityDBRunner, api.CapabilitySQLNative}
 	}
-	return nil
+	return []string{api.CapabilityDBRunner}
 }
 
 // sqlSupport returns the SQL Server support of this machine, nil when there
