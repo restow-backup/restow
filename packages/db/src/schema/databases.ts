@@ -291,7 +291,8 @@ export const databaseHealthSamples = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index("database_health_samples_connection_at_idx").on(t.connectionId, t.at),
+    // One sample per connection, time and resolution: a repeated report is not counted twice.
+    uniqueIndex("database_health_samples_connection_at_uq").on(t.connectionId, t.at, t.resolution),
     index("database_health_samples_tenant_at_idx").on(t.tenantId, t.at),
     check("database_health_samples_resolution_ck", sql`${t.resolution} IN ('raw', 'hour')`),
     check("database_health_samples_executor_ck", sql`${t.executorKind} IN ('agent', 'server')`),

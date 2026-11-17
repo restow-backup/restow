@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { DbHealthCheckOptions, DbHealthCheckTarget, DbProbeResult } from "@restow/core";
-import { createDb } from "@restow/db";
+import { compactDatabaseHealthSamples, createDb } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dropTestDatabase } from "../testing/database.js";
@@ -440,5 +440,54 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
         error_code: "db_unreachable",
       },
     ]);
+  });
+
+  it("folds in bounded batches and merges a late sample into its hour [DB-005]", async () => {
+    const base = new Date(now.getTime() - 30 * 24 * 60 * MINUTE);
+    const hourOf = (offset: number) =>
+      new Date(Math.floor(base.getTime() / 3_600_000) * 3_600_000 + offset * 60 * MINUTE);
+    const raw = (at: Date, ok: number) =>
+      q(
+        `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks)
+         VALUES ($1, $2, $3, 'server', $4)`,
+        [tenantId, connectionId, at, ok],
+      );
+    for (const offset of [0, 1, 2]) {
+      await raw(new Date(hourOf(offset).getTime() + 5 * MINUTE), 1);
+      await raw(new Date(hourOf(offset).getTime() + 35 * MINUTE), 0);
+    }
+    const left = () =>
+      q<{ n: number }>(
+        "SELECT count(*)::int AS n FROM database_health_samples WHERE connection_id = $1 AND resolution = 'raw' AND at < $2",
+        [connectionId, hourOf(3)],
+      ).then((rows) => rows[0]?.n);
+    // One connection-hour a batch: the first hour only, and more is left.
+    const first = await compactDatabaseHealthSamples(
+      db,
+      new Date(now.getTime() - 14 * 24 * 60 * MINUTE),
+      new Date(0),
+      { hours: 1, rows: 1 },
+    );
+    expect(first).toEqual({ folded: 2, dropped: 0, more: true });
+    expect(await left()).toBe(4);
+    // A pass goes on in batches and says when something is left for the next one.
+    const pass = await databaseHealthPass(deps(), {
+      compact: true,
+      compactLimits: { hours: 1, rows: 1 },
+    });
+    expect(pass.folded).toBeGreaterThanOrEqual(4);
+    expect(await left()).toBe(0);
+    // A raw sample that turns up late for a folded hour is merged into the hour's row.
+    await raw(new Date(hourOf(0).getTime() + 50 * MINUTE), 1);
+    await compactDatabaseHealthSamples(
+      db,
+      new Date(now.getTime() - 14 * 24 * 60 * MINUTE),
+      new Date(0),
+    );
+    const hours = await q<{ checks: number; ok_checks: number }>(
+      "SELECT checks, ok_checks FROM database_health_samples WHERE connection_id = $1 AND resolution = 'hour' AND at = $2",
+      [connectionId, hourOf(0)],
+    );
+    expect(hours).toEqual([{ checks: 3, ok_checks: 2 }]);
   });
 });

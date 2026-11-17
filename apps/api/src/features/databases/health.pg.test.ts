@@ -17,16 +17,23 @@ import {
   databases,
   endpoints,
   endpointTasks,
+  recordDatabaseHealthSample,
   settings,
 } from "@restow/db";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type EndpointFixture,
   startFixture,
   testDatabaseAdminUrl,
 } from "../endpoints/testing/fixture.js";
 import type { DatabaseContext } from "./service.js";
+
+// The secret store as it is, counted: a post opens each connection's credentials once.
+vi.mock("../../lib/secrets.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../lib/secrets.js")>();
+  return { ...original, readSecret: vi.fn(original.readSecret) };
+});
 
 const DATABASE = "restow_api_database_health_test";
 const PASSWORD = "Health-s3cret!42";
@@ -282,7 +289,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
             { connectionId, at: later(1), result: healthResult() },
             {
               connectionId,
-              at: later(2),
+              at: later(160),
               result: healthResult({
                 login: "failed",
                 health: undefined,
@@ -292,7 +299,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
             // Another certificate than the confirmed one fails the check.
             {
               connectionId,
-              at: later(3),
+              at: later(320),
               result: healthResult({
                 tls: { ...healthResult().tls, fingerprintSha256: Array(32).fill("CD").join(":") },
               }),
@@ -306,7 +313,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
             },
           ],
         },
-        new Date(now.getTime() + 10_000),
+        new Date(now.getTime() + 340_000),
       );
       expect(answer).toEqual({ accepted: 3 });
       const samples = await fixture.db
@@ -338,6 +345,90 @@ describe.skipIf(!testDatabaseAdminUrl)(
           new Date(now.getTime() + 3_600_000),
         ),
       ).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("takes no more samples than the window allows, none too close, each once [DB-005]", async () => {
+      const now = new Date();
+      const connectionId = await agentConnection("ERP");
+      await service.updateConnection(
+        shared.db,
+        fixture.tenantId,
+        connectionId,
+        { healthIntervalMinutes: 1 },
+        ctx(),
+      );
+      const [task] = (await beat(agentId, now)).tasks;
+      const taskId = task?.id as string;
+      const agent = { endpointId: agentId, tenantId: fixture.tenantId };
+      await health.agentFetchHealth(shared.db, agent, taskId, now);
+      const [stored] = await fixture.db
+        .select()
+        .from(endpointTasks)
+        .where(eq(endpointTasks.id, taskId));
+      // 360 seconds at a 60-second interval: one at the start and one a minute, 7 at most.
+      expect(((stored?.params ?? {}) as { expected?: unknown }).expected).toEqual({
+        [connectionId]: { intervalSeconds: 60, samples: 7 },
+      });
+      const at = (seconds: number) => new Date(now.getTime() + seconds * 1000).toISOString();
+      const report = (seconds: number[]) =>
+        health.agentReportHealth(
+          shared.db,
+          agent,
+          taskId,
+          {
+            samples: seconds.map((second) => ({
+              connectionId,
+              at: at(second),
+              result: healthResult(),
+            })),
+          },
+          new Date(now.getTime() + 340_000),
+        );
+      // A burst a second apart is one check.
+      expect(await report(Array.from({ length: 10 }, (_, index) => index))).toEqual({
+        accepted: 1,
+      });
+      // Half an interval apart is allowed, but no more than the window holds, over all posts;
+      // the credentials are opened once for the post, not once per sample.
+      const secrets = await import("../../lib/secrets.js");
+      vi.mocked(secrets.readSecret).mockClear();
+      expect(await report(Array.from({ length: 11 }, (_, index) => 30 + index * 30))).toEqual({
+        accepted: 6,
+      });
+      expect(vi.mocked(secrets.readSecret)).toHaveBeenCalledTimes(1);
+      // The same again is nothing new.
+      expect(await report([0, 30, 60])).toEqual({ accepted: 0 });
+      const samples = await fixture.db
+        .select()
+        .from(databaseHealthSamples)
+        .where(eq(databaseHealthSamples.connectionId, connectionId));
+      expect(samples).toHaveLength(7);
+
+      // One sample per connection and time, whoever writes it.
+      const judgement = {
+        ok: true,
+        errorCode: null,
+        errorMessage: null,
+        latencyMs: 5,
+        serverVersion: null,
+        startedAt: null,
+        connectionsUsed: null,
+        connectionsMax: null,
+        tlsFingerprint: null,
+        instanceKey: null,
+        sizes: null,
+      };
+      const write = () =>
+        recordDatabaseHealthSample(fixture.db, {
+          tenantId: fixture.tenantId,
+          connectionId,
+          instanceKey: null,
+          executorKind: "server",
+          at: new Date(now.getTime() + 3_600_000),
+          judgement,
+        });
+      expect(await write()).toBe(true);
+      expect(await write()).toBe(false);
     });
 
     it("shows availability, response time, events and the size day by day", async () => {

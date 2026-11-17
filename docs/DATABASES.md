@@ -733,11 +733,21 @@ E10 (alle Editionen) entschieden.
   Verbindung zu ihrem Termin und dann in ihrem Intervall, bis das Fenster der Aufgabe endet
   (6 Minuten, etwas länger als der Heartbeat) oder die nächste Aufgabe sie ablöst, und schickt
   jede Prüfung sofort (`POST …/:taskId/samples`). Der Server nimmt nur Verbindungen der Aufgabe in
-  ihrem Fenster an. So hält der Agent Zugangsdaten höchstens 6 Minuten im Speicher.
+  ihrem Fenster an, je Verbindung höchstens so viele Prüfungen, wie das Fenster im Intervall
+  erlaubt (aufgerundet Fenster/Intervall plus eine, beim Abholen in der Aufgabe festgehalten und
+  über alle Meldungen der Aufgabe gezählt), keine näher als ein halbes Intervall an einer anderen
+  Prüfung der Verbindung (auch einer des Servers) und je Zeitpunkt eine. Was darüber hinausgeht,
+  wird verworfen, nicht gespeichert: Ein Agent kann den Verlauf nicht fluten und keinen Alarm
+  erzwingen. Die Zugangsdaten einer Verbindung werden je Meldung einmal geöffnet (zum Bereinigen
+  der Meldungen). So hält der Agent Zugangsdaten höchstens 6 Minuten im Speicher.
 - **Verlauf:** Tabelle `database_health_samples` (Migration `0108_database_health`): eine Zeile je
   Prüfung, nach 14 Tagen eine je Stunde (Summen, Mittel und Extreme, letzte Version, Startzeit,
-  Zertifikat, Größen), 400 Tage. Die Größen stehen je Datenbankzeile und führen
-  `databases.size_bytes` nach.
+  Zertifikat, Größen), 400 Tage. Je Verbindung, Zeitpunkt und Auflösung gibt es eine Zeile
+  (eindeutiger Index); eine zweimal geschickte Prüfung zählt einmal. Das Zusammenfassen läuft in
+  begrenzten Schüben (je Anweisung höchstens 500 Verbindungsstunden bzw. 5000 Stundenzeilen,
+  höchstens 10 Schübe je Durchlauf, der Rest im nächsten Durchlauf); eine verspätete Prüfung für
+  eine schon zusammengefasste Stunde geht in deren Zeile auf. Die Größen stehen je Datenbankzeile
+  und führen `databases.size_bytes` nach.
 - **Alarme:** `database.unreachable` (Warnung) nach drei fehlgeschlagenen Prüfungen in Folge,
   einmal je Episode, `database.reachable` (Info) beim ersten Erfolg danach; Gruppe `jobs`, für
   Prüfungen des Servers und des Agenten gleich (`advanceDbHealthState` im Worker, Zustand in

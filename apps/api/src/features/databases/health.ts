@@ -37,6 +37,12 @@ import { restowSystemIdentifier } from "./service.js";
  * ({@link DB_HEALTH_AGENT_WINDOW_SECONDS}) at the connection's interval, and posts what it found
  * (`POST …/:taskId/samples`). The server judges every sample as for its own checks, cleans the
  * messages of the credentials once more and keeps only connections the task named.
+ *
+ * What an agent may post is bounded by the task (DATABASES.md 8): per connection at most the
+ * checks its interval allows in the window (ceil(window / interval) + 1, kept in the task with the
+ * fetch), never two closer than half the interval (to any sample of the connection, the server's
+ * included), and one sample per point in time. More is dropped, not stored: an agent cannot fill
+ * the history or force the alerts with a flood of samples.
  */
 
 const MINUTE_MS = 60 * 1000;
@@ -139,6 +145,15 @@ interface HealthTaskParams {
   windowSeconds?: number;
   fetchedAt?: string;
   connectionIds?: string[];
+  /** Per connection: the interval of the fetch and how many samples the window allows. */
+  expected?: Record<string, { intervalSeconds: number; samples: number }>;
+  /** Per connection: the samples accepted so far (over all posts of the task). */
+  received?: Record<string, number>;
+}
+
+/** The checks a window allows at an interval: one at its start and one each interval. */
+export function healthSamplesAllowed(windowSeconds: number, intervalSeconds: number): number {
+  return Math.ceil(windowSeconds / Math.max(1, intervalSeconds)) + 1;
 }
 
 async function credentialsOf(
@@ -271,6 +286,16 @@ export async function agentFetchHealth(
           windowSeconds,
           fetchedAt: now.toISOString(),
           connectionIds: checks.map((check) => check.connectionId),
+          expected: Object.fromEntries(
+            checks.map((check) => [
+              check.connectionId,
+              {
+                intervalSeconds: check.intervalSeconds,
+                samples: healthSamplesAllowed(windowSeconds, check.intervalSeconds),
+              },
+            ]),
+          ),
+          received: {},
         },
       })
       .where(eq(endpointTasks.id, task.id));
@@ -295,8 +320,10 @@ export type AgentHealthSamples = z.infer<typeof agentHealthSamplesSchema>;
 
 /**
  * What the agent found, judged as the server's own checks are. A sample of a connection the task
- * did not name, outside the task's window, or that is no result is dropped; the answer says how
- * many were kept.
+ * did not name, outside the task's window, that is no result, beyond the number the window allows,
+ * closer than half the interval to another sample of the connection, or at a time the connection
+ * already has a sample for is dropped; the answer says how many were kept. The credentials of a
+ * connection are opened once per post (to clean the messages), not once per sample.
  */
 export async function agentReportHealth(
   db: DbExecutor,
@@ -318,14 +345,27 @@ export async function agentReportHealth(
       throw new ProblemError(409, "Health check task closed", { type: HEALTH_PROBLEMS.closed });
     }
     const named = new Set(params.connectionIds ?? []);
+    const windowSeconds = params.windowSeconds ?? DB_HEALTH_AGENT_WINDOW_SECONDS;
+    const received: Record<string, number> = { ...(params.received ?? {}) };
     let accepted = 0;
-    const connections = new Map<string, typeof databaseConnections.$inferSelect>();
+    const connections = new Map<
+      string,
+      {
+        row: typeof databaseConnections.$inferSelect;
+        credentials: { user: string | null; password: string | null };
+        intervalMs: number;
+        allowed: number;
+        /** The times of the connection's samples near the window, the new ones added. */
+        times: number[];
+      } | null
+    >();
+    const nowMs = now.getTime();
     for (const sample of input.samples) {
-      const at = Date.parse(sample.at);
+      const reported = Date.parse(sample.at);
       if (
         !named.has(sample.connectionId) ||
-        at < fetchedAt - CLOCK_SLACK_MS ||
-        at > now.getTime() + CLOCK_SLACK_MS
+        reported < fetchedAt - CLOCK_SLACK_MS ||
+        reported > nowMs + CLOCK_SLACK_MS
       ) {
         continue;
       }
@@ -333,8 +373,7 @@ export async function agentReportHealth(
       if (!result) {
         continue;
       }
-      let connection = connections.get(sample.connectionId);
-      if (!connection) {
+      if (!connections.has(sample.connectionId)) {
         const [row] = await tx
           .select()
           .from(databaseConnections)
@@ -350,15 +389,46 @@ export async function agentReportHealth(
           )
           .limit(1);
         if (!row) {
+          connections.set(sample.connectionId, null);
           continue;
         }
-        connection = row;
-        connections.set(row.id, row);
+        const expected = params.expected?.[row.id];
+        const intervalSeconds = expected?.intervalSeconds ?? row.healthIntervalMinutes * 60;
+        const intervalMs = intervalSeconds * 1000;
+        const near = await tx
+          .select({ at: databaseHealthSamples.at })
+          .from(databaseHealthSamples)
+          .where(
+            and(
+              eq(databaseHealthSamples.connectionId, row.id),
+              eq(databaseHealthSamples.resolution, "raw"),
+              gt(databaseHealthSamples.at, new Date(fetchedAt - CLOCK_SLACK_MS - intervalMs)),
+              lte(databaseHealthSamples.at, new Date(nowMs + intervalMs)),
+            ),
+          );
+        connections.set(row.id, {
+          row,
+          credentials:
+            row.authMethod === "password"
+              ? await credentialsOf(tx, agent.tenantId, row.credentialSecretId)
+              : { user: null, password: null },
+          intervalMs,
+          allowed: expected?.samples ?? healthSamplesAllowed(windowSeconds, intervalSeconds),
+          times: near.map((existing) => existing.at.getTime()),
+        });
       }
-      const credentials =
-        connection.authMethod === "password"
-          ? await credentialsOf(tx, agent.tenantId, connection.credentialSecretId)
-          : { user: null, password: null };
+      const entry = connections.get(sample.connectionId);
+      if (!entry) {
+        continue;
+      }
+      const { row: connection, credentials } = entry;
+      const at = Math.min(reported, nowMs);
+      if (
+        (received[connection.id] ?? 0) >= entry.allowed ||
+        entry.times.some((time) => Math.abs(time - at) < entry.intervalMs / 2)
+      ) {
+        continue;
+      }
       const cleaned = result.error
         ? {
             ...result,
@@ -388,15 +458,25 @@ export async function agentReportHealth(
           sizes: null,
         };
       }
-      await recordDatabaseHealthSample(tx, {
+      const written = await recordDatabaseHealthSample(tx, {
         tenantId: agent.tenantId,
         connectionId: connection.id,
         instanceKey: connection.instanceKey,
         executorKind: "agent",
-        at: new Date(Math.min(at, now.getTime())),
+        at: new Date(at),
         judgement,
       });
-      accepted++;
+      entry.times.push(at);
+      if (written) {
+        received[connection.id] = (received[connection.id] ?? 0) + 1;
+        accepted++;
+      }
+    }
+    if (accepted > 0) {
+      await tx
+        .update(endpointTasks)
+        .set({ params: { ...params, received } })
+        .where(eq(endpointTasks.id, task.id));
     }
     return { accepted };
   });

@@ -6340,8 +6340,8 @@
         }
       },
       "indexes": {
-        "database_health_samples_connection_at_idx": {
-          "name": "database_health_samples_connection_at_idx",
+        "database_health_samples_connection_at_uq": {
+          "name": "database_health_samples_connection_at_uq",
           "columns": [
             {
               "expression": "connection_id",
@@ -6354,9 +6354,15 @@
               "isExpression": false,
               "asc": true,
               "nulls": "last"
+            },
+            {
+              "expression": "resolution",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

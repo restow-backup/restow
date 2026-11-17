@@ -40,6 +40,6 @@ ALTER TABLE "database_connections" ADD COLUMN "health_interval_minutes" integer 
 ALTER TABLE "database_connections" ADD COLUMN "health" jsonb;--> statement-breakpoint
 ALTER TABLE "database_health_samples" ADD CONSTRAINT "database_health_samples_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "database_health_samples" ADD CONSTRAINT "database_health_samples_connection_id_database_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."database_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "database_health_samples_connection_at_idx" ON "database_health_samples" USING btree ("connection_id","at");--> statement-breakpoint
+CREATE UNIQUE INDEX "database_health_samples_connection_at_uq" ON "database_health_samples" USING btree ("connection_id","at","resolution");--> statement-breakpoint
 CREATE INDEX "database_health_samples_tenant_at_idx" ON "database_health_samples" USING btree ("tenant_id","at");--> statement-breakpoint
 ALTER TABLE "database_connections" ADD CONSTRAINT "database_connections_health_interval_ck" CHECK ("database_connections"."health_interval_minutes" BETWEEN 1 AND 60);

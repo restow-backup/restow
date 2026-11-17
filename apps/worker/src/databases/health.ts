@@ -17,7 +17,8 @@
  *     `database.unreachable` once per episode, the first good check after it
  *     `database.reachable` (@restow/core `advanceDbHealthState`), in the same transaction.
  *   - **Housekeeping** once a day: raw samples older than 14 days fold into hours, hours older than
- *     400 days go; `db_health` tasks of agents older than a day go.
+ *     400 days go; `db_health` tasks of agents older than a day go. In bounded batches (at most
+ *     {@link MAX_COMPACT_BATCHES_PER_PASS} a pass); what is left goes on in the next pass.
  *
  * Restore mode (10): no checks with credentials while it is on; evaluation and housekeeping go on.
  * Nothing is ever logged with a credential; a log line names the connection and the code only.
@@ -68,6 +69,8 @@ const LOCK_KEY = 0x64626831; // "dbh1"
 const MAX_CHECKS_PER_PASS = 200;
 const CHECK_CONCURRENCY = 4;
 const MAX_EVALUATIONS_PER_PASS = 500;
+/** Batches of the housekeeping in one pass (each a bounded statement, @restow/db). */
+const MAX_COMPACT_BATCHES_PER_PASS = 10;
 
 interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;
@@ -115,6 +118,8 @@ export interface DatabaseHealthSummary {
   alerts: number;
   folded: number;
   dropped: number;
+  /** The housekeeping has more to do (it goes on in the next pass). */
+  housekeepingLeft: number;
 }
 
 /** The credentials reader of the worker: the tenant's keyring opens the sealed secret. */
@@ -482,16 +487,27 @@ async function evaluate(
   });
 }
 
-/** Once a day: fold the raw samples into hours, drop old hours and old `db_health` tasks. */
+/**
+ * Once a day: fold the raw samples into hours, drop old hours and old `db_health` tasks, in
+ * bounded batches. `more`: something is left for the next pass.
+ */
 async function housekeeping(
   deps: DatabaseHealthDeps,
   now: Date,
-): Promise<{ folded: number; dropped: number }> {
-  const result = await compactDatabaseHealthSamples(
-    deps.providerDb,
-    new Date(now.getTime() - DB_HEALTH_RAW_KEEP_DAYS * DAY_MS),
-    new Date(now.getTime() - DB_HEALTH_HOURLY_KEEP_DAYS * DAY_MS),
-  );
+  limits?: { hours: number; rows: number },
+): Promise<{ folded: number; dropped: number; more: boolean }> {
+  const result = { folded: 0, dropped: 0, more: true };
+  for (let batch = 0; batch < MAX_COMPACT_BATCHES_PER_PASS && result.more; batch++) {
+    const step = await compactDatabaseHealthSamples(
+      deps.providerDb,
+      new Date(now.getTime() - DB_HEALTH_RAW_KEEP_DAYS * DAY_MS),
+      new Date(now.getTime() - DB_HEALTH_HOURLY_KEEP_DAYS * DAY_MS),
+      limits,
+    );
+    result.folded += step.folded;
+    result.dropped += step.dropped;
+    result.more = step.more;
+  }
   await deps.providerDb
     .delete(endpointTasks)
     .where(
@@ -506,7 +522,7 @@ async function housekeeping(
 /** One pass: the server's checks, the evaluation, and (when `compact`) the housekeeping. */
 export async function databaseHealthPass(
   deps: DatabaseHealthDeps,
-  options: { compact: boolean },
+  options: { compact: boolean; compactLimits?: { hours: number; rows: number } },
 ): Promise<DatabaseHealthSummary> {
   const summary: DatabaseHealthSummary = {
     checked: 0,
@@ -516,6 +532,7 @@ export async function databaseHealthPass(
     alerts: 0,
     folded: 0,
     dropped: 0,
+    housekeepingLeft: 0,
   };
   const now = deps.now();
   if (!(await deps.restoreModeActive())) {
@@ -537,9 +554,10 @@ export async function databaseHealthPass(
     }
   }
   if (options.compact) {
-    const kept = await housekeeping(deps, now);
+    const kept = await housekeeping(deps, now, options.compactLimits);
     summary.folded = kept.folded;
     summary.dropped = kept.dropped;
+    summary.housekeepingLeft = kept.more ? 1 : 0;
   }
   return summary;
 }
@@ -571,7 +589,8 @@ export function startDatabaseHealth(
         const now = deps.now().getTime();
         const compact = now - lastCompactedAt >= DAY_MS;
         const summary = await databaseHealthPass(deps, { compact });
-        if (compact) {
+        // Done for the day once nothing is left; else the next pass goes on.
+        if (compact && summary.housekeepingLeft === 0) {
           lastCompactedAt = now;
         }
         if (Object.values(summary).some((value) => value > 0)) {
