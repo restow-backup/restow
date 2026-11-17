@@ -730,9 +730,26 @@ function factoryDisk(workDir, testCase, context) {
   return disk;
 }
 
+/**
+ * Run fn again after a 429: the instance allows five password sign-ins (and five TOTP checks) a
+ * minute per address (AUTH_RATE_LIMIT), and a case that cancels and resumes (E8) signs in more
+ * often than that. Other errors, and a fourth 429, go through.
+ */
+export async function retryRateLimited(fn, { waitMs = 65_000, tries = 4, pause = sleep } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error?.status !== 429 || attempt >= tries) throw error;
+      console.log(`sign-in limited (429); again in ${Math.round(waitMs / 1000)} s`);
+      await pause(waitMs);
+    }
+  }
+}
+
 async function api(context) {
   const { signIn } = await import("../smoke/lib/restow.mjs");
-  return signIn(context.stack, context.totpSecret);
+  return retryRateLimited(() => signIn(context.stack, context.totpSecret));
 }
 
 async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {

@@ -59,6 +59,7 @@ import {
   recoverResult,
   recoveryLogTail,
   restoreStarted,
+  retryRateLimited,
   targetSummary,
   testAgentDir,
   ubuntuMirror,
@@ -1077,5 +1078,47 @@ describe("the Ubuntu mirror of the factory", () => {
     for (const value of ["ftp://x/ubuntu", "http://x/ubuntu' ; reboot", "http://x/$(id)"]) {
       assert.throws(() => ubuntuMirror({ RESTOW_E2E_UBUNTU_MIRROR: value }), /not a plain/);
     }
+  });
+});
+
+describe("retryRateLimited", () => {
+  const limited = () => Object.assign(new Error("429"), { status: 429 });
+  it("waits after a 429 and tries again", async () => {
+    const waits = [];
+    let calls = 0;
+    const out = await retryRateLimited(
+      async () => {
+        calls++;
+        if (calls < 3) throw limited();
+        return "client";
+      },
+      { waitMs: 7, pause: async (ms) => waits.push(ms) },
+    );
+    assert.equal(out, "client");
+    assert.deepEqual(waits, [7, 7]);
+  });
+  it("lets other errors and the last 429 through", async () => {
+    const pause = async () => {};
+    await assert.rejects(
+      retryRateLimited(
+        async () => {
+          throw Object.assign(new Error("401"), { status: 401 });
+        },
+        { pause },
+      ),
+      /401/,
+    );
+    let calls = 0;
+    await assert.rejects(
+      retryRateLimited(
+        async () => {
+          calls++;
+          throw limited();
+        },
+        { tries: 3, pause },
+      ),
+      /429/,
+    );
+    assert.equal(calls, 3);
   });
 });
