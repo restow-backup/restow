@@ -150,7 +150,7 @@ export interface NavItem {
   stage?: "alpha";
   /**
    * A mark at the right end of the entry, beside its own icon: `restore` for the entries that
-   * lead to a restore (the restore explorer, the file restore), a turn-back arrow in a green
+   * lead to a restore (the restore explorer, the file restore), a turn-back arrow in a Lapis
    * circle (components/layout/restore-marker.tsx). Drawn only, never a status.
    */
   marker?: "restore";
