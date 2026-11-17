@@ -1243,11 +1243,11 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Stand: belegt
 
 ### DB-005
-- Aussage: Drei fehlgeschlagene Healthchecks einer Datenbankverbindung in Folge lösen `database.unreachable` einmal je Episode aus, der erste erfolgreiche danach `database.reachable`; eine Verbindung, die nur ab und zu ausfällt, löst nichts aus.
-- Fundstelle: docs/DATABASES.md (Abschnitt 2.4 "Bewertung und Alarme", Abschnitt 8)
+- Aussage: Drei fehlgeschlagene Healthchecks einer Datenbankverbindung in Folge lösen `database.unreachable` einmal je Episode aus, der erste erfolgreiche danach `database.reachable`; eine Verbindung, die nur ab und zu ausfällt, löst nichts aus. Eine Bewertung ändert den Zustand einer Verbindung höchstens einmal, Prüfungen näher als ein halbes Intervall zählen nicht, und eine flatternde Verbindung löst höchstens ein Paar je 30 Minuten aus (ein Alarm in der Ruhezeit kommt, wenn die Störung danach noch andauert). Ein Agent kann je Aufgabe nicht mehr Prüfungen melden, als das Fenster im Intervall erlaubt.
+- Fundstelle: docs/DATABASES.md (Abschnitt 2.4 "Bewertung und Alarme", Abschnitt 8, Abschnitt 16 "D2")
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/health.test.ts, apps/worker/src/databases/health.pg.test.ts
-- Belegt gegen: beides (Einheitentest der Episode; der Durchlauf des Workers gegen PostgreSQL 16, Job test in ci.yml, mit Prüfungen des Servers und gemeldeten Prüfungen eines Agenten)
+- Tests: packages/core/src/databases/health.test.ts, apps/worker/src/databases/health.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts
+- Belegt gegen: beides (Einheitentest der Episode, der Ruhezeit und des Abstands; der Durchlauf des Workers gegen PostgreSQL 16, Job test in ci.yml, mit Prüfungen des Servers und gemeldeten Prüfungen eines Agenten, auch gebündelt und flatternd; die Meldungen eines Agenten gegen PostgreSQL 16 mit Obergrenze und Abstand)
 - Stand: belegt
 
 ## Prüfungen gegen echte Systeme, die es gibt, die aber in der Pipeline nicht laufen

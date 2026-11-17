@@ -481,7 +481,8 @@ Unabhängig von den Läufen prüft der Ausführer jede Verbindung leicht und reg
     Neustart, Versionswechsel, TLS geändert);
   - Datenbankseite: Größe und Wachstum je Tag.
 - **Alarme:** `database.unreachable` nach drei fehlgeschlagenen Prüfungen in Folge,
-  `database.reachable` beim ersten Erfolg danach (2.4).
+  `database.reachable` beim ersten Erfolg danach (2.4); gegen Flattern höchstens ein solches Paar
+  je Verbindung in 30 Minuten (Abschnitt 16, D2).
 - Der Healthcheck ist **kein** Monitoring-Ersatz: Er misst aus Sicht des Ausführers und nur das,
   was die Sicherung braucht. Die Oberfläche sagt das in einem Satz.
 
@@ -751,7 +752,14 @@ E10 (alle Editionen) entschieden.
 - **Alarme:** `database.unreachable` (Warnung) nach drei fehlgeschlagenen Prüfungen in Folge,
   einmal je Episode, `database.reachable` (Info) beim ersten Erfolg danach; Gruppe `jobs`, für
   Prüfungen des Servers und des Agenten gleich (`advanceDbHealthState` im Worker, Zustand in
-  `database_connections.health`). Eine ausgeschaltete Verbindung wird nicht gemeldet.
+  `database_connections.health`). Eine ausgeschaltete Verbindung wird nicht gemeldet. Gegen
+  Flattern und Fluten: Eine Bewertung ändert den Zustand einer Verbindung höchstens einmal (die
+  Prüfungen danach bleiben für die nächste, eine Minute später, `evaluatedUntil`); eine Prüfung
+  näher als ein halbes Intervall an der zuletzt gezählten wird angesehen, aber nicht gezählt; und
+  `database.unreachable` wartet, solange der letzte Alarm dieser Art jünger als 30 Minuten ist.
+  Dauert die Störung danach noch an, kommt der Alarm dann (mit dem Beginn der Episode);
+  `database.reachable` folgt nur einer gemeldeten Episode. Eine flatternde Datenbank löst so
+  höchstens ein Paar je 30 Minuten aus.
 - **Anzeige:** Liste mit Erreichbarkeit (erreichbar, langsam ab 2 Sekunden, nicht erreichbar,
   unbekannt ohne Prüfung seit drei Intervallen) und dem Band der letzten 24 Stunden;
   Verbindungsseite mit Stand, Band, Verfügbarkeit 24 Stunden/7 Tage/30 Tage, Antwortzeit,
@@ -764,9 +772,12 @@ E10 (alle Editionen) entschieden.
 - **Erreichbar heißt angemeldet:** Eine abgelehnte Anmeldung zählt als fehlgeschlagene Prüfung und
   nach dreien als `database.unreachable` (mit dem Code im Alarm): Für die Sicherung ist die
   Datenbank dann nicht erreichbar.
-- **Kein Backoff, keine Ruhezeiten:** Der Entwurf nennt keine; eine Verbindung wird auch während
-  einer Störung im Intervall geprüft, damit `database.reachable` pünktlich kommt. Gegen Flattern
-  wirkt die Regel "drei in Folge" und die Drosselung der Benachrichtigungsregeln.
+- **Kein Backoff:** Der Entwurf nennt keinen; eine Verbindung wird auch während einer Störung im
+  Intervall geprüft, damit `database.reachable` pünktlich kommt. Gegen Flattern wirken die Regel
+  "drei in Folge", die Ruhezeit von 30 Minuten für `database.unreachable` (siehe Alarme) und die
+  Drosselung der Benachrichtigungsregeln. Die Ruhezeit verschiebt einen Alarm, sie verschluckt
+  keinen, solange die Störung anhält; eine Störung, die innerhalb der Ruhezeit beginnt und endet,
+  wird nicht gemeldet.
 - **Agent:** Prüfungen laufen höchstens so lange, wie die letzte Aufgabe gilt; ein Agent, der den
   Server nicht erreicht, prüft nach 6 Minuten nicht weiter (die Verbindung wird "unbekannt",
   nicht "nicht erreichbar", und es kommt kein Alarm: Das meldet `db_runner_offline`). Prüfungen,

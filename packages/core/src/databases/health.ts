@@ -32,6 +32,13 @@ export const DB_HEALTH_SIZES_EVERY_MS = 60 * 60 * 1000;
 /** `database.unreachable` after this many failed checks in a row (2.4, 8). */
 export const DB_HEALTH_UNREACHABLE_AFTER = 3;
 
+/**
+ * A connection that flaps gets at most one pair of `database.unreachable` and
+ * `database.reachable` in this time: a new episode within it is alerted only once it lasts past
+ * it (the alert comes late, not never).
+ */
+export const DB_HEALTH_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+
 /** A good check slower than this is shown as "slow" (connection, TLS, sign-in and SELECT 1). */
 export const DB_HEALTH_SLOW_MS = 2000;
 
@@ -230,6 +237,13 @@ export interface DbHealthState {
   latencyMs: number | null;
   /** When `database.unreachable` was raised for the current episode; null outside one. */
   unreachableAlertedAt: string | null;
+  /** When `database.unreachable` was raised last (any episode): the cooldown counts from it. */
+  lastUnreachableAlertAt?: string | null;
+  /**
+   * The newest sample looked at, also one that was ignored (closer to the previous than the
+   * interval allows); the next evaluation starts after it. Older states have `lastAt` only.
+   */
+  evaluatedUntil?: string | null;
 }
 
 export const EMPTY_DB_HEALTH_STATE: DbHealthState = {
@@ -242,6 +256,8 @@ export const EMPTY_DB_HEALTH_STATE: DbHealthState = {
   errorMessage: null,
   latencyMs: null,
   unreachableAlertedAt: null,
+  lastUnreachableAlertAt: null,
+  evaluatedUntil: null,
 };
 
 export interface DbHealthSampleInput {
@@ -262,25 +278,49 @@ export type DbHealthAlert =
     }
   | { kind: "reachable"; since: string; unreachableSince: string | null };
 
+/** Where the next evaluation of a state starts: after the newest sample it looked at. */
+export function dbHealthEvaluatedUntil(state: DbHealthState | null): string | null {
+  return state?.evaluatedUntil ?? state?.lastAt ?? null;
+}
+
 /**
  * Take the checks after the state's last one, in order, into the state (pure). Three failures in
  * a row raise `unreachable` once per episode; the first good check after an alerted episode
  * raises `reachable`. A good check between failures starts the count again: a connection that
  * fails now and then is not unreachable.
+ *
+ * Against flapping and floods (DATABASES.md 8, 16):
+ *   - at most one alert per call: the samples after the one that raised it stay for the next
+ *     evaluation (`evaluatedUntil`), so a burst of samples cannot raise a pair at once;
+ *   - a sample closer than half the interval to the last one taken is looked at and ignored;
+ *   - `unreachable` waits while the last one is younger than {@link DB_HEALTH_ALERT_COOLDOWN_MS}:
+ *     the episode is alerted when it still lasts after that, and `reachable` only follows an
+ *     alerted episode, so a flapping connection gets at most one pair in that time.
  */
 export function advanceDbHealthState(
   previous: DbHealthState | null,
   samples: readonly DbHealthSampleInput[],
   now: Date,
+  options: { intervalMinutes?: number } = {},
 ): { state: DbHealthState; alerts: DbHealthAlert[] } {
   let state: DbHealthState = { ...EMPTY_DB_HEALTH_STATE, ...(previous ?? {}) };
   const alerts: DbHealthAlert[] = [];
-  const last = state.lastAt ? Date.parse(state.lastAt) : Number.NEGATIVE_INFINITY;
+  const from = dbHealthEvaluatedUntil(state);
+  const after = from ? Date.parse(from) : Number.NEGATIVE_INFINITY;
+  const minimumGapMs = ((options.intervalMinutes ?? 0) * 60 * 1000) / 2;
   const ordered = [...samples]
-    .filter((sample) => sample.at.getTime() > last)
+    .filter((sample) => sample.at.getTime() > after)
     .sort((a, b) => a.at.getTime() - b.at.getTime());
   for (const sample of ordered) {
+    if (alerts.length > 0) {
+      break;
+    }
     const at = sample.at.toISOString();
+    const lastTaken = state.lastAt ? Date.parse(state.lastAt) : Number.NEGATIVE_INFINITY;
+    state = { ...state, evaluatedUntil: at };
+    if (sample.at.getTime() - lastTaken < minimumGapMs) {
+      continue;
+    }
     if (sample.ok) {
       if (state.unreachableAlertedAt) {
         alerts.push({ kind: "reachable", since: at, unreachableSince: state.failingSince });
@@ -311,7 +351,11 @@ export function advanceDbHealthState(
       errorMessage: sample.errorMessage,
       latencyMs: null,
     };
-    if (failures >= DB_HEALTH_UNREACHABLE_AFTER && !state.unreachableAlertedAt) {
+    const lastAlert = state.lastUnreachableAlertAt
+      ? Date.parse(state.lastUnreachableAlertAt)
+      : null;
+    const cooling = lastAlert !== null && now.getTime() - lastAlert < DB_HEALTH_ALERT_COOLDOWN_MS;
+    if (failures >= DB_HEALTH_UNREACHABLE_AFTER && !state.unreachableAlertedAt && !cooling) {
       alerts.push({
         kind: "unreachable",
         since: failingSince,
@@ -319,7 +363,11 @@ export function advanceDbHealthState(
         errorCode: sample.errorCode,
         errorMessage: sample.errorMessage,
       });
-      state = { ...state, unreachableAlertedAt: now.toISOString() };
+      state = {
+        ...state,
+        unreachableAlertedAt: now.toISOString(),
+        lastUnreachableAlertAt: now.toISOString(),
+      };
     }
   }
   return { state, alerts };

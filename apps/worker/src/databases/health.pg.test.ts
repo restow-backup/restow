@@ -306,7 +306,7 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
       await q(
         `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks, error_code)
          VALUES ($1, $2, $3, 'agent', 0, 'db_login_failed')`,
-        [tenantId, agentConnectionId, new Date(now.getTime() - (10 - minute) * MINUTE)],
+        [tenantId, agentConnectionId, new Date(now.getTime() - (20 - 5 * minute) * MINUTE)],
       );
     }
     await databaseHealthPass(deps(), { compact: false });
@@ -315,6 +315,63 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
     );
     expect(down).toHaveLength(1);
     expect(down[0]?.details).toMatchObject({ errorCode: "db_login_failed", executor: "agent" });
+  });
+
+  it("changes a connection's state once per evaluation and keeps a flapping one quiet [DB-005]", async () => {
+    const [row] = await q<{ id: string }>(
+      `INSERT INTO database_connections
+         (tenant_id, name, engine, host, port, executor_kind, executor_endpoint_id, schedule)
+       SELECT tenant_id, 'Flaky', engine, 'flaky.lan', port, executor_kind, executor_endpoint_id, schedule
+         FROM database_connections WHERE id = $1 RETURNING id`,
+      [agentConnectionId],
+    );
+    const flaky = row?.id as string;
+    const report = async (minutesAgo: number[], ok: boolean) => {
+      for (const minutes of minutesAgo) {
+        await q(
+          `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks, error_code)
+           VALUES ($1, $2, $3, 'agent', $4, $5)`,
+          [
+            tenantId,
+            flaky,
+            new Date(now.getTime() - minutes * MINUTE),
+            ok ? 1 : 0,
+            ok ? null : "db_unreachable",
+          ],
+        );
+      }
+    };
+    const count = async (event: string) =>
+      (await events(event)).filter((alert) => alert.details.connectionId === flaky).length;
+    // Down and up again, all reported at once: one change per evaluation.
+    await report([40, 35, 30], false);
+    await report([25], true);
+    await databaseHealthPass(deps(), { compact: false });
+    expect([await count("database.unreachable"), await count("database.reachable")]).toEqual([
+      1, 0,
+    ]);
+    await databaseHealthPass(deps(), { compact: false });
+    expect([await count("database.unreachable"), await count("database.reachable")]).toEqual([
+      1, 1,
+    ]);
+    // A burst a minute apart at an interval of 5 minutes: only those 2.5 minutes apart count.
+    await report([20, 19, 18, 17], false);
+    await databaseHealthPass(deps(), { compact: false });
+    const [state] = await q<{ health: { consecutiveFailures: number } }>(
+      "SELECT health FROM database_connections WHERE id = $1",
+      [flaky],
+    );
+    expect(state?.health.consecutiveFailures).toBe(2);
+    // Down again within 30 minutes of the last alert: not alerted yet.
+    await report([12, 7], false);
+    await databaseHealthPass(deps(), { compact: false });
+    expect(await count("database.unreachable")).toBe(1);
+    // Still down after the cooldown: alerted now.
+    now = new Date(now.getTime() + 31 * MINUTE);
+    await report([1], false);
+    await databaseHealthPass(deps(), { compact: false });
+    expect(await count("database.unreachable")).toBe(2);
+    await q("DELETE FROM database_connections WHERE id = $1", [flaky]);
   });
 
   it("refuses Restow's own database and keeps none of its facts", async () => {

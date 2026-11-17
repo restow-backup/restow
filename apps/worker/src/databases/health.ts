@@ -15,7 +15,9 @@
  *   - **Evaluation** of every connection with new samples (the server's and the agents'): the state
  *     in `database_connections.health` advances, three failures in a row raise
  *     `database.unreachable` once per episode, the first good check after it
- *     `database.reachable` (@restow/core `advanceDbHealthState`), in the same transaction.
+ *     `database.reachable` (@restow/core `advanceDbHealthState`), in the same transaction. At
+ *     most one of them per connection and evaluation, samples closer than half the interval are
+ *     ignored, and a flapping connection gets at most one pair in 30 minutes.
  *   - **Housekeeping** once a day: raw samples older than 14 days fold into hours, hours older than
  *     400 days go; `db_health` tasks of agents older than a day go. In bounded batches (at most
  *     {@link MAX_COMPACT_BATCHES_PER_PASS} a pass); what is left goes on in the next pass.
@@ -35,6 +37,7 @@ import {
   type DbHealthState,
   type DbProbeResult,
   databaseUrlTargets,
+  dbHealthEvaluatedUntil,
   formatDbAddress,
   type HostResolver,
   judgeDbHealth,
@@ -387,7 +390,8 @@ async function connectionsToEvaluate(
      WHERE EXISTS (
        SELECT 1 FROM database_health_samples s
         WHERE s.connection_id = c.id AND s.resolution = 'raw'
-          AND s.at > coalesce((c.health ->> 'lastAt')::timestamptz, '-infinity'::timestamptz))
+          AND s.at > coalesce((c.health ->> 'evaluatedUntil')::timestamptz,
+                              (c.health ->> 'lastAt')::timestamptz, '-infinity'::timestamptz))
      LIMIT ${MAX_EVALUATIONS_PER_PASS}`);
   return rowsOf<{ id: string; tenant_id: string }>(result);
 }
@@ -446,7 +450,8 @@ async function evaluate(
       return 0;
     }
     const previous: DbHealthState | null = connection.health ?? null;
-    const since = previous?.lastAt ? new Date(previous.lastAt) : new Date(0);
+    const until = dbHealthEvaluatedUntil(previous);
+    const since = until ? new Date(until) : new Date(0);
     const samples = await tx
       .select({
         at: databaseHealthSamples.at,
@@ -475,6 +480,7 @@ async function evaluate(
         latencyMs: sample.latencyMs,
       })),
       now,
+      { intervalMinutes: connection.healthIntervalMinutes },
     );
     // A paused connection is not alerted about: its checks stopped with it.
     const raised = connection.enabled ? alerts.map((alert) => alertOf(connection, alert)) : [];

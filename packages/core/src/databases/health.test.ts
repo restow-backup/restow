@@ -231,6 +231,61 @@ describe("the episode of database.unreachable (2.4) [DB-005]", () => {
     const { alerts } = advanceDbHealthState(null, [sample(0, false), sample(5, true)], at(6));
     expect(alerts).toEqual([]);
   });
+
+  it("changes the state at most once per evaluation; the rest waits for the next", () => {
+    const burst = [sample(0, false), sample(5, false), sample(10, false), sample(15, true)];
+    const first = advanceDbHealthState(null, burst, at(16), { intervalMinutes: 5 });
+    expect(first.alerts.map((alert) => alert.kind)).toEqual(["unreachable"]);
+    expect(first.state).toMatchObject({ lastOk: false, evaluatedUntil: at(10).toISOString() });
+    const second = advanceDbHealthState(first.state, burst, at(17), { intervalMinutes: 5 });
+    expect(second.alerts.map((alert) => alert.kind)).toEqual(["reachable"]);
+    expect(second.state.lastOk).toBe(true);
+  });
+
+  it("ignores samples closer together than the interval allows", () => {
+    // Every minute at an interval of 5 minutes: only those half an interval apart count.
+    const flood = [0, 1, 2, 3, 4].map((minute) => sample(minute, false));
+    const { alerts, state } = advanceDbHealthState(null, flood, at(5), { intervalMinutes: 5 });
+    expect(alerts).toEqual([]);
+    expect(state).toMatchObject({
+      consecutiveFailures: 2,
+      lastAt: at(3).toISOString(),
+      evaluatedUntil: at(4).toISOString(),
+    });
+  });
+
+  it("alerts a flapping connection at most one pair in 30 minutes, the late episode later", () => {
+    let state = advanceDbHealthState(
+      null,
+      [sample(0, false), sample(5, false), sample(10, false)],
+      at(10),
+      { intervalMinutes: 5 },
+    ).state;
+    expect(state.lastUnreachableAlertAt).toBe(at(10).toISOString());
+    const back = advanceDbHealthState(state, [sample(15, true)], at(15), { intervalMinutes: 5 });
+    expect(back.alerts.map((alert) => alert.kind)).toEqual(["reachable"]);
+    // Down again within 30 minutes of the last alert: counted, not alerted yet.
+    const again = advanceDbHealthState(
+      back.state,
+      [sample(20, false), sample(25, false), sample(30, false)],
+      at(30),
+      { intervalMinutes: 5 },
+    );
+    expect(again.alerts).toEqual([]);
+    expect(again.state.consecutiveFailures).toBe(3);
+    // Still down after the cooldown: now it is alerted, from the start of the episode.
+    const late = advanceDbHealthState(again.state, [sample(40, false)], at(40), {
+      intervalMinutes: 5,
+    });
+    expect(late.alerts).toEqual([
+      expect.objectContaining({ kind: "unreachable", since: at(20).toISOString(), failures: 4 }),
+    ]);
+    // Up again within the cooldown without an alerted episode: no reachable either.
+    state = advanceDbHealthState(again.state, [sample(35, true)], at(35), {
+      intervalMinutes: 5,
+    }).state;
+    expect(state.unreachableAlertedAt).toBeNull();
+  });
 });
 
 describe("reachability, schedule and events", () => {
