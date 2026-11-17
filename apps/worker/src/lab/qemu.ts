@@ -41,6 +41,11 @@ export interface Disk {
   eui64?: string;
   /** The id of a `-object secret` that opens the LUKS encryption of the qcow2 file. */
   keySecret?: string;
+  /**
+   * The firmware's boot order (QEMU `bootindex`, lowest first): the disk an operator selects in
+   * the BIOS. Without it the firmware takes its own order.
+   */
+  bootIndex?: number;
 }
 
 /** KVM must be there and usable: without it a probe or a case takes hours (TCG). */
@@ -96,11 +101,18 @@ export function diskArgs(disks: readonly Disk[]): string[] {
       "-drive",
       `file=${disk.file},if=none,id=${id},format=qcow2,cache=unsafe,discard=unmap${encryption}`,
     );
-    const sectors =
-      disk.sectorSize === 4096 ? ",logical_block_size=4096,physical_block_size=4096" : "";
+    if (
+      disk.bootIndex !== undefined &&
+      !(Number.isInteger(disk.bootIndex) && disk.bootIndex >= 0)
+    ) {
+      throw new Error(`disk ${disk.serial}: boot index ${disk.bootIndex}`);
+    }
+    const boot = disk.bootIndex === undefined ? "" : `,bootindex=${disk.bootIndex}`;
+    const props =
+      (disk.sectorSize === 4096 ? ",logical_block_size=4096,physical_block_size=4096" : "") + boot;
     switch (disk.bus) {
       case "virtio":
-        args.push("-device", `virtio-blk-pci,drive=${id},serial=${disk.serial}${sectors}`);
+        args.push("-device", `virtio-blk-pci,drive=${id},serial=${disk.serial}${props}`);
         break;
       case "ahci":
         if (!controllers.has("ahci")) {
@@ -110,7 +122,10 @@ export function diskArgs(disks: readonly Disk[]): string[] {
         if (disk.sectorSize === 4096)
           throw new Error("QEMU's SATA disks have 512-byte sectors only");
         if (ahciPort > 5) throw new Error("the AHCI controller has six ports");
-        args.push("-device", `ide-hd,drive=${id},bus=ahci0.${ahciPort},serial=${disk.serial}`);
+        args.push(
+          "-device",
+          `ide-hd,drive=${id},bus=ahci0.${ahciPort},serial=${disk.serial}${boot}`,
+        );
         ahciPort += 1;
         break;
       case "nvme":
@@ -120,7 +135,7 @@ export function diskArgs(disks: readonly Disk[]): string[] {
           "-device",
           `nvme,id=nvme${index},serial=${disk.serial}`,
           "-device",
-          `nvme-ns,drive=${id},bus=nvme${index},nsid=1,eui64=${BigInt(`0x${disk.eui64}`)}${sectors}`,
+          `nvme-ns,drive=${id},bus=nvme${index},nsid=1,eui64=${BigInt(`0x${disk.eui64}`)}${props}`,
         );
         break;
       case "scsi":
@@ -128,7 +143,7 @@ export function diskArgs(disks: readonly Disk[]): string[] {
           args.push("-device", "virtio-scsi-pci,id=scsi0");
           controllers.add("scsi");
         }
-        args.push("-device", `scsi-hd,drive=${id},bus=scsi0.0,serial=${disk.serial}${sectors}`);
+        args.push("-device", `scsi-hd,drive=${id},bus=scsi0.0,serial=${disk.serial}${props}`);
         break;
       default:
         throw new Error(`unknown disk bus ${String(disk.bus)}`);
