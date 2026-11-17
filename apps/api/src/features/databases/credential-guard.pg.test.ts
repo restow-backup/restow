@@ -290,6 +290,18 @@ describe.skipIf(!testDatabaseAdminUrl)(
         .where(eq(databaseProbes.id, probe.id));
       expect(probeRow?.credentialSecretId).toBeNull();
 
+      // A test older than the time its credentials are kept cannot be saved, even before
+      // anything cleaned them up.
+      const stale = await service.testConnection(shared.db, fixture.tenantId, testInput(), admin());
+      await expect(
+        service.createConnection(
+          shared.db,
+          fixture.tenantId,
+          { probeId: stale.id, allowUnencrypted: false, mode: "backup" },
+          { ...admin(), now: new Date(Date.now() + 31 * 60 * 1000) },
+        ),
+      ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:database-probe-required" });
+
       // A test whose credentials are no longer kept cannot be saved.
       const old = await service.testConnection(shared.db, fixture.tenantId, testInput(), admin());
       await service.getProbe(shared.db, fixture.tenantId, old.id, {

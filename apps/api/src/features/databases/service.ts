@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { isIP } from "node:net";
 import {
   compareDbInstance,
   DB_DEFAULT_INTERVAL_MINUTES,
@@ -9,6 +8,8 @@ import {
   type DbProbeSpec,
   type DbRights,
   type DbServerProbeOptions,
+  dbApprovedAddress,
+  dbCanonicalAddress,
   dbExecutorRefusal,
   dbFoundDatabases,
   dbInstanceIdentityOf,
@@ -61,6 +62,11 @@ import {
   SERVER_PROBES_PER_TENANT,
   SERVER_PROBES_TOTAL,
 } from "./constants.js";
+import {
+  databaseUrlTargets,
+  type OwnDatabaseTarget,
+  OwnDatabaseUnknownError,
+} from "./own-database.js";
 import type {
   CreateConnectionInput,
   TestConnectionInput,
@@ -91,7 +97,7 @@ export interface DatabaseContext {
   /** Tests: the system identifier of Restow's own database. */
   ownSystemIdentifier?: () => Promise<string | null>;
   /** Tests: the addresses and ports Restow's own database listens on. */
-  ownDatabaseTargets?: () => Promise<{ address: string; port: number }[]>;
+  ownDatabaseTargets?: () => Promise<OwnDatabaseTarget[]>;
   /** Tests: `RESTOW_DB_ALLOW_PRIVATE_NETWORKS`. */
   privateNetworksAllowed?: boolean;
 }
@@ -229,53 +235,42 @@ async function ownSystemIdentifier(ctx: DatabaseContext): Promise<string | null>
   return ownIdentifier;
 }
 
-interface OwnTargets {
-  at: number;
-  targets: Promise<{ address: string; port: number }[]>;
-}
-let ownTargets: OwnTargets | null = null;
+let ownTargets: { at: number; targets: OwnDatabaseTarget[] } | null = null;
 const OWN_TARGETS_KEEP_MS = 5 * 60 * 1000;
 
-/** Where a PostgreSQL URL points: its addresses (resolved now) and its port. */
-async function targetsOf(url: string): Promise<{ address: string; port: number }[]> {
-  if (!url) {
-    return [];
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return [];
-  }
-  const host = decodeURIComponent(parsed.hostname).replace(/^\[|\]$/g, "");
-  if (!host || host.startsWith("/")) {
-    return [];
-  }
-  const port = Number(parsed.port || "5432");
-  const addresses = isIP(host) !== 0 ? [host] : await systemResolver(host).catch(() => []);
-  return addresses.map((address) => ({ address, port }));
-}
-
 /**
- * The addresses and ports of Restow's own database (4.2): the server executor refuses them by
- * the address it reached, before it signs in. Resolved again every few minutes.
+ * The addresses and ports of Restow's own database (4.2), from `DATABASE_URL` and
+ * `DATABASE_PROVIDER_URL`: the server executor refuses them by the address it reached, before it
+ * signs in (the system identifier after the sign-in is the backstop). A result is kept a few
+ * minutes; a failure is not kept, and a test of the Restow server is refused while it lasts.
  */
-async function ownDatabaseTargets(
-  ctx: DatabaseContext,
-): Promise<{ address: string; port: number }[]> {
-  if (ctx.ownDatabaseTargets) {
-    return ctx.ownDatabaseTargets();
-  }
+async function ownDatabaseTargets(ctx: DatabaseContext): Promise<OwnDatabaseTarget[]> {
   const now = Date.now();
-  if (!ownTargets || now - ownTargets.at > OWN_TARGETS_KEEP_MS) {
-    ownTargets = {
-      at: now,
-      targets: Promise.all([targetsOf(config.databaseUrl), targetsOf(config.databaseProviderUrl)])
-        .then((lists) => lists.flat())
-        .catch(() => []),
-    };
+  if (!ctx.ownDatabaseTargets && ownTargets && now - ownTargets.at <= OWN_TARGETS_KEEP_MS) {
+    return ownTargets.targets;
   }
-  return ownTargets.targets;
+  try {
+    if (ctx.ownDatabaseTargets) {
+      return await ctx.ownDatabaseTargets();
+    }
+    const urls = [config.databaseUrl, config.databaseProviderUrl].filter((url) => url !== "");
+    if (urls.length === 0) {
+      throw new OwnDatabaseUnknownError("no database URL is configured");
+    }
+    const lists = await Promise.all(urls.map((url) => databaseUrlTargets(url, systemResolver)));
+    ownTargets = { at: now, targets: lists.flat() };
+    return ownTargets.targets;
+  } catch (error) {
+    if (!ctx.ownDatabaseTargets) {
+      ownTargets = null;
+    }
+    throw new ProblemError(503, "Restow's own database cannot be located", {
+      type: P.ownDatabaseUnknown,
+      detail: `The Restow server does not test connections while it cannot tell where its own database is (${
+        error instanceof OwnDatabaseUnknownError ? error.message : "unknown error"
+      }). Try again in a moment.`,
+    });
+  }
 }
 
 /**
@@ -722,6 +717,23 @@ interface ProbeTarget {
 
 type DbPrivateNetworkApproval = { by: string; at: string; addresses?: string[] };
 
+/**
+ * A provider admin's approval as it is stored: for the address the test connected to and signed
+ * in on, never for what a lookup of its own finds (null without a private address to approve).
+ */
+function approvalFor(
+  judged: DbPrivateNetworkApproval | null,
+  result: DbProbeResult,
+  ctx: DatabaseContext,
+  now: Date,
+): DbPrivateNetworkApproval | null {
+  const connected = result.connectedAddress ?? null;
+  if (!judged || !connected || !dbApprovedAddress({ addresses: [connected] }, connected)) {
+    return null;
+  }
+  return { by: ctx.actor.label, at: now.toISOString(), addresses: [dbCanonicalAddress(connected)] };
+}
+
 function sameAddresses(a: DbPrivateNetworkApproval | null, b: DbPrivateNetworkApproval | null) {
   const list = (approval: DbPrivateNetworkApproval | null) =>
     [...(approval?.addresses ?? [])].sort().join(",");
@@ -789,6 +801,8 @@ async function startProbe(
   if (target.executorKind === "server") {
     const release = takeServerProbeRun(tenantId);
     try {
+      // Where Restow's own database is, before anything is counted or stored.
+      const forbiddenTargets = await ownDatabaseTargets(ctx);
       // The slot comes first: a test the network protection refuses counts, too.
       await withTenantTx(db, tenantId, async (tx) => {
         await cleanupProbes(tx, tenantId, now);
@@ -821,7 +835,7 @@ async function startProbe(
             // stored approval reaches the addresses it was given for, no others.
             allowPrivateNetworks: privateAllowedOf(ctx) || ctx.isProviderAdmin,
             approvedAddresses: target.approval?.addresses ?? [],
-            forbiddenTargets: await ownDatabaseTargets(ctx),
+            forbiddenTargets,
           },
         );
       } catch (error) {
@@ -860,17 +874,18 @@ async function startProbe(
         }
         if (target.connectionId) {
           await applyProbeToConnection(tx, tenantId, target.connectionId, row, result, now);
-          // A provider admin's test of a stored connection renews its approval for the
-          // addresses the name stands for now.
+          // A provider admin's good test of a stored connection with a private address renews
+          // its approval for the address this test connected to and signed in on (audited).
+          const renewed = approvalFor(approval, result, ctx, now);
           if (
             ctx.isProviderAdmin &&
-            approval &&
+            renewed &&
             result.login === "ok" &&
-            !sameAddresses(approval, target.approval)
+            !sameAddresses(renewed, target.approval)
           ) {
             await tx
               .update(databaseConnections)
-              .set({ privateNetworkApproval: approval, updatedAt: now })
+              .set({ privateNetworkApproval: renewed, updatedAt: now })
               .where(
                 and(
                   eq(databaseConnections.tenantId, tenantId),
@@ -885,7 +900,7 @@ async function startProbe(
               action: A.privateNetworkApproved,
               target: target.connectionId,
               targetType: "database_connection",
-              details: { address: target.host, addresses: approval.addresses ?? [] },
+              details: { address: target.host, addresses: renewed.addresses ?? [] },
             });
           }
         }
@@ -1466,8 +1481,19 @@ export async function createConnection(
       extensions: { field: "allowUnencrypted" },
     });
   }
-  const approval =
+  // A test is good for saving a short while: its sealed credentials and what it saw are recent.
+  if (probe.finishedAt && now.getTime() - probe.finishedAt.getTime() > PROBE_CREDENTIALS_KEEP_MS) {
+    throw probeRequired("The test is too old to be saved. Test again and save.");
+  }
+  const judged =
     executorKind === "server" && spec.host ? await judgeServerHost(spec.host, ctx, null) : null;
+  // A private address is approved for the address the test signed in on.
+  const approval = judged ? approvalFor(judged, result, ctx, now) : null;
+  if (judged && !approval) {
+    throw probeRequired(
+      "The test did not report the private address it signed in on. Test again and save.",
+    );
+  }
   // The connection keeps the credentials the test used, sealed with it (3.2): other ones would
   // reach the server untested.
   const tested =

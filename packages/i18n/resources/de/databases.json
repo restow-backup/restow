@@ -281,6 +281,7 @@
     "probe-used": "Diese Prüfung wurde schon abgeholt.",
     "probe-busy": "Gerade laufen andere Prüfungen. Versuchen Sie es gleich noch einmal.",
     "credentials-required": "Geben Sie das Kennwort noch einmal ein: Gespeicherte Zugangsdaten gehen nur an den Ausführer, für den sie gespeichert wurden.",
+    "own-database-unknown": "Der {appName}-Server kann gerade nicht feststellen, wo seine eigene Datenbank liegt, und prüft deshalb keine Verbindungen. Versuchen Sie es gleich noch einmal.",
     "confirm": "Es gibt nichts zu bestätigen. Prüfen Sie die Verbindung noch einmal."
   }
 }

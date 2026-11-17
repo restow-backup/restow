@@ -14,6 +14,7 @@ export const DATABASE_PROBLEMS = {
   probeLimit: "urn:restow:problem:database-probe-limit",
   probeUsed: "urn:restow:problem:database-probe-used",
   probeBusy: "urn:restow:problem:database-probe-busy",
+  ownDatabaseUnknown: "urn:restow:problem:database-own-database-unknown",
   credentialsRequired: "urn:restow:problem:database-credentials-required",
   confirm: "urn:restow:problem:database-confirm",
 } as const;

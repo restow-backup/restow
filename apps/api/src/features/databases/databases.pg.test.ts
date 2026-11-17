@@ -286,6 +286,24 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
     }
     expect(probes).toHaveLength(0);
 
+    // A test that does not say where it signed in cannot be saved with an approval.
+    const unbound = await service.testConnection(
+      shared.db,
+      fixture.tenantId,
+      testInput("pg.lan:5432"),
+      providerAdmin(),
+    );
+    await expect(
+      service.createConnection(
+        shared.db,
+        fixture.tenantId,
+        { probeId: unbound.id, name: "LAN", allowUnencrypted: false, mode: "backup" },
+        providerAdmin(),
+      ),
+    ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:database-probe-required" });
+
+    probes.length = 0;
+    nextResult = () => pgResult({ connectedAddress: "192.168.10.20" });
     const probe = await service.testConnection(
       shared.db,
       fixture.tenantId,
@@ -323,6 +341,37 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
       forbiddenTargets: [{ address: "10.9.9.9", port: 5432 }],
       spec: { pinnedFingerprintSha256: FINGERPRINT },
     });
+    // A tenant admin's test changes nothing about the approval.
+    nextResult = () => pgResult({ connectedAddress: "192.168.10.21" });
+    await service.testStoredConnection(shared.db, fixture.tenantId, created.id, tenantAdmin());
+    const kept = await service.getConnection(shared.db, fixture.tenantId, created.id);
+    expect(kept.privateNetworkApproval?.addresses).toEqual(["192.168.10.20"]);
+    // A provider admin's good test renews it for the address that test signed in on, audited.
+    await service.testStoredConnection(shared.db, fixture.tenantId, created.id, providerAdmin());
+    const renewed = await service.getConnection(shared.db, fixture.tenantId, created.id);
+    expect(renewed.privateNetworkApproval?.addresses).toEqual(["192.168.10.21"]);
+    const approvals = await auditOf("database_connection.private_network_approved");
+    expect(approvals).toHaveLength(2);
+    expect(approvals.map((row) => row.details)).toContainEqual(
+      expect.objectContaining({ addresses: ["192.168.10.21"] }),
+    );
+  });
+
+  it("refuses the server's tests while it cannot tell where its own database is", async () => {
+    await expect(
+      service.testConnection(shared.db, fixture.tenantId, testInput("db.example.test"), {
+        ...tenantAdmin(),
+        ownDatabaseTargets: async () => {
+          throw new Error("ENOTFOUND");
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 503,
+      type: "urn:restow:problem:database-own-database-unknown",
+    });
+    expect(probes).toHaveLength(0);
+    const rows = await fixture.db.select().from(databaseProbes);
+    expect(rows).toEqual([]);
   });
 
   it("refuses Restow's own database and a server without TLS unless allowed", async () => {
