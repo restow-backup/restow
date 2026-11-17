@@ -21,7 +21,10 @@ const (
 
 // e9Plan is raid5-spare on a new system disk (t0) with the data disks
 // adopted (t1 to t4) and the old system disk (t5, /dev/vda) still there,
-// carrying the disk GUID of d0; change edits the old disk.
+// carrying the disk GUID of d0; change edits the old disk. The data disks
+// carry what the scan of the ISO sees on them (blkid -p of the disks and
+// partitions, nothing assembled): the md superblocks, not the PV on the
+// array or the file system on the LV (nightly E9 failed on exactly that).
 func e9Plan(t *testing.T, change func(m *baremetal.Manifest, tg *baremetal.Target)) (*baremetal.Manifest, *baremetal.Target, *baremetal.Facts, baremetal.Choices, *baremetal.RestorePlan) {
 	t.Helper()
 	m := loadManifestFile(t, "raid5-spare")
@@ -40,6 +43,15 @@ func e9Plan(t *testing.T, change func(m *baremetal.Manifest, tg *baremetal.Targe
 	tg, err := baremetal.ParseTarget(tb)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for i := range tg.Disks {
+		var seen []baremetal.TargetSignature
+		for _, sig := range tg.Disks[i].Signatures {
+			if sig.Kind != "pv" && sig.Kind != "fs" {
+				seen = append(seen, sig)
+			}
+		}
+		tg.Disks[i].Signatures = seen
 	}
 	old := tg.Disks[0]
 	id, serial := e9Old, "OLDSYS"
@@ -71,6 +83,35 @@ func TestConflictDisksE9(t *testing.T) {
 	// fails as before.
 	if got, err := answersWipe(p, tg, nil, []string{e9New}); err != nil || got != nil {
 		t.Errorf("confirmErase without the old disk: %+v %v", got, err)
+	}
+	// The PV on the array and the file system on the LV are checked after
+	// the array is assembled, before the first step that erases.
+	var adopt []string
+	for _, s := range p.Steps {
+		if s.Phase != "adopt" {
+			break
+		}
+		adopt = append(adopt, s.Kind+" "+deref(s.Target))
+	}
+	if got := strings.Join(adopt, ", "); got != "md_assemble /dev/md/data, adopt_check /dev/md/data, vg_activate data, adopt_check /dev/data/share" {
+		t.Errorf("adopt phase: %s", got)
+	}
+	for _, s := range p.Steps[len(adopt):] {
+		if s.Phase == "adopt" {
+			t.Errorf("step %d of the adopt phase after the first erasing step", s.N)
+		}
+	}
+	// The automatic mapping does not adopt what the scan cannot see: the
+	// operator chooses it (adopt, diskMapping "adopt"); confirmErase then
+	// wipes nothing.
+	m, tg, f, c, _ := e9Plan(t, nil)
+	c.Adopt = nil
+	auto, _ := baremetal.Plan(m, tg, f, c)
+	if onlyConflicts(auto) {
+		t.Fatalf("automatic adoption of a stack the scan cannot see: %+v", auto.Problems)
+	}
+	if _, err := answersWipe(auto, tg, nil, []string{e9Old, e9New}); err == nil || !strings.Contains(err.Error(), "adopt_incomplete") {
+		t.Errorf("confirmErase with an incomplete adoption: %v", err)
 	}
 }
 

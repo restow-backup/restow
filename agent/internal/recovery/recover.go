@@ -531,7 +531,12 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 			r.UI.Say("code."+ProblemDisksChanged, "detail", strings.TrimPrefix(errors.Unwrap(execErr).Error(), ErrDisksChanged.Error()+": "))
 		}
 		if rep.FailedStep > 0 {
-			r.UI.Say("exec.failed", "n", rep.FailedStep)
+			if failedInAdopt(x.Plan, rep.FailedStep) {
+				// The adopt phase comes before the first erasing step (10.7).
+				r.UI.Say("exec.failed_adopt", "n", rep.FailedStep)
+			} else {
+				r.UI.Say("exec.failed", "n", rep.FailedStep)
+			}
 		}
 	case verification.Result == api.VerifyFailed:
 		status = api.RecoveryFailed
@@ -573,6 +578,20 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	r.UI.Say("done.succeeded")
 	r.after(ctx)
 	return res, nil
+}
+
+// failedInAdopt: step n of the plan belongs to the adopt phase, which
+// runs before any disk is erased.
+func failedInAdopt(p *baremetal.RestorePlan, n int64) bool {
+	if p == nil {
+		return false
+	}
+	for _, s := range p.Steps {
+		if s.N == n {
+			return s.Phase == "adopt"
+		}
+	}
+	return false
 }
 
 // awaitForeignMappings: before the first step, no device-mapper device

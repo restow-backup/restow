@@ -618,3 +618,75 @@ func TestExecuteGrubFailureProbes(t *testing.T) {
 		t.Errorf("log does not keep the probe:\n%s", log)
 	}
 }
+
+// TestExecuteAdoptCheck (10.7, E9): the adopted data RAID is assembled and
+// what the scan could not see inside it (the PV on the array, the file
+// system on the LV) is checked before the first step that erases; a
+// mismatch stops the run with every disk untouched.
+func TestExecuteAdoptCheck(t *testing.T) {
+	blkid := func(pv, fs string) func(a []string) (string, bool) {
+		return func(a []string) (string, bool) {
+			if a[0] != "blkid" {
+				return "", false
+			}
+			switch a[len(a)-1] {
+			case "/dev/md/data":
+				return pv, true
+			case "/dev/data/share":
+				return fs, true
+			}
+			return "", false
+		}
+	}
+	const pvOK = "DEVNAME=/dev/md/data\nUUID=pvraid-0000\nVERSION=LVM2 001\nTYPE=LVM2_member\nUSAGE=raid\n"
+	const fsOK = "DEVNAME=/dev/data/share\nUUID=A8000000-0000-4000-8000-0000000000D1\nTYPE=xfs\nUSAGE=filesystem\n"
+
+	// Both match: the adopt phase runs in this order, then the erase.
+	h := newHarness(t, "raid5-spare.adopt-data", "raid5-spare")
+	h.exec.output = blkid(pvOK, fsOK)
+	h.ops.fail = "release"
+	_, err := h.x.Run(context.Background())
+	var se *StepError
+	if !errors.As(err, &se) || se.Kind != "release_holders" {
+		t.Fatalf("the run should reach the first erasing step: %v\n%s", err, h.exec.lines())
+	}
+	want := "mdadm --assemble --uuid=c8000000:00004000:80000000:00000127 /dev/md/data /dev/sda1 /dev/sdb1 /dev/sdc1 /dev/sdd1\n" +
+		"blkid -p -o export /dev/md/data\n" +
+		"vgchange --devices /dev/md/data -ay data\n" +
+		"blkid -p -o export /dev/data/share\n" +
+		"op release /dev/nvme0n1\n"
+	if !strings.HasSuffix(h.exec.lines(), want) {
+		t.Errorf("commands:\n%s\nwant at the end:\n%s", h.exec.lines(), want)
+	}
+
+	// The array holds something else, or the LV no file system: the run
+	// stops in the adopt phase, nothing is released, wiped or zeroed.
+	for name, out := range map[string]func(a []string) (string, bool){
+		"other pv":   blkid(strings.Replace(pvOK, "pvraid-0000", "pvraid-9999", 1), fsOK),
+		"no pv":      blkid("", fsOK),
+		"fs type":    blkid(pvOK, strings.Replace(fsOK, "xfs", "ext4", 1)),
+		"no fs uuid": blkid(pvOK, "DEVNAME=/dev/data/share\nTYPE=xfs\n"),
+	} {
+		h := newHarness(t, "raid5-spare.adopt-data", "raid5-spare")
+		ui, shown := newTestUI("")
+		h.x.UI = ui
+		h.exec.output = out
+		rep, err := h.x.Run(context.Background())
+		var se *StepError
+		if !errors.As(err, &se) || se.Kind != "adopt_check" || se.Problem != ProblemStepFailed {
+			t.Fatalf("%s: err %v", name, err)
+		}
+		if !failedInAdopt(h.x.Plan, rep.FailedStep) || !strings.Contains(err.Error(), "nothing was erased") {
+			t.Errorf("%s: step %d, %v", name, rep.FailedStep, err)
+		}
+		lines := h.exec.lines()
+		for _, w := range []string{"op ", "wipefs", "sfdisk", "mkfs", "restic"} {
+			if strings.Contains(lines, w) {
+				t.Errorf("%s: %q ran after the failed check:\n%s", name, w, lines)
+			}
+		}
+		if !strings.Contains(shown.String(), "Nothing was erased") {
+			t.Errorf("%s: the console does not say so:\n%s", name, shown.String())
+		}
+	}
+}

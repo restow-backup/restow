@@ -210,6 +210,13 @@ func (a *allExists) Signatures(context.Context, string) []baremetal.TargetSignat
 // files of the system into a new local repository.
 func snapshotOf(t *testing.T, bin string, manifest []byte) (repo, snapshot string) {
 	t.Helper()
+	return snapshotOfFiles(t, bin, manifest, nil)
+}
+
+// snapshotOfFiles is snapshotOf with the files of the source tree changed
+// (a system without LUKS has no crypttab).
+func snapshotOfFiles(t *testing.T, bin string, manifest []byte, change func(files map[string]string)) (repo, snapshot string) {
+	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	repo = filepath.Join(dir, "repo")
@@ -228,6 +235,9 @@ func snapshotOf(t *testing.T, bin string, manifest []byte) (repo, snapshot strin
 		"lib/modules/6.1.0-27-amd64/modules.alias":   "alias pci:v*d*sv*sd*bc01sc08i02* nvme\n",
 		"lib/modules/6.1.0-27-amd64/modules.builtin": "",
 		"home/alice/notes.txt":                       "hello\n",
+	}
+	if change != nil {
+		change(files)
 	}
 	for p, c := range files {
 		full := filepath.Join(src, p)

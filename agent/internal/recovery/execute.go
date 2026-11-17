@@ -683,6 +683,8 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 		return x.fallbackPath(args[1:])
 	case "probe-boot":
 		return x.probeBoot()
+	case "adopt-check":
+		return x.adoptCheck(ctx, args[1:])
 	case "mok-import":
 		return x.mokImport(ctx, args[1:])
 	case "selinux":
@@ -694,6 +696,39 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 		return nil
 	}
 	return x.program(ctx, s, args)
+}
+
+// adoptCheck (adopt phase, 10.7): the adopted device carries the
+// identity of the backup (blkid -p: type and UUID). The scan cannot look
+// into an array, a LUKS mapping or an LV, so the planner leaves these to
+// this step; it runs after the adopted parts are assembled and before
+// any disk is erased, and a mismatch stops the run there.
+func (x *Executor) adoptCheck(ctx context.Context, a []string) error {
+	if len(a) != 4 || !strings.HasPrefix(a[3], "/dev/") {
+		return fmt.Errorf("adopt-check: %q", a)
+	}
+	what, uuid, typ, dev := a[0], a[1], a[2], a[3]
+	res, err := x.Exec.Run(ctx, RunSpec{Argv: []string{"blkid", "-p", "-o", "export", dev}, Timeout: time.Minute})
+	kv := parseExport(string(res.Output))
+	if err != nil && len(res.Output) == 0 {
+		kv = map[string]string{}
+	}
+	if kv["TYPE"] == typ && baremetal.NormUUID(kv["UUID"]) == baremetal.NormUUID(uuid) {
+		x.log("%s carries %s %s (%s) of the backup", dev, what, uuid, typ)
+		return nil
+	}
+	have := strings.TrimSpace(kv["TYPE"] + " " + kv["UUID"])
+	if x.UI != nil {
+		shown := have
+		if shown == "" {
+			shown = x.UI.Text("exec.adopt_nothing")
+		}
+		x.UI.Say("exec.adopt_mismatch", "device", dev, "want", typ+" "+uuid, "have", shown)
+	}
+	if have == "" {
+		have = "no signature"
+	}
+	return fmt.Errorf("the adopted %s carries %s, not %s %s (%s) of the backup; nothing was erased", dev, have, what, uuid, typ)
 }
 
 // wipePartitions removes the signatures on every partition a disk has

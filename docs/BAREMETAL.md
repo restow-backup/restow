@@ -1948,14 +1948,49 @@ Je Quellplatte bzw. je Array, VG, LUKS-Volume und Dateisystem bietet die Zuordnu
 - LUKS: `blkid -p` zeigt dieselbe LUKS-UUID;
 - Dateisystem: `blkid -p` zeigt dieselbe UUID und denselben Typ.
 
+**Was die Erkennung sieht.** Die Erkennung im ISO liest Platten und Partitionen mit
+`blkid -p` und setzt nichts zusammen (8.2). Sie sieht die md-Superblöcke der Mitglieder, eine
+PV, einen LUKS-Kopf oder ein Dateisystem direkt auf einer Platte oder Partition, aber nicht, was
+**in** einem Array, einer LUKS-Zuordnung oder einem LV liegt (die PV auf dem Daten-RAID, das
+Dateisystem auf ihrem LV). Solche Teile übernimmt der Plan nur, wenn der Bediener die
+Übernahme ausdrücklich wählt (`adopt: ["md:md0"]` bzw. "vorhanden übernehmen" oder
+`diskMapping` mit `adopt` für jede Platte darunter); ihre Identität prüft dann `recover` nach
+dem Zusammensetzen (Schritt `adopt_check`, siehe unten), bevor irgendetwas gelöscht wird. Die
+automatische Zuordnung übernimmt nichts, was sie nicht sieht: Der Plan meldet dann
+`adopt_incomplete` ("… lies on md m0, which the scan does not open; adopt it explicitly"),
+an der Konsole folgt die Frage je Platte. Grund: Ein Lauf, der zwischen `mdadm --create` und
+dem ersten Marker abbrach (10.18), hinterlässt Arrays mit den Kennungen der Sicherung; die
+automatische Zuordnung hielte sie sonst für intakte Daten und nähme ihre Einhängepunkte aus
+dem Restore. Die Arrays nur lesend zusammenzusetzen, um schon vor dem Plan hineinzusehen,
+wurde verworfen: Auch `mdadm --assemble --readonly` schreibt bei einer internen Bitmap (bei
+großen Arrays die Vorgabe von `mdadm`) den Bitmap-Superblock beim Start und beim
+`mdadm --stop` (`bitmap_load` bzw. `bitmap_flush` rufen `bitmap_update_sb` ohne Blick auf
+`ro`; Kernel 6.12, `drivers/md/md-bitmap.c`); nur der md-Superblock samt Ereigniszähler bleibt
+unberührt (`md_update_sb` kehrt bei `ro` sofort zurück). Die Erkennung schreibt aber nie
+(10.6), und sie läuft über Platten, die nie jemand bestätigt hat. Ein LUKS-Volume ließe sich
+ohne Passphrase ohnehin nicht öffnen.
+
 `recover` setzt einen übernommenen Teil zusammen bzw. öffnet ihn (`mdadm --assemble --uuid`,
 `vgchange -ay --devices …`, LUKS mit der **alten** Passphrase, die der Bediener eingibt;
 `cryptsetup open --test-passphrase` vorher), löscht nichts darauf und nimmt seine
 Einhängepunkte aus dem `restic restore` aus (`--exclude` je Einhängepunkt; auf Wunsch
 "übernommene Dateisysteme mit der Sicherung abgleichen" mit `--overwrite if-changed` nur für
-diese Pfade, Vorgabe aus). Der Plan zeigt übernommene Teile grün ("bleibt, wird nicht
-gelöscht"). **Automatisch** ordnet `recover` nie eine Platte zum Löschen zu, die Signaturen
-trägt, die zum Manifest passen; die Vorgabe ist dann "übernehmen".
+diese Pfade, Vorgabe aus). Das geschieht in der Phase `adopt` **vor** dem ersten Schritt,
+der löscht (vor `release_holders` der zu löschenden Platten, nach der Bestätigung und dem
+Wächter 10.6): je übernommenes Array `md_assemble`, je übernommenes LUKS-Volume `luks_open`,
+je übernommene VG `vg_activate` (mit `--devices` nur ihrer PVs, die Partitionen des Plans
+gibt es da noch nicht), und nach jedem dieser Schritte `adopt_check` für das, was darauf
+liegt (`blkid -p -o export`: `TYPE` und UUID wie im Manifest; PV `LVM2_member`, LUKS
+`crypto_LUKS`, Dateisystem sein Typ). Passt etwas nicht, endet der Lauf dort mit
+`step_failed`; die Konsole sagt "Es wurde nichts gelöscht" (die zuvor auf ausdrückliches Wort
+geleerte Konfliktplatte ausgenommen). Ein fortgesetzter Lauf (10.18) löscht nichts und behält
+die Reihenfolge des ersten Plans des Fortsetzens (ohne Phase `adopt`). Ein Array oder
+LUKS-Volume gilt nur als übernommen, wenn auch alles darauf übernommen wird; liegt darauf
+etwa ein PV einer VG, die auch auf einer gelöschten Platte liegt, legte der Plan die VG neu
+an und schriebe `pvcreate` auf das behaltene Array, daher `adopt_incomplete`. Der Plan zeigt
+übernommene Teile grün ("bleibt, wird nicht gelöscht"). **Automatisch** ordnet `recover` nie
+eine Platte zum Löschen zu, die Signaturen trägt, die zum Manifest passen; die Vorgabe ist
+dann "übernehmen".
 
 **Automatische Zuordnung** nur, wenn die Zahl der Zielplatten gleich der Zahl der
 Quellplatten ist, jede Zuordnung passt und keine Zielplatte Signaturen des Manifests trägt:
@@ -5442,10 +5477,13 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `cryptsetup luksAddKey`, die Passphrase über stdin; nicht als `/dev/fd/N` wie in 10.10. Die
   Datei wird gleich danach gelöscht; sie liegt nie auf einer Platte.
 - **Übernahme ohne `mdadm --examine` und `pvs`:** Die Signaturen der Kandidaten für die Übernahme
-  (10.7) kommen allein aus `blkid -p` (md-Mitglied mit Array-UUID, PV-UUID, LUKS-UUID,
-  Dateisystem-UUID und -Typ); `mdadm --examine` und `pvs --devices … -o pv_uuid,vg_name,vg_uuid`
-  laufen nicht. Ob genug Mitglieder für einen lauffähigen Verbund da sind und ob alle PVs einer
-  VG da sind, prüft der Planer aus diesen UUIDs.
+  (10.7) kommen allein aus `blkid -p` auf Platten und Partitionen (md-Mitglied mit Array-UUID,
+  PV-UUID, LUKS-UUID, Dateisystem-UUID und -Typ); `mdadm --examine` und
+  `pvs --devices … -o pv_uuid,vg_name,vg_uuid` laufen nicht. Ob genug Mitglieder für einen
+  lauffähigen Verbund da sind und ob alle PVs einer VG da sind, prüft der Planer aus diesen
+  UUIDs. Was in einem Array, einer LUKS-Zuordnung oder einem LV liegt, sieht die Erkennung
+  nicht; das prüft `recover` nach dem Zusammensetzen in der Phase `adopt`, vor dem ersten
+  löschenden Schritt (`adopt_check`, 10.7), und nur bei ausdrücklich gewählter Übernahme.
 - **Zugang abgelaufen während des Restores:** `recover` hält sauber an (Marker mit sauberem Ende,
   Einhängungen und Zuordnungen geschlossen) und meldet `access_expired`; weiter geht es nur mit
   einem neuen Code und einem neuen Start des ISO (Fortsetzen nach 10.18), nicht in derselben
@@ -5753,6 +5791,37 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `TestWipeConflictsAttended`, `TestWipeConflictsFailures`,
   `TestRecoverWipesTheOldDiskNamedInConfirmErase` (mit restic). E9 nennt die alte Platte in
   `confirmErase` (`eraseAlso` in `cases.mjs`); bewiesen ist der Fall erst im nächtlichen Lauf.
+- **Übernahme dessen, was im Array liegt (für E9 ergänzt):** Der nächtliche Lauf von E9 hielt
+  vor dem Leeren an: `vg data` und `fs f1` waren `adopt_incomplete` ("physical volume … is not
+  on the target", "the file system UUID and type are not on the target"), obwohl `adopt`
+  `md:md0` nannte. Die Erkennung (`hardware_linux.go`) liest nur Platten und Partitionen mit
+  `blkid -p`, und das ISO setzt kein Array zusammen (die Regel `64-md-raid-assembly.rules` ist
+  maskiert, 8.2): Die PV auf `md0` und das Dateisystem auf `data/srv` kann sie nicht sehen. Die
+  Tests des Planers liefen nur, weil ihr Ziel (`adoptTarget`) PV und Dateisystem auf eine
+  Mitgliedsplatte schrieb, was keine Erkennung je liefert. Jetzt (10.7):
+  - Der Planer (`resolveAdoption`) prüft eine Identität aus der Erkennung nur, wenn ihr Gerät
+    eine Platte oder Partition ist. Liegt sie in einem Array, einer LUKS-Zuordnung oder einem
+    LV und hat der Bediener jede Platte darunter ausdrücklich übernommen (Grund `choice`:
+    `adopt` oder `diskMapping` `adopt`), gilt sie als "nach dem Zusammensetzen geprüft"; sonst
+    bleibt sie `adopt_incomplete` mit einem Grund, der den Weg nennt.
+  - Der Plan setzt die übernommenen Teile in der neuen Phase `adopt` vor allem anderen
+    zusammen und prüft nach jedem Schritt mit `adopt_check` (Operation `adopt-check`, keine neue
+    Schrittart des Servers nötig; Phase und Art sind dort freie Texte) Typ und UUID des
+    Inhalts. Ein Fehlschlag in dieser Phase heißt an der Konsole "Es wurde nichts gelöscht"
+    (`exec.failed_adopt`, `exec.adopt_mismatch`); Code bleibt `step_failed` (kein neuer Code im
+    Vertrag mit dem Server).
+  - Erwogen und verworfen: die Arrays schon bei der Erkennung nur lesend zusammensetzen
+    (Begründung in 10.7: Bitmap-Superblock, Erkennung schreibt nie, LUKS ohne Passphrase).
+  - E9 braucht keine weiteren `adopt`-Einträge: `md:md0` übernimmt die Platten des Arrays, damit
+    VG und Dateisystem darauf.
+  Tests: `TestAdoptInsideAfterAssembly`, `TestExecuteAdoptCheck`, `TestConflictDisksE9` und
+  `TestConfirmCountsTheWipedDisks` (das E9-Ziel trägt jetzt nur, was die Erkennung sieht),
+  `TestRecoverE9AdoptsTheDataRAID` (ganzer unbeaufsichtigter Ablauf mit restic: alte Platte
+  geleert, Array zusammengesetzt und geprüft vor dem ersten löschenden Schritt, Erfolg; mit
+  einer fremden PV im Array endet er vor jedem Löschen). Nicht bewiesen ohne KVM: dass
+  `mdadm --assemble` und `vgchange` im echten ISO nach dem Wächter durchgehen, dass `blkid -p`
+  auf `/dev/md/<name>` und `/dev/<vg>/<lv>` direkt danach die Kennungen liefert (udev legt die
+  Links an), und der ganze Fall E9 bis zum Neustart; das zeigt erst der nächtliche Lauf.
 
 ### 26.12 Zurückgestellt (M4)
 
