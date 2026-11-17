@@ -8,6 +8,7 @@ import {
   ErrorState,
   HORIZONTAL_GRID,
   RelativeTime,
+  STATUS_CHART_COLOR,
   StatusBadge,
   VALUE_AXIS_INTERVAL,
 } from "@/components/kit";
@@ -170,12 +171,12 @@ export function ConnectionHealthCard({
       minute: "2-digit",
     });
   const latencyConfig = {
-    mean: { label: t("health.latency.mean"), color: "var(--chart-info)" },
+    mean: { label: t("health.latency.mean"), color: STATUS_CHART_COLOR.info },
     max: { label: t("health.latency.max"), color: "var(--chart-2)" },
   } satisfies ChartConfig;
   const connectionsConfig = {
-    used: { label: t("health.connections.used"), color: "var(--chart-info)" },
-    limit: { label: t("health.connections.max"), color: "var(--chart-muted)" },
+    used: { label: t("health.connections.used"), color: STATUS_CHART_COLOR.info },
+    limit: { label: t("health.connections.max"), color: STATUS_CHART_COLOR.muted },
   } satisfies ChartConfig;
   const maxLatency = Math.max(0, ...rows.map((row) => row.max ?? row.mean ?? 0));
   const maxConnections = Math.max(0, ...rows.map((row) => Math.max(row.used ?? 0, row.limit ?? 0)));
