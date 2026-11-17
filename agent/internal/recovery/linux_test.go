@@ -394,3 +394,44 @@ func TestMappingOn(t *testing.T) {
 		t.Errorf("missing: %v %q", on, b)
 	}
 }
+
+// A file system without hard links (vfat, the ESP of P3: linkat answers
+// EPERM): the backup is a copy, the file is replaced, and an existing
+// backup name still stops the write.
+func TestWriteFileAtomicBackupWithoutHardLinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "boot/efi/loader/entries"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(root, "boot/efi/loader/entries/debian.conf")
+	if err := os.WriteFile(entry, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenRootfs(root)
+	if err != nil {
+		t.Skipf("openat2: %v", err)
+	}
+	defer r.Close()
+	saved := linkAt
+	linkAt = func(int, string, int, string) error { return syscall.EPERM }
+	defer func() { linkAt = saved }()
+	if err := r.WriteFileAtomic("/boot/efi/loader/entries/debian.conf", []byte("new\n"), 0o644, os.Getuid(), os.Getgid(), "debian.conf.restow-probe"); err != nil {
+		t.Fatalf("write without hard links: %v", err)
+	}
+	if b, _ := os.ReadFile(entry); string(b) != "new\n" {
+		t.Errorf("entry %q", b)
+	}
+	if b, _ := os.ReadFile(entry + ".restow-probe"); string(b) != "old\n" {
+		t.Errorf("backup %q", b)
+	}
+	if err := r.WriteFileAtomic("/boot/efi/loader/entries/debian.conf", []byte("newer\n"), 0o644, os.Getuid(), os.Getgid(), "debian.conf.restow-probe"); !errors.Is(err, syscall.EEXIST) {
+		t.Errorf("an existing backup name: %v", err)
+	}
+	if b, _ := os.ReadFile(entry); string(b) != "new\n" {
+		t.Errorf("entry changed although the backup was refused: %q", b)
+	}
+	linkAt = func(int, string, int, string) error { return syscall.EACCES }
+	if err := r.WriteFileAtomic("/boot/efi/loader/entries/debian.conf", []byte("x\n"), 0o644, os.Getuid(), os.Getgid(), "other"); !errors.Is(err, syscall.EACCES) {
+		t.Errorf("another link error is no reason to copy: %v", err)
+	}
+}

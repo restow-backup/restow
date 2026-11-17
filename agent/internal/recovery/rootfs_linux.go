@@ -204,7 +204,7 @@ func (r *DirRootfs) WriteFileAtomic(p string, data []byte, mode fs.FileMode, uid
 		if strings.ContainsRune(backup, '/') {
 			return fmt.Errorf("invalid backup name %q", backup)
 		}
-		if err := linkat(dfd, base, dfd, backup); err != nil && !errors.Is(err, syscall.ENOENT) {
+		if err := keepAt(dfd, base, backup); err != nil && !errors.Is(err, syscall.ENOENT) {
 			return fmt.Errorf("keep %s: %w", p, err)
 		}
 	}
@@ -227,6 +227,48 @@ func modeBits(m fs.FileMode) uint32 {
 		b |= syscall.S_ISUID
 	}
 	return b
+}
+
+// linkAt is linkat(2); a variable so that a test can stand in for a file
+// system without hard links.
+var linkAt = linkat
+
+// keepAt keeps the file name as backup in the same folder before it is
+// replaced: a hard link, or, where the file system has none (vfat, the ESP:
+// EPERM; others EOPNOTSUPP, EMLINK), a copy written and synced before the
+// replacement. A backup name that exists already is an error (EEXIST), as
+// with the link.
+func keepAt(dfd int, name, backup string) error {
+	err := linkAt(dfd, name, dfd, backup)
+	if err == nil || !(errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.EMLINK)) {
+		return err
+	}
+	src, err := syscall.Openat(dfd, name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	in := os.NewFile(uintptr(src), name)
+	defer in.Close()
+	st, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	dst, err := syscall.Openat(dfd, backup, syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, uint32(st.Mode().Perm()))
+	if err != nil {
+		return err
+	}
+	out := os.NewFile(uintptr(dst), backup)
+	_, werr := io.Copy(out, in)
+	if werr == nil {
+		werr = out.Sync()
+	}
+	if cerr := out.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = syscall.Unlinkat(dfd, backup)
+	}
+	return werr
 }
 
 func linkat(olddir int, oldname string, newdir int, newname string) error {
