@@ -484,6 +484,10 @@
       "backups_deletion_scheduled": "Sicherungen eines gesperrten Rechners zum Löschen vorgemerkt",
       "backups_deleted": "Sicherungen eines entfernten Rechners gelöscht"
     },
+    "database": {
+      "unreachable": "Eine Datenbankverbindung ist nicht erreichbar",
+      "reachable": "Eine Datenbankverbindung ist wieder erreichbar"
+    },
     "file_share": {
       "storage_quota": "Speicherbudget der Freigaben",
       "repository_locked": "Sicherungsdaten einer Freigabe bleiben gesperrt"
@@ -571,6 +575,10 @@
       "sql_overdue": "Seit mehr als 8 Tagen kam keine Prüfung einer gesicherten Datenbank ohne Fehler zum Ergebnis.",
       "backups_deletion_scheduled": "Ein Inhaber des Providers hat beauftragt, jede Sicherung eines gesperrten Rechners zu löschen. Sie werden in sieben Tagen gelöscht, wenn niemand das auf der Seite des Rechners abbricht; geht immer sofort an die Pflichtempfänger.",
       "backups_deleted": "Jede Sicherung eines entfernten Rechners wurde gelöscht, mit der Zahl der Snapshots und Dateien."
+    },
+    "database": {
+      "unreachable": "Drei Healthchecks einer Datenbankverbindung in Folge sind fehlgeschlagen: Der Ausführer erreicht die Instanz nicht oder kann sich nicht anmelden. Die vorhandenen Sicherungen bleiben gültig.",
+      "reachable": "Nach einer gemeldeten Störung war der Healthcheck einer Datenbankverbindung wieder erfolgreich."
     },
     "file_share": {
       "storage_quota": "Die Sicherungsdaten einer Freigabe oder aller Freigaben eines Mandanten zusammen haben 80 Prozent des Speicherbudgets erreicht, oder neue Sicherungen werden abgelehnt, weil es aufgebraucht ist.",
@@ -848,7 +856,9 @@
       "move": {
         "succeeded": "Datenbank nach {object} verschoben",
         "failed": "Datenbank nicht nach {object} verschoben"
-      }
+      },
+      "unreachable": "Datenbank nicht erreichbar: {object}",
+      "reachable": "Datenbank wieder erreichbar: {object}"
     },
     "source": {
       "app_secret_expiring": "Zugangsdaten der eigenen App von {object} laufen am {date} ab",

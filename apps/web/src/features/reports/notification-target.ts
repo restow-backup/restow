@@ -4,6 +4,7 @@ import {
   FORWARDING_SECTION_ANCHOR,
   JOURNAL_SECTION_ANCHOR,
 } from "@/features/archive/paths";
+import { connectionTo } from "@/features/databases/paths";
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { FILE_SHARES_PATH } from "@/features/file-shares/paths";
 import { installationSectionPath } from "@/features/installation/paths";
@@ -51,10 +52,11 @@ export function notificationTarget(
       ? { to: installationSectionPath("updates"), tenantId: null }
       : null;
   }
-  // A move of the database, a disk running low and the emergency disk reserve: Installation >
-  // Database.
+  // A move of the installation's own database, a disk running low and the emergency disk
+  // reserve: Installation > Database. (`database.unreachable` and `database.reachable` are about
+  // a tenant's database connection, below.)
   if (
-    item.event.startsWith("database.") ||
+    item.event.startsWith("database.move.") ||
     item.event === "installation.disk_low" ||
     item.event.startsWith("installation.disk_reserve_")
   ) {
@@ -107,6 +109,14 @@ export function notificationTarget(
   // object to holding such runs.
   if (item.event === "backup.unusually_large" || item.event === "backup.unusually_large_notice") {
     return at(WARNINGS_PATH);
+  }
+  // A database connection whose health checks failed or pass again: its page has the history.
+  const connectionId = text(details.connectionId);
+  if (
+    connectionId &&
+    (item.event === "database.unreachable" || item.event === "database.reachable")
+  ) {
+    return at(String(connectionTo(connectionId).to));
   }
   // A server or client: its own page says what happened and what to do.
   const endpointId = text(details.endpointId);

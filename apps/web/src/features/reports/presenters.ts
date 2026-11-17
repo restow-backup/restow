@@ -108,6 +108,10 @@ export const EVENT_GROUPS: Record<
     "endpoint.sql_red",
     "endpoint.sql_recovered",
     "endpoint.sql_overdue",
+    // Health checks of a database connection (0.6.0, docs/DATABASES.md 8), beside the SQL
+    // Server events: the matrix shows the databases together.
+    "database.unreachable",
+    "database.reachable",
     "file_share.repository_locked",
     // A source's own app credential runs out: a tenant event, so tenant admins can choose it.
     "source.app_secret_expiring",

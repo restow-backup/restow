@@ -41,6 +41,8 @@ export const REPORT_EVENTS = [
   "endpoint.sql_red",
   "endpoint.sql_recovered",
   "endpoint.sql_overdue",
+  "database.unreachable",
+  "database.reachable",
   "endpoint.backups_deletion_scheduled",
   "endpoint.backups_deleted",
   "file_share.storage_quota",

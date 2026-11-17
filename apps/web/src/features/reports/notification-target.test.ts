@@ -46,6 +46,23 @@ describe("where a notification leads", () => {
     ).toEqual({ to: "/warnings", tenantId });
   });
 
+  it("opens the connection of a database health alert, not the installation's database", () => {
+    for (const event of ["database.unreachable", "database.reachable"]) {
+      expect(
+        notificationTarget(
+          { event, tenantId, details: { connectionId: "c-1", endpointId: "ep-1" } },
+          admin,
+        ),
+      ).toEqual({ to: "/databases/connections/c-1", tenantId });
+    }
+    expect(
+      notificationTarget(
+        { event: "database.move.succeeded", tenantId: null, details: {} },
+        { canManage: true, isProviderAdmin: true },
+      )?.to,
+    ).toMatch(/database/);
+  });
+
   it("opens the restore points of a suspicious backup", () => {
     const suspicious = (details: Record<string, unknown>) =>
       notificationTarget({ event: "backup.suspicious", tenantId, details }, admin)?.to;

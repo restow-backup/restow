@@ -42,6 +42,8 @@ export const REPORT_EVENTS = [
   "endpoint.sql_red",
   "endpoint.sql_recovered",
   "endpoint.sql_overdue",
+  "database.unreachable",
+  "database.reachable",
   "endpoint.backups_deletion_scheduled",
   "endpoint.backups_deleted",
   "file_share.storage_quota",
@@ -170,6 +172,12 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "endpoint.sql_red": { group: "jobs", level: "error" },
   "endpoint.sql_recovered": { group: "jobs", level: "info" },
   "endpoint.sql_overdue": { group: "jobs", level: "warning" },
+  // The module "Databases" (0.6.0, docs/DATABASES.md 2.4, 8): three health checks of a database
+  // connection failed in a row (not reachable, the sign-in refused, another instance or
+  // certificate), and the first good check after that episode. Once each per episode. Not
+  // critical: reachability is no rating, the backups that exist stay good.
+  "database.unreachable": { group: "jobs", level: "warning" },
+  "database.reachable": { group: "jobs", level: "info" },
   // A provider owner asked to delete every backup of a revoked machine (0.5.0, apps/api
   // features/endpoints/removal.ts): they go in seven days unless someone cancels. Critical, so
   // the provider's mandatory recipients learn of it at once and can still stop it.
