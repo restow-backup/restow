@@ -43,8 +43,9 @@ private repository.
     `RESTOW_DB_ALLOW_PRIVATE_NETWORKS=true`; link-local and reserved addresses are always refused,
     a public address is never used without TLS, and Restow's own database is refused
     (`db_target_is_restow`, by its address before the sign-in and by its system identifier
-    after it, which is the backstop; while Restow cannot tell where its own database is, the
-    server tests no connection). An approval holds the address the approved test signed in on;
+    after it, which is the backstop; where it listens is read from the database URLs, with
+    `PGHOST`, `PGPORT` and `PGHOSTADDR` for what a URL leaves out, and from keyword/value strings;
+    while Restow cannot tell where its own database is, the server tests no connection). An approval holds the address the approved test signed in on;
     the server's connections reach no other private address under the name. Tests are limited to
     30 per tenant in ten minutes, counted from the stored tests, and to two at a time per tenant
     on the server.
@@ -53,6 +54,9 @@ private repository.
     the server), and every socket closed when the test ends. A stored connection's confirmed
     certificate travels with the test: the executor stops right after the TLS handshake, before
     anything of the sign-in is sent, when the server shows another one or no TLS.
+    A line of MySQL's `SHOW GRANTS` is read up to 64 KiB (a long column list); a list cut even so
+    rates no right as missing but as not checkable (`grants_truncated`). The agent opens an SQLite
+    file with the `openat2` number of its architecture (MIPS has its own).
   - Saving a connection keeps exactly the credentials its test used, within 30 minutes of the
     test; the scheduler deletes credentials of tests that may no longer use them. Moving a
     connection to another executor needs the password again (audited).
@@ -81,10 +85,21 @@ private repository.
     task at most every 4 minutes, fetches the checks with their credentials once
     (`GET /agent/v1/databases/health/:taskId`) and posts each sample
     (`POST /agent/v1/databases/health/:taskId/samples`). No checks while restore mode is on.
+  - An agent cannot flood the history: per task and connection the server takes at most the
+    checks the window allows at the interval, none closer than half the interval to another, one
+    per point in time. The server's checks are shared fairly: tenants take turns in each pass, no
+    check starts after 40 seconds of a pass, checks to public targets count toward an outbound
+    budget per tenant (`RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR`, default 600 an hour), and
+    a tenant has at most `RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT` (default 20) connections on the
+    Restow server (422 `database-server-connection-limit` beyond it).
   - History in `database_health_samples` (migration 0108): raw samples 14 days, then hourly means
-    and extremes 400 days.
+    and extremes 400 days, folded in bounded batches. The events of a connection are read from
+    its newest samples (ranges over 14 days by the hour).
   - Alerts `database.unreachable` (three failed checks in a row, once per episode) and
-    `database.reachable` (the first good check after), group "Jobs", de and en.
+    `database.reachable` (the first good check after), group "Jobs", de and en. One change of
+    state per connection and evaluation, and a flapping connection raises at most one pair in 30
+    minutes (an episode that still lasts after that is alerted then). The evaluation runs first in
+    each pass of the worker, independent of slow checks.
   - The Databases list shows reachability (reachable, slow, not reachable, unknown) with a band of
     the last 24 hours; the connection page shows availability over 24 hours, 7 and 30 days,
     response time, connections in use and the events (not reachable from/until, restart, version
