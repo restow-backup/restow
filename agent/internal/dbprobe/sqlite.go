@@ -22,8 +22,20 @@ var sqliteMagic = []byte("SQLite format 3\x00")
 // errNotSQLite: the file is no SQLite database.
 var errNotSQLite = errors.New("the file is not an SQLite 3 database")
 
+// errNotRegular: the path is a link, a device, a pipe or a directory. The
+// agent opens only a regular file: a link could lead it to a file the
+// administrator did not name, and a pipe or device could block the probe.
+var errNotRegular = errors.New("the path is not a regular file (links, devices and pipes are not opened)")
+
 func probeSQLite(path string) (*api.DBSQLiteFacts, error) {
-	f, err := os.Open(path) // #nosec G304 -- the path the administrator named for this connection
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	f, err := openNoFollow(path)
 	if err != nil {
 		return nil, err
 	}
@@ -32,8 +44,9 @@ func probeSQLite(path string) (*api.DBSQLiteFacts, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, errNotSQLite
+	// The file opened is the file looked at (not replaced in between).
+	if !info.Mode().IsRegular() || !os.SameFile(before, info) {
+		return nil, errNotRegular
 	}
 	header := make([]byte, 100)
 	if _, err := io.ReadFull(f, header); err != nil {

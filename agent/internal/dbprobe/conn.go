@@ -27,14 +27,24 @@ import (
 )
 
 // conn is a connection with a read buffer, deadlines per step and the switch
-// to TLS in the middle of a conversation.
+// to TLS in the middle of a conversation. Every read and write is bounded by
+// the step and by the probe's context: when the probe's deadline passes (or
+// the probe ends), the connection is closed, whatever it waits for.
 type conn struct {
 	raw     net.Conn
 	r       *bufio.Reader
+	ctx     context.Context
 	step    time.Duration
 	tlsUsed bool
 	cert    *certFacts
+	stop    func() bool
 }
+
+// maxRead is the largest single read of the probe (a message or a packet).
+const maxRead = 1 << 20
+
+// errTooLarge: the server announced more data than the probe reads.
+var errTooLarge = errors.New("the server sent more data than the probe reads")
 
 type certFacts struct {
 	fingerprint string
@@ -61,16 +71,35 @@ func openConn(ctx context.Context, dial dialer, network, address string, step ti
 	if err != nil {
 		return nil, err
 	}
-	return &conn{raw: raw, r: bufio.NewReader(raw), step: step}, nil
+	c := &conn{raw: raw, r: bufio.NewReader(raw), ctx: ctx, step: step}
+	// The probe's end or deadline closes the connection (and wakes every read).
+	c.stop = context.AfterFunc(ctx, func() { _ = raw.Close() })
+	return c, nil
 }
 
-func (c *conn) deadline() { _ = c.raw.SetDeadline(time.Now().Add(c.step)) }
+// deadline is the end of one step, never later than the probe's deadline.
+func (c *conn) deadline() {
+	until := time.Now().Add(c.step)
+	if d, ok := c.ctx.Deadline(); ok && d.Before(until) {
+		until = d
+	}
+	_ = c.raw.SetDeadline(until)
+}
 
 // readFull reads exactly n bytes within one step.
 func (c *conn) readFull(n int) ([]byte, error) {
+	if n < 0 || n > maxRead {
+		return nil, errTooLarge
+	}
+	if err := c.ctx.Err(); err != nil {
+		return nil, errProbeTimeout
+	}
 	c.deadline()
 	b := make([]byte, n)
 	if _, err := io.ReadFull(c.r, b); err != nil {
+		if c.expired() {
+			return nil, errProbeTimeout
+		}
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, errClosed
 		}
@@ -79,9 +108,25 @@ func (c *conn) readFull(n int) ([]byte, error) {
 	return b, nil
 }
 
+// expired: the probe's deadline passed (or the probe ended).
+func (c *conn) expired() bool {
+	if c.ctx.Err() != nil {
+		return true
+	}
+	d, ok := c.ctx.Deadline()
+	return ok && !time.Now().Before(d)
+}
+
+// errProbeTimeout: the probe's deadline passed.
+var errProbeTimeout = errors.New("the probe did not finish in time")
+
 // peek returns what the server sends on its own within d, or nothing.
 func (c *conn) peek(d time.Duration) []byte {
-	_ = c.raw.SetReadDeadline(time.Now().Add(d))
+	until := time.Now().Add(d)
+	if dl, ok := c.ctx.Deadline(); ok && dl.Before(until) {
+		until = dl
+	}
+	_ = c.raw.SetReadDeadline(until)
 	b, _ := c.r.Peek(1)
 	if len(b) == 0 {
 		return nil
@@ -92,6 +137,9 @@ func (c *conn) peek(d time.Duration) []byte {
 }
 
 func (c *conn) write(b []byte) error {
+	if err := c.ctx.Err(); err != nil {
+		return errProbeTimeout
+	}
 	c.deadline()
 	_, err := c.raw.Write(b)
 	return err
@@ -112,7 +160,10 @@ func (c *conn) startTLS(serverName string) error {
 	}
 	tc := tls.Client(c.raw, cfg)
 	c.deadline()
-	if err := tc.Handshake(); err != nil {
+	if err := tc.HandshakeContext(c.ctx); err != nil {
+		if c.expired() {
+			return errProbeTimeout
+		}
 		return fmt.Errorf("TLS: %w", err)
 	}
 	state := tc.ConnectionState()
@@ -133,7 +184,16 @@ func (c *conn) startTLS(serverName string) error {
 	c.raw = tc
 	c.r = bufio.NewReader(tc)
 	c.tlsUsed = true
+	if c.stop != nil {
+		c.stop()
+	}
+	c.stop = context.AfterFunc(c.ctx, func() { _ = tc.Close() })
 	return nil
 }
 
-func (c *conn) close() { _ = c.raw.Close() }
+func (c *conn) close() {
+	if c.stop != nil {
+		c.stop()
+	}
+	_ = c.raw.Close()
+}

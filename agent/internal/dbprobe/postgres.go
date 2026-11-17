@@ -51,8 +51,11 @@ func (c *conn) pgRead() (byte, []byte, error) {
 		return 0, nil, err
 	}
 	n := int(binary.BigEndian.Uint32(head[1:5]))
-	if n < 4 || n > 64<<20 {
+	if n < 4 {
 		return 0, nil, errors.New("invalid message length from the server")
+	}
+	if n-4 > maxRead {
+		return 0, nil, fail(CodeProbeFailed, "the server sent a message larger than the probe reads")
 	}
 	body, err := c.readFull(n - 4)
 	return head[0], body, err
@@ -107,6 +110,17 @@ func hmacSHA256(key []byte, data string) []byte {
 	return m.Sum(nil)
 }
 
+// scramMaxIterations bounds the rounds the probe computes (PostgreSQL's
+// default is 4096).
+const scramMaxIterations = 100_000
+
+// Messages the sign-in may take, and messages besides the rows a query may take.
+const (
+	pgSignInMaxMessages     = 256
+	pgQueryMaxExtraMessages = 256
+	pgMaxColumns            = 64
+)
+
 // scram is SCRAM-SHA-256 without channel binding (RFC 5802, 7677).
 type scram struct {
 	password    string
@@ -134,9 +148,13 @@ func (s *scram) clientFinal(serverFirst string) (string, error) {
 	}
 	nonce := attrs["r"]
 	salt, err := base64.StdEncoding.DecodeString(attrs["s"])
-	iterations, _ := strconv.Atoi(attrs["i"])
-	if err != nil || !strings.HasPrefix(nonce, s.clientNonce) || iterations < 1 || iterations > 10_000_000 {
-		return "", &pgError{SQLState: "28000", Message: "the server's SCRAM answer is not valid"}
+	iterations, ierr := strconv.Atoi(attrs["i"])
+	if err != nil || ierr != nil || len(salt) == 0 || len(nonce) <= len(s.clientNonce) ||
+		!strings.HasPrefix(nonce, s.clientNonce) || iterations < 1 {
+		return "", &pgError{SQLState: "08P01", Message: "the server's SCRAM answer is not valid"}
+	}
+	if iterations > scramMaxIterations {
+		return "", fail(CodeAuthUnsupported, "the server asks for %d SCRAM iterations; Restow computes at most %d", iterations, scramMaxIterations)
 	}
 	s.salted, err = pbkdf2.Key(sha256.New, s.password, salt, iterations, 32)
 	if err != nil {
@@ -164,20 +182,34 @@ func (s *scram) verify(serverFinal string) bool {
 	return err == nil && hmac.Equal(want, got)
 }
 
+// Steps of the sign-in: the exchange runs in its order, and it only counts
+// when the server accepted it (after its SCRAM proof, when SCRAM is used).
+const (
+	pgStateStart = iota
+	pgStatePassword
+	pgStateSASL
+	pgStateSASLContinue
+	pgStateSASLFinal
+	pgStateOK
+)
+
 // pgSignIn signs in after the SSLRequest (and TLS when the server offered it).
-func (c *conn) pgSignIn(user string, password *string, database string) (map[string]string, error) {
+// refuseWeak: the password may not go out as it is (cleartext) or as MD5,
+// because the connection lacks the confirmed certificate.
+func (c *conn) pgSignIn(user string, password *string, database string, refuseWeak bool) (map[string]string, error) {
 	if err := c.write(pgStartup(user, database)); err != nil {
 		return nil, err
 	}
 	params := map[string]string{}
 	var sc *scram
+	state := pgStateStart
 	need := func() (string, error) {
 		if password == nil {
 			return "", &pgError{SQLState: "28P01", Message: "the server asks for a password and none was given"}
 		}
 		return *password, nil
 	}
-	for {
+	for count := 0; count < pgSignInMaxMessages; count++ {
 		typ, body, err := c.pgRead()
 		if err != nil {
 			return nil, err
@@ -187,25 +219,47 @@ func (c *conn) pgSignIn(user string, password *string, database string) (map[str
 			return nil, pgErrorOf(body)
 		case 'S':
 			parts := bytes.SplitN(body, []byte{0}, 3)
-			if len(parts) >= 2 {
-				params[string(parts[0])] = string(parts[1])
+			if len(parts) >= 2 && len(params) < 64 {
+				params[clip(string(parts[0]), 64)] = clip(string(parts[1]), 256)
 			}
 		case 'Z':
+			if state != pgStateOK {
+				return nil, &pgError{SQLState: "08P01", Message: "the server ended the sign-in without accepting it"}
+			}
 			return params, nil
 		case 'R':
 			if len(body) < 4 {
 				return nil, errors.New("short authentication message")
 			}
 			code := binary.BigEndian.Uint32(body[:4])
+			if code == 0 {
+				if state != pgStateStart && state != pgStatePassword && state != pgStateSASLFinal {
+					return nil, fail(CodeProbeFailed, "the server accepted the sign-in without proving the SCRAM exchange")
+				}
+				state = pgStateOK
+				continue
+			}
+			var expected uint32
+			switch state {
+			case pgStateSASL:
+				expected = 11
+			case pgStateSASLContinue:
+				expected = 12
+			}
+			if (state == pgStateStart && (code == 11 || code == 12)) || (state != pgStateStart && code != expected) {
+				return nil, &pgError{SQLState: "08P01", Message: fmt.Sprintf("unexpected authentication message %d during the sign-in", code)}
+			}
+			if (code == 3 || code == 5) && refuseWeak {
+				return nil, fail(CodeTLSChanged, "the server asks for the password in a weak form on a connection without the confirmed certificate")
+			}
 			var reply []byte
 			switch code {
-			case 0:
-				continue
 			case 3:
 				pw, err := need()
 				if err != nil {
 					return nil, err
 				}
+				state = pgStatePassword
 				reply = pgMessage('p', cstr(pw))
 			case 5:
 				pw, err := need()
@@ -215,6 +269,7 @@ func (c *conn) pgSignIn(user string, password *string, database string) (map[str
 				if len(body) < 8 {
 					return nil, errors.New("short MD5 salt")
 				}
+				state = pgStatePassword
 				reply = pgMessage('p', cstr(pgMD5(user, pw, body[4:8])))
 			case 10:
 				mechanisms := strings.Split(string(body[4:]), "\x00")
@@ -223,7 +278,7 @@ func (c *conn) pgSignIn(user string, password *string, database string) (map[str
 					found = found || m == "SCRAM-SHA-256"
 				}
 				if !found {
-					return nil, &pgError{SQLState: "28000", Message: "unsupported SASL mechanisms: " + strings.Join(mechanisms, ", ")}
+					return nil, fail(CodeAuthUnsupported, "unsupported SASL mechanisms: %s", clip(strings.Join(mechanisms, ", "), 200))
 				}
 				pw, err := need()
 				if err != nil {
@@ -237,11 +292,13 @@ func (c *conn) pgSignIn(user string, password *string, database string) (map[str
 				b.Write(cstr("SCRAM-SHA-256"))
 				_ = binary.Write(&b, binary.BigEndian, int32(len(first)))
 				b.Write(first)
+				state = pgStateSASL
 				reply = pgMessage('p', b.Bytes())
 			case 11:
 				if sc == nil {
 					return nil, errors.New("unexpected SCRAM message")
 				}
+				state = pgStateSASLContinue
 				final, err := sc.clientFinal(string(body[4:]))
 				if err != nil {
 					return nil, err
@@ -249,17 +306,19 @@ func (c *conn) pgSignIn(user string, password *string, database string) (map[str
 				reply = pgMessage('p', []byte(final))
 			case 12:
 				if sc == nil || !sc.verify(string(body[4:])) {
-					return nil, &pgError{SQLState: "28000", Message: "the server's SCRAM signature does not match"}
+					return nil, fail(CodeProbeFailed, "the server's SCRAM signature does not match")
 				}
+				state = pgStateSASLFinal
 				continue
 			default:
-				return nil, &pgError{SQLState: "28000", Message: fmt.Sprintf("unsupported authentication method %d", code)}
+				return nil, fail(CodeAuthUnsupported, "unsupported authentication method %d", code)
 			}
 			if err := c.write(reply); err != nil {
 				return nil, err
 			}
 		}
 	}
+	return nil, &pgError{SQLState: "08P01", Message: "the sign-in did not finish"}
 }
 
 // pgQuery runs one simple query; NULL is nil.
@@ -269,7 +328,9 @@ func (c *conn) pgQuery(sql string) ([][]*string, error) {
 	}
 	var rows [][]*string
 	var failure *pgError
-	for {
+	// The probe's queries return at most maxDatabases rows; a server that
+	// sends more is cut off.
+	for count := 0; count < maxDatabases+1+pgQueryMaxExtraMessages; count++ {
 		typ, body, err := c.pgRead()
 		if err != nil {
 			return nil, err
@@ -280,6 +341,9 @@ func (c *conn) pgQuery(sql string) ([][]*string, error) {
 				return nil, errors.New("short data row")
 			}
 			n := int(binary.BigEndian.Uint16(body[:2]))
+			if n > pgMaxColumns {
+				return nil, errors.New("more columns than the probe asked for")
+			}
 			off := 2
 			row := make([]*string, 0, n)
 			for i := 0; i < n; i++ {
@@ -311,6 +375,7 @@ func (c *conn) pgQuery(sql string) ([][]*string, error) {
 			return rows, nil
 		}
 	}
+	return nil, &pgError{SQLState: "08P01", Message: "the query did not finish"}
 }
 
 func (c *conn) pgTerminate() { _ = c.write(pgMessage('X', nil)) }
