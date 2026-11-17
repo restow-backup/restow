@@ -28,6 +28,7 @@ import {
   AddConnectionDialog,
   type AddConnectionPrefill,
 } from "./components/add-connection-dialog.js";
+import { HealthBand } from "./components/health.js";
 import {
   type DbFormat,
   useConnections,
@@ -248,7 +249,7 @@ function DatabasesTable({
       <TableBody>
         {databases.map((database) => {
           const rating = ratingView(database.rating);
-          const reach = reachabilityView(database.reachable);
+          const reach = reachabilityView(database.reachability);
           return (
             <TableRow key={database.id} data-database={database.id}>
               <TableCell className="pl-4 font-medium">
@@ -273,7 +274,12 @@ function DatabasesTable({
                 {format.dateTime(database.lastCheckAt) ?? t("list.never")}
               </TableCell>
               <TableCell>
-                <StatusBadge tone={reach.tone}>{t(reach.key)}</StatusBadge>
+                <div className="flex flex-col items-start gap-1">
+                  <StatusBadge tone={reach.tone}>{t(reach.key)}</StatusBadge>
+                  {database.band ? (
+                    <HealthBand band={database.band} format={format} className="hidden sm:block" />
+                  ) : null}
+                </div>
               </TableCell>
               <TableCell className="pr-4">
                 <StatusBadge tone={rating.tone}>{t(rating.key)}</StatusBadge>

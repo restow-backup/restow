@@ -11,8 +11,10 @@ import {
   databaseKeys,
   deleteConnection,
   fetchConnection,
+  fetchConnectionHealth,
   fetchConnections,
   fetchDatabase,
+  fetchDatabaseSizes,
   fetchDatabases,
   fetchProbe,
   fetchRunners,
@@ -92,6 +94,27 @@ export function useConnection(id: string) {
   return useQuery({
     queryKey: databaseKeys.connection(tenantId, id),
     queryFn: () => fetchConnection(id),
+    enabled,
+  });
+}
+
+/** The health history of a connection (8); refreshed with the list's rhythm. */
+export function useConnectionHealth(id: string, days: number) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: databaseKeys.connectionHealth(tenantId, id, days),
+    queryFn: () => fetchConnectionHealth(id, days),
+    enabled,
+    refetchInterval: IDLE_REFRESH_MS,
+  });
+}
+
+/** The size of a database day by day (8). */
+export function useDatabaseSizes(id: string, days: number) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: databaseKeys.sizes(tenantId, id, days),
+    queryFn: () => fetchDatabaseSizes(id, days),
     enabled,
   });
 }

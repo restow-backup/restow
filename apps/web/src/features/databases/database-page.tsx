@@ -5,6 +5,7 @@ import { EmptyState, ErrorState, PageHeader, StatusBadge } from "@/components/ki
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { DatabaseSizeCard } from "./components/health.js";
 import { useDatabase, useDbFormat } from "./hooks.js";
 import { connectionTo, linkTo } from "./paths.js";
 import { ENGINE_LABEL, ratingView, reachabilityView } from "./presenters.js";
@@ -38,7 +39,7 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
   }
   const data = database.data;
   const rating = ratingView(data.rating);
-  const reach = reachabilityView(data.reachable);
+  const reach = reachabilityView(data.reachability);
   return (
     <div className="space-y-6" data-slot="database-page">
       <PageHeader
@@ -81,6 +82,7 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
           </dl>
         </CardContent>
       </Card>
+      <DatabaseSizeCard databaseId={data.id} format={format} />
       <EmptyState
         icon={History}
         title={t("database.noBackups.title")}

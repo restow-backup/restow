@@ -31,6 +31,7 @@ import { canAccess, useSession } from "@/lib/session";
 
 import type { DbConnectionDetail } from "./api.js";
 import { problemKey } from "./components/add-connection-dialog.js";
+import { ConnectionHealthCard } from "./components/health.js";
 import { ProbeResult, RightsMatrix } from "./components/probe-result.js";
 import {
   type DbFormat,
@@ -46,6 +47,7 @@ import {
   codeKey,
   connectionStateView,
   ENGINE_LABEL,
+  HEALTH_INTERVAL_CHOICES,
   INTERVAL_CHOICES,
   ratingView,
 } from "./presenters.js";
@@ -150,6 +152,7 @@ export function ConnectionPage({ connectionId }: { connectionId: string }) {
           </CardContent>
         </Card>
       ) : null}
+      <ConnectionHealthCard connection={data} format={format} />
       <DatabasesCard connection={data} format={format} />
       {admin ? <Settings connection={data} format={format} /> : null}
     </div>
@@ -365,6 +368,7 @@ function Settings({ connection, format }: { connection: DbConnectionDetail; form
   const update = useUpdateConnection(connection.id);
   const [name, setName] = React.useState(connection.name);
   const [intervalMinutes, setIntervalMinutes] = React.useState(connection.schedule.intervalMinutes);
+  const [healthMinutes, setHealthMinutes] = React.useState(connection.health.intervalMinutes);
   const [enabled, setEnabled] = React.useState(connection.enabled);
   const [user, setUser] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -377,6 +381,9 @@ function Settings({ connection, format }: { connection: DbConnectionDetail; form
           ? { schedule: { intervalMinutes } }
           : {}),
         ...(enabled !== connection.enabled ? { enabled } : {}),
+        ...(healthMinutes !== connection.health.intervalMinutes
+          ? { healthIntervalMinutes: healthMinutes }
+          : {}),
         ...(user.trim() ? { user: user.trim() } : {}),
         ...(password ? { password } : {}),
       },
@@ -411,6 +418,21 @@ function Settings({ connection, format }: { connection: DbConnectionDetail; form
                   {t("intervals.minutes", { count: minutes })}
                 </option>
               ))}
+            </NativeSelect>
+          </Field>
+          <Field id="conn-health-interval" label={t("health.interval")}>
+            <NativeSelect
+              id="conn-health-interval"
+              value={String(healthMinutes)}
+              onChange={(event) => setHealthMinutes(Number(event.target.value))}
+            >
+              {[...new Set([...HEALTH_INTERVAL_CHOICES, connection.health.intervalMinutes])]
+                .sort((a, b) => a - b)
+                .map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {t("health.intervalChoice", { count: minutes })}
+                  </option>
+                ))}
             </NativeSelect>
           </Field>
         </div>

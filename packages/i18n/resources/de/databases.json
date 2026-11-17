@@ -153,7 +153,8 @@
   "reachability": {
     "reachable": "Erreichbar",
     "unreachable": "Nicht erreichbar",
-    "unknown": "Unbekannt"
+    "unknown": "Unbekannt",
+    "slow": "Langsam"
   },
   "executor": {
     "server": "{appName}-Server",
@@ -227,7 +228,7 @@
     "dropped": "Nicht mehr vorhanden",
     "noBackups": {
       "title": "Noch keine Sicherung",
-      "description": "Sicherungen, Prüfberichte und der Verlauf der Größe erscheinen hier, sobald die Datenbank gesichert wird."
+      "description": "Sicherungen und Prüfberichte erscheinen hier, sobald die Datenbank gesichert wird."
     }
   },
   "codes": {
@@ -280,5 +281,85 @@
     "probe-limit": "Zu viele Prüfungen in kurzer Zeit. Versuchen Sie es in ein paar Minuten noch einmal.",
     "probe-used": "Diese Prüfung wurde schon abgeholt.",
     "confirm": "Es gibt nichts zu bestätigen. Prüfen Sie die Verbindung noch einmal."
+  },
+  "health": {
+    "title": "Healthchecks",
+    "description": "{appName} prüft die Verbindung {count, plural, one {jede Minute} other {alle # Minuten}} mit dem Backup-Benutzer, nur lesend, aus Sicht des Ausführers.",
+    "notMonitoring": "Kein Ersatz für ein Monitoring: Gemessen wird nur, was die Sicherung braucht.",
+    "range": {
+      "label": "Zeitraum",
+      "day": "24 Stunden",
+      "week": "7 Tage",
+      "month": "30 Tage"
+    },
+    "availability": {
+      "day": "Verfügbarkeit 24 Stunden",
+      "week": "Verfügbarkeit 7 Tage",
+      "month": "Verfügbarkeit 30 Tage",
+      "none": "Keine Prüfung"
+    },
+    "now": {
+      "label": "Stand",
+      "never": "Noch keine Prüfung. Die erste folgt im Intervall der Verbindung, beim Agenten mit seinem nächsten Heartbeat.",
+      "ok": "Zuletzt geprüft {at}, Antwortzeit {latency}",
+      "failing": "{count, plural, one {Eine Prüfung} other {# Prüfungen in Folge}} fehlgeschlagen seit {since}",
+      "alerted": "Der Alarm „Datenbank nicht erreichbar“ ist gesendet; beim ersten Erfolg folgt „wieder erreichbar“.",
+      "paused": "Die Verbindung ist ausgeschaltet; es laufen keine Healthchecks."
+    },
+    "latency": {
+      "title": "Antwortzeit",
+      "description": "Verbindungsaufbau, TLS, Anmeldung und SELECT 1, Mittel und Höchstwert je Abschnitt",
+      "mean": "Mittel",
+      "max": "Höchstwert",
+      "summary": "Antwortzeit im Zeitraum: zuletzt {last}, höchstens {max}."
+    },
+    "connections": {
+      "title": "Verbindungen in Benutzung",
+      "description": "Höchstwert je Abschnitt gegen max_connections der Instanz",
+      "used": "In Benutzung",
+      "max": "Höchstzahl (max_connections)",
+      "summary": "Verbindungen im Zeitraum: zuletzt {used} von {max}."
+    },
+    "empty": {
+      "title": "Keine Prüfungen im Zeitraum",
+      "description": "Sobald der Ausführer die Verbindung prüft, erscheinen hier Antwortzeit und Verbindungen."
+    },
+    "loadError": "Der Verlauf der Healthchecks konnte nicht geladen werden",
+    "events": {
+      "title": "Ereignisse",
+      "none": "Keine Ereignisse im Zeitraum.",
+      "unreachable": "Nicht erreichbar von {from} bis {to}",
+      "unreachableOpen": "Nicht erreichbar seit {from}",
+      "restart": "Neustart der Instanz um {startedAt}",
+      "version": "Version {from} → {to}",
+      "tls": "Anderes TLS-Zertifikat gesehen"
+    },
+    "lastError": "Letzte fehlgeschlagene Prüfung {at}",
+    "interval": "Healthcheck",
+    "intervalChoice": "{count, plural, one {jede Minute} other {alle # Minuten}}",
+    "band": {
+      "label": "Erreichbarkeit der letzten 24 Stunden",
+      "summary": "Letzte 24 Stunden: {ok} Stunden erreichbar, {problem} mit Ausfällen, {none} ohne Prüfung.",
+      "hour": "{time}: {state}",
+      "state": {
+        "ok": "erreichbar",
+        "slow": "langsam",
+        "down": "nicht erreichbar",
+        "mixed": "teilweise nicht erreichbar",
+        "none": "keine Prüfung"
+      }
+    }
+  },
+  "size": {
+    "title": "Größe je Tag",
+    "description": "Höchstens stündlich gelesen; der letzte Wert jedes Tages.",
+    "series": "Größe",
+    "growth": "Wachstum zum Vortag",
+    "summary": "Größe zuletzt {last}, im Zeitraum {change}.",
+    "empty": {
+      "title": "Noch keine Größe",
+      "description": "Die Healthchecks lesen die Größe höchstens einmal je Stunde."
+    },
+    "loadError": "Der Verlauf der Größe konnte nicht geladen werden"
   }
 }

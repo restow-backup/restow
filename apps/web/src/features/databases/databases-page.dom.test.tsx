@@ -60,7 +60,20 @@ function field(label: string): HTMLInputElement {
 }
 
 const baseRoutes = {
-  "GET /databases": () => json({ databases: [databaseFixture()] }),
+  "GET /databases": () =>
+    json({
+      databases: [
+        databaseFixture({
+          reachability: "slow",
+          band: Array.from({ length: 24 }, (_, index) => ({
+            at: new Date(Date.UTC(2026, 10, 16, 12 + index)).toISOString(),
+            state: index === 23 ? "slow" : "ok",
+            checks: 12,
+            okChecks: 12,
+          })),
+        }),
+      ],
+    }),
   "GET /databases/connections": () => json({ connections: [connectionFixture()] }),
   "GET /databases/suggestions": () =>
     json({
@@ -97,6 +110,11 @@ describe("the Databases page", () => {
     expect(text()).toContain("erp");
     expect(text()).toContain("Not backed up yet");
     expect(text()).toContain("PostgreSQL");
+    // Reachability from the health checks, with the band of the last 24 hours (8).
+    expect(text()).toContain("Slow");
+    expect(slot("health-band")?.getAttribute("aria-label")).toBe(
+      "Last 24 hours: 24 hours reachable, 0 with outages, 0 without a check.",
+    );
     expect(slot("database-connections")?.textContent).toContain("Sign-in works");
     expect(slot("database-suggestions")?.textContent).toContain("PostgreSQL 16/main on db-host");
     expect(document.querySelector('[data-tone="success"], .bg-success, .text-success')).toBeNull();

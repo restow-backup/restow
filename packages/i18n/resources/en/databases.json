@@ -153,7 +153,8 @@
   "reachability": {
     "reachable": "Reachable",
     "unreachable": "Not reachable",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "slow": "Slow"
   },
   "executor": {
     "server": "{appName} server",
@@ -227,7 +228,7 @@
     "dropped": "Gone",
     "noBackups": {
       "title": "No backup yet",
-      "description": "Backups, check reports and the history of its size appear here once the database is backed up."
+      "description": "Backups and check reports appear here once the database is backed up."
     }
   },
   "codes": {
@@ -280,5 +281,85 @@
     "probe-limit": "Too many tests in a short time. Try again in a few minutes.",
     "probe-used": "This test was already fetched.",
     "confirm": "There is nothing to confirm. Test the connection again."
+  },
+  "health": {
+    "title": "Health checks",
+    "description": "{appName} checks the connection {count, plural, one {every minute} other {every # minutes}} with the backup user, read-only, as its executor sees it.",
+    "notMonitoring": "No replacement for monitoring: it measures only what the backup needs.",
+    "range": {
+      "label": "Period",
+      "day": "24 hours",
+      "week": "7 days",
+      "month": "30 days"
+    },
+    "availability": {
+      "day": "Availability 24 hours",
+      "week": "Availability 7 days",
+      "month": "Availability 30 days",
+      "none": "No check"
+    },
+    "now": {
+      "label": "Now",
+      "never": "No check yet. The first follows within the connection's interval, for an agent with its next heartbeat.",
+      "ok": "Last checked {at}, response time {latency}",
+      "failing": "{count, plural, one {One check} other {# checks in a row}} failed since {since}",
+      "alerted": "The alert \"Database not reachable\" was sent; \"reachable again\" follows with the first success.",
+      "paused": "The connection is switched off; no health checks run."
+    },
+    "latency": {
+      "title": "Response time",
+      "description": "Connection, TLS, sign-in and SELECT 1, mean and maximum per interval",
+      "mean": "Mean",
+      "max": "Maximum",
+      "summary": "Response time in the period: last {last}, at most {max}."
+    },
+    "connections": {
+      "title": "Connections in use",
+      "description": "Maximum per interval against the instance's max_connections",
+      "used": "In use",
+      "max": "Limit (max_connections)",
+      "summary": "Connections in the period: last {used} of {max}."
+    },
+    "empty": {
+      "title": "No checks in this period",
+      "description": "Once the executor checks the connection, response time and connections appear here."
+    },
+    "loadError": "The health check history could not be loaded",
+    "events": {
+      "title": "Events",
+      "none": "No events in this period.",
+      "unreachable": "Not reachable from {from} to {to}",
+      "unreachableOpen": "Not reachable since {from}",
+      "restart": "Instance restarted at {startedAt}",
+      "version": "Version {from} → {to}",
+      "tls": "Another TLS certificate seen"
+    },
+    "lastError": "Last failed check {at}",
+    "interval": "Health check",
+    "intervalChoice": "{count, plural, one {every minute} other {every # minutes}}",
+    "band": {
+      "label": "Reachability of the last 24 hours",
+      "summary": "Last 24 hours: {ok} hours reachable, {problem} with outages, {none} without a check.",
+      "hour": "{time}: {state}",
+      "state": {
+        "ok": "reachable",
+        "slow": "slow",
+        "down": "not reachable",
+        "mixed": "partly not reachable",
+        "none": "no check"
+      }
+    }
+  },
+  "size": {
+    "title": "Size per day",
+    "description": "Read at most once an hour; the last value of each day.",
+    "series": "Size",
+    "growth": "Growth since the day before",
+    "summary": "Size last {last}, {change} in the period.",
+    "empty": {
+      "title": "No size yet",
+      "description": "The health checks read the size at most once an hour."
+    },
+    "loadError": "The size history could not be loaded"
   }
 }

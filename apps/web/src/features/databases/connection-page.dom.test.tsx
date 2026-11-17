@@ -112,4 +112,83 @@ describe("a database connection", () => {
     expect(slot("connection-settings")).toBeNull();
     expect(buttonByText(document, "Delete connection")).toBeNull();
   });
+
+  it("shows the health checks: now, the last 24 hours, availability and events (8)", async () => {
+    const band = Array.from({ length: 24 }, (_, index) => ({
+      at: new Date(Date.UTC(2026, 10, 16, 12 + index)).toISOString(),
+      state: index === 20 ? "down" : index < 2 ? "none" : "ok",
+      checks: index < 2 ? 0 : 12,
+      okChecks: index === 20 ? 0 : index < 2 ? 0 : 12,
+    }));
+    rendered = await render(<ConnectionPage connectionId="conn-1" />, {
+      routes: {
+        "GET /databases/connections/conn-1": () =>
+          json({
+            ...detail({ state: "ok", notices: [], lastCheck: null }),
+            health: {
+              ...connectionFixture().health,
+              reachability: "unreachable",
+              consecutiveFailures: 3,
+              failingSince: "2026-11-17T10:50:00.000Z",
+              errorCode: "db_unreachable",
+              alerted: true,
+            },
+            band,
+          }),
+        "GET /databases/connections/conn-1/health": () =>
+          json({
+            from: "2026-11-16T11:00:00.000Z",
+            to: "2026-11-17T11:00:00.000Z",
+            bucketSeconds: 420,
+            availability: { day: 0.9583, week: 0.99, month: null },
+            points: [
+              {
+                at: "2026-11-17T10:00:00.000Z",
+                checks: 12,
+                okChecks: 12,
+                latencyMs: 24,
+                latencyMaxMs: 40,
+                connectionsUsed: 7,
+                connectionsMax: 100,
+              },
+            ],
+            events: [
+              {
+                kind: "unreachable",
+                from: "2026-11-17T10:50:00.000Z",
+                to: null,
+                errorCode: "db_unreachable",
+              },
+              { kind: "version", at: "2026-11-17T08:00:00.000Z", from: "16.3", to: "16.4" },
+            ],
+            lastError: {
+              at: "2026-11-17T11:00:00.000Z",
+              code: "db_unreachable",
+              message: "timeout",
+            },
+          }),
+      },
+    });
+    await flush(5);
+    const health = slot("connection-health");
+    expect(health?.textContent).toContain("No replacement for monitoring");
+    expect(slot("health-now")?.textContent).toContain("3 checks in a row failed since");
+    expect(health?.textContent).toContain("The alert");
+    const bandSvg = document.querySelector('[data-slot="health-band"]');
+    expect(bandSvg?.getAttribute("aria-label")).toBe(
+      "Last 24 hours: 21 hours reachable, 1 with outages, 2 without a check.",
+    );
+    expect(bandSvg?.querySelectorAll("rect")).toHaveLength(24);
+    const availability = [...document.querySelectorAll('[data-slot="availability"]')].map(
+      (tile) => tile.textContent,
+    );
+    expect(availability[0]).toContain("95.83");
+    expect(availability[2]).toContain("No check");
+    const events = slot("health-events")?.textContent ?? "";
+    expect(events).toContain("Not reachable since");
+    expect(events).toContain("Version 16.3 → 16.4");
+    expect(slot("health-last-error")?.textContent).toContain("timeout");
+    // Never green: a connection that answers proves nothing about its backups.
+    expect(document.querySelector('[data-slot="health-band"] [fill*="success"]')).toBeNull();
+  });
 });
