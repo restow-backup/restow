@@ -631,6 +631,27 @@ E10 (alle Editionen) entschieden.
   eine Prüfung des Agenten ist eine Zeile `database_probes` mit Aufgabe `db_probe`, die der
   Agent beim nächsten Heartbeat abholt (bis zu 5 Minuten, Ablauf nach 15 Minuten). Gespeichert
   wird nur aus einer abgeschlossenen Prüfung desselben Mandanten.
+- **Grenzen einer Prüfung:** eine Frist für die ganze Prüfung (jeder Schritt, jedes Lesen; am
+  Ende werden alle ihre Sockets geschlossen), höchstens 1 MiB je Nachricht und 2 MiB
+  ungelesene Daten je Verbindung, eine feste Zahl von Nachrichten, Zeilen und Spalten. SCRAM
+  rechnet höchstens 100000 Runden (im Server auf dem Threadpool), in der Reihenfolge des
+  Austauschs; die Anmeldung zählt erst nach dem Nachweis des Servers. Der bestätigte
+  Fingerabdruck einer gespeicherten Verbindung reist mit der Prüfung
+  (`pinnedFingerprintSha256`): Zeigt der Server ein anderes Zertifikat oder kein TLS, endet sie
+  direkt nach dem Handshake, bevor etwas von der Anmeldung gesendet ist.
+- **Zugangsdaten und Ausführer:** Eine Prüfung ungespeicherter Angaben versiegelt ihre
+  Zugangsdaten (30 Minuten); gespeichert werden genau diese. Wechselt eine Verbindung den
+  Ausführer, verlangt die Änderung das Kennwort erneut. Wird eine Prüfung gelöscht oder ihre
+  Maschine gesperrt oder entfernt, löscht die Datenbank ihre Zugangsdaten selbst (Trigger).
+- **Netzschutz des Servers:** Die Freigabe eines Provider-Admins hält die Adressen, für die sie
+  erteilt wurde; eine andere private Adresse unter dem Namen erreicht der Server nicht. Die
+  eigene Datenbank wird an Adresse und Port vor der Anmeldung erkannt. Die Grenze von 30
+  Prüfungen je Mandant in zehn Minuten zählt die gespeicherten Prüfungen (auch abgelehnte
+  Adressen); der Server führt je Mandant zwei, insgesamt 16 gleichzeitig aus.
+- **Socket des Agenten:** gesucht wird nur in den Verzeichnissen der Pakete
+  (`/run/postgresql`, `/var/run/postgresql`, `/run/mysqld`, `/var/run/mysqld`,
+  `/var/lib/mysql`), nie in einem Verzeichnis, in das jeder schreiben darf. Eine SQLite-Datei
+  muss eine reguläre Datei sein (keine Verknüpfung, kein Gerät, keine Pipe).
 - **API:** wie Abschnitt 9, dazu `GET …/connections/test/:probeId` (Stand einer Prüfung),
   `POST …/connections/:id/test` (gespeicherte Verbindung prüfen), `GET /api/v1/databases/suggestions`
   und `GET /api/v1/databases/runners`. `PATCH …/connections/:id` mit `confirm` bestätigt ein neues

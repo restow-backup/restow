@@ -42,7 +42,17 @@ private repository.
     address or a container name needs a provider admin's approval per connection (audited) or
     `RESTOW_DB_ALLOW_PRIVATE_NETWORKS=true`; link-local and reserved addresses are always refused,
     a public address is never used without TLS, and Restow's own database is refused
-    (`db_target_is_restow`). Tests are limited to 30 per tenant in ten minutes.
+    (`db_target_is_restow`, by its address before the sign-in and by its system identifier
+    after it). An approval holds the addresses it was given for; the server's connections reach
+    no other private address under the name. Tests are limited to 30 per tenant in ten minutes,
+    counted from the stored tests, and to two at a time per tenant on the server.
+  - A test is bounded as a whole: one deadline for every step, at most 1 MiB per message, a
+    fixed number of messages and rows, SCRAM with at most 100000 rounds (off the event loop on
+    the server), and every socket closed when the test ends. A stored connection's confirmed
+    certificate travels with the test: the executor stops right after the TLS handshake, before
+    anything of the sign-in is sent, when the server shows another one or no TLS.
+  - Saving a connection keeps exactly the credentials its test used; moving a connection to
+    another executor needs the password again (audited).
   - Identity: the cluster's `system_identifier` (PostgreSQL), `@@server_uuid` (MySQL), server id
     and data directory (MariaDB), path, device and inode (SQLite). A database dropped and created
     again under its name is another database; another instance or another certificate under the
