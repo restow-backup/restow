@@ -37,7 +37,7 @@ describe("where Restow's own database listens (docs/DATABASES.md 4.2) [DB-003]",
       "postgres:///restow",
       "postgres://u@%2Fvar%2Frun%2Fpostgresql/restow",
     ]) {
-      expect(await databaseUrlTargets(url, resolve), url).toEqual([
+      expect(await databaseUrlTargets(url, resolve, {}), url).toEqual([
         { address: "127.0.0.1", port: 5432 },
         { address: "::1", port: 5432 },
       ]);
@@ -46,7 +46,7 @@ describe("where Restow's own database listens (docs/DATABASES.md 4.2) [DB-003]",
 
   it("fails instead of returning nothing when it cannot tell", async () => {
     for (const url of ["", "not a url", "mysql://db/x", "postgres://u@nowhere.test/restow"]) {
-      await expect(databaseUrlTargets(url, resolve), url).rejects.toBeInstanceOf(
+      await expect(databaseUrlTargets(url, resolve, {}), url).rejects.toBeInstanceOf(
         OwnDatabaseUnknownError,
       );
     }
