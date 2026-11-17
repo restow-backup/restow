@@ -141,7 +141,8 @@ export interface AgentTask {
     | "uninstall"
     | "sql_restore"
     | "sql_verify"
-    | "sql_inventory";
+    | "sql_inventory"
+    | "db_probe";
   params: Record<string, unknown>;
 }
 
@@ -708,12 +709,14 @@ export async function heartbeat(
 
     const tasks: AgentTask[] = [];
     const finishedOnDelivery = waiting
-      // `sql_inventory` (W2a) has no run: the agent answers with its next heartbeat.
+      // `sql_inventory` (W2a) has no run: the agent answers with its next heartbeat. `db_probe`
+      // (databases D1) neither: the agent posts its result to the probe.
       .filter(
         (task) =>
           task.kind === "update_config" ||
           task.kind === "uninstall" ||
-          task.kind === "sql_inventory",
+          task.kind === "sql_inventory" ||
+          task.kind === "db_probe",
       )
       .map((task) => task.id);
     for (const task of waiting) {

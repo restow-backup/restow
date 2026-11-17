@@ -33,6 +33,7 @@ export * from "./backup.js";
 export * from "./backup-jobs.js";
 export * from "./branding.js";
 export * from "./cluster.js";
+export * from "./databases.js";
 export * from "./empty-confirmations.js";
 export * from "./endpoint-sql.js";
 export * from "./endpoints.js";

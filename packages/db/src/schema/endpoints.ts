@@ -78,6 +78,9 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   "sql_restore",
   "sql_verify",
   "sql_inventory",
+  // Databases D1 (docs/DATABASES.md 9): "Test connection" through an agent; finishes on delivery,
+  // the agent posts the result to the probe.
+  "db_probe",
 ]);
 
 /**
