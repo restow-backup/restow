@@ -10,9 +10,6 @@ import (
 	"unsafe"
 )
 
-// openat2 (Linux 5.6) is the same system call number on every architecture.
-const sysOpenat2 = 437
-
 // resolveNoSymlinks makes openat2 refuse a symbolic link in any part of the path.
 const resolveNoSymlinks = 0x04
 
