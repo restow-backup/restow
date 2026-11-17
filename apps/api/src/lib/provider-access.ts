@@ -147,6 +147,9 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // A connection test of the module "Databases" (docs/DATABASES.md 4.3): the agent's own secret.
   "GET /agent/v1/databases/probes/:probeId",
   "POST /agent/v1/databases/probes/:probeId/result",
+  // The health checks of the module "Databases" (D2, docs/DATABASES.md 8): the agent's own secret.
+  "GET /agent/v1/databases/health/:taskId",
+  "POST /agent/v1/databases/health/:taskId/samples",
   // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
   // per address), the session routes authenticate with the session's own secret (HTTP Basic).
   "POST /agent/v1/recovery/sessions",
@@ -714,7 +717,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/databases/connections/:id": configure(),
   "DELETE /api/v1/databases/connections/:id": configure(),
   "POST /api/v1/databases/connections/:id/test": configure(),
+  "GET /api/v1/databases/connections/:id/health": view(),
   "GET /api/v1/databases/:id": view(),
+  "GET /api/v1/databases/:id/health": view(),
   "GET /api/v1/file-shares": view(),
   "POST /api/v1/file-shares": configure(),
   "GET /api/v1/file-shares/settings": view(),
