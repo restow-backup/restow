@@ -93,6 +93,12 @@ func (v StandardVerifier) storageStack(ctx context.Context, x *Executor) *Check 
 			case "luks_open":
 				dev = "/dev/mapper/" + s.Args[len(s.Args)-1]
 			case "lv_create":
+				// A thin pool has no node of its own under /dev/<vg>
+				// (LVM activates it as <vg>-<pool>-tpool for its thin
+				// volumes); the thin volumes on it are checked and prove it.
+				if isThinPoolCreate(s.Args) {
+					continue
+				}
 				dev = "/dev/" + deref(s.Target)
 			default:
 				dev = deref(s.Target)
@@ -851,4 +857,15 @@ func (v StandardVerifier) secureBoot(x *Executor, r Rootfs) *Check {
 		c.WarnT(WarnMokEnrollPending, "", nil, "mok_pending")
 	}
 	return c
+}
+
+// isThinPoolCreate: the lvcreate of the plan creates a thin pool
+// (--type thin-pool).
+func isThinPoolCreate(args []string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--type" && args[i+1] == "thin-pool" {
+			return true
+		}
+	}
+	return false
 }
