@@ -527,3 +527,58 @@ func TestResumedPlanKeepsTheAdoption(t *testing.T) {
 		t.Error("a disk that was missing in the first run and is there now was accepted")
 	}
 }
+
+// TestRecoverWipesTheOldDiskNamedInConfirmErase (E9 of 21.2): the old
+// system disk stays connected next to the new one and carries the
+// identities of the backup. Named in confirmErase it is emptied with
+// wipefs before anything else is written, the plan runs on the new disk,
+// and the old disk is never a target; not named, nothing at all is written
+// and the run fails with the identity conflict.
+func TestRecoverWipesTheOldDiskNamedInConfirmErase(t *testing.T) {
+	oldDisk := func(u *unattendedRun) {
+		old := u.env.hw.Blocks[0]
+		old.KName, old.Serial = "sdb", "OLDSYS"
+		old.Signatures = []baremetal.TargetSignature{{Kind: "disk_guid", UUID: u.m.Linux.Disks[0].Table.ID},
+			{Kind: "fs", UUID: deref(u.m.Linux.Filesystems[0].UUID)}}
+		u.env.hw.Blocks = append(u.env.hw.Blocks, old)
+	}
+	u := newUnattended(t)
+	oldDisk(u)
+	res, err := u.run(`"diskMapping":{"d0":"serial.restow-e2e-target0"},"confirmErase":["serial.OLDSYS","serial.restow-e2e-target0"]`)
+	if err != nil || res == nil || res.Status != api.RecoverySucceeded {
+		t.Fatalf("run: %v %+v\n%s\n%s", err, res, u.out.String(), u.exe.lines())
+	}
+	lines := u.exe.lines()
+	if !strings.HasPrefix(lines, "wipe-other /dev/sdb\nprobe-write /dev/nvme0n1\n") || strings.Count(lines, "/dev/sdb") != 1 {
+		t.Errorf("the old disk is not wiped first, or it is used:\n%s", lines[:min(len(lines), 400)])
+	}
+	u.f.mu.Lock()
+	logged := strings.Join(u.f.logLines, "\n")
+	u.f.mu.Unlock()
+	if !strings.Contains(logged, "identity conflict: wiping /dev/sdb") || !strings.Contains(logged, "named in confirmErase") {
+		t.Errorf("the wipe is not in the session's log:\n%s", logged)
+	}
+	if !strings.Contains(u.out.String(), "emptied with wipefs -a (identity conflict)") {
+		t.Errorf("the plan does not show the wipe:\n%s", u.out.String())
+	}
+	// Not named: the plan fails with the conflict, nothing is written.
+	u = newUnattended(t)
+	oldDisk(u)
+	res, _ = u.run(okMapping)
+	fin := u.finish()
+	if res == nil || res.Status != api.RecoveryFailed || fin == nil || !strings.Contains(fmt.Sprint(fin.Warnings), baremetal.ProblemIdentityConflict) {
+		t.Fatalf("not named: %+v, finish %+v\n%s", res, fin, u.out.String())
+	}
+	u.nothingWritten("an old disk not named in confirmErase")
+	if strings.Contains(u.exe.lines(), "wipe-other") {
+		t.Errorf("wiped without confirmErase:\n%s", u.exe.lines())
+	}
+	// Named, but confirmErase lacks the target: nothing is wiped either.
+	u = newUnattended(t)
+	oldDisk(u)
+	res, _ = u.run(`"diskMapping":{"d0":"serial.restow-e2e-target0"},"confirmErase":["serial.OLDSYS"]`)
+	if res == nil || res.Status != api.RecoveryFailed || strings.Contains(u.exe.lines(), "wipe-other") {
+		t.Errorf("without the target: %+v\n%s", res, u.exe.lines())
+	}
+	u.nothingWritten("confirmErase without the target")
+}

@@ -2011,7 +2011,9 @@ PARTUUID im NVRAM-Eintrag), initramfs und udev zufällig zwischen alt und neu.
   die weder Ziel noch übernommen sind. Trägt eines dieselbe FS-, PART-, md-, PV- oder
   LUKS-UUID oder Disk-GUID wie das Manifest, zeigt der Plan eine deutliche Warnung mit Gerät,
   Modell und Kennung und den Wegen "Platte abziehen" oder "mit `wipefs -a` leeren" (auf
-  ausdrückliche Wahl führt `recover` das selbst aus, nach Eingabe der Kennung).
+  ausdrückliche Wahl führt `recover` das selbst aus, nach Eingabe der Kennung; unbeaufsichtigt,
+  wenn `answers.confirmErase` die Platte nennt, 10.20). Geleert wird vor der Bestätigung des
+  Plans, dann liest `recover` die Platten neu und plant noch einmal (`wipe.go`, 26.11).
 - Prüfung 10.17 Punkt 8: Bleibt ein Konflikt bis zum Ende bestehen, bietet `recover` keinen
   Neustart an, sondern sagt: "Platte X (Modell, Kennung) abziehen oder mit wipefs leeren;
   sonst startet das System womöglich von der alten Platte."
@@ -2814,6 +2816,9 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
   gelöscht ist; `recover` nimmt nie stattdessen den Snapshot des Codes (wer einen älteren
   nennt, will genau den, etwa den letzten vor einem Einbruch).
 - Ohne `confirmErase` mit genau den Kennungen löscht auch der unbeaufsichtigte Modus nichts.
+  Eine Platte mit einem Identitätskonflikt (10.7), die `confirmErase` nennt, leert `recover`
+  mit `wipefs -a`; `confirmErase` nennt dann genau die Platten, die gelöscht werden, und die,
+  die geleert werden.
   Kennungen in `diskMapping` und `confirmErase` müssen je genau eine Platte bezeichnen
   (10.6); doppelte Einträge in `confirmErase` zählen nicht als Bestätigung.
   Ein Code mit `requireApproval: true` braucht auch unbeaufsichtigt die Freigabe (der
@@ -5706,6 +5711,42 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `TestSnapshotIsShownWithTimeAndCheck`, `TestConfirmListsAndAsksEveryDisk`,
   `TestRecoverAttendedEraseNeedsEveryDisk`, `TestVerificationIsShownInTheOperatorsLanguage`,
   `TestExecuteShowsStepsInTheOperatorsLanguage`, `TestTextRules`.
+- **Identitätskonflikt leeren (für E9 ergänzt):** `WipeOther` gab es, aufgerufen wurde es nie;
+  eine alte Systemplatte neben der neuen hielt den Plan immer an (`identity_conflict`), auch
+  wenn `confirmErase` sie nannte (dann lehnte zudem die Bestätigung ab, weil die Kennung keine
+  zu löschende Platte war). Jetzt (`wipe.go`, `wipeConflicts` nach `refinePlan`):
+  - Angeboten bzw. ausgeführt wird das Leeren nur, wenn **jedes** Problem des Plans ein
+    Identitätskonflikt ist (sonst liefe der Plan auch danach nicht), nie mit `--plan-only` und
+    nie in einem fortgesetzten Lauf (der löscht nichts, 10.6). Alles oder nichts: Lässt der
+    Bediener eine Platte stecken oder darf eine nicht geleert werden, wird keine geleert.
+  - Nie geleert werden: Platten, die der Plan löscht oder übernimmt, Platten mit einem
+    übernommenen Teil (`adopted[].targets`), Geräte, die kein mögliches Ziel sind
+    (schreibgeschützt, zoniert, leer; Startmedium und Antwortmedium sind ohnehin keine),
+    Geräte ohne eigene Kennung oder mit einer Kennung, die mehrere Geräte melden, und SAN-LUNs
+    (womöglich die Platte eines anderen Servers, 10.6). Die Konsole nennt den Grund.
+  - An der Konsole: Ja/Nein (Vorgabe Nein), dann die letzten vier Zeichen der Kennung wie bei
+    der Bestätigung (10.4 Punkt 8). Unbeaufsichtigt: `confirmErase` muss jede Platte der
+    Konflikte nennen und genau die Platten des Plans plus diese; sonst wird nichts geleert und
+    der Lauf endet wie bisher. Vom Medium gelesen läuft vor dem Leeren ein eigener Countdown
+    von 30 Sekunden mit den Platten (jede Taste bricht ab, nichts ist geleert); der Countdown
+    vor dem Löschen folgt wie bisher.
+  - `wipefs -a` auf jeder Partition, die sysfs zeigt, dann auf der Platte (wie 10.10 Punkt 2,
+    ohne das Nullen der Enden), danach `udevadm settle`. `wipefs` öffnet exklusiv: eine
+    eingehängte oder gehaltene Platte scheitert, der Lauf endet (`step_failed`), sonst ist
+    nichts verändert.
+  - Das Sitzungsprotokoll hält vor und nach dem Leeren fest, welche Platte (Pfad, Modell,
+    Größe, Kennung) und auf wessen Wort (Eingabe oder `confirmErase`); der Plan an der Konsole
+    nennt sie ("mit wipefs -a geleert (Identitätskonflikt)"). Ein eigener Audit-Code entstand
+    nicht (die Codes sind Vertrag mit dem Server, C-M4-6).
+  - Danach liest `recover` die Hardware neu; außer dem Inhalt der geleerten Platten darf sich
+    nichts geändert haben (sonst `disks_changed`). Der Wächter (10.6) vergleicht vor dem ersten
+    Schritt mit diesem neuen Stand, der neue Plan wird gezeigt und wie gewohnt bestätigt; die
+    Bestätigung zählt die geleerten Kennungen in `confirmErase` mit.
+  Tests: `TestConflictDisksE9`, `TestAnswersWipeRefusals`, `TestConflictDiskRefusals`,
+  `TestConfirmCountsTheWipedDisks`, `TestAskWipe`, `TestWipeConflictsUnattended`,
+  `TestWipeConflictsAttended`, `TestWipeConflictsFailures`,
+  `TestRecoverWipesTheOldDiskNamedInConfirmErase` (mit restic). E9 nennt die alte Platte in
+  `confirmErase` (`eraseAlso` in `cases.mjs`); bewiesen ist der Fall erst im nächtlichen Lauf.
 
 ### 26.12 Zurückgestellt (M4)
 

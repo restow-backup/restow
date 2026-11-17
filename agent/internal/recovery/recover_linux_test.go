@@ -51,6 +51,8 @@ type testEnv struct {
 	// onExecutor runs when the flow hands over the executor: after the
 	// confirmation, before the first step.
 	onExecutor func()
+	// wipeErr fails the wipe of a device of an identity conflict.
+	wipeErr error
 }
 
 func (e *testEnv) note(s string) { e.mu.Lock(); e.actions = append(e.actions, s); e.mu.Unlock() }
@@ -81,6 +83,26 @@ func (e *testEnv) Guard(g *DiskGuard) {
 		return e.probeErr
 	}
 }
+
+// WipeDisk implements FlowEnv: noted among the commands; the device has
+// no signatures any more in the next scan.
+func (e *testEnv) WipeDisk(ctx context.Context, d baremetal.TargetDisk) error {
+	if e.exec != nil {
+		e.exec.note("wipe-other " + d.Path)
+	}
+	if e.wipeErr != nil {
+		return e.wipeErr
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for i, b := range e.hw.Blocks {
+		if "/dev/"+b.KName == d.Path {
+			e.hw.Blocks[i].Signatures = nil
+		}
+	}
+	return nil
+}
+
 func (e *testEnv) Interfaces() []NetIface {
 	return []NetIface{{Name: "enp1s0", MAC: "52:54:00:12:34:56", Link: true, Physical: true, Addresses: []string{"192.0.2.10/24"}}}
 }

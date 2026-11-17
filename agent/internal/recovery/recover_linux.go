@@ -53,6 +53,11 @@ func (e *LinuxEnv) Hardware(ctx context.Context) (HardwareInput, error) {
 	return h.Collect(ctx)
 }
 
+// WipeDisk implements FlowEnv.
+func (e *LinuxEnv) WipeDisk(ctx context.Context, d baremetal.TargetDisk) error {
+	return WipeOther(ctx, e.Exec, (&LinuxOps{}).Partitions, d)
+}
+
 // Interfaces implements FlowEnv.
 func (e *LinuxEnv) Interfaces() []NetIface { return Interfaces("") }
 
