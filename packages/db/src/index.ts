@@ -34,12 +34,13 @@ export * from "./archive-capture.js";
 export * from "./archive-mailboxes.js";
 // The boot probes of whole machine backups (docs/BAREMETAL.md 12.3).
 export * from "./boot-probe.js";
-export * from "./database-health.js";
 export {
   type ConcurrentSetupOptions,
   isConcurrentSetupConflict,
   retryConcurrentSetup,
 } from "./concurrent-setup.js";
+// The health checks of database connections (docs/DATABASES.md 8): one judged check, the hours.
+export * from "./database-health.js";
 // Reporting a failed query without its SQL text and bound parameters.
 export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
 // Process liveness: heartbeat writer and the status /readyz reports.
