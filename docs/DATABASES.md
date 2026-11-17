@@ -632,26 +632,46 @@ E10 (alle Editionen) entschieden.
   Agent beim nächsten Heartbeat abholt (bis zu 5 Minuten, Ablauf nach 15 Minuten). Gespeichert
   wird nur aus einer abgeschlossenen Prüfung desselben Mandanten.
 - **Grenzen einer Prüfung:** eine Frist für die ganze Prüfung (jeder Schritt, jedes Lesen; am
-  Ende werden alle ihre Sockets geschlossen), höchstens 1 MiB je Nachricht und 2 MiB
-  ungelesene Daten je Verbindung, eine feste Zahl von Nachrichten, Zeilen und Spalten. SCRAM
+  Ende werden alle ihre Sockets geschlossen), höchstens 1 MiB je Nachricht, 2 MiB
+  ungelesene Daten je Verbindung und 8 MiB gelesene Daten über alle Verbindungen der Prüfung,
+  eine feste Zahl von Nachrichten, Zeilen und Spalten; lange Werte werden beim Lesen auf
+  4096 Bytes gekürzt. Daten vor dem TLS-Handshake werden abgelehnt, und eine zweite
+  PostgreSQL-Verbindung muss dasselbe Zertifikat zeigen wie die erste. SCRAM
   rechnet höchstens 100000 Runden (im Server auf dem Threadpool), in der Reihenfolge des
   Austauschs; die Anmeldung zählt erst nach dem Nachweis des Servers. Der bestätigte
   Fingerabdruck einer gespeicherten Verbindung reist mit der Prüfung
   (`pinnedFingerprintSha256`): Zeigt der Server ein anderes Zertifikat oder kein TLS, endet sie
   direkt nach dem Handshake, bevor etwas von der Anmeldung gesendet ist.
 - **Zugangsdaten und Ausführer:** Eine Prüfung ungespeicherter Angaben versiegelt ihre
-  Zugangsdaten (30 Minuten); gespeichert werden genau diese. Wechselt eine Verbindung den
-  Ausführer, verlangt die Änderung das Kennwort erneut. Wird eine Prüfung gelöscht oder ihre
-  Maschine gesperrt oder entfernt, löscht die Datenbank ihre Zugangsdaten selbst (Trigger).
-- **Netzschutz des Servers:** Die Freigabe eines Provider-Admins hält die Adressen, für die sie
-  erteilt wurde; eine andere private Adresse unter dem Namen erreicht der Server nicht. Die
-  eigene Datenbank wird an Adresse und Port vor der Anmeldung erkannt. Die Grenze von 30
+  Zugangsdaten; gespeichert werden genau diese, und nur innerhalb von 30 Minuten nach der
+  Prüfung. Wechselt eine Verbindung den Ausführer, verlangt die Änderung das Kennwort erneut.
+  Wird eine Prüfung gelöscht oder ihre Maschine gesperrt oder entfernt, löscht die Datenbank
+  ihre Zugangsdaten selbst (Trigger); abgelaufene und nicht mehr verwendbare Zugangsdaten
+  löscht der Scheduler einmal je Minute für alle Mandanten (apps/scheduler
+  `database-probes.ts`).
+- **Netzschutz des Servers:** Die Freigabe eines Provider-Admins hält die Adresse, an der die
+  geprüfte Anmeldung gelang (`connectedAddress` der Prüfung, keine eigene Namensauflösung);
+  eine andere private Adresse unter dem Namen erreicht der Server nicht. Die gute Prüfung eines
+  Provider-Admins erneuert sie für die dann erreichte Adresse (auditiert); wechselt eine
+  Verbindung mit privatem Namen auf den Server, bindet erst diese Prüfung die Freigabe an eine
+  Adresse.
+- **Eigene Datenbank:** Vor der Anmeldung vergleicht die Prüfung Adresse und Port der
+  Verbindung mit `DATABASE_URL` und `DATABASE_PROVIDER_URL` (gelesen wie von libpq: mehrere
+  Hosts, Parameter `host` und `port`, ein Unix-Socket gilt als Loopback, jede Loopback-Adresse
+  als dieselbe). Das ist die erste Linie: Dieselbe Datenbank unter einer anderen Adresse des
+  Rechners (etwa seiner privaten statt Loopback) erkennt sie nicht. Die Rückfallebene ist der
+  Vergleich des `system_identifier` nach der Anmeldung. Kann Restow den Ort seiner Datenbank
+  nicht bestimmen, prüft der Server keine Verbindung (503), statt den Vergleich auszulassen.
+- **Grenze der Prüfungen:** Die Grenze von 30
   Prüfungen je Mandant in zehn Minuten zählt die gespeicherten Prüfungen (auch abgelehnte
   Adressen); der Server führt je Mandant zwei, insgesamt 16 gleichzeitig aus.
 - **Socket des Agenten:** gesucht wird nur in den Verzeichnissen der Pakete
   (`/run/postgresql`, `/var/run/postgresql`, `/run/mysqld`, `/var/run/mysqld`,
   `/var/lib/mysql`), nie in einem Verzeichnis, in das jeder schreiben darf. Eine SQLite-Datei
-  muss eine reguläre Datei sein (keine Verknüpfung, kein Gerät, keine Pipe).
+  muss eine reguläre Datei sein (keine Verknüpfung, kein Gerät, keine Pipe); unter Linux wird
+  sie mit `openat2` und `RESOLVE_NO_SYMLINKS` geöffnet, so dass auch eine Verknüpfung in einem
+  übergeordneten Verzeichnis abgelehnt wird (ohne `openat2`: der aufgelöste Pfad muss dem
+  angegebenen entsprechen). macOS und Windows prüfen nur das letzte Element.
 - **API:** wie Abschnitt 9, dazu `GET …/connections/test/:probeId` (Stand einer Prüfung),
   `POST …/connections/:id/test` (gespeicherte Verbindung prüfen), `GET /api/v1/databases/suggestions`
   und `GET /api/v1/databases/runners`. `PATCH …/connections/:id` mit `confirm` bestätigt ein neues
