@@ -291,12 +291,21 @@ describe("the answers file", () => {
 
   it("keeps the data RAID of E9, wipes its old system disk and leaves the optional keys out", () => {
     const answers = buildAnswers(byId("E9"), context);
-    assert.deepEqual(answers.adopt, ["md0"]);
+    assert.deepEqual(answers.adopt, ["md:md0"]);
     assert.ok(answers.confirmErase.includes("serial.e2e-src0"));
     assert.equal("passphrase" in answers, false);
     assert.equal("rebindToken" in answers, false);
     assert.equal(answers.spkiCheck, "ABCD-EFGH-JKMN-PQRS");
     assert.equal(buildAnswers(byId("E3"), context).keymap, "de");
+  });
+
+  it("names every adopted unit with its kind, as the planner reads it", () => {
+    // mapping.go, unitDisks: anything else is mapping_invalid with reason unknown_adopt.
+    for (const testCase of CASES) {
+      for (const unit of testCase.answers.adopt ?? []) {
+        assert.match(unit, /^(md|vg|luks|fs):[A-Za-z0-9_./:-]+$/, `${testCase.id}: adopt ${unit}`);
+      }
+    }
   });
 
   it("derives the disk identities the way the agent does (shared fixture qemu-e2e.json)", () => {

@@ -242,7 +242,9 @@ export const CASES = Object.freeze([
     // The old system disk carries the identities of the backup: it is wiped (typed in the
     // dialog, here named in confirmErase) after the conflict is found.
     eraseAlso: ["serial.e2e-src0"],
-    answers: { diskMapping: { d0: "serial.restow-e2e-target0" }, adopt: ["md0"] },
+    // An adopted unit is named with its kind, as the planner reads it (mapping.go, unitDisks:
+    // "md:<id|kname|name>", "vg:<name>", "luks:<id>", "fs:<id>"); a bare "md0" is unknown_adopt.
+    answers: { diskMapping: { d0: "serial.restow-e2e-target0" }, adopt: ["md:md0"] },
   },
   {
     id: "E10",
