@@ -1210,8 +1210,8 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Zugangsdaten einer Datenbank liegen nur verschlüsselt auf dem Server und erscheinen in keiner API-Antwort und keinem Fehlertext; Fehlertexte der Clients werden vor dem Speichern um URL, Benutzer und Kennwort bereinigt.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.2 "Zugangsdaten", Abschnitt 10, Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, agent/internal/dbprobe/probe_test.go
-- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log und gespeicherte Prüfungen; MySQL als Simulator)
+- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go
+- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log, gespeicherte Prüfungen und Healthchecks; MySQL als Simulator)
 - Stand: belegt
 - Hinweis: "keine Kommandozeile" gilt mit den Dump-Programmen ab Stufe D3 und wird dort belegt.
 
@@ -1227,7 +1227,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Der Healthcheck einer gespeicherten Verbindung sendet die Zugangsdaten nur an das bestätigte TLS-Zertifikat: Zeigt der Server ein anderes, endet die Prüfung nach dem TLS-Handshake und vor der Anmeldung (`db_tls_changed`). Jede Prüfung des Restow-Servers läuft unter dem Netzschutz (Adresse vor dem Verbinden, Namensauflösung über die geprüfte Suche) und endet nach spätestens 10 Sekunden mit allen Sockets.
 - Fundstelle: docs/DATABASES.md (Abschnitt 8 "Healthchecks und Verlauf", Abschnitt 3.2 "TLS", Abschnitt 4.2, Abschnitt 16 "D2")
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, packages/core/src/databases/probe/health-check.test.ts, apps/worker/src/databases/health.pg.test.ts
+- Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, packages/core/src/databases/probe/health-check.test.ts, apps/worker/src/databases/health.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts
 - Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml; MariaDB als Simulator, der festhält, ob eine Anmeldung ankam; der Worker gegen echtes PostgreSQL mit einer nachgestellten Prüfung: Zertifikat und Netzfreigabe gehen an jede Prüfung)
 - Stand: belegt
 

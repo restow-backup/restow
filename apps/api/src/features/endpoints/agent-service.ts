@@ -70,6 +70,7 @@ import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { planAgentHealthTask } from "../databases/health.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { jobQueue } from "../jobs/queue.js";
 import { RESTORE_MODE_TASK_HOLD_MESSAGE, restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
@@ -145,7 +146,8 @@ export interface AgentTask {
     | "sql_restore"
     | "sql_verify"
     | "sql_inventory"
-    | "db_probe";
+    | "db_probe"
+    | "db_health";
   params: Record<string, unknown>;
 }
 
@@ -798,6 +800,21 @@ export async function heartbeat(
         .returning();
       if (created) {
         tasks.push(toAgentTask({ id: created.id, kind: "update_config", params: created.params }));
+      }
+    }
+
+    // The health checks of the database connections this agent runs (databases D2,
+    // docs/DATABASES.md 8): one bundled `db_health` task at most every 4 minutes, never in restore
+    // mode (no checks with credentials) and never beside an uninstall.
+    if (!holdBefore && !waiting.some((task) => task.kind === "uninstall")) {
+      const health = await planAgentHealthTask(
+        tx,
+        agent,
+        input.capabilities ?? endpoint.settings.agent?.capabilities,
+        now,
+      );
+      if (health) {
+        tasks.push(toAgentTask(health));
       }
     }
 

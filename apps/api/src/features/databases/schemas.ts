@@ -1,6 +1,8 @@
 import {
   DB_AUTH_METHODS,
   DB_EXECUTOR_KINDS,
+  DB_HEALTH_MAX_INTERVAL_MINUTES,
+  DB_HEALTH_MIN_INTERVAL_MINUTES,
   DB_MAX_INTERVAL_MINUTES,
   DB_MIN_INTERVAL_MINUTES,
   DB_MODES,
@@ -82,6 +84,13 @@ export const updateConnectionSchema = z
     mode: z.enum(DB_MODES).optional(),
     schedule: scheduleSchema.optional(),
     selection: selectionSchema.optional(),
+    /** How often the executor checks the connection's health (8): 1 to 60 minutes. */
+    healthIntervalMinutes: z
+      .number()
+      .int()
+      .min(DB_HEALTH_MIN_INTERVAL_MINUTES)
+      .max(DB_HEALTH_MAX_INTERVAL_MINUTES)
+      .optional(),
     enabled: z.boolean().optional(),
     /**
      * Accept what a test of this connection found: its new TLS certificate or its new instance
@@ -101,3 +110,4 @@ export type UpdateConnectionInput = z.infer<typeof updateConnectionSchema>;
 
 export const idParamSchema = z.object({ id: uuid });
 export const probeParamSchema = z.object({ probeId: uuid });
+export const healthTaskParamSchema = z.object({ taskId: uuid });

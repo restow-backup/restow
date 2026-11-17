@@ -4,7 +4,12 @@ import { clientIp } from "../../lib/request.js";
 import { guardBrowserRequest } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
-import { probeParamSchema } from "../databases/schemas.js";
+import {
+  agentFetchHealth,
+  agentHealthSamplesSchema,
+  agentReportHealth,
+} from "../databases/health.js";
+import { healthTaskParamSchema, probeParamSchema } from "../databases/schemas.js";
 import { agentFetchProbe, agentFinishProbe } from "../databases/service.js";
 import { type AgentEnv, authFailures, requireAgent } from "./agent-auth.js";
 import {
@@ -47,6 +52,9 @@ import {
  *   GET  /databases/probes/:probeId          a connection test of task `db_probe`, with its
  *                                            credentials, once (docs/DATABASES.md 4.3)
  *   POST /databases/probes/:probeId/result   the facts it found (the server judges them)
+ *   GET  /databases/health/:taskId           the health checks of task `db_health`, with the
+ *                                            credentials, once (docs/DATABASES.md 8)
+ *   POST /databases/health/:taskId/samples   what they found (the server judges them)
  */
 export const agentRoutes = new Hono<AgentEnv>();
 
@@ -145,4 +153,16 @@ agentRoutes.post("/databases/probes/:probeId/result", async (c) => {
   const raw: unknown = await c.req.json().catch(() => null);
   await agentFinishProbe(db, c.get("agent"), probeId, raw);
   return c.body(null, 204);
+});
+
+agentRoutes.get("/databases/health/:taskId", async (c) => {
+  const { taskId } = parseOrProblem(healthTaskParamSchema, c.req.param());
+  c.header("cache-control", "no-store");
+  return c.json(await agentFetchHealth(db, c.get("agent"), taskId));
+});
+
+agentRoutes.post("/databases/health/:taskId/samples", async (c) => {
+  const { taskId } = parseOrProblem(healthTaskParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, agentHealthSamplesSchema);
+  return c.json(await agentReportHealth(db, c.get("agent"), taskId, input));
 });

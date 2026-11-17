@@ -56,6 +56,12 @@ import {
   PROBE_WINDOW_MS,
   SERVER_PROBE_TIMEOUT_SECONDS,
 } from "./constants.js";
+import {
+  type DatabaseHealthDto,
+  type HealthBandHour,
+  healthBands,
+  healthDto,
+} from "./health-dto.js";
 import type {
   CreateConnectionInput,
   TestConnectionInput,
@@ -66,7 +72,8 @@ import type {
  * The module "Databases", stage D1 (docs/DATABASES.md 2, 3, 4, 9, 10): connections and the
  * databases they found, "Test connection" through an agent or the Restow server, credentials in
  * the secret store, the TLS fingerprint, the network protection of the server executor and the
- * suggestions from the agents' inventories. Backups, health checks and checks come with D2 to D6.
+ * suggestions from the agents' inventories; the health of each connection as the worker keeps it
+ * (D2, ./health.ts for the history and the agents' checks). Backups and checks come with D3 to D6.
  *
  * The server judges, the executor reports facts: a test result (@restow/core `DbProbeResult`) is
  * checked, its messages are cleaned of the credentials once more, and saving a connection takes
@@ -157,6 +164,14 @@ export function resetDatabaseProbeLimit(): void {
 // ---------------------------------------------------------------------------
 // Restow's own database (4.2: never the own database)
 // ---------------------------------------------------------------------------
+
+/** The system identifier of Restow's own cluster, for the agents' health checks (D2). */
+export function restowSystemIdentifier(): Promise<string | null> {
+  return ownSystemIdentifier({
+    actor: { label: "agent", userId: null, ip: null },
+    isProviderAdmin: false,
+  });
+}
 
 let ownIdentifier: Promise<string | null> | null = null;
 
@@ -413,6 +428,8 @@ export interface DatabaseConnectionDto {
   identityKnown: boolean;
   serverVersion: string | null;
   lastCheck: DatabaseConnectionCheck | null;
+  /** The health checks (8): interval, reachability and the current episode. */
+  health: DatabaseHealthDto;
   state: ConnectionState;
   /** Codes the page explains: db_unencrypted, db_runner_offline, db_tls_changed, ... */
   notices: string[];
@@ -432,11 +449,14 @@ const RED_CODES = new Set([
 
 function stateOf(connection: DatabaseConnection, runnerOffline: boolean): ConnectionState {
   const code = connection.lastCheck?.errorCode ?? null;
-  if (code && RED_CODES.has(code)) {
+  // A health check that sees another certificate, instance or engine is as red as a test (D2).
+  const healthCode = connection.health?.lastOk === false ? connection.health.errorCode : null;
+  if ((code && RED_CODES.has(code)) || (healthCode && RED_CODES.has(healthCode))) {
     return "red";
   }
   if (
     code ||
+    healthCode ||
     runnerOffline ||
     (!connection.executorEndpointId && connection.executorKind === "agent")
   ) {
@@ -465,6 +485,10 @@ function connectionDto(
   const code = connection.lastCheck?.errorCode;
   if (code) {
     notices.push(code);
+  }
+  const health = healthDto(connection, now);
+  if (health.errorCode && RED_CODES.has(health.errorCode)) {
+    notices.push(health.errorCode);
   }
   return {
     id: connection.id,
@@ -499,6 +523,7 @@ function connectionDto(
     identityKnown: connection.instanceKey !== null,
     serverVersion: connection.serverVersion,
     lastCheck: connection.lastCheck ?? null,
+    health,
     state: stateOf(connection, runnerOffline),
     notices: [...new Set(notices)],
     enabled: connection.enabled,
@@ -529,8 +554,14 @@ export interface DatabaseDto {
   droppedAt: string | null;
   lastBackupAt: string | null;
   lastCheckAt: string | null;
-  /** From the connection's last test until the health checks (D2): true, false or unknown. */
+  /**
+   * From the connection's health checks (D2, 8), before the first one from its last test: true,
+   * false or unknown. Beside the rating, never part of it (2.4).
+   */
   reachable: boolean | null;
+  reachability: DatabaseHealthDto["reachability"];
+  /** The last 24 hours of the connection's health checks, hour by hour (the list only). */
+  band?: HealthBandHour[];
   rating: ReturnType<typeof rateDatabase>;
   firstSeenAt: string;
 }
@@ -543,9 +574,14 @@ function databaseDto(
   const excluded =
     !connection.enabled || row.droppedAt !== null || isExcluded(connection.selection, row.name);
   const code = connection.lastCheck?.errorCode ?? null;
-  const reachable = connection.lastCheck
-    ? !(code === "db_unreachable" || code === "db_runner_offline")
-    : null;
+  const health = healthDto(connection, now);
+  const reachable = connection.health?.lastAt
+    ? health.reachability === "unknown"
+      ? null
+      : health.reachability !== "unreachable"
+    : connection.lastCheck
+      ? !(code === "db_unreachable" || code === "db_runner_offline")
+      : null;
   return {
     id: row.id,
     name: row.name,
@@ -562,6 +598,7 @@ function databaseDto(
     lastBackupAt: null,
     lastCheckAt: null,
     reachable,
+    reachability: health.reachability,
     rating: rateDatabase({
       excluded,
       lastBackupAt: null,
@@ -1454,6 +1491,8 @@ export async function listConnections(
 
 export interface DatabaseConnectionDetailDto extends DatabaseConnectionDto {
   databases: DatabaseDto[];
+  /** The last 24 hours of health checks, hour by hour. */
+  band: HealthBandHour[];
 }
 
 export async function getConnection(
@@ -1478,9 +1517,11 @@ export async function getConnection(
     const executor = connection.executorEndpointId
       ? (executors.get(connection.executorEndpointId) ?? null)
       : null;
+    const bands = await healthBands(tx, tenantId, [connection.id], now);
     return {
       ...connectionDto(connection, executor, rows.filter((row) => !row.droppedAt).length, now),
       databases: rows.map((row) => databaseDto(row, connection, now)),
+      band: bands.get(connection.id) ?? [],
     };
   });
 }
@@ -1571,6 +1612,13 @@ export async function updateConnection(
           timeZone: input.schedule.timeZone ?? before.schedule.timeZone,
         };
         changed.push("schedule");
+      }
+      if (
+        input.healthIntervalMinutes !== undefined &&
+        input.healthIntervalMinutes !== before.healthIntervalMinutes
+      ) {
+        changes.healthIntervalMinutes = input.healthIntervalMinutes;
+        changed.push("healthInterval");
       }
       if (input.selection) {
         changes.selection = {
@@ -1753,7 +1801,16 @@ export async function listDatabases(
       .from(databases)
       .innerJoin(databaseConnections, eq(databaseConnections.id, databases.connectionId))
       .where(and(eq(databases.tenantId, tenantId), isNull(databases.droppedAt)));
-    const list = rows.map((row) => databaseDto(row.database, row.connection, now));
+    const bands = await healthBands(
+      tx,
+      tenantId,
+      [...new Set(rows.map((row) => row.connection.id))],
+      now,
+    );
+    const list = rows.map((row) => ({
+      ...databaseDto(row.database, row.connection, now),
+      band: bands.get(row.connection.id) ?? [],
+    }));
     list.sort(
       (a, b) =>
         dbListRank(a.rating, a.reachable) - dbListRank(b.rating, b.reachable) ||

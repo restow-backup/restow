@@ -3,6 +3,7 @@ import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { connectionHealth, databaseSizeHistory, healthRangeSchema } from "./health.js";
 import {
   createConnectionSchema,
   idParamSchema,
@@ -42,7 +43,10 @@ import {
  *   PATCH  /connections/:id                      change it; confirm a new certificate or instance
  *   DELETE /connections/:id                      delete it with its credentials
  *   POST   /connections/:id/test                 test the stored connection
+ *   GET    /connections/:id/health?from&to       its health history (D2: availability, response
+ *                                                time, connections, events)
  *   GET    /:id                                  one database
+ *   GET    /:id/health?from&to                   its size day by day (D2)
  */
 export const databasesRoutes = new Hono<TenantEnv>();
 
@@ -108,6 +112,18 @@ databasesRoutes.post("/connections/:id/test", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const probe = await testStoredConnection(db, c.get("tenantId"), id, contextOf(c));
   return c.json(probe, probe.status === "pending" ? 202 : 200);
+});
+
+databasesRoutes.get("/connections/:id/health", reader, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const range = parseOrProblem(healthRangeSchema, c.req.query());
+  return c.json(await connectionHealth(db, c.get("tenantId"), id, range));
+});
+
+databasesRoutes.get("/:id/health", reader, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const range = parseOrProblem(healthRangeSchema, c.req.query());
+  return c.json(await databaseSizeHistory(db, c.get("tenantId"), id, range));
 });
 
 databasesRoutes.get("/:id", reader, async (c) => {
