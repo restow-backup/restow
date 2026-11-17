@@ -82,6 +82,7 @@ export const navItems: NavItem[] = [
     path: FILE_RESTORE_PATH,
     labelKey: "endpoints:nav.fileRestore",
     icon: FolderSearch,
+    marker: "restore",
     roles: [...FILE_RESTORE_ROLES],
     group: "endpoints",
     order: 30,

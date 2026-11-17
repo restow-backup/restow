@@ -56,6 +56,7 @@ export const navItems: NavItem[] = [
     path: RESTORE_PATHS.explorer,
     labelKey: "restore:nav.explorer",
     icon: MailSearch,
+    marker: "restore",
     group: "mail",
     // Covers the restores below it (`/restore/jobs/<id>`) too.
     order: 20,
