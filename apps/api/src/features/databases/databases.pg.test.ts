@@ -97,7 +97,12 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
   let service: Service;
   let shared: Shared;
   let agentId: string;
-  const probes: { spec: DbProbeSpec; allowPrivateNetworks: boolean }[] = [];
+  const probes: {
+    spec: DbProbeSpec;
+    allowPrivateNetworks: boolean;
+    approvedAddresses: readonly string[];
+    forbiddenTargets: readonly { address: string; port: number }[];
+  }[] = [];
   let nextResult: (spec: DbProbeSpec) => DbProbeResult = () => pgResult();
 
   const resolve = async (host: string) => {
@@ -111,8 +116,14 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
     resolve,
     privateNetworksAllowed: false,
     ownSystemIdentifier: async () => OWN_IDENTIFIER,
+    ownDatabaseTargets: async () => [{ address: "10.9.9.9", port: 5432 }],
     probe: async (spec, options) => {
-      probes.push({ spec, allowPrivateNetworks: options.allowPrivateNetworks });
+      probes.push({
+        spec,
+        allowPrivateNetworks: options.allowPrivateNetworks,
+        approvedAddresses: options.approvedAddresses ?? [],
+        forbiddenTargets: options.forbiddenTargets ?? [],
+      });
       return nextResult(spec);
     },
   });
@@ -297,12 +308,21 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
       },
       providerAdmin(),
     );
-    expect(created.privateNetworkApproval).toMatchObject({ by: "operator@provider.example" });
+    expect(created.privateNetworkApproval).toMatchObject({
+      by: "operator@provider.example",
+      addresses: ["192.168.10.20"],
+    });
     expect(await auditOf("database_connection.private_network_approved")).toHaveLength(1);
-    // The approval lets the stored connection reach its address, also when a tenant admin tests it.
+    // The approval lets the stored connection reach the address it was given for (and no other
+    // private address), also when a tenant admin tests it.
     probes.length = 0;
     await service.testStoredConnection(shared.db, fixture.tenantId, created.id, tenantAdmin());
-    expect(probes[0]?.allowPrivateNetworks).toBe(true);
+    expect(probes[0]).toMatchObject({
+      allowPrivateNetworks: false,
+      approvedAddresses: ["192.168.10.20"],
+      forbiddenTargets: [{ address: "10.9.9.9", port: 5432 }],
+      spec: { pinnedFingerprintSha256: FINGERPRINT },
+    });
   });
 
   it("refuses Restow's own database and a server without TLS unless allowed", async () => {
@@ -453,11 +473,17 @@ describe.skipIf(!testDatabaseAdminUrl)("database connections of a tenant against
     });
     expect(done.error?.message).not.toContain(PASSWORD);
     expect(done.error?.message).not.toContain(USER);
-    const leftover = await fixture.db
-      .select()
-      .from(secrets)
-      .where(eq(secrets.id, row?.credentialSecretId as string));
-    expect(leftover).toEqual([]);
+    // Unsaved settings keep the tested credentials a short while, for saving exactly them.
+    const kept = () =>
+      fixture.db
+        .select()
+        .from(secrets)
+        .where(eq(secrets.id, row?.credentialSecretId as string));
+    expect(await kept()).toHaveLength(1);
+    await service.getProbe(shared.db, fixture.tenantId, pending.id, {
+      now: new Date(Date.now() + 31 * 60 * 1000),
+    });
+    expect(await kept()).toEqual([]);
   });
 
   it("turns a stored connection red on another certificate or instance until an admin confirms", async () => {

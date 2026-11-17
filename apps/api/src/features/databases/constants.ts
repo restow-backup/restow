@@ -13,6 +13,8 @@ export const DATABASE_PROBLEMS = {
   nameTaken: "urn:restow:problem:database-name-taken",
   probeLimit: "urn:restow:problem:database-probe-limit",
   probeUsed: "urn:restow:problem:database-probe-used",
+  probeBusy: "urn:restow:problem:database-probe-busy",
+  credentialsRequired: "urn:restow:problem:database-credentials-required",
   confirm: "urn:restow:problem:database-confirm",
 } as const;
 
@@ -37,8 +39,16 @@ export const DATABASE_AUDIT_ACTIONS = {
 export const AGENT_PROBE_TTL_MS = 15 * 60 * 1000;
 /** A test of the Restow server: one step 5 s, the whole test 30 s. */
 export const SERVER_PROBE_TIMEOUT_SECONDS = 30;
-/** At most this many tests per tenant in {@link PROBE_WINDOW_MS} (no port scanner). */
+/**
+ * At most this many tests per tenant in {@link PROBE_WINDOW_MS} (no port scanner), counted from
+ * the stored tests, so a restart or another replica of the api does not reset it.
+ */
 export const PROBE_LIMIT = 30;
 export const PROBE_WINDOW_MS = 10 * 60 * 1000;
+/** Tests of the Restow server running at once in one api process, per tenant and in all. */
+export const SERVER_PROBES_PER_TENANT = 2;
+export const SERVER_PROBES_TOTAL = 16;
+/** The credentials a test of unsaved settings used are kept this long for saving them. */
+export const PROBE_CREDENTIALS_KEEP_MS = 30 * 60 * 1000;
 /** Finished tests are kept this long (saving a connection takes its facts from one). */
 export const PROBE_KEEP_MS = 24 * 60 * 60 * 1000;
