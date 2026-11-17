@@ -309,8 +309,11 @@ Linux-Architekturen, Kernel ab 5.6; das ISO hat 6.12), `ioctl(BLKGETSIZE64)`,
 | Netz im ISO | DHCP (IPv4, IPv6/SLAAC), statisch, HTTP(S)-Proxy ohne Zugangsdaten | kein VLAN, kein WLAN, kein 802.1X, kein Bonding/LACP |
 
 Distributionen (Quellsystem): **geprüft in der CI** (Abschnitt 21.2) Debian 12 und 13,
-Ubuntu 22.04 und 24.04 LTS, AlmaLinux 9 (stellvertretend für RHEL, Rocky, Oracle Linux 9),
-Fedora (aktuelle Version), openSUSE Leap 15.6, Arch Linux (UKI); **auf echter Hardware im
+Ubuntu 22.04 und 24.04 LTS; **vorgesehen, in 0.5.0 noch nicht geprüft** AlmaLinux 9
+(stellvertretend für RHEL, Rocky, Oracle Linux 9), Fedora (aktuelle Version), openSUSE Leap
+15.6, Arch Linux (UKI): Ihre Fälle E3, E4, E5 und E6b brauchen Quellmaschinen aus Cloud-Images,
+die `run.mjs` noch nicht bauen kann; bis dahin zeigen diese Systeme "nicht geprüfte
+Distribution" (`untested_distribution`, `assess.go`); **auf echter Hardware im
 Freigabetest** (Abschnitt 21.4) zusätzlich Ubuntu 26.04, RHEL 8/10-Familie, Proxmox VE 8/9
 als Host. Andere systemd-Distributionen mit einem der drei initramfs-Erzeuger und GRUB oder
 systemd-boot gelten als "sollte gehen" und zeigen das im Assistenten an ("nicht geprüfte

@@ -331,12 +331,18 @@ export const ALL_CASES = Object.freeze([...CASES, ...PROBE_CASES]);
  * The cases of a run: `per-pr` (E1, E2, P1, P2), `nightly` (the rest), `all`, or a
  * comma-separated list of ids (case-insensitive). An unknown id is an error, so a typo never
  * runs nothing.
+ *
+ * `nightly` and `all` leave the cloud image cases out (E3, E4, E5, E6b): run.mjs cannot build
+ * those source machines yet (no download, cloud-init seed or layout steps), so they would fail
+ * every night and stop every release. 0.5.0 ships without them and says so (docs/BAREMETAL.md
+ * 2.1, CHANGELOG Known Issues); by their ids they still run, and fail with that explanation.
  */
 export function selectCases(filter, cases = ALL_CASES) {
   const wanted = (filter ?? "per-pr").trim();
   if (wanted === "per-pr") return cases.filter((item) => item.perPR);
-  if (wanted === "nightly") return cases.filter((item) => !item.perPR);
-  if (wanted === "all") return [...cases];
+  const ready = (item) => item.source.kind !== "cloud";
+  if (wanted === "nightly") return cases.filter((item) => !item.perPR && ready(item));
+  if (wanted === "all") return cases.filter(ready);
   const ids = wanted
     .split(",")
     .map((id) => id.trim())

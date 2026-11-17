@@ -865,6 +865,16 @@
   "target": "minimal",
   "warnings": [
     {
+      "code": "untested_distribution",
+      "message": "AlmaLinux 9.5 (Teal Serval) is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "AlmaLinux 9.5 (Teal Serval)"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
       "code": "partition_shrunk",
       "message": "Partition d0p3 shrinks from 254279680000 to 38278266880 bytes.",
       "params": {

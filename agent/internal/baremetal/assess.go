@@ -73,9 +73,11 @@ var unsupportedFSTypes = map[string]bool{"zfs": true, "bcachefs": true, "f2fs": 
 // networkFSTypes are file systems over the network.
 var networkFSTypes = map[string]bool{"nfs": true, "nfs4": true, "cifs": true, "smb3": true, "ceph": true, "glusterfs": true, "9p": true, "sshfs": true, "fuse.sshfs": true}
 
-// testedDistributions are the os-release IDs tested in CI and on hardware (2.1).
-var testedDistributions = map[string]bool{"debian": true, "ubuntu": true, "almalinux": true, "rhel": true,
-	"rocky": true, "ol": true, "centos": true, "fedora": true, "opensuse-leap": true, "arch": true}
+// testedDistributions are the os-release IDs whose restore runs green in CI (2.1). 0.5.0 proves
+// Debian and Ubuntu only: the cloud image cases of AlmaLinux (for RHEL, Rocky, Oracle Linux),
+// Fedora, openSUSE Leap and Arch (E3, E4, E5, E6b) are not built yet, so these systems show
+// "untested distribution" until they are.
+var testedDistributions = map[string]bool{"debian": true, "ubuntu": true}
 
 // systemPaths are the mount points of the running system (as opposed to data).
 var systemPaths = map[string]bool{"/": true, "/boot": true, "/boot/efi": true, "/efi": true, "/usr": true, "/var": true}

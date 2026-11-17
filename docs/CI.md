@@ -347,9 +347,11 @@ fallback. Newer rebuilds of the ISO come from `recovery-rebuild.yml` ("Recovery 
 
 `recovery-nightly.yml` runs E1b and E3 to E10 every night (each case its own job, at most four
 at a time), builds the agent and the ISO of the default branch first, and is called by the
-release with the release's ISO and every case. The cloud image cases (E3, E4, E5, E6b) need the
-hashes in `scripts/recovery-e2e/images.json`; `run.mjs --pin-images` prints them, the
-maintainer compares them with the distribution's checksum file and commits them.
+release with the release's ISO and every case except the cloud image cases (E3, E4, E5, E6b):
+`run.mjs` cannot build those source machines yet (download, cloud-init seed and layout steps are
+missing), so `nightly` and `all` leave them out until they can (`selectCases`, cases.mjs); named by
+id they still run and fail with that explanation. Their images are pinned in
+`scripts/recovery-e2e/images.json` (vendor checksum files, checked against the signatures).
 
 ## Recovery ISO rebuilds
 

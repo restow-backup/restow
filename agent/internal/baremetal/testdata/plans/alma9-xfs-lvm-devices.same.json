@@ -733,6 +733,16 @@
   "target": "same",
   "warnings": [
     {
+      "code": "untested_distribution",
+      "message": "AlmaLinux 9.5 (Teal Serval) is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "AlmaLinux 9.5 (Teal Serval)"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
       "code": "secure_boot_dbx_unknown",
       "message": "The revocation list (dbx) of the target is not known; revoked loaders were not checked.",
       "params": {},

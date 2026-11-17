@@ -546,6 +546,16 @@
   "target": "same",
   "warnings": [
     {
+      "code": "untested_distribution",
+      "message": "Fedora Linux 41 (Workstation Edition) is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "Fedora Linux 41 (Workstation Edition)"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
       "code": "secure_boot_dbx_unknown",
       "message": "The revocation list (dbx) of the target is not known; revoked loaders were not checked.",
       "params": {},

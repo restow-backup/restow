@@ -91,16 +91,26 @@ const ANSWER_KEYS = new Set([
 const byId = (id) => CASES.find((item) => item.id === id);
 
 describe("cases", () => {
-  it("runs E1, E2 and the boot probes P1 and P2 per pull request and the rest at night", () => {
+  it("runs E1, E2 and the boot probes P1 and P2 per pull request and the rest at night, without the cloud image cases", () => {
     assert.deepEqual(
       selectCases("per-pr").map((item) => item.id),
       ["E1", "E2", "P1", "P2"],
     );
     assert.deepEqual(
       selectCases("nightly").map((item) => item.id),
-      ["E1b", "E3", "E4", "E5", "E6", "E6b", "E7", "E8", "E9", "E10", "P3"],
+      ["E1b", "E6", "E7", "E8", "E9", "E10", "P3"],
     );
-    assert.equal(selectCases("all").length, ALL_CASES.length);
+    assert.deepEqual(
+      selectCases("all").map((item) => item.id),
+      ALL_CASES.filter((item) => !["E3", "E4", "E5", "E6b"].includes(item.id)).map(
+        (item) => item.id,
+      ),
+    );
+    // By id they still run (and fail with the explanation that the cloud path is missing).
+    assert.deepEqual(
+      selectCases("E3").map((item) => item.id),
+      ["E3"],
+    );
     assert.deepEqual(
       selectCases("e7, E2").map((item) => item.id),
       ["E7", "E2"],

@@ -877,6 +877,16 @@
   "target": "hardware",
   "warnings": [
     {
+      "code": "untested_distribution",
+      "message": "AlmaLinux 9.5 (Teal Serval) is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "AlmaLinux 9.5 (Teal Serval)"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
       "code": "lvm_mixed_block_sizes_allowed",
       "message": "vg almalinux spans disks with different sector sizes; LVM is told to allow mixed block sizes.",
       "params": {

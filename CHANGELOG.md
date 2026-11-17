@@ -2910,6 +2910,11 @@ docs/UPDATING.md ("Rollback") says how to keep that version from deleting.
   built, and it counts as reproducible only once two CI builds were equal. The ISO download of the
   instance does not support a proxy that is itself reached over https (`HTTPS_PROXY=https://…`),
   and the rebuild workflow and the signing of a rebuild have not run against a real release yet.
+- Bare metal restore is tested in the CI for Debian 12 and 13 and Ubuntu 22.04 and 24.04 only.
+  AlmaLinux and the RHEL family, Fedora, openSUSE Leap and Arch Linux are meant to work but are
+  not tested yet (their test machines come from cloud images, which the test driver cannot build
+  yet); the assessment calls them "untested distribution". A test restore onto spare hardware
+  tells before you rely on it.
 - Bare metal restore is proven in the CI only (QEMU/KVM, see Verification), not yet on real
   hardware: the maintainer checklist of docs/BAREMETAL.md 21.4 has not run for this release.
   Test a restore of your own machines onto spare hardware before you rely on it.
