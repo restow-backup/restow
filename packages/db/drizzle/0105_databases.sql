@@ -81,6 +81,7 @@ CREATE TABLE "databases" (
 	"connection_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"identity" text,
+	"instance_key" text,
 	"size_bytes" bigint,
 	"accessible" boolean DEFAULT true NOT NULL,
 	"dropped_at" timestamp with time zone,
@@ -104,7 +105,7 @@ CREATE UNIQUE INDEX "database_connections_tenant_name_uq" ON "database_connectio
 CREATE INDEX "database_connections_executor_idx" ON "database_connections" USING btree ("executor_endpoint_id");--> statement-breakpoint
 CREATE INDEX "database_probes_tenant_created_idx" ON "database_probes" USING btree ("tenant_id","created_at");--> statement-breakpoint
 CREATE INDEX "database_probes_endpoint_idx" ON "database_probes" USING btree ("executor_endpoint_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "databases_connection_name_identity_uq" ON "databases" USING btree ("connection_id","name",coalesce("identity", ''));--> statement-breakpoint
+CREATE UNIQUE INDEX "databases_connection_name_identity_uq" ON "databases" USING btree ("connection_id",coalesce("instance_key", ''),"name",coalesce("identity", ''));--> statement-breakpoint
 CREATE INDEX "databases_tenant_idx" ON "databases" USING btree ("tenant_id");--> statement-breakpoint
 ALTER TABLE "backup_jobs" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "backup_job_members" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint

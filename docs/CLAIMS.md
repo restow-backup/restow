@@ -1210,8 +1210,8 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Zugangsdaten einer Datenbank liegen nur verschlüsselt auf dem Server und erscheinen in keiner API-Antwort und keinem Fehlertext; Fehlertexte der Clients werden vor dem Speichern um URL, Benutzer und Kennwort bereinigt.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.2 "Zugangsdaten", Abschnitt 10, Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts
-- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml; MySQL als Simulator)
+- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts
+- Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log und gespeicherte Prüfungen; MySQL als Simulator)
 - Stand: belegt
 - Hinweis: "keine Kommandozeile" gilt mit den Dump-Programmen ab Stufe D3 und wird dort belegt.
 
@@ -1219,8 +1219,8 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Der Restow-Server verbindet sich als Ausführer nur mit öffentlichen Adressen und mit Adressen in privaten Netzen, die ein Provider-Admin freigegeben hat (oder die Installation mit `RESTOW_DB_ALLOW_PRIVATE_NETWORKS=true`); link-local und reservierte Adressen (Cloud-Metadaten) nie, eine öffentliche Adresse nie ohne TLS.
 - Fundstelle: docs/DATABASES.md (Abschnitt 4.2 "Restow-Server", Abschnitt 3.2 "TLS", Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/network.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts
-- Belegt gegen: Logik (Einheitentests der Regel und des Sockets) und echtes System (PostgreSQL 16, Job test in ci.yml)
+- Tests: packages/core/src/databases/network.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts
+- Belegt gegen: Logik (Einheitentests der Regel und des Sockets) und echtes System (PostgreSQL 16, Job test in ci.yml: Freigabe des Provider-Admins beim Speichern, auditiert)
 - Stand: belegt
 
 ## Prüfungen gegen echte Systeme, die es gibt, die aber in der Pipeline nicht laufen

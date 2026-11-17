@@ -21,7 +21,7 @@ import {
 } from "../lib/disclaimer.js";
 import { claimFirstAdmin } from "../lib/first-admin.js";
 import { requestLanguage } from "../lib/language.js";
-import { MODULE_IDS, storedModules } from "../lib/modules.js";
+import { DEFAULT_MODULE_IDS, storedModules } from "../lib/modules.js";
 import { effectivePublicUrl, passwordResetAvailable } from "../lib/password-reset.js";
 import { clientIp, observedOrigin } from "../lib/request.js";
 import { upsertProviderSecret } from "../lib/secrets.js";
@@ -568,7 +568,7 @@ setup.post("/", async (c) => {
     { observedOrigin: observedOrigin(c), allowLocalhost: config.nodeEnv !== "production" },
   );
 
-  const enabledSetupModules = input.modules ?? [...MODULE_IDS];
+  const enabledSetupModules = input.modules ?? [...DEFAULT_MODULE_IDS];
 
   const values: NewSettings = {
     singleton: true,

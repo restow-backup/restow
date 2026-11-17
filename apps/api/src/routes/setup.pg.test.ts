@@ -360,7 +360,9 @@ describe.skipIf(!testDatabaseAdminUrl)(
     });
 
     it("stores the modules the wizard ticked as the ones that are off, and audits them with the setup", async () => {
-      expect((await settingsRow())?.modules).toEqual({ hidden: ["imap", "archive", "endpoints"] });
+      expect((await settingsRow())?.modules).toEqual({
+        hidden: ["imap", "archive", "endpoints", "databases"],
+      });
       const completed = (await installationChain()).find(
         (entry) => entry.action === "setup.completed",
       );
@@ -686,7 +688,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           "urn:restow:problem:provider-role-required",
         );
         expect((await settingsRow())?.modules).toEqual({
-          hidden: ["imap", "archive", "endpoints"],
+          hidden: ["imap", "archive", "endpoints", "databases"],
         });
         expect(await moduleEntries()).toEqual([]);
       });
@@ -697,7 +699,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           expect(response.status).toBe(422);
         }
         expect((await settingsRow())?.modules).toEqual({
-          hidden: ["imap", "archive", "endpoints"],
+          hidden: ["imap", "archive", "endpoints", "databases"],
         });
         expect(await moduleEntries()).toEqual([]);
       });
@@ -713,7 +715,9 @@ describe.skipIf(!testDatabaseAdminUrl)(
         });
         expect(response.status).toBe(200);
         expect(await enabledOf(response)).toEqual(["microsoft365", "imap", "endpoints"]);
-        expect((await settingsRow())?.modules).toEqual({ hidden: ["archive", "pve"] });
+        expect((await settingsRow())?.modules).toEqual({
+          hidden: ["archive", "pve", "databases"],
+        });
         // The profile every signed-in person loads follows, so the menu does.
         expect(await modulesOfMe(admin.cookie)).toEqual(["microsoft365", "imap", "endpoints"]);
 

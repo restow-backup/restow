@@ -166,7 +166,8 @@
     "branding": "Branding",
     "provider_notifications": "Provider notifications",
     "installation": "Installation",
-    "cluster": "Worker nodes"
+    "cluster": "Worker nodes",
+    "database_connection": "Databases"
   },
   "events": {
     "account": {
@@ -815,6 +816,16 @@
         "join_refused": "Join of a worker node refused",
         "removed": "Worker node removed"
       }
+    },
+    "database_connection": {
+      "created": "Database connection added",
+      "updated": "Database connection changed",
+      "deleted": "Database connection deleted",
+      "credentials_changed": "Credentials of a database connection changed",
+      "private_network_approved": "Database connection in a private network approved",
+      "tls_confirmed": "New TLS certificate of a database connection confirmed",
+      "instance_confirmed": "New instance under the address of a database connection confirmed",
+      "tested": "Database connection tested"
     }
   },
   "targetTypes": {
@@ -873,7 +884,8 @@
     "notification_recipients": "Notification recipients",
     "summary_report": "Summary report",
     "cluster_join_token": "Join token",
-    "cluster_node": "Worker node"
+    "cluster_node": "Worker node",
+    "database_connection": "Database connection"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

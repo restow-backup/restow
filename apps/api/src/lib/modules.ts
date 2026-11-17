@@ -13,6 +13,8 @@ import { z } from "zod";
  *   endpoints     servers and clients with the agent, and file shares (the menu section
  *                 "Servers & clients" without Proxmox VE)
  *   pve           Proxmox VE: VMs and containers (docs/PVE.md)
+ *   databases     databases protected by address and user (0.6.0, docs/DATABASES.md): PostgreSQL,
+ *                 MySQL, MariaDB, SQL Server, SQLite; off unless chosen (see below)
  *
  * A module that is off is only hidden in the web interface: its menu entries, its cards on the
  * overview, its entries where something new is created and in the command palette. Nothing is
@@ -23,9 +25,25 @@ import { z } from "zod";
  * installation from before modules existed has none stored and shows every module, and a module
  * a later release adds is on until someone switches it off.
  */
-export const MODULE_IDS = ["microsoft365", "imap", "archive", "endpoints", "pve"] as const;
+export const MODULE_IDS = [
+  "microsoft365",
+  "imap",
+  "archive",
+  "endpoints",
+  "pve",
+  "databases",
+] as const;
 
 export type ModuleId = (typeof MODULE_IDS)[number];
+
+/**
+ * The modules a new installation has on when its setup names none: every module but `databases`,
+ * which is off unless chosen (docs/DATABASES.md 2.1). An installation that updates got it switched
+ * off by its migration (0105), unless a job used the native SQL Server backup, which moves there.
+ */
+export const DEFAULT_MODULE_IDS: readonly ModuleId[] = MODULE_IDS.filter(
+  (id) => id !== "databases",
+);
 
 /**
  * The modules that are on, in the order of {@link MODULE_IDS}. Ids the release does not know are

@@ -13,6 +13,8 @@ import {
   backupJobs,
   createDb,
   type Database,
+  databaseConnections,
+  databases,
   endpoints,
   fileShares,
   providers,
@@ -22,7 +24,12 @@ import {
 } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { enabledModules, MODULE_IDS, storedModules } from "../../lib/modules.js";
+import {
+  DEFAULT_MODULE_IDS,
+  enabledModules,
+  MODULE_IDS,
+  storedModules,
+} from "../../lib/modules.js";
 import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
@@ -43,16 +50,22 @@ describe("the stored modules", () => {
 
   it("stores the modules that are off and ignores ids it does not know", () => {
     expect(storedModules(["microsoft365", "pve"])).toEqual({
-      hidden: ["imap", "archive", "endpoints"],
+      hidden: ["imap", "archive", "endpoints", "databases"],
     });
     expect(enabledModules({ hidden: ["pve", "tape"] })).toEqual([
       "microsoft365",
       "imap",
       "archive",
       "endpoints",
+      "databases",
     ]);
     // A value that would switch everything off is never written; it reads as everything on.
     expect(enabledModules({ hidden: [...MODULE_IDS] })).toEqual([...MODULE_IDS]);
+  });
+
+  it("leaves the module Databases off where a setup names no modules (docs/DATABASES.md 2.1)", () => {
+    expect(DEFAULT_MODULE_IDS).not.toContain("databases");
+    expect(storedModules(DEFAULT_MODULE_IDS)).toEqual({ hidden: ["databases"] });
   });
 
   it("refuses a request without a module, an unknown module and unknown fields", () => {
@@ -129,9 +142,10 @@ describe.skipIf(!testDatabaseAdminUrl)("the installation's modules against Postg
       ["archive", false],
       ["endpoints", true],
       ["pve", false],
+      ["databases", false],
     ]);
     const [row] = await db.select({ modules: settings.modules }).from(settings);
-    expect(row?.modules).toEqual({ hidden: ["imap", "archive", "pve"] });
+    expect(row?.modules).toEqual({ hidden: ["imap", "archive", "pve", "databases"] });
     expect(await modules.loadEnabledModules(providerDb)).toEqual(["microsoft365", "endpoints"]);
 
     const entries = await audited();
@@ -144,7 +158,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the installation's modules against Postg
         before: [...MODULE_IDS],
         after: ["microsoft365", "endpoints"],
         switchedOn: [],
-        switchedOff: ["imap", "archive", "pve"],
+        switchedOff: ["imap", "archive", "pve", "databases"],
       },
     });
 
@@ -210,6 +224,27 @@ describe.skipIf(!testDatabaseAdminUrl)("the installation's modules against Postg
       { tenantId: contoso, kind: "mail", name: "Mail", archive: true },
     ]);
 
+    const [connection] = await db
+      .insert(databaseConnections)
+      .values({
+        tenantId: contoso,
+        name: "ERP",
+        engine: "postgresql",
+        host: "db.example.test",
+        executorKind: "server",
+        schedule: { kind: "interval", intervalMinutes: 60, timeZone: "Europe/Berlin" },
+      })
+      .returning();
+    await db.insert(databases).values([
+      { tenantId: contoso, connectionId: connection?.id as string, name: "app" },
+      {
+        tenantId: contoso,
+        connectionId: connection?.id as string,
+        name: "old",
+        droppedAt: new Date("2026-11-01"),
+      },
+    ]);
+
     await modules.updateModules(providerDb, { enabled: ["microsoft365"] }, actor);
     const byId = Object.fromEntries(
       (await modules.getModules(providerDb)).modules.map((entry) => [entry.id, entry]),
@@ -239,6 +274,14 @@ describe.skipIf(!testDatabaseAdminUrl)("the installation's modules against Postg
       ],
     });
     expect(byId.pve).toEqual({ id: "pve", enabled: false, data: [] });
+    expect(byId.databases).toEqual({
+      id: "databases",
+      enabled: false,
+      data: [
+        { kind: "connections", count: 1 },
+        { kind: "databases", count: 1 },
+      ],
+    });
 
     // Switched off is hidden, nothing more: every row is still there.
     expect(await db.select({ id: sources.id }).from(sources)).toHaveLength(3);

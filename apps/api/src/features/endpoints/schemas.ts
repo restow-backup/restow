@@ -156,6 +156,9 @@ export const heartbeatSchema = z.object({
   // The SQL inventory (agent 0.5.0, W2a; at most 64 KiB from the agent): checked and bounded in
   // @restow/core (parseSqlInventory); a malformed one is dropped and the heartbeat still counts.
   sqlInventory: z.unknown().optional(),
+  // The database inventory (agent 0.6.0, docs/DATABASES.md 3.4; at most 64 KiB, at most every 6
+  // hours): checked in @restow/core (parseDbInventory); a malformed one is dropped.
+  databaseInventory: z.unknown().optional(),
 });
 
 export const startRunSchema = z.object({

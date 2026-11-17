@@ -152,8 +152,9 @@ export const databaseConnections = pgTable(
 
 /**
  * One database of a connection (3.3). A database dropped and created again under the same name is
- * another row (PostgreSQL: another OID); MySQL and MariaDB schemas are known by their name only
- * (`identity` null). `dropped_at` is set when a complete probe no longer lists it.
+ * another row (PostgreSQL: another OID), and so is every database of another instance under the
+ * address; MySQL and MariaDB schemas are known by their name only (`identity` null). `dropped_at`
+ * is set when a complete probe no longer lists it.
  */
 export const databases = pgTable(
   "databases",
@@ -167,6 +168,9 @@ export const databases = pgTable(
       .references(() => databaseConnections.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     identity: text("identity"),
+    // The instance it belongs to (the connection's `instance_key` when it was found): another
+    // instance under the address keeps a history of its own (3.3).
+    instanceKey: text("instance_key"),
     sizeBytes: bigint("size_bytes", { mode: "number" }),
     // The executor's user may sign in to it (PostgreSQL CONNECT).
     accessible: boolean("accessible").notNull().default(true),
@@ -178,6 +182,7 @@ export const databases = pgTable(
   (t) => [
     uniqueIndex("databases_connection_name_identity_uq").on(
       t.connectionId,
+      sql`coalesce(${t.instanceKey}, '')`,
       t.name,
       sql`coalesce(${t.identity}, '')`,
     ),

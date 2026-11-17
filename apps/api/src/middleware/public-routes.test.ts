@@ -38,6 +38,7 @@ const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
   "POST /agent/v1/runs": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs/:runId/progress": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs/:runId/finish": "HTTP Basic with the agent's secret",
+  "POST /agent/v1/databases/probes/:probeId/result": "HTTP Basic with the agent's secret",
   "POST /agent/v1/recovery/sessions/current/progress":
     "HTTP Basic with the recovery session's secret",
   "POST /agent/v1/recovery/sessions/current/log": "HTTP Basic with the recovery session's secret",

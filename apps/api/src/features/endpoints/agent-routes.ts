@@ -1,8 +1,11 @@
 import { Hono } from "hono";
+import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { guardBrowserRequest } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { probeParamSchema } from "../databases/schemas.js";
+import { agentFetchProbe, agentFinishProbe } from "../databases/service.js";
 import { type AgentEnv, authFailures, requireAgent } from "./agent-auth.js";
 import {
   agentConfig,
@@ -41,6 +44,9 @@ import {
  *   POST /runs/:runId/progress        progress of a running run
  *   POST /runs/:runId/finish          result, samples and log tail
  *   GET  /update                      a newer agent binary, or null
+ *   GET  /databases/probes/:probeId          a connection test of task `db_probe`, with its
+ *                                            credentials, once (docs/DATABASES.md 4.3)
+ *   POST /databases/probes/:probeId/result   the facts it found (the server judges them)
  */
 export const agentRoutes = new Hono<AgentEnv>();
 
@@ -126,4 +132,17 @@ agentRoutes.get("/update", async (c) => {
   const instance = await instanceUrl(c);
   c.header("cache-control", "no-store");
   return c.json(await agentUpdate(c.get("agent"), instance.url));
+});
+
+agentRoutes.get("/databases/probes/:probeId", async (c) => {
+  const { probeId } = parseOrProblem(probeParamSchema, c.req.param());
+  c.header("cache-control", "no-store");
+  return c.json(await agentFetchProbe(db, c.get("agent"), probeId));
+});
+
+agentRoutes.post("/databases/probes/:probeId/result", async (c) => {
+  const { probeId } = parseOrProblem(probeParamSchema, c.req.param());
+  const raw: unknown = await c.req.json().catch(() => null);
+  await agentFinishProbe(db, c.get("agent"), probeId, raw);
+  return c.body(null, 204);
 });

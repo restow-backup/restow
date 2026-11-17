@@ -1,5 +1,5 @@
 {
-  "id": "8d6633af-c12c-4be1-bf7d-9c42a13bda20",
+  "id": "72c85cd7-286d-462c-aa32-533dd85f7995",
   "prevId": "f3a99377-174c-4942-8570-8c836e2eec0a",
   "version": "7",
   "dialect": "postgresql",
@@ -5947,6 +5947,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "instance_key": {
+          "name": "instance_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "size_bytes": {
           "name": "size_bytes",
           "type": "bigint",
@@ -6003,6 +6009,12 @@
               "expression": "connection_id",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"instance_key\", '')",
+              "asc": true,
+              "isExpression": true,
               "nulls": "last"
             },
             {

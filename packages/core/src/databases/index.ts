@@ -4,5 +4,6 @@ export * from "./identity.js";
 export * from "./model.js";
 export * from "./network.js";
 export * from "./probe/probe.js";
+export * from "./rating.js";
 export * from "./rights.js";
 export * from "./sanitize.js";
