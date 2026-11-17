@@ -416,6 +416,7 @@ grep -q 'modprobe.blacklist' "$WORK/auto/config" && fail "auto/config must leave
 unit="$WORK/config/includes.chroot/etc/systemd/system/restow-recover.service"
 grep -qx 'ExecStart=/usr/lib/restow-recovery/restow-agent recover --console /dev/tty1' "$unit" && ok || fail "ExecStart of the unit"
 grep -qx 'Restart=on-failure' "$unit" && ok || fail "Restart of the unit"
+grep -qx 'RestartPreventExitStatus=4' "$unit" && ok || fail "no restart after an unattended session ended"
 grep -qx 'Conflicts=getty@tty1.service' "$unit" && ok || fail "the unit owns tty1"
 grep -q '^After=systemd-networkd.service' "$unit" && ok || fail "the unit starts after the network"
 grep -q 'auto_activation_volume_list = \[\]' "$WORK/config/includes.chroot/etc/lvm/lvmlocal.conf" && ok || fail "lvmlocal.conf"

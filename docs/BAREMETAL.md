@@ -1590,6 +1590,16 @@ Konsole und `RESTOW-RECOVER-RESULT` `failed` mit dem Grund in der Sprache des Be
 Text je Code, für einen unbekannten Code der Code selbst), und das Wiederanbinden wird nicht
 angeboten (10.19).
 
+**Kein Neustart nach dem Ende einer unbeaufsichtigten Sitzung.** `restow-recover.service`
+startet `recover` nach einem Fehler neu (`Restart=on-failure`), damit ein Lauf, der vor dem
+Einlösen scheiterte (kein Netz, Instanz nicht erreichbar), es erneut versucht. Hat ein
+unbeaufsichtigter Lauf seinen Code eingelöst und endet die Sitzung ohne Erfolg (`failed`,
+`cancelled`), endet `recover` mit Code 4 (`RestartPreventExitStatus=4`): Ein Neustart läse
+dieselben Antworten und versuchte den verbrauchten Code alle paar Sekunden erneut, und das
+Ergebnis auf der Konsole liefe weg. Eine Probe schaltet die Maschine dann aus, damit das Labor
+das Ergebnis sofort hat. Beaufsichtigt bleibt es beim Neustart: Der Bediener gibt einen neuen
+Code ein.
+
 **Nach dem Ende.** Eine beendete Sitzung (`succeeded`, `failed`, `cancelled`) nimmt nichts mehr
 an: `progress`, `log`, `event`, `release` und `finish` antworten 409 `recovery-state-conflict`
 mit dem Zustand (Erweiterung `status` der Antwort). Maßgeblich ist der Zustand der Zeile im

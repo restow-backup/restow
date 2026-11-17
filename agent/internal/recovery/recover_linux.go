@@ -300,13 +300,13 @@ func Main(o MainOptions) int {
 		}
 	}()
 	res, err := r.Run(ctx)
-	if err != nil || res == nil || res.Status != api.RecoverySucceeded {
-		if res != nil && res.Status == api.RecoveryCancelled {
-			return 3
-		}
-		return 1
+	code := r.ExitCode(res, err)
+	if code == ExitSessionEnded && r.probe() != nil {
+		// The lab waits for the restore VM to end; a probe that did not
+		// succeed ends it too (a success powers off in after()).
+		_ = env.PowerOff(context.WithoutCancel(ctx))
 	}
-	return 0
+	return code
 }
 
 // qemuSerialMirror opens the first serial port for writing when recover
