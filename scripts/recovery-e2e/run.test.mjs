@@ -55,12 +55,14 @@ import {
   parseArgs,
   probeOutcome,
   recoveryLogTail,
+  restoreStarted,
   targetSummary,
   testAgentDir,
   ubuntuMirror,
   versionOfIso,
   wholeMachineJobSettings,
   wholeMachineNotPossible,
+  withBiosBootDisk,
   withIsoLine,
 } from "./run.mjs";
 
@@ -115,6 +117,20 @@ describe("cases", () => {
       assert.notEqual(testCase.target.disks[0].bus, testCase.source.disks[0].bus, id);
     }
     assert.equal(byId("E6").target.disks[0].sectorSize, 4096);
+  });
+
+  it("names every source disk where the target has fewer disks (docs/BAREMETAL.md 10.7)", () => {
+    // The automatic mapping needs as many target disks as source disks; an unnamed source disk
+    // stops the plan ("No target disk for d1", E8 in November 2026).
+    for (const testCase of CASES) {
+      const targets = testCase.target.disks.length + (testCase.target.keepSourceDisks ?? []).length;
+      if (targets >= testCase.source.disks.length) continue;
+      const mapping = testCase.answers.diskMapping;
+      assert.equal(typeof mapping, "object", testCase.id);
+      testCase.source.disks.forEach((_, index) => {
+        assert.ok(mapping[`d${index}`], `${testCase.id} names d${index}`);
+      });
+    }
   });
 
   it("names a factory script for every factory case that exists", () => {
@@ -328,6 +344,56 @@ describe("the answers file", () => {
   });
 });
 
+describe("the restore of a case", () => {
+  it("waits for the restore to start, and stops at once when the recovery ended before", () => {
+    assert.equal(restoreStarted({ status: "running", phase: "restoring" }), true);
+    assert.equal(restoreStarted({ status: "running", phase: "planning" }), false);
+    assert.throws(
+      () =>
+        restoreStarted({
+          status: "failed",
+          phase: "planning",
+          warnings: [{ code: "plan_invalid", message: "No target disk for d1" }],
+        }),
+      /ended as failed before the restore started \(plan_invalid\)/,
+    );
+  });
+
+  it("starts a restored BIOS machine from the disk recover names (docs/BAREMETAL.md 10.5)", () => {
+    const disks = byId("E10").target.disks.map((disk) => ({ ...disk, file: `/d/${disk.serial}` }));
+    const verification = {
+      hints: [
+        { code: "keymap_at_boot", params: { layout: "us" } },
+        {
+          code: "bios_boot_disk",
+          params: { model: "", identity: "serial.restow-e2e-target0" },
+        },
+      ],
+    };
+    const chosen = withBiosBootDisk(disks, verification);
+    assert.deepEqual(
+      chosen.map((disk) => [disk.serial, disk.bootIndex]),
+      [
+        ["restow-e2e-target2", undefined],
+        ["restow-e2e-target0", 1],
+        ["restow-e2e-target1", undefined],
+      ],
+    );
+    const args = diskArgs(chosen).join(" ");
+    assert.match(args, /virtio-blk-pci,drive=disk1,serial=restow-e2e-target0,bootindex=1/);
+    assert.doesNotMatch(args, /serial=restow-e2e-target2,bootindex/);
+    assert.equal(withBiosBootDisk(disks, { hints: [] }), disks);
+    assert.equal(withBiosBootDisk(disks, null), disks);
+    assert.throws(
+      () =>
+        withBiosBootDisk(disks, {
+          hints: [{ code: "bios_boot_disk", params: { identity: "serial.other" } }],
+        }),
+      /no such disk/,
+    );
+  });
+});
+
 describe("the QEMU command line", () => {
   it("gives every disk its serial number on its controller, 4Kn where asked", () => {
     const args = diskArgs([
@@ -360,6 +426,18 @@ describe("the QEMU command line", () => {
       /512-byte/,
     );
     assert.throws(() => diskArgs([{ serial: "x", bus: "floppy", file: "x" }]), /unknown disk bus/);
+    const boot = diskArgs([
+      { serial: "b0", bus: "ahci", file: "/d/a", bootIndex: 1 },
+      { serial: "b1", bus: "nvme", file: "/d/b", eui64: "525400e2e0000004", bootIndex: 2 },
+      { serial: "b2", bus: "scsi", file: "/d/c", bootIndex: 3 },
+    ]).join(" ");
+    assert.match(boot, /ide-hd,drive=disk0,bus=ahci0\.0,serial=b0,bootindex=1/);
+    assert.match(boot, /nvme-ns,drive=disk1,bus=nvme1,nsid=1,eui64=\d+,bootindex=2/);
+    assert.match(boot, /scsi-hd,drive=disk2,bus=scsi0\.0,serial=b2,bootindex=3/);
+    assert.throws(
+      () => diskArgs([{ serial: "x", bus: "virtio", file: "x", bootIndex: -1 }]),
+      /boot index/,
+    );
   });
 
   it("starts BIOS, UEFI and UEFI with Secure Boot", () => {

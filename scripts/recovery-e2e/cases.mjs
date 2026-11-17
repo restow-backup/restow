@@ -213,7 +213,8 @@ export const CASES = Object.freeze([
       disks: [{ serial: "restow-e2e-target0", size: GiB(12), bus: "ahci" }],
     },
     interrupt: ["cancel", "power-loss"],
-    answers: { diskMapping: { d0: "serial.restow-e2e-target0" } },
+    // E1's source on E1's target: d1 is named as missing, as there (docs/BAREMETAL.md 10.7).
+    answers: { diskMapping: { d0: "serial.restow-e2e-target0", d1: "serial.e2e-src1" } },
   },
   {
     id: "E9",

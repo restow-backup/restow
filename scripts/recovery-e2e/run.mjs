@@ -309,6 +309,38 @@ export function isFinal(status) {
 }
 
 /**
+ * Whether a released recovery has started to restore (the moment a case interrupts it). One that
+ * ended before (a plan that cannot run) will not get there: that is said at once, not after the
+ * wait's timeout.
+ */
+export function restoreStarted(recovery) {
+  if (recovery.phase === "restoring") return true;
+  if (isFinal(recovery.status)) {
+    const warnings = (recovery.warnings ?? []).map((item) => item.code).join(", ");
+    throw new Error(
+      `the recovery ended as ${recovery.status} before the restore started` +
+        (warnings ? ` (${warnings})` : ""),
+    );
+  }
+  return false;
+}
+
+/**
+ * The restored disks as the operator starts them on BIOS: recover cannot set the start order and
+ * names the disk to select (hint `bios_boot_disk`, docs/BAREMETAL.md 10.5); the driver selects it
+ * as the firmware's first boot device. Without the hint the disks stay as they are.
+ */
+export function withBiosBootDisk(disks, verification) {
+  const hint = (verification?.hints ?? []).find((item) => item.code === "bios_boot_disk");
+  if (!hint) return disks;
+  const identity = hint.params?.identity;
+  if (!disks.some((disk) => identityOf(disk) === identity)) {
+    throw new Error(`recover names ${identity} as the BIOS boot disk, the target has no such disk`);
+  }
+  return disks.map((disk) => (identityOf(disk) === identity ? { ...disk, bootIndex: 1 } : disk));
+}
+
+/**
  * What a stage 1 report found, for the job log: each check that did not pass with its failed
  * and warning findings, and the planner's answer when there is one (at most 3000 characters).
  */
@@ -1090,7 +1122,7 @@ async function restore(testCase, context, source, { interrupt } = {}) {
   if (interrupt) {
     await waitUntil(
       "the restore to start",
-      async () => (await client.get(recoveryPath, { tenantId })).phase === "restoring",
+      async () => restoreStarted(await client.get(recoveryPath, { tenantId })),
       { timeoutMs: 30 * 60_000 },
     );
     await sleep(30_000);
@@ -1139,7 +1171,10 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
     name: `${testCase.id}-restored`,
     firmware: testCase.target.firmware,
     varsFile,
-    disks: restored.disks,
+    disks:
+      testCase.target.firmware === "bios"
+        ? withBiosBootDisk(restored.disks, restored.final.verification)
+        : restored.disks,
     serialLog: log,
     serialSocket: join(source.dir, "restored-serial.sock"),
     qmpSocket: join(source.dir, "restored.qmp"),

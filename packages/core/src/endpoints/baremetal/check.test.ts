@@ -471,6 +471,22 @@ describe("judgeLayoutCheck", () => {
       ).toEqual([]);
     });
 
+    it("counts the PARTUUID of an MBR partition (disk identifier and number) [E10]", () => {
+      const mbr = greenInput(
+        debian((m) => {
+          m.disks[0].table.type = "dos";
+          m.disks[0].table.id = "0x1702a223";
+          for (const partition of m.disks[0].table.partitions) partition.uuid = null;
+        }),
+      );
+      const byName = `${fixture("etc/crypttab").toString()}cswap /dev/nvme0n1p2 /dev/urandom swap\n`;
+      expect(codes(judgeLayoutCheck(withFile(mbr, "/etc/crypttab", byName)), "L6")).toEqual([
+        "warning:crypttab_plain_device_name",
+      ]);
+      const stable = `${fixture("etc/crypttab").toString()}cswap PARTUUID=1702a223-02 /dev/urandom swap\n`;
+      expect(codes(judgeLayoutCheck(withFile(mbr, "/etc/crypttab", stable)), "L6")).toEqual([]);
+    });
+
     it("warns when the keyboard layout in the snapshot is another one", () => {
       const input = withFile(greenInput(), "/etc/default/keyboard", 'XKBLAYOUT="us"\n');
       expect(codes(judgeLayoutCheck(input), "L6")).toEqual(["warning:keymap_mismatch"]);

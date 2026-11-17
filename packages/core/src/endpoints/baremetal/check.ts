@@ -226,6 +226,21 @@ function unescapeUdev(value: string): string {
 const same = (a: string | null | undefined, b: string) =>
   typeof a === "string" && a.toLowerCase() === b.toLowerCase();
 
+type ManifestDisk = LinuxLayoutManifest["disks"][number];
+type ManifestPartition = NonNullable<ManifestDisk["table"]>["partitions"][number];
+
+/**
+ * The PARTUUID of a partition: GPT's own, on MBR the disk identifier and the number in hex
+ * (`1702a223-02`), which the restore keeps (docs/BAREMETAL.md 10.10); null without one.
+ */
+function partUuidOf(disk: ManifestDisk, partition: ManifestPartition): string | null {
+  if (partition.uuid) return partition.uuid;
+  if (disk.table?.type !== "dos") return null;
+  const id = disk.table.id.replace(/^0x/i, "").toLowerCase();
+  if (!/^[0-9a-f]{1,8}$/.test(id)) return null;
+  return `${id.padStart(8, "0")}-${partition.number.toString(16).padStart(2, "0")}`;
+}
+
 function partitionsOf(m: LinuxLayoutManifest) {
   return m.disks.flatMap((disk) =>
     (disk.table?.partitions ?? []).map((partition) => ({ disk, partition })),
@@ -239,7 +254,9 @@ function resolveBlock(m: LinuxLayoutManifest, source: string): BlockRef | null {
     const value = (tag[2] as string).replace(/^"(.*)"$/, "$1");
     switch (tag[1]) {
       case "PARTUUID": {
-        const hit = partitionsOf(m).find(({ partition }) => same(partition.uuid, value));
+        const hit = partitionsOf(m).find(({ disk, partition }) =>
+          same(partUuidOf(disk, partition), value),
+        );
         return hit ? { kind: "partition", disk: hit.disk.id, number: hit.partition.number } : null;
       }
       case "PARTLABEL": {
@@ -1115,13 +1132,13 @@ function checkL6(m: LinuxLayoutManifest, input: LayoutCheckInput, check: CheckBu
     if (!plain) continue;
     const isKernelName = /^\/dev\/(?!disk\/|mapper\/)/.test(entry.device);
     if (!isKernelName) continue;
+    const disk = block?.kind === "partition" ? m.disks.find((d) => d.id === block.disk) : undefined;
     const partition =
       block?.kind === "partition"
-        ? m.disks
-            .find((disk) => disk.id === block.disk)
-            ?.table?.partitions.find((p) => p.number === block.number)
+        ? disk?.table?.partitions.find((p) => p.number === block.number)
         : undefined;
-    const hasPartuuid = partition?.uuid !== null && partition?.uuid !== undefined;
+    const hasPartuuid =
+      disk !== undefined && partition !== undefined && partUuidOf(disk, partition) !== null;
     check.add("crypttab_plain_device_name", hasPartuuid ? "warning" : "failed", entry.name, {
       name: entry.name,
       device: entry.device,
