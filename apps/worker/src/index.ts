@@ -47,6 +47,10 @@ import { pathToFileURL } from "node:url";
  *                                Settings → Microsoft 365 is used (./entra-app.ts)
  *   IMAP_ALLOW_INSECURE          "true" permits IMAP sources without TLS (development only)
  *   IMAP_ALLOW_PRIVATE_NETWORKS  "true" lets every IMAP source reach loopback and private networks
+ *   RESTOW_DB_ALLOW_PRIVATE_NETWORKS
+ *                                "true" lets the health checks of every database connection the
+ *                                Restow server runs reach loopback and private networks; otherwise
+ *                                only connections a provider admin approved (docs/DATABASES.md 4.2)
  *   IMPORT_DIR                   the server-side mail import folder (default /var/lib/restow/import);
  *                                a tenant reads only <IMPORT_DIR>/<tenant slug>/ (docs/IMPORT.md)
  *   IMPORT_MAX_MESSAGE_BYTES     largest single message an import reads (default 256 MiB)
@@ -111,6 +115,11 @@ import { configureProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import PgBoss from "pg-boss";
 import { ArchiveCaptureService } from "./archive-capture/service.js";
 import { grantContinuation } from "./continuation.js";
+import {
+  ownSystemIdentifierOf,
+  startDatabaseHealth,
+  workerCredentialsReader,
+} from "./databases/health.js";
 import { configureDefaultStorage } from "./default-storage.js";
 import { LAB_API_PORT, labApiOptionsFromEnv, startLabApi } from "./endpoints/lab-api.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
@@ -652,6 +661,24 @@ async function main(): Promise<void> {
   // against its object's baseline and the signatures, one pass every two minutes. Retention of an
   // object waits for its judgement and holds while it has an unresolved suspicious restore point.
   startSuspicionScan({ db, providerDb, runtime });
+
+  // Health checks of the database connections the Restow server runs, their evaluation (also of
+  // the agents' checks) and the alerts (docs/DATABASES.md 8): one pass a minute in one worker at a
+  // time. No checks with credentials while restore mode is on.
+  startDatabaseHealth(
+    {
+      db,
+      providerDb,
+      logger: logger.child({ component: "database-health" }),
+      now: () => new Date(),
+      privateNetworksAllowed:
+        process.env.RESTOW_DB_ALLOW_PRIVATE_NETWORKS?.trim().toLowerCase() === "true",
+      restoreModeActive: async () => (await restoreMode.guard.restoreMode()).active,
+      readCredentials: workerCredentialsReader(db, keyrings),
+      ownSystemIdentifier: ownSystemIdentifierOf(providerDb),
+    },
+    runtime.shutdownSignal,
+  );
 
   // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
   // (manifest-conversion.ts); ends by itself once nothing is left.
