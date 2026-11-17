@@ -78,6 +78,9 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   "sql_restore",
   "sql_verify",
   "sql_inventory",
+  // Databases D1 (docs/DATABASES.md 9): "Test connection" through an agent; finishes on delivery,
+  // the agent posts the result to the probe.
+  "db_probe",
 ]);
 
 /**
@@ -329,6 +332,13 @@ export type EndpointSettings = {
    */
   sqlInstances?: EndpointSqlInventoryState;
   /**
+   * The database instances the agent's inventory found on the machine (databases D1,
+   * docs/DATABASES.md 3.4): suggestions on the Databases page, never a connection of their own.
+   * Written only by a heartbeat that carries one (at most every 6 hours, at most 64 KiB), with a
+   * `jsonb_set` of its own; a heartbeat without one leaves it.
+   */
+  databaseInventory?: EndpointDatabaseInventory;
+  /**
    * The machine was enrolled with a client token but got the server profile, because its agent
    * reported a container or a virtual machine without a desktop (release 0.4.0, #59). Written once
    * at enrollment.
@@ -345,6 +355,22 @@ export type EndpointSettings = {
    * only, so it bumps no configuration version.
    */
   activityBaselinePending?: boolean;
+};
+
+/** The database inventory of a machine (@restow/core `DbInventory`), as stored. */
+export type EndpointDatabaseInventory = {
+  collectedAt: string;
+  receivedAt: string;
+  instances: {
+    engine: "postgresql" | "mysql" | "mariadb";
+    source: "pg_lsclusters" | "systemd" | "docker" | "socket";
+    name: string;
+    version: string | null;
+    port: number | null;
+    socket: string | null;
+    container: string | null;
+    running: boolean | null;
+  }[];
 };
 
 /** The machine's local hook policy (set by root on the machine, never by the server). */

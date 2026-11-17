@@ -248,6 +248,10 @@ type harness struct {
 	noHistory bool
 	// sql is Deps.SQL (nil: the system's, which is none outside Windows).
 	sql func() (*SQLSupport, error)
+	// dbProbe and dbInventory are Deps.DBProbe and Deps.DBInventory (nil: an
+	// empty inventory, so no test runs the programs of the test machine).
+	dbProbe     func(ctx context.Context, spec api.DBProbeSpec) api.DBProbeResult
+	dbInventory func(ctx context.Context) []api.DBInventoryInstance
 
 	cancel context.CancelFunc
 	done   chan error
@@ -290,6 +294,14 @@ func (h *harness) machineFn() func() sysinfo.Machine {
 
 func (h *harness) env(kv ...string) { h.extra = append(h.extra, kv...) }
 
+// dbInventoryFn keeps the programs of the test machine out of tests that set no inventory.
+func (h *harness) dbInventoryFn() func(ctx context.Context) []api.DBInventoryInstance {
+	if h.dbInventory != nil {
+		return h.dbInventory
+	}
+	return func(context.Context) []api.DBInventoryInstance { return nil }
+}
+
 func (h *harness) build() {
 	h.t.Helper()
 	client, err := api.New(api.Options{
@@ -324,7 +336,7 @@ func (h *harness) build() {
 	h.agent = New(Deps{
 		Layout: h.layout, State: st, Server: client, Restic: runner, Status: store, Logger: logging.Discard(),
 		Power: h.powerFn, BinDir: h.binDir, UpdateKey: h.updateKey, Uninstall: h.uninst,
-		Machine: h.machineFn(), SQL: h.sql,
+		Machine: h.machineFn(), SQL: h.sql, DBProbe: h.dbProbe, DBInventory: h.dbInventoryFn(),
 	}, Options{
 		HeartbeatInterval: 40 * time.Millisecond, HeartbeatRetryBase: 30 * time.Millisecond, HeartbeatJitter: time.Nanosecond, Tick: 15 * time.Millisecond,
 		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second, PauseRecheck: 20 * time.Millisecond,

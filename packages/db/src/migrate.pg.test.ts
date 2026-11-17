@@ -2516,8 +2516,8 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only 0102, 0103 (the log's key block mark), 0104 (the boot probe) and what came after
-      // (0.6.0) are left to apply.
+      // Only 0102, 0103 (the log's key block mark), 0104 (the boot probe) and the later ones are
+      // left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
@@ -2716,6 +2716,140 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0104)", () => {
     } finally {
       await pool.end();
     }
+  }, 120_000);
+});
+
+describe.skipIf(!adminUrl)("upgrading to 0.6.0: the module Databases (0105)", () => {
+  const base = adminUrl as string;
+  const owner: RoleLogin = {
+    name: `restow_mig_dbmod_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const databases = {
+    plain: `restow_db_migrate_dbmod_plain_${suffix}`,
+    sql: `restow_db_migrate_dbmod_sql_${suffix}`,
+    member: `restow_db_migrate_dbmod_member_${suffix}`,
+  };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0104_boot_probe");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      for (const database of Object.values(databases)) {
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      }
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    for (const database of Object.values(databases)) {
+      await dropTestDatabase(base, database);
+    }
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  /** An installation on 0104 with its settings row, and a job (or member) with the SQL backup on or off. */
+  async function upgrade(
+    database: string,
+    sql: "none" | "job" | "member",
+  ): Promise<{ hidden: string[]; tables: string[]; taskKinds: string[] }> {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      await pool.query(
+        `INSERT INTO settings (singleton, operating_mode, public_url, setup_completed_at, modules)
+         VALUES (true, 'public', 'https://restow.example.test', now(), '{"hidden":["pve"]}'::jsonb)`,
+      );
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      const tenant = randomUUID();
+      const job = randomUUID();
+      const endpoint = randomUUID();
+      await asTenant(pool, tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO backup_jobs (id, tenant_id, kind, name, settings)
+           VALUES ($1, $2, 'endpoint', 'Machines', $3::jsonb)`,
+          [
+            job,
+            tenant,
+            JSON.stringify(
+              sql === "job"
+                ? { sql: { enabled: true, mode: "alongside" } }
+                : { sql: { enabled: false } },
+            ),
+          ],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'sql-01', 'windows', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [endpoint, tenant],
+        );
+        await client.query(
+          `INSERT INTO backup_job_members (tenant_id, job_id, endpoint_id, overrides)
+           VALUES ($1, $2, $3, $4::jsonb)`,
+          [
+            tenant,
+            job,
+            endpoint,
+            JSON.stringify(sql === "member" ? { sql: { enabled: true } } : {}),
+          ],
+        );
+      });
+
+      await runMigrations(url);
+
+      const { rows } = await pool.query<{ modules: { hidden?: string[] } }>(
+        "SELECT modules FROM settings",
+      );
+      const tables = (
+        await pool.query<{ table_name: string }>(
+          `SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name IN ('database_connections', 'databases', 'database_probes')
+            ORDER BY table_name`,
+        )
+      ).rows.map((row) => row.table_name);
+      const taskKinds = (
+        await pool.query<{ value: string }>(
+          `SELECT e.enumlabel AS value FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+            WHERE t.typname = 'endpoint_task_kind' ORDER BY e.enumsortorder`,
+        )
+      ).rows.map((row) => row.value);
+      return { hidden: rows[0]?.modules.hidden ?? [], tables, taskKinds };
+    } finally {
+      await pool.end();
+    }
+  }
+
+  it("switches the new module off where no job uses the native SQL Server backup", async () => {
+    const after = await upgrade(databases.plain, "none");
+    expect(after.hidden).toEqual(["pve", "databases"]);
+    expect(after.tables).toEqual(["database_connections", "database_probes", "databases"]);
+    expect(after.taskKinds.at(-1)).toBe("db_probe");
+  }, 120_000);
+
+  it("keeps it on where a job or one of its members has the native SQL Server backup on", async () => {
+    expect((await upgrade(databases.sql, "job")).hidden).toEqual(["pve"]);
+    expect((await upgrade(databases.member, "member")).hidden).toEqual(["pve"]);
   }, 120_000);
 });
 

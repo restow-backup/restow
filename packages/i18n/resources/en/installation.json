@@ -75,7 +75,8 @@
       "fileShares": "{count, plural, one {# file share} other {# file shares}}",
       "jobs": "{count, plural, one {# job} other {# jobs}}",
       "nodes": "{count, plural, one {# node} other {# nodes}}",
-      "guests": "{count, plural, one {# VM or container} other {# VMs and containers}}"
+      "guests": "{count, plural, one {# VM or container} other {# VMs and containers}}",
+      "databases": "{count, plural, one {# database} other {# databases}}"
     }
   },
   "locked": {

@@ -7,6 +7,7 @@ import backupDe from "../resources/de/backup.json" with { type: "json" };
 import backupjobsDe from "../resources/de/backupjobs.json" with { type: "json" };
 import commonDe from "../resources/de/common.json" with { type: "json" };
 import dashboardDe from "../resources/de/dashboard.json" with { type: "json" };
+import databasesDe from "../resources/de/databases.json" with { type: "json" };
 import directoryDe from "../resources/de/directory.json" with { type: "json" };
 import endpointsDe from "../resources/de/endpoints.json" with { type: "json" };
 import exportsDe from "../resources/de/exports.json" with { type: "json" };
@@ -45,6 +46,7 @@ import backupEn from "../resources/en/backup.json" with { type: "json" };
 import backupjobsEn from "../resources/en/backupjobs.json" with { type: "json" };
 import commonEn from "../resources/en/common.json" with { type: "json" };
 import dashboardEn from "../resources/en/dashboard.json" with { type: "json" };
+import databasesEn from "../resources/en/databases.json" with { type: "json" };
 import directoryEn from "../resources/en/directory.json" with { type: "json" };
 import endpointsEn from "../resources/en/endpoints.json" with { type: "json" };
 import exportsEn from "../resources/en/exports.json" with { type: "json" };
@@ -112,6 +114,7 @@ export const namespaces = [
   "endpoints",
   "pve",
   "fileshares",
+  "databases",
   "imports",
   "exports",
   "storage",
@@ -172,6 +175,7 @@ export const resources = {
     endpoints: endpointsDe,
     pve: pveDe,
     fileshares: filesharesDe,
+    databases: databasesDe,
     imports: importsDe,
     exports: exportsDe,
     storage: storageDe,
@@ -212,6 +216,7 @@ export const resources = {
     endpoints: endpointsEn,
     pve: pveEn,
     fileshares: filesharesEn,
+    databases: databasesEn,
     imports: importsEn,
     exports: exportsEn,
     storage: storageEn,

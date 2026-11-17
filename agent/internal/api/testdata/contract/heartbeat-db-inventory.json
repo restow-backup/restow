@@ -1,0 +1,28 @@
+{
+  "capabilities": ["db_runner_v1"],
+  "databaseInventory": {
+    "collectedAt": "2026-11-17T10:00:00Z",
+    "instances": [
+      {
+        "engine": "postgresql",
+        "source": "pg_lsclusters",
+        "name": "16/main",
+        "version": "16",
+        "port": 5432,
+        "socket": "/var/run/postgresql",
+        "container": null,
+        "running": true
+      },
+      {
+        "engine": "mariadb",
+        "source": "docker",
+        "name": "shop-db",
+        "version": "11.4",
+        "port": 3307,
+        "socket": null,
+        "container": "shop-db",
+        "running": true
+      }
+    ]
+  }
+}

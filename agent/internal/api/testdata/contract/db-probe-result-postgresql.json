@@ -1,0 +1,31 @@
+{
+  "engine": "postgresql",
+  "port": 5432,
+  "serverVersion": "16.4",
+  "tls": {
+    "offered": true,
+    "used": true,
+    "fingerprintSha256": "3A:91:5C:0E:7B:22:D4:18:F6:60:A9:4B:CE:13:57:9D:02:EE:71:B8:46:3F:A0:5D:C9:12:8E:64:BB:07:F3:2C",
+    "subject": "CN=db01.corp.example",
+    "issuer": "CN=Corp Internal CA",
+    "notAfter": "2027-11-17T00:00:00Z"
+  },
+  "login": "ok",
+  "error": null,
+  "postgresql": {
+    "versionNum": 160004,
+    "version": "PostgreSQL 16.4 (Debian 16.4-1.pgdg120+2) on x86_64-pc-linux-gnu",
+    "currentUser": "restow_backup",
+    "superuser": false,
+    "createDb": false,
+    "replication": false,
+    "readAllData": true,
+    "systemIdentifier": "7300000000000000042",
+    "databases": [
+      { "name": "erp", "oid": "16384", "allowConnections": true, "canConnect": true, "sizeBytes": 734003200 },
+      { "name": "postgres", "oid": "5", "allowConnections": true, "canConnect": true, "sizeBytes": 7570991 },
+      { "name": "hr", "oid": "16390", "allowConnections": true, "canConnect": false, "sizeBytes": null }
+    ]
+  },
+  "durationMs": 184
+}

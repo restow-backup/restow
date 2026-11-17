@@ -2,6 +2,7 @@ import type { AnyRoute } from "@tanstack/react-router";
 
 import * as archive from "@/features/archive";
 import * as backupJobs from "@/features/backup-jobs";
+import * as databases from "@/features/databases";
 import * as directory from "@/features/directory";
 import * as endpoints from "@/features/endpoints";
 import * as mailExports from "@/features/exports";
@@ -57,6 +58,7 @@ const features = [
   endpoints,
   pve,
   fileShares,
+  databases,
   tenants,
   tenantPage,
   directory,
@@ -86,7 +88,7 @@ interface Placement {
  *
  *   Daily                Overview, History, Warnings, Recovery readiness, Alerts
  *   Mail & SaaS          Jobs, Restore explorer, Archive, Exports
- *   Servers & endpoints  Jobs, Inventory, VMs & containers, File shares, File restore
+ *   Servers & endpoints  Jobs, Inventory, VMs & containers, File shares, Databases, File restore
  *   Tenants              Tenant settings, All tenants (tenant management);
  *   (Organisation)       "Settings" instead of "Tenant settings" and no
  *                        "Tenants" wording where the installation has one
@@ -122,6 +124,7 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   inventory: { group: "endpoints", order: 20 },
   virtualization: { group: "endpoints", order: 25 },
   "file-shares": { group: "endpoints", order: 27 },
+  databases: { group: "endpoints", order: 28 },
   "file-restore": { group: "endpoints", order: 30 },
   "tenant-settings": { group: "tenants", order: 10 },
   "organisation-settings": { group: "tenants", order: 10 },

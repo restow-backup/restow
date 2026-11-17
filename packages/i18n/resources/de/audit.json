@@ -168,7 +168,8 @@
     "installation": "Installation",
     "cluster": "Worker-Knoten",
     "billing": "Abrechnung",
-    "provider_webhook": "Webhooks des Providers"
+    "provider_webhook": "Webhooks des Providers",
+    "database_connection": "Datenbanken"
   },
   "events": {
     "account": {
@@ -836,6 +837,16 @@
       "deleted": "Webhook des Providers gelöscht",
       "tested": "Testzustellung an einen Webhook des Providers eingereiht",
       "secret_rotated": "Signaturschlüssel eines Webhooks des Providers ersetzt"
+    },
+    "database_connection": {
+      "created": "Datenbankverbindung angelegt",
+      "updated": "Datenbankverbindung geändert",
+      "deleted": "Datenbankverbindung gelöscht",
+      "credentials_changed": "Zugangsdaten einer Datenbankverbindung geändert",
+      "private_network_approved": "Datenbankverbindung in einem privaten Netz genehmigt",
+      "tls_confirmed": "Neues TLS-Zertifikat einer Datenbankverbindung bestätigt",
+      "instance_confirmed": "Neue Instanz unter der Adresse einer Datenbankverbindung bestätigt",
+      "tested": "Datenbankverbindung geprüft"
     }
   },
   "targetTypes": {
@@ -897,7 +908,8 @@
     "cluster_node": "Worker-Knoten",
     "billing_period": "Abrechnungsmonat",
     "billing_correction": "Abrechnungskorrektur",
-    "provider_webhook": "Webhook des Providers"
+    "provider_webhook": "Webhook des Providers",
+    "database_connection": "Datenbankverbindung"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {

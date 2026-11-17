@@ -6,6 +6,7 @@ import {
   bandwidthTimeZone,
   buildCause,
   cleanDataFolderReport,
+  DB_INVENTORY_MAX_BYTES,
   DEFAULT_SCHEDULE_TIMEZONE,
   ENDPOINT_QUEUES,
   type EndpointJobPayload,
@@ -24,6 +25,7 @@ import {
   isValidTimeZone,
   judgeAgentRestoreTest,
   parseActivityReport,
+  parseDbInventory,
   parseRunConsistency,
   policyBandwidthDefault,
   policyOnlyOnAcPower,
@@ -45,6 +47,7 @@ import {
   type Endpoint,
   type EndpointAgentFacts,
   type EndpointConfig,
+  type EndpointDatabaseInventory,
   type EndpointRun,
   type EndpointRunStats,
   endpointEnrollmentTokens,
@@ -141,7 +144,8 @@ export interface AgentTask {
     | "uninstall"
     | "sql_restore"
     | "sql_verify"
-    | "sql_inventory";
+    | "sql_inventory"
+    | "db_probe";
   params: Record<string, unknown>;
 }
 
@@ -594,6 +598,37 @@ function settingsWithFacts(facts: EndpointAgentFacts, now: Date): SQL {
     ELSE ${endpoints.settings} END`;
 }
 
+/**
+ * Keep the database inventory of a heartbeat in `settings.databaseInventory` (3.4): at most
+ * {@link DB_INVENTORY_MAX_BYTES}, checked entry by entry; a malformed one is dropped and the
+ * heartbeat still counts. A heartbeat without one leaves the stored one.
+ */
+async function recordDatabaseInventory(
+  tx: Transaction,
+  agent: AgentContext,
+  raw: unknown,
+  now: Date,
+): Promise<void> {
+  if (JSON.stringify(raw ?? null).length > DB_INVENTORY_MAX_BYTES) {
+    return;
+  }
+  const inventory = parseDbInventory(raw);
+  if (!inventory) {
+    return;
+  }
+  const stored: EndpointDatabaseInventory = {
+    collectedAt: inventory.collectedAt,
+    receivedAt: now.toISOString(),
+    instances: inventory.instances,
+  };
+  await tx
+    .update(endpoints)
+    .set({
+      settings: sql`jsonb_set(${endpoints.settings}, '{databaseInventory}', ${JSON.stringify(stored)}::jsonb)`,
+    })
+    .where(and(eq(endpoints.id, agent.endpointId), eq(endpoints.tenantId, agent.tenantId)));
+}
+
 /** Record a heartbeat and hand out what is waiting for the agent. */
 export async function heartbeat(
   agent: AgentContext,
@@ -639,6 +674,10 @@ export async function heartbeat(
     // `sql_inventory` task.
     if (input.sqlInventory !== undefined && agent.os === "windows") {
       await recordSqlInventory(tx, agent, input.sqlInventory, now);
+    }
+    // The database inventory (databases D1, docs/DATABASES.md 3.4): suggestions only.
+    if (input.databaseInventory !== undefined) {
+      await recordDatabaseInventory(tx, agent, input.databaseInventory, now);
     }
 
     // Tasks nobody picked up in time end here.
@@ -708,12 +747,14 @@ export async function heartbeat(
 
     const tasks: AgentTask[] = [];
     const finishedOnDelivery = waiting
-      // `sql_inventory` (W2a) has no run: the agent answers with its next heartbeat.
+      // `sql_inventory` (W2a) has no run: the agent answers with its next heartbeat. `db_probe`
+      // (databases D1) neither: the agent posts its result to the probe.
       .filter(
         (task) =>
           task.kind === "update_config" ||
           task.kind === "uninstall" ||
-          task.kind === "sql_inventory",
+          task.kind === "sql_inventory" ||
+          task.kind === "db_probe",
       )
       .map((task) => task.id);
     for (const task of waiting) {

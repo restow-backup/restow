@@ -168,7 +168,8 @@
     "installation": "Installation",
     "cluster": "Worker nodes",
     "billing": "Billing",
-    "provider_webhook": "Provider webhooks"
+    "provider_webhook": "Provider webhooks",
+    "database_connection": "Databases"
   },
   "events": {
     "account": {
@@ -836,6 +837,16 @@
       "deleted": "Provider webhook deleted",
       "tested": "Test delivery to a provider webhook queued",
       "secret_rotated": "Signing secret of a provider webhook replaced"
+    },
+    "database_connection": {
+      "created": "Database connection added",
+      "updated": "Database connection changed",
+      "deleted": "Database connection deleted",
+      "credentials_changed": "Credentials of a database connection changed",
+      "private_network_approved": "Database connection in a private network approved",
+      "tls_confirmed": "New TLS certificate of a database connection confirmed",
+      "instance_confirmed": "New instance under the address of a database connection confirmed",
+      "tested": "Database connection tested"
     }
   },
   "targetTypes": {
@@ -897,7 +908,8 @@
     "cluster_node": "Worker node",
     "billing_period": "Billing month",
     "billing_correction": "Billing correction",
-    "provider_webhook": "Provider webhook"
+    "provider_webhook": "Provider webhook",
+    "database_connection": "Database connection"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

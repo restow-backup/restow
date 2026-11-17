@@ -64,7 +64,16 @@ function menu(role: string | null, ctx: NavLockContext): Record<string, string[]
 const DAILY = ["dashboard", "history", "warnings", "verify", "alerts"];
 // The archive is part of Mail & SaaS (maintainer decision 2026-10-02): no section of its own.
 const MAIL = ["mail-jobs", "restore", "archive", "exports"];
-const ENDPOINTS = ["endpoint-jobs", "inventory", "virtualization", "file-shares", "file-restore"];
+const ENDPOINTS = [
+  "endpoint-jobs",
+  "inventory",
+  "virtualization",
+  "file-shares",
+  "databases",
+  "file-restore",
+];
+// What Servers & clients shows without the module Databases (off unless chosen, 0.6.0).
+const ENDPOINTS_WITHOUT_DATABASES = ENDPOINTS.filter((id) => id !== "databases");
 
 describe("the menu per edition", () => {
   it("Community, provider admin: the one organisation's settings, the members, the licensed entries greyed out", () => {
@@ -507,10 +516,18 @@ describe("the menu per module of the installation", () => {
   }
 
   it("is the whole menu while every module is on", () => {
-    const all = shown(["microsoft365", "imap", "archive", "endpoints", "pve"]);
+    const all = shown(["microsoft365", "imap", "archive", "endpoints", "pve", "databases"]);
     expect(all.mail).toEqual(MAIL);
     expect(all.endpoints).toEqual(ENDPOINTS);
     expect(all.daily).toEqual(DAILY);
+  });
+
+  it("shows Databases only while its module is on (docs/DATABASES.md 2.1)", () => {
+    expect(shown(["microsoft365", "imap", "archive", "endpoints", "pve"]).endpoints).toEqual(
+      ENDPOINTS_WITHOUT_DATABASES,
+    );
+    expect(shown(["databases"]).endpoints).toEqual(["databases"]);
+    expect(shown(["microsoft365", "databases"]).mail).toEqual(["mail-jobs", "restore", "exports"]);
   });
 
   it("drops Servers & clients as a whole once neither the machines nor Proxmox VE are on", () => {

@@ -130,6 +130,13 @@ export interface Config {
    */
   imapAllowPrivateNetworks: boolean;
   /**
+   * `RESTOW_DB_ALLOW_PRIVATE_NETWORKS`: every database connection the Restow server opens itself
+   * may reach loopback and private networks. Off by default; then only a provider admin approves
+   * an internal address per connection (docs/DATABASES.md 4.2, @restow/core databases/network.ts).
+   * Link-local and reserved addresses stay refused either way.
+   */
+  dbAllowPrivateNetworks: boolean;
+  /**
    * `RESTOW_DOCS_TROUBLESHOOTING_URL`: where the failure explanations point for
    * more help. The one place this address lives (defaults to the public docs);
    * an installation may point it at its own runbook.
@@ -397,6 +404,7 @@ export function loadConfig(env: Env = process.env): Config {
     },
     graphMailSender: str(env, "GRAPH_MAIL_SENDER"),
     imapAllowPrivateNetworks: bool(env, "IMAP_ALLOW_PRIVATE_NETWORKS"),
+    dbAllowPrivateNetworks: bool(env, "RESTOW_DB_ALLOW_PRIVATE_NETWORKS"),
     docsTroubleshootingUrl: docsTroubleshootingUrl(str(env, "RESTOW_DOCS_TROUBLESHOOTING_URL")),
     demo: {
       enabled: bool(env, "RESTOW_DEMO"),

@@ -1,0 +1,284 @@
+{
+  "nav": {
+    "label": "Databases"
+  },
+  "list": {
+    "title": "Databases",
+    "description": "Databases {appName} protects by address and user, without backing up the whole server.",
+    "refresh": "Refresh",
+    "add": "Add database",
+    "loadError": "The databases could not be loaded",
+    "noTenant": {
+      "title": "No tenant selected",
+      "description": "Choose a tenant at the top to see its databases."
+    },
+    "empty": {
+      "title": "No database yet",
+      "description": "Enter an address and a user. {appName} recognises the engine, shows what the user allows, and only then saves."
+    },
+    "noneMatch": "No database matches these filters.",
+    "unknown": "unknown",
+    "never": "never",
+    "filters": {
+      "engine": "Engine",
+      "connection": "Connection",
+      "rating": "Rating",
+      "allEngines": "All engines",
+      "allConnections": "All connections",
+      "allRatings": "All ratings"
+    },
+    "columns": {
+      "database": "Database",
+      "engine": "Engine",
+      "connection": "Connection",
+      "mode": "Mode",
+      "size": "Size",
+      "lastBackup": "Last backup",
+      "lastCheck": "Last check",
+      "reachability": "Reachability",
+      "rating": "Rating"
+    },
+    "connections": {
+      "title": "Connections",
+      "description": "Each connection is one instance or one SQLite file with its sign-in, executor and schedule.",
+      "name": "Connection",
+      "executor": "Executor",
+      "state": "State"
+    }
+  },
+  "suggestions": {
+    "title": "Found, not protected",
+    "description": "The agents of your machines found these databases. A connection exists only once you test and save it.",
+    "found": "{engine} {name} on {hostname}",
+    "protect": "Protect",
+    "noPort": "Runs in a container without a published port; enter the address yourself."
+  },
+  "add": {
+    "title": "Add database",
+    "description": "An address, a user and a password are enough. Test the connection; it is saved only after that.",
+    "address": "Address",
+    "addressHint": "A URL (postgresql://, mysql://, mariadb://, sqlserver://), host:port, only the host, or the path of an SQLite file. A user and password in the URL move into their fields.",
+    "executor": "Executor",
+    "executorHint": "Who opens the connection: the {appName} server itself (PostgreSQL, MySQL, MariaDB) or an agent in the database's network. SQLite and SQL Server need an agent on their own machine.",
+    "executorServer": "{appName} server",
+    "executorAgent": "Agent on {hostname}",
+    "executorAgentOffline": "Agent on {hostname} (not reachable right now)",
+    "socket": "Sign in over the local socket, without a password",
+    "socketHint": "Only with an agent on the database machine: PostgreSQL as postgres (peer), MariaDB and MySQL as root.",
+    "user": "User",
+    "userHint": "A backup user of its own is recommended; an admin user works too.",
+    "password": "Password",
+    "unencrypted": "Connect unencrypted when the server offers no TLS",
+    "unencryptedHint": "The notice stays with the connection. The {appName} server never connects to a public address without TLS.",
+    "test": "Test connection",
+    "waiting": "The agent is testing the connection",
+    "waitingHint": "It picks the test up at its next contact, within about five minutes. You can keep this window open.",
+    "expired": "The agent did not report for 15 minutes. Check that it runs, or choose another executor.",
+    "name": "Name",
+    "nameHint": "Without one, the connection is named after its address.",
+    "mode": "Mode",
+    "modeHint": "Point-in-time and the warm copy follow in later releases.",
+    "interval": "Backup",
+    "selection": "Protected databases",
+    "selectionHint": "Databases added later are included automatically.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Connection {name} saved."
+  },
+  "probe": {
+    "engine": "Engine",
+    "engineUnknown": "not recognised",
+    "port": "(port {port})",
+    "tls": "Encryption",
+    "tlsUsed": "TLS, certificate with this fingerprint (SHA-256):",
+    "tlsNotOffered": "The server offers no TLS.",
+    "tlsNotUsed": "Without TLS",
+    "certificate": "Issued to {subject}, by {issuer}",
+    "copyFingerprint": "Copy fingerprint",
+    "databases": "{count, plural, one {# database found} other {# databases found}}",
+    "identityUnknown": "This user cannot read the identity of the instance; a change of instance would then go unnoticed.",
+    "schemasByName": "Schemas are recognised by their name: a schema dropped and created again under the same name counts as the same one."
+  },
+  "rights": {
+    "title": "What this user allows",
+    "capability": "Capability",
+    "status": "State",
+    "missing": "Missing",
+    "capabilities": {
+      "backup": "Backup",
+      "verifyOnInstance": "Check and restore on the same instance",
+      "pitr": "Point-in-time"
+    },
+    "state": {
+      "granted": "Allowed",
+      "missing": "Missing",
+      "partial": "Partly",
+      "unknown": "Cannot be checked",
+      "notApplicable": "Does not apply"
+    },
+    "notes": {
+      "pg_before_14": "Before PostgreSQL 14 the right to read every object cannot be checked in advance.",
+      "pg_hba_unchecked": "{appName} cannot see the replication entry in pg_hba.conf with this user.",
+      "binlog_off": "The binlog is off.",
+      "some_databases": "Only for some databases.",
+      "sqlserver_later": "SQL Server is still backed up by the native backup on the machine's page.",
+      "not_signed_in": "Not signed in."
+    },
+    "admin": {
+      "title": "Admin user",
+      "description": "This user may do everything ({rights}). {appName} only needs the rights of the backup user below."
+    },
+    "grant": {
+      "missing": "These statements create a backup user restow_backup with exactly the missing rights:",
+      "recommended": "Recommended: a backup user restow_backup with exactly these rights:",
+      "copy": "Copy SQL",
+      "savesAnyway": "You can save the connection anyway; it can then do what the user allows."
+    }
+  },
+  "modes": {
+    "backup": "Backup",
+    "pitr": "Point-in-time",
+    "warm_copy": "Warm copy"
+  },
+  "intervals": {
+    "minutes": "{count, plural, =15 {every 15 minutes} =30 {every 30 minutes} =60 {hourly} =120 {every 2 hours} =240 {every 4 hours} =360 {every 6 hours} =720 {every 12 hours} =1440 {daily} other {every # minutes}}"
+  },
+  "rating": {
+    "red": "Red",
+    "overdue": "Overdue",
+    "unverified": "Backed up, unchecked",
+    "notProtected": "Not backed up yet",
+    "green": "Checked"
+  },
+  "reachability": {
+    "reachable": "Reachable",
+    "unreachable": "Not reachable",
+    "unknown": "Unknown"
+  },
+  "executor": {
+    "server": "{appName} server",
+    "agentOnline": "Agent on {hostname}",
+    "agentOffline": "Agent on {hostname}, no contact for more than 15 minutes",
+    "missing": "No executor (the machine was removed)"
+  },
+  "connection": {
+    "loadError": "The connection could not be loaded",
+    "test": "Test connection",
+    "testResult": "Result of the test",
+    "facts": "Connection",
+    "engine": "Engine",
+    "address": "Address",
+    "executor": "Executor",
+    "signIn": "Sign-in",
+    "socket": "Over the local socket, without a password",
+    "credentialSet": "User and password are stored encrypted",
+    "credentialMissing": "No credentials stored",
+    "tls": "TLS certificate",
+    "tlsConfirmed": "Confirmed by {by} on {at}",
+    "unencrypted": "Unencrypted (explicitly allowed)",
+    "approval": "Private network",
+    "approvedBy": "Approved by {by} on {at}",
+    "mode": "Mode",
+    "schedule": "Schedule",
+    "lastCheck": "Last test",
+    "identity": "Instance",
+    "databases": "Databases",
+    "databasesDescription": "A database dropped and created again under the same name is another database with a history of its own.",
+    "dropped": "Gone since {at}",
+    "excluded": "Left out of the selection",
+    "delete": "Delete connection",
+    "deleteTitle": "Delete connection {name}?",
+    "deleteDescription": "The connection, its databases and the stored credentials are deleted. Type the name to confirm.",
+    "deleted": "Connection {name} deleted.",
+    "state": {
+      "ok": "Sign-in works",
+      "attention": "Needs attention",
+      "red": "Red",
+      "unchecked": "Not tested yet"
+    }
+  },
+  "confirm": {
+    "tlsTitle": "Another TLS certificate",
+    "tlsDescription": "The server shows another certificate than the confirmed one. Until you confirm it, {appName} does not connect again. Check the fingerprint:",
+    "tlsQuestion": "Confirm only if you know the certificate was renewed. The confirmation is recorded in the audit log.",
+    "tlsAction": "Confirm new certificate",
+    "instanceTitle": "Another instance under the address",
+    "instanceDescription": "Another instance answers under the address, for example after a move or a failover. {appName} does not keep backing up silently.",
+    "instanceQuestion": "Confirm that the new instance has the same job. Its databases get a history of their own; the old instance's stays separate. The confirmation is recorded in the audit log.",
+    "instanceAction": "Confirm new instance"
+  },
+  "settings": {
+    "title": "Settings",
+    "newUser": "New user",
+    "newPassword": "New password",
+    "credentialsHint": "Leave empty to keep the stored credentials. Stored credentials are never shown.",
+    "enabled": "Connection active",
+    "save": "Save",
+    "saved": "Settings saved."
+  },
+  "database": {
+    "loadError": "The database could not be loaded",
+    "facts": "Database",
+    "identity": "Identity",
+    "identityKnown": "By the database's name and id",
+    "identityByName": "By its name",
+    "firstSeen": "First found",
+    "selection": "Selection",
+    "dropped": "Gone",
+    "noBackups": {
+      "title": "No backup yet",
+      "description": "Backups, check reports and the history of its size appear here once the database is backed up."
+    }
+  },
+  "codes": {
+    "db_unreachable": "Not reachable",
+    "db_login_failed": "Sign-in refused",
+    "db_permission_missing": "Rights missing",
+    "db_engine_changed": "Another engine answers under the address",
+    "db_instance_changed": "Another instance answers under the address",
+    "db_target_is_restow": "This is the database of this {appName} installation",
+    "db_private_network": "Address in a private network",
+    "db_forbidden_address": "Address refused (link-local or reserved)",
+    "db_tls_changed": "Another TLS certificate",
+    "db_tls_missing": "No TLS",
+    "db_not_a_database": "No known database answers under the address",
+    "db_engine_unsupported": "This engine needs an agent on its own machine",
+    "db_auth_unsupported": "The sign-in over the socket is not possible here",
+    "db_dump_failed": "Dump failed",
+    "db_snapshot_failed": "Snapshot failed",
+    "db_tool_missing": "Program missing",
+    "db_tool_too_old": "Program too old",
+    "db_no_space": "No space",
+    "db_restore_name_taken": "Name already taken",
+    "db_restore_failed": "Restore failed",
+    "db_backup_mismatch": "Checksum differs",
+    "db_verify_no_space": "No space for the check",
+    "db_verify_timeout": "Check stopped (time limit)",
+    "db_runner_offline": "Executor not reachable",
+    "db_pitr_slot_unbounded": "Replication slot without a limit",
+    "db_pitr_gap": "Gap in the log",
+    "db_warm_copy_name_taken": "Name already taken on the target",
+    "db_probe_failed": "Test failed",
+    "db_nontransactional_tables": "Tables without transactions",
+    "db_version_untested": "Version not tested",
+    "db_too_large_to_verify": "Too large to check",
+    "db_run_overlap": "Run skipped, the previous one was still running",
+    "db_run_slow": "Run takes long",
+    "db_unencrypted": "Unencrypted"
+  },
+  "problems": {
+    "generic": "That did not work. Try again.",
+    "invalid": "The details are not complete.",
+    "address": "The address is not valid.",
+    "executor": "This executor cannot open the connection.",
+    "db_private_network": "The address is in a private network or is a container name. Only a provider admin can approve it for the {appName} server; an agent in that network can reach it.",
+    "db_forbidden_address": "The address is link-local or reserved (such as a cloud's metadata service). The {appName} server never connects there.",
+    "probe-required": "Test the connection before you save it.",
+    "tls-missing": "The server offers no TLS. Tick the box for unencrypted connections to save it anyway.",
+    "target-is-restow": "This is the database of this {appName} installation. It is protected by the installation's backup, not in this module.",
+    "name-taken": "Another connection already has this name.",
+    "probe-limit": "Too many tests in a short time. Try again in a few minutes.",
+    "probe-used": "This test was already fetched.",
+    "confirm": "There is nothing to confirm. Test the connection again."
+  }
+}

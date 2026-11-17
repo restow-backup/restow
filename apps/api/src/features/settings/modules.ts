@@ -2,6 +2,8 @@ import {
   archiveItems,
   backupJobs,
   type Database,
+  databaseConnections,
+  databases,
   endpoints,
   fileShares,
   protectedObjects,
@@ -56,6 +58,7 @@ export const modulesSchema = z.object({ enabled: enabledModulesSchema }).strict(
  *   jobs           jobs of the module (machines, file shares and copies; Proxmox VE)
  *   nodes          Proxmox VE nodes
  *   guests         VMs and containers that are not retired
+ *   databases      databases of the module's connections that were not dropped (0.6.0)
  */
 export const MODULE_DATA_KINDS = [
   "connections",
@@ -67,6 +70,7 @@ export const MODULE_DATA_KINDS = [
   "jobs",
   "nodes",
   "guests",
+  "databases",
 ] as const;
 export type ModuleDataKind = (typeof MODULE_DATA_KINDS)[number];
 
@@ -125,6 +129,8 @@ async function moduleData(db: DbExecutor): Promise<Record<ModuleId, ModuleDataCo
     nodes,
     guests,
     guestJobs,
+    databaseConnectionCount,
+    databaseCount,
   ] = await Promise.all([
     sourcesOf("m365"),
     objectsOf("m365"),
@@ -156,6 +162,8 @@ async function moduleData(db: DbExecutor): Promise<Record<ModuleId, ModuleDataCo
     countOf(db.select({ count }).from(pveNodes)),
     countOf(db.select({ count }).from(pveGuests).where(sql`${pveGuests.retiredAt} is null`)),
     countOf(db.select({ count }).from(pveJobs)),
+    countOf(db.select({ count }).from(databaseConnections)),
+    countOf(db.select({ count }).from(databases).where(sql`${databases.droppedAt} is null`)),
   ]);
   const held = (entries: [ModuleDataKind, number][]): ModuleDataCount[] =>
     entries.filter(([, value]) => value > 0).map(([kind, value]) => ({ kind, count: value }));
@@ -181,6 +189,10 @@ async function moduleData(db: DbExecutor): Promise<Record<ModuleId, ModuleDataCo
       ["nodes", nodes],
       ["guests", guests],
       ["jobs", guestJobs],
+    ]),
+    databases: held([
+      ["connections", databaseConnectionCount],
+      ["databases", databaseCount],
     ]),
   };
 }

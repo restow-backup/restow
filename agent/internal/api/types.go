@@ -315,6 +315,10 @@ type HeartbeatRequest struct {
 	// backup is on, or after a sql_inventory task); at most
 	// MaxSQLInventoryBytes.
 	SQLInventory *SQLInventory `json:"sqlInventory,omitempty"`
+	// DatabaseInventory (agent 0.6.0, Linux) are the database instances the
+	// machine runs (docs/DATABASES.md 3.4): suggestions for the Databases page,
+	// sent at most every 6 hours, at most MaxDBInventoryBytes.
+	DatabaseInventory *DBInventory `json:"databaseInventory,omitempty"`
 }
 
 // Task is a command from the server, delivered in the heartbeat answer.

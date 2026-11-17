@@ -94,7 +94,7 @@ func buildAgent(layout paths.Layout, st *state.State, logger *slog.Logger, selfU
 	}
 	return core.New(core.Deps{
 		Layout: layout, State: st, Server: client, Restic: runner, Status: store, Logger: logger,
-		Uninstall: uninstall,
+		Uninstall: uninstall, DBPeer: dbPeer,
 	}, core.Options{SelfUpdate: selfUpdate}), nil
 }
 

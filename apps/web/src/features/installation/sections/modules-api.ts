@@ -16,7 +16,8 @@ export type ModuleDataKind =
   | "fileShares"
   | "jobs"
   | "nodes"
-  | "guests";
+  | "guests"
+  | "databases";
 
 export interface ModuleDataCount {
   kind: ModuleDataKind;

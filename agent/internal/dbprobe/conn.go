@@ -1,0 +1,139 @@
+// Package dbprobe tests a database connection for the server (docs/DATABASES.md
+// 3, stage D1): it recognises the engine from the first exchange of its
+// protocol, switches to TLS whenever the server offers it, signs in and reads
+// the facts of the rights matrix and of the instance's identity. It reports
+// facts only (api.DBProbeResult); the server judges them. The same work is done
+// in TypeScript by the Restow server itself (@restow/core databases/probe), and
+// both read the shared fixtures in internal/api/testdata/contract.
+//
+// It speaks the protocols itself (PostgreSQL 3.0 with SCRAM-SHA-256, MD5 and
+// plain passwords; MySQL protocol 10 with mysql_native_password and
+// caching_sha2_password; the TDS PRELOGIN of SQL Server), so the agent keeps
+// to the standard library. Credentials stay in memory and never reach a log or
+// a message: every message passes through Sanitize.
+package dbprobe
+
+import (
+	"bufio"
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strings"
+	"time"
+)
+
+// conn is a connection with a read buffer, deadlines per step and the switch
+// to TLS in the middle of a conversation.
+type conn struct {
+	raw     net.Conn
+	r       *bufio.Reader
+	step    time.Duration
+	tlsUsed bool
+	cert    *certFacts
+}
+
+type certFacts struct {
+	fingerprint string
+	subject     string
+	issuer      string
+	notAfter    time.Time
+}
+
+// errClosed: the server ended the connection.
+var errClosed = errors.New("the server closed the connection")
+
+// dialer opens a connection; tests replace it.
+type dialer func(ctx context.Context, network, address string) (net.Conn, error)
+
+func defaultDial(ctx context.Context, network, address string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, address)
+}
+
+func openConn(ctx context.Context, dial dialer, network, address string, step time.Duration) (*conn, error) {
+	dctx, cancel := context.WithTimeout(ctx, step)
+	defer cancel()
+	raw, err := dial(dctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &conn{raw: raw, r: bufio.NewReader(raw), step: step}, nil
+}
+
+func (c *conn) deadline() { _ = c.raw.SetDeadline(time.Now().Add(c.step)) }
+
+// readFull reads exactly n bytes within one step.
+func (c *conn) readFull(n int) ([]byte, error) {
+	c.deadline()
+	b := make([]byte, n)
+	if _, err := io.ReadFull(c.r, b); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, errClosed
+		}
+		return nil, err
+	}
+	return b, nil
+}
+
+// peek returns what the server sends on its own within d, or nothing.
+func (c *conn) peek(d time.Duration) []byte {
+	_ = c.raw.SetReadDeadline(time.Now().Add(d))
+	b, _ := c.r.Peek(1)
+	if len(b) == 0 {
+		return nil
+	}
+	n := c.r.Buffered()
+	out, _ := c.r.Peek(n)
+	return append([]byte(nil), out...)
+}
+
+func (c *conn) write(b []byte) error {
+	c.deadline()
+	_, err := c.raw.Write(b)
+	return err
+}
+
+// startTLS switches to TLS. The certificate is pinned by its fingerprint
+// (the server stores it and turns red on another one), not checked against a
+// CA: self-signed certificates are the rule for databases.
+func (c *conn) startTLS(serverName string) error {
+	if c.r.Buffered() > 0 {
+		return errors.New("the server sent data before the TLS handshake")
+	}
+	cfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// #nosec G402 -- pinned by fingerprint below (docs/DATABASES.md 3.2).
+		InsecureSkipVerify: true, //nolint:gosec
+		ServerName:         serverName,
+	}
+	tc := tls.Client(c.raw, cfg)
+	c.deadline()
+	if err := tc.Handshake(); err != nil {
+		return fmt.Errorf("TLS: %w", err)
+	}
+	state := tc.ConnectionState()
+	if len(state.PeerCertificates) > 0 {
+		leaf := state.PeerCertificates[0]
+		sum := sha256.Sum256(leaf.Raw)
+		hexes := make([]string, len(sum))
+		for i, b := range sum {
+			hexes[i] = fmt.Sprintf("%02X", b)
+		}
+		c.cert = &certFacts{
+			fingerprint: strings.Join(hexes, ":"),
+			subject:     leaf.Subject.String(),
+			issuer:      leaf.Issuer.String(),
+			notAfter:    leaf.NotAfter,
+		}
+	}
+	c.raw = tc
+	c.r = bufio.NewReader(tc)
+	c.tlsUsed = true
+	return nil
+}
+
+func (c *conn) close() { _ = c.raw.Close() }

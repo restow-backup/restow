@@ -6,8 +6,7 @@
 -- back to the prices at the close for them). The check scans webhook_deliveries once; the
 -- worker prunes it after 30 days, so it is small.
 --
--- Journal entry 106 with a `when` later than 0106_billing_close's (see there for the merge with
--- 0105_databases).
+-- Journal entry 107 with a `when` later than 0106_billing_close's.
 --> statement-breakpoint
 CREATE TABLE "provider_webhooks" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

@@ -1,0 +1,13 @@
+{
+  "probeId": "4f7c2a1e-9b3d-4e5f-8a6b-1c2d3e4f5a6b",
+  "engine": null,
+  "host": "db01.corp.example",
+  "port": null,
+  "path": null,
+  "database": "erp",
+  "authMethod": "password",
+  "user": "restow_backup",
+  "password": "example-only",
+  "allowUnencrypted": false,
+  "timeoutSeconds": 30
+}

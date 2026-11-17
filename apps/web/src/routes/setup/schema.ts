@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isValidTenantId } from "@/features/settings/forms";
 import type { SetupSubmission, SmtpSecurity } from "@/lib/api";
-import { MODULE_IDS } from "@/lib/modules";
+import { DEFAULT_MODULE_IDS, MODULE_IDS } from "@/lib/modules";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 
 /**
@@ -212,7 +212,7 @@ type FieldPath =
   | "sendTest";
 
 export const defaultSetupValues: SetupFormValues = {
-  modules: [...MODULE_IDS],
+  modules: [...DEFAULT_MODULE_IDS],
   operatingMode: "local",
   publicUrl: "",
   timeZone: "",

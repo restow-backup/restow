@@ -39,6 +39,10 @@ export type SecretKind =
   // restic repository password of a share.
   | "file_share_password"
   | "file_share_repository"
+  // Databases (tenant level, docs/DATABASES.md 3.2): the user and password of a connection (sealed
+  // JSON {user, password}), and the copy one agent probe fetches once (deleted then).
+  | "database_credentials"
+  | "database_probe_credentials"
   | (string & {});
 
 /**

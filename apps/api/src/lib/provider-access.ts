@@ -144,6 +144,9 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/v1/runs/:runId/progress",
   "POST /agent/v1/runs/:runId/finish",
   "GET /agent/v1/update",
+  // A connection test of the module "Databases" (docs/DATABASES.md 4.3): the agent's own secret.
+  "GET /agent/v1/databases/probes/:probeId",
+  "POST /agent/v1/databases/probes/:probeId/result",
   // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
   // per address), the session routes authenticate with the session's own secret (HTTP Basic).
   "POST /agent/v1/recovery/sessions",
@@ -699,6 +702,19 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // are set by provider administrators only (the handlers refuse tenant admins); the
   // installation settings span every tenant ("Tenants may use private networks": owner only,
   // checked in the handler).
+  // The module "Databases" (docs/DATABASES.md 9): administrators change and test, everyone reads.
+  "GET /api/v1/databases": view(),
+  "GET /api/v1/databases/suggestions": view(),
+  "GET /api/v1/databases/runners": view(),
+  "GET /api/v1/databases/connections": view(),
+  "POST /api/v1/databases/connections": configure(),
+  "POST /api/v1/databases/connections/test": configure(),
+  "GET /api/v1/databases/connections/test/:probeId": configure(),
+  "GET /api/v1/databases/connections/:id": view(),
+  "PATCH /api/v1/databases/connections/:id": configure(),
+  "DELETE /api/v1/databases/connections/:id": configure(),
+  "POST /api/v1/databases/connections/:id/test": configure(),
+  "GET /api/v1/databases/:id": view(),
   "GET /api/v1/file-shares": view(),
   "POST /api/v1/file-shares": configure(),
   "GET /api/v1/file-shares/settings": view(),

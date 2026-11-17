@@ -37,6 +37,8 @@ import {
 import { clusterRoutes } from "./features/cluster/routes.js";
 import { mountPath as dashboardMountPath } from "./features/dashboard/meta.js";
 import { dashboardRoutes } from "./features/dashboard/routes.js";
+import { mountPath as databasesMountPath } from "./features/databases/constants.js";
+import { databasesRoutes } from "./features/databases/routes.js";
 import { mountPath as directoryMountPath } from "./features/directory/meta.js";
 import { directoryRoutes } from "./features/directory/routes.js";
 import { agentRoutes } from "./features/endpoints/agent-routes.js";
@@ -325,6 +327,7 @@ export function buildApp() {
   app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);
   app.route(`${API_V1}${pveMountPath}`, pveRoutes);
   app.route(`${API_V1}${fileSharesMountPath}`, fileSharesRoutes);
+  app.route(`${API_V1}${databasesMountPath}`, databasesRoutes);
 
   // Extension route groups, each behind the guard its extension supplies.
   for (const contribution of sessionRouteContributions()) {

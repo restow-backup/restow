@@ -4,11 +4,8 @@
 -- triggers of the closed months and corrections, the tenant policies and the grants come from
 -- sql/rls.sql and roles.ts after the migrations.
 --
--- Numbered 0106 although it is the 105th journal entry (idx 105): the databases module of 0.6.0
--- adds 0105 on a sibling branch. When both are merged, the journal must list them in the order
--- they apply with strictly increasing `when` (the Drizzle migrator applies a migration only when
--- its `when` is later than the last applied one's), `idx` must count 0, 1, 2, ... and the
--- snapshot of the later one must point at the earlier one's (`prevId`).
+-- Applies after 0105_databases (journal entry 106, a `when` later than 0105's: the Drizzle
+-- migrator applies a migration only when its `when` is later than the last applied one's).
 --> statement-breakpoint
 CREATE TABLE "billing_corrections" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

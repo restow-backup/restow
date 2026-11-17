@@ -139,7 +139,7 @@ func TestSQLRunsFollowTheFileRun(t *testing.T) {
 		defer h.srv.Unlock()
 		for _, hb := range h.srv.Heartbeats {
 			if hb.SQLInventory != nil && len(hb.SQLInventory.Instances) == 2 {
-				return reflect.DeepEqual(hb.Capabilities, []string{api.CapabilitySQLNative}) && hb.Machine.Windows != nil
+				return reflect.DeepEqual(hb.Capabilities, []string{api.CapabilityDBRunner, api.CapabilitySQLNative}) && hb.Machine.Windows != nil
 			}
 		}
 		return false
@@ -312,7 +312,8 @@ func TestSQLUnsupportedSystem(t *testing.T) {
 	h.srv.Lock()
 	hb := h.srv.Heartbeats[0]
 	h.srv.Unlock()
-	if len(hb.Capabilities) != 0 || hb.SQLInventory != nil {
+	// Only the database runner of every agent (docs/DATABASES.md 4.1), no SQL Server.
+	if !reflect.DeepEqual(hb.Capabilities, []string{api.CapabilityDBRunner}) || hb.SQLInventory != nil {
 		t.Fatalf("%+v", hb)
 	}
 }

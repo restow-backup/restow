@@ -187,6 +187,12 @@ DECLARE
     'storage_samples',
     -- Who belongs to a Microsoft 365 group or a SharePoint site (0.5.0, #89).
     'directory_memberships',
+    -- The module "Databases" (0.6.0, docs/DATABASES.md 9): connections, their databases and the
+    -- connection tests. An agent's test is looked up by its id on the tenant role pinned to the
+    -- agent's tenant, like its runs.
+    'database_connections',
+    'databases',
+    'database_probes',
     -- Restore mode after restoring a database dump (0.5.0, src/restore-mode.ts): the database's
     -- progress per tenant, its comparison with each storage target, refused deletions, wrapped
     -- keys in storage that differ. Written on the installation pool.
