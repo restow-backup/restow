@@ -2824,7 +2824,8 @@ describe.skipIf(!adminUrl)("upgrading to 0.6.0: the module Databases (0105)", ()
       const tables = (
         await pool.query<{ table_name: string }>(
           `SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name IN ('database_connections', 'databases', 'database_probes')
+            WHERE table_schema = 'public'
+              AND table_name IN ('database_connections', 'databases', 'database_probes', 'database_health_samples')
             ORDER BY table_name`,
         )
       ).rows.map((row) => row.table_name);
@@ -2843,8 +2844,14 @@ describe.skipIf(!adminUrl)("upgrading to 0.6.0: the module Databases (0105)", ()
   it("switches the new module off where no job uses the native SQL Server backup", async () => {
     const after = await upgrade(databases.plain, "none");
     expect(after.hidden).toEqual(["pve", "databases"]);
-    expect(after.tables).toEqual(["database_connections", "database_probes", "databases"]);
-    expect(after.taskKinds.at(-1)).toBe("db_probe");
+    expect(after.tables).toEqual([
+      "database_connections",
+      "database_health_samples",
+      "database_probes",
+      "databases",
+    ]);
+    // D1 the connection test, D2 (0108) the bundled health checks of an agent.
+    expect(after.taskKinds.slice(-2)).toEqual(["db_probe", "db_health"]);
   }, 120_000);
 
   it("keeps it on where a job or one of its members has the native SQL Server backup on", async () => {

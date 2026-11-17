@@ -1,3 +1,4 @@
+import type { DbHealthState } from "@restow/core";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -122,6 +123,10 @@ export const databaseConnections = pgTable(
     instanceIdentity: jsonb("instance_identity").$type<Record<string, unknown>>(),
     serverVersion: text("server_version"),
     lastCheck: jsonb("last_check").$type<DatabaseConnectionCheck>(),
+    // Health checks (D2, 8): every N minutes, 1 to 60, default 5; the state the worker keeps
+    // (the newest check, failures in a row, the episode of `database.unreachable`).
+    healthIntervalMinutes: integer("health_interval_minutes").notNull().default(5),
+    health: jsonb("health").$type<DbHealthState>(),
     enabled: boolean("enabled").notNull().default(true),
     createdBy: text("created_by"),
     ...timestamps(),
@@ -142,6 +147,10 @@ export const databaseConnections = pgTable(
       sql`CASE WHEN ${t.engine} = 'sqlite' THEN ${t.path} IS NOT NULL AND ${t.host} IS NULL ELSE ${t.host} IS NOT NULL AND ${t.path} IS NULL END`,
     ),
     check("database_connections_port_ck", sql`${t.port} IS NULL OR ${t.port} BETWEEN 1 AND 65535`),
+    check(
+      "database_connections_health_interval_ck",
+      sql`${t.healthIntervalMinutes} BETWEEN 1 AND 60`,
+    ),
     // The server opens PostgreSQL, MySQL and MariaDB with a password only (4.2) and has no agent.
     check(
       "database_connections_server_ck",
@@ -238,8 +247,65 @@ export const databaseProbes = pgTable(
   ],
 );
 
+/**
+ * The health history of a connection (docs/DATABASES.md 8, stage D2). A raw sample is one check
+ * (`checks` 1, `ok_checks` 0 or 1) as the executor reported it and the server judged it; raw
+ * samples are kept 14 days, then the worker folds each hour into one `hour` sample (sums of
+ * `checks` and `ok_checks`, mean and extremes of the response time and the connections, the last
+ * version, start time, certificate and sizes) kept 400 days. Never a credential: error messages
+ * are cleaned of them before they are stored.
+ */
+export type DatabaseHealthResolution = "raw" | "hour";
+
+export const databaseHealthSamples = pgTable(
+  "database_health_samples",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => databaseConnections.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    resolution: text("resolution").$type<DatabaseHealthResolution>().notNull().default("raw"),
+    executorKind: text("executor_kind").$type<DatabaseExecutorKind>().notNull(),
+    checks: integer("checks").notNull().default(1),
+    okChecks: integer("ok_checks").notNull(),
+    // The code of the (last) failed check; null when it was good.
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    // Connection, TLS, sign-in and SELECT 1 (8); the mean of an hour, with its extremes.
+    latencyMs: integer("latency_ms"),
+    latencyMinMs: integer("latency_min_ms"),
+    latencyMaxMs: integer("latency_max_ms"),
+    serverVersion: text("server_version"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    connectionsUsed: integer("connections_used"),
+    connectionsUsedMax: integer("connections_used_max"),
+    connectionsMax: integer("connections_max"),
+    tlsFingerprint: text("tls_fingerprint"),
+    instanceKey: text("instance_key"),
+    // Size per database row id (`databases.id`), at most once an hour.
+    sizes: jsonb("sizes").$type<Record<string, number>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("database_health_samples_connection_at_idx").on(t.connectionId, t.at),
+    index("database_health_samples_tenant_at_idx").on(t.tenantId, t.at),
+    check("database_health_samples_resolution_ck", sql`${t.resolution} IN ('raw', 'hour')`),
+    check("database_health_samples_executor_ck", sql`${t.executorKind} IN ('agent', 'server')`),
+    check(
+      "database_health_samples_checks_ck",
+      sql`${t.checks} >= 1 AND ${t.okChecks} BETWEEN 0 AND ${t.checks}`,
+    ),
+  ],
+);
+
 export type DatabaseConnection = typeof databaseConnections.$inferSelect;
 export type NewDatabaseConnection = typeof databaseConnections.$inferInsert;
 export type ProtectedDatabase = typeof databases.$inferSelect;
 export type NewProtectedDatabase = typeof databases.$inferInsert;
 export type DatabaseProbe = typeof databaseProbes.$inferSelect;
+export type DatabaseHealthSample = typeof databaseHealthSamples.$inferSelect;
+export type NewDatabaseHealthSample = typeof databaseHealthSamples.$inferInsert;

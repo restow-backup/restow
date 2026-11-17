@@ -99,6 +99,11 @@ describe.skipIf(!adminUrl)("database module tables against Postgres", () => {
          VALUES ($1, $2, 'agent', $3, '{}'::jsonb, now() + interval '10 minutes')`,
         [tenantId, connection, endpoint],
       );
+      await client.query(
+        `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks, latency_ms)
+         VALUES ($1, $2, now(), 'agent', 1, 12)`,
+        [tenantId, connection],
+      );
       return { connection, endpoint };
     });
   }
@@ -147,7 +152,12 @@ describe.skipIf(!adminUrl)("database module tables against Postgres", () => {
   it("keeps connections, databases and tests inside their tenant", async () => {
     await seed(contoso, "Contoso ERP");
     await seed(fabrikam, "Fabrikam ERP");
-    for (const table of ["database_connections", "databases", "database_probes"]) {
+    for (const table of [
+      "database_connections",
+      "databases",
+      "database_probes",
+      "database_health_samples",
+    ]) {
       const own = await inTenant(app, contoso, (client) =>
         client.query<{ tenant_id: string }>(`SELECT tenant_id FROM ${table}`),
       );
@@ -170,6 +180,35 @@ describe.skipIf(!adminUrl)("database module tables against Postgres", () => {
         ),
       ),
     ).rejects.toThrow(/row-level security/);
+  });
+
+  it("keeps the health interval between 1 and 60 minutes and samples consistent", async () => {
+    const { connection } = await seed(contoso, `Health ${randomUUID().slice(0, 8)}`);
+    await expect(
+      inTenant(app, contoso, (client) =>
+        client.query("UPDATE database_connections SET health_interval_minutes = 0 WHERE id = $1", [
+          connection,
+        ]),
+      ),
+    ).rejects.toThrow(/database_connections_health_interval_ck/);
+    await expect(
+      inTenant(app, contoso, (client) =>
+        client.query(
+          `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, checks, ok_checks)
+           VALUES ($1, $2, now(), 'server', 2, 3)`,
+          [contoso, connection],
+        ),
+      ),
+    ).rejects.toThrow(/database_health_samples_checks_ck/);
+    const [row] = (
+      await inTenant(app, contoso, (client) =>
+        client.query<{ interval: number }>(
+          "SELECT health_interval_minutes AS interval FROM database_connections WHERE id = $1",
+          [connection],
+        ),
+      )
+    ).rows;
+    expect(row?.interval).toBe(5);
   });
 
   it("keeps the rules of executors and addresses", async () => {

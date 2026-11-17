@@ -193,6 +193,9 @@ DECLARE
     'database_connections',
     'databases',
     'database_probes',
+    -- Health checks of the connections (0.6.0 D2, docs/DATABASES.md 8): written by the API for an
+    -- agent's samples and by the worker for the server's, on the tenant role.
+    'database_health_samples',
     -- Restore mode after restoring a database dump (0.5.0, src/restore-mode.ts): the database's
     -- progress per tenant, its comparison with each storage target, refused deletions, wrapped
     -- keys in storage that differ. Written on the installation pool.

@@ -34,6 +34,7 @@ export * from "./archive-capture.js";
 export * from "./archive-mailboxes.js";
 // The boot probes of whole machine backups (docs/BAREMETAL.md 12.3).
 export * from "./boot-probe.js";
+export * from "./database-health.js";
 export {
   type ConcurrentSetupOptions,
   isConcurrentSetupConflict,

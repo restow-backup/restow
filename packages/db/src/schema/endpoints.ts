@@ -81,6 +81,9 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   // Databases D1 (docs/DATABASES.md 9): "Test connection" through an agent; finishes on delivery,
   // the agent posts the result to the probe.
   "db_probe",
+  // Databases D2 (docs/DATABASES.md 8, 9): the health checks of the connections an agent runs,
+  // bundled per heartbeat; finishes on delivery, the agent posts its samples.
+  "db_health",
 ]);
 
 /**
