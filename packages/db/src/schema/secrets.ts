@@ -42,6 +42,8 @@ export type SecretKind =
   // Databases (tenant level, docs/DATABASES.md 3.2): the user and password of a connection (sealed
   // JSON {user, password}), and the copy one agent probe fetches once (deleted then).
   | "database_credentials"
+  // The restic password of a database connection's repository (docs/DATABASES.md 4.4, D3).
+  | "database_repository"
   | "database_probe_credentials"
   | (string & {});
 

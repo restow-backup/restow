@@ -127,6 +127,12 @@ export const databaseConnections = pgTable(
     // (the newest check, failures in a row, the episode of `database.unreachable`).
     healthIntervalMinutes: integer("health_interval_minutes").notNull().default(5),
     health: jsonb("health").$type<DbHealthState>(),
+    // D3 (4.4): the connection's own restic repository `db/<connection>/` on the tenant's
+    // storage, its password sealed in `secrets` (`database_repository`); initialized once.
+    repositorySecretId: uuid("repository_secret_id").references(() => secrets.id, {
+      onDelete: "set null",
+    }),
+    repositoryInitializedAt: timestamp("repository_initialized_at", { withTimezone: true }),
     enabled: boolean("enabled").notNull().default(true),
     createdBy: text("created_by"),
     ...timestamps(),
@@ -305,6 +311,118 @@ export const databaseHealthSamples = pgTable(
 
 export type DatabaseConnection = typeof databaseConnections.$inferSelect;
 export type NewDatabaseConnection = typeof databaseConnections.$inferInsert;
+/**
+ * A run of a connection (docs/DATABASES.md 4.3, 16 "D3"): a backup of its databases or a restore
+ * of one backup into a new database (on the same or another connection). The server plans it;
+ * the executor runs it (agent: task `db_backup` / `db_restore`, server: queue `db`). An agent
+ * fetches the run's credentials once (`fetched_at`) and writes to the repository with the run's
+ * own token (only its hash stands here). At most one run of a connection is queued or running.
+ */
+export type DatabaseRunKind = "backup" | "restore";
+export type DatabaseRunStatus = "queued" | "running" | "succeeded" | "partial" | "failed";
+
+export const databaseRuns = pgTable(
+  "database_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => databaseConnections.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<DatabaseRunKind>().notNull(),
+    trigger: text("trigger").$type<"schedule" | "manual">().notNull(),
+    status: text("status").$type<DatabaseRunStatus>().notNull().default("queued"),
+    executorKind: text("executor_kind").$type<DatabaseExecutorKind>().notNull(),
+    executorEndpointId: uuid("executor_endpoint_id").references(() => endpoints.id, {
+      onDelete: "set null",
+    }),
+    requestedBy: text("requested_by"),
+    // The agent's credentials, once; the token its restic uses (SHA-256 of it).
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    tokenHash: text("token_hash"),
+    // A restore: which backup, into which connection, under which name; the OID of the database
+    // the run created (only that one is dropped when the restore fails).
+    sourceBackupId: uuid("source_backup_id"),
+    targetConnectionId: uuid("target_connection_id").references(() => databaseConnections.id, {
+      onDelete: "set null",
+    }),
+    targetName: text("target_name"),
+    targetOid: text("target_oid"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    // Hints (`db_run_slow`, `db_tool_too_old`, ...) and per-database outcomes.
+    notes: jsonb("notes").$type<Record<string, unknown>[]>().notNull().default([]),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("database_runs_connection_created_idx").on(t.connectionId, t.createdAt),
+    uniqueIndex("database_runs_one_active_uq")
+      .on(t.connectionId)
+      .where(sql`${t.status} IN ('queued', 'running')`),
+    check("database_runs_kind_ck", sql`${t.kind} IN ('backup', 'restore')`),
+    check("database_runs_trigger_ck", sql`${t.trigger} IN ('schedule', 'manual')`),
+    check(
+      "database_runs_status_ck",
+      sql`${t.status} IN ('queued', 'running', 'succeeded', 'partial', 'failed')`,
+    ),
+    check("database_runs_executor_ck", sql`${t.executorKind} IN ('agent', 'server')`),
+  ],
+);
+
+/**
+ * One backup in the repository (docs/DATABASES.md 5.5, 9): a database's dump, or the instance's
+ * roles and tablespaces (`globals`), one restic snapshot each. `pruned` once retention forgot the
+ * snapshot.
+ */
+export type DatabaseBackupKind = "database" | "globals";
+
+export const databaseBackups = pgTable(
+  "database_backups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => databaseConnections.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").references(() => databaseRuns.id, { onDelete: "set null" }),
+    databaseId: uuid("database_id").references(() => databases.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<DatabaseBackupKind>().notNull().default("database"),
+    databaseName: text("database_name").notNull(),
+    identity: text("identity"),
+    instanceKey: text("instance_key"),
+    snapshotId: text("snapshot_id").notNull(),
+    fileName: text("file_name").notNull(),
+    sha256: text("sha256").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+    objects: jsonb("objects").$type<Record<string, number>>().notNull().default({}),
+    toolVersion: text("tool_version"),
+    serverVersion: text("server_version"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+    status: text("status").$type<"active" | "pruned">().notNull().default("active"),
+    prunedAt: timestamp("pruned_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("database_backups_database_finished_idx").on(t.databaseId, t.finishedAt),
+    index("database_backups_connection_finished_idx").on(t.connectionId, t.finishedAt),
+    uniqueIndex("database_backups_connection_snapshot_uq").on(t.connectionId, t.snapshotId),
+    check("database_backups_kind_ck", sql`${t.kind} IN ('database', 'globals')`),
+    check("database_backups_status_ck", sql`${t.status} IN ('active', 'pruned')`),
+    check("database_backups_bytes_ck", sql`${t.bytes} >= 0`),
+  ],
+);
+
+export type DatabaseRun = typeof databaseRuns.$inferSelect;
+export type NewDatabaseRun = typeof databaseRuns.$inferInsert;
+export type DatabaseBackup = typeof databaseBackups.$inferSelect;
+export type NewDatabaseBackup = typeof databaseBackups.$inferInsert;
 export type ProtectedDatabase = typeof databases.$inferSelect;
 export type NewProtectedDatabase = typeof databases.$inferInsert;
 export type DatabaseProbe = typeof databaseProbes.$inferSelect;

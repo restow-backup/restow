@@ -84,6 +84,10 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   // Databases D2 (docs/DATABASES.md 8, 9): the health checks of the connections an agent runs,
   // bundled per heartbeat; finishes on delivery, the agent posts its samples.
   "db_health",
+  // Databases D3 (docs/DATABASES.md 4.3, 16 "D3"): a backup or a restore run through an agent;
+  // the agent fetches the run's credentials once and reports the run's outcome.
+  "db_backup",
+  "db_restore",
 ]);
 
 /**
