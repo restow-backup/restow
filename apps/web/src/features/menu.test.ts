@@ -557,3 +557,13 @@ describe("the menu per module of the installation", () => {
     }
   });
 });
+
+describe("restore mark", () => {
+  it("marks exactly the entries that lead to a restore", () => {
+    const marked = items
+      .filter((item) => item.marker === "restore")
+      .map((item) => item.id)
+      .sort();
+    expect(marked).toEqual(["file-restore", "restore"]);
+  });
+});

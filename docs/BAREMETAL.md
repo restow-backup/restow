@@ -309,8 +309,11 @@ Linux-Architekturen, Kernel ab 5.6; das ISO hat 6.12), `ioctl(BLKGETSIZE64)`,
 | Netz im ISO | DHCP (IPv4, IPv6/SLAAC), statisch, HTTP(S)-Proxy ohne Zugangsdaten | kein VLAN, kein WLAN, kein 802.1X, kein Bonding/LACP |
 
 Distributionen (Quellsystem): **geprüft in der CI** (Abschnitt 21.2) Debian 12 und 13,
-Ubuntu 22.04 und 24.04 LTS, AlmaLinux 9 (stellvertretend für RHEL, Rocky, Oracle Linux 9),
-Fedora (aktuelle Version), openSUSE Leap 15.6, Arch Linux (UKI); **auf echter Hardware im
+Ubuntu 22.04 und 24.04 LTS; **vorgesehen, in 0.5.0 noch nicht geprüft** AlmaLinux 9
+(stellvertretend für RHEL, Rocky, Oracle Linux 9), Fedora (aktuelle Version), openSUSE Leap
+15.6, Arch Linux (UKI): Ihre Fälle E3, E4, E5 und E6b brauchen Quellmaschinen aus Cloud-Images,
+die `run.mjs` noch nicht bauen kann; bis dahin zeigen diese Systeme "nicht geprüfte
+Distribution" (`untested_distribution`, `assess.go`); **auf echter Hardware im
 Freigabetest** (Abschnitt 21.4) zusätzlich Ubuntu 26.04, RHEL 8/10-Familie, Proxmox VE 8/9
 als Host. Andere systemd-Distributionen mit einem der drei initramfs-Erzeuger und GRUB oder
 systemd-boot gelten als "sollte gehen" und zeigen das im Assistenten an ("nicht geprüfte
@@ -1587,6 +1590,16 @@ Konsole und `RESTOW-RECOVER-RESULT` `failed` mit dem Grund in der Sprache des Be
 Text je Code, für einen unbekannten Code der Code selbst), und das Wiederanbinden wird nicht
 angeboten (10.19).
 
+**Kein Neustart nach dem Ende einer unbeaufsichtigten Sitzung.** `restow-recover.service`
+startet `recover` nach einem Fehler neu (`Restart=on-failure`), damit ein Lauf, der vor dem
+Einlösen scheiterte (kein Netz, Instanz nicht erreichbar), es erneut versucht. Hat ein
+unbeaufsichtigter Lauf seinen Code eingelöst und endet die Sitzung ohne Erfolg (`failed`,
+`cancelled`), endet `recover` mit Code 4 (`RestartPreventExitStatus=4`): Ein Neustart läse
+dieselben Antworten und versuchte den verbrauchten Code alle paar Sekunden erneut, und das
+Ergebnis auf der Konsole liefe weg. Eine Probe schaltet die Maschine dann aus, damit das Labor
+das Ergebnis sofort hat. Beaufsichtigt bleibt es beim Neustart: Der Bediener gibt einen neuen
+Code ein.
+
 **Nach dem Ende.** Eine beendete Sitzung (`succeeded`, `failed`, `cancelled`) nimmt nichts mehr
 an: `progress`, `log`, `event`, `release` und `finish` antworten 409 `recovery-state-conflict`
 mit dem Zustand (Erweiterung `status` der Antwort). Maßgeblich ist der Zustand der Zeile im
@@ -1945,14 +1958,49 @@ Je Quellplatte bzw. je Array, VG, LUKS-Volume und Dateisystem bietet die Zuordnu
 - LUKS: `blkid -p` zeigt dieselbe LUKS-UUID;
 - Dateisystem: `blkid -p` zeigt dieselbe UUID und denselben Typ.
 
+**Was die Erkennung sieht.** Die Erkennung im ISO liest Platten und Partitionen mit
+`blkid -p` und setzt nichts zusammen (8.2). Sie sieht die md-Superblöcke der Mitglieder, eine
+PV, einen LUKS-Kopf oder ein Dateisystem direkt auf einer Platte oder Partition, aber nicht, was
+**in** einem Array, einer LUKS-Zuordnung oder einem LV liegt (die PV auf dem Daten-RAID, das
+Dateisystem auf ihrem LV). Solche Teile übernimmt der Plan nur, wenn der Bediener die
+Übernahme ausdrücklich wählt (`adopt: ["md:md0"]` bzw. "vorhanden übernehmen" oder
+`diskMapping` mit `adopt` für jede Platte darunter); ihre Identität prüft dann `recover` nach
+dem Zusammensetzen (Schritt `adopt_check`, siehe unten), bevor irgendetwas gelöscht wird. Die
+automatische Zuordnung übernimmt nichts, was sie nicht sieht: Der Plan meldet dann
+`adopt_incomplete` ("… lies on md m0, which the scan does not open; adopt it explicitly"),
+an der Konsole folgt die Frage je Platte. Grund: Ein Lauf, der zwischen `mdadm --create` und
+dem ersten Marker abbrach (10.18), hinterlässt Arrays mit den Kennungen der Sicherung; die
+automatische Zuordnung hielte sie sonst für intakte Daten und nähme ihre Einhängepunkte aus
+dem Restore. Die Arrays nur lesend zusammenzusetzen, um schon vor dem Plan hineinzusehen,
+wurde verworfen: Auch `mdadm --assemble --readonly` schreibt bei einer internen Bitmap (bei
+großen Arrays die Vorgabe von `mdadm`) den Bitmap-Superblock beim Start und beim
+`mdadm --stop` (`bitmap_load` bzw. `bitmap_flush` rufen `bitmap_update_sb` ohne Blick auf
+`ro`; Kernel 6.12, `drivers/md/md-bitmap.c`); nur der md-Superblock samt Ereigniszähler bleibt
+unberührt (`md_update_sb` kehrt bei `ro` sofort zurück). Die Erkennung schreibt aber nie
+(10.6), und sie läuft über Platten, die nie jemand bestätigt hat. Ein LUKS-Volume ließe sich
+ohne Passphrase ohnehin nicht öffnen.
+
 `recover` setzt einen übernommenen Teil zusammen bzw. öffnet ihn (`mdadm --assemble --uuid`,
 `vgchange -ay --devices …`, LUKS mit der **alten** Passphrase, die der Bediener eingibt;
 `cryptsetup open --test-passphrase` vorher), löscht nichts darauf und nimmt seine
 Einhängepunkte aus dem `restic restore` aus (`--exclude` je Einhängepunkt; auf Wunsch
 "übernommene Dateisysteme mit der Sicherung abgleichen" mit `--overwrite if-changed` nur für
-diese Pfade, Vorgabe aus). Der Plan zeigt übernommene Teile grün ("bleibt, wird nicht
-gelöscht"). **Automatisch** ordnet `recover` nie eine Platte zum Löschen zu, die Signaturen
-trägt, die zum Manifest passen; die Vorgabe ist dann "übernehmen".
+diese Pfade, Vorgabe aus). Das geschieht in der Phase `adopt` **vor** dem ersten Schritt,
+der löscht (vor `release_holders` der zu löschenden Platten, nach der Bestätigung und dem
+Wächter 10.6): je übernommenes Array `md_assemble`, je übernommenes LUKS-Volume `luks_open`,
+je übernommene VG `vg_activate` (mit `--devices` nur ihrer PVs, die Partitionen des Plans
+gibt es da noch nicht), und nach jedem dieser Schritte `adopt_check` für das, was darauf
+liegt (`blkid -p -o export`: `TYPE` und UUID wie im Manifest; PV `LVM2_member`, LUKS
+`crypto_LUKS`, Dateisystem sein Typ). Passt etwas nicht, endet der Lauf dort mit
+`step_failed`; die Konsole sagt "Es wurde nichts gelöscht" (die zuvor auf ausdrückliches Wort
+geleerte Konfliktplatte ausgenommen). Ein fortgesetzter Lauf (10.18) löscht nichts und behält
+die Reihenfolge des ersten Plans des Fortsetzens (ohne Phase `adopt`). Ein Array oder
+LUKS-Volume gilt nur als übernommen, wenn auch alles darauf übernommen wird; liegt darauf
+etwa ein PV einer VG, die auch auf einer gelöschten Platte liegt, legte der Plan die VG neu
+an und schriebe `pvcreate` auf das behaltene Array, daher `adopt_incomplete`. Der Plan zeigt
+übernommene Teile grün ("bleibt, wird nicht gelöscht"). **Automatisch** ordnet `recover` nie
+eine Platte zum Löschen zu, die Signaturen trägt, die zum Manifest passen; die Vorgabe ist
+dann "übernehmen".
 
 **Automatische Zuordnung** nur, wenn die Zahl der Zielplatten gleich der Zahl der
 Quellplatten ist, jede Zuordnung passt und keine Zielplatte Signaturen des Manifests trägt:
@@ -2008,7 +2056,9 @@ PARTUUID im NVRAM-Eintrag), initramfs und udev zufällig zwischen alt und neu.
   die weder Ziel noch übernommen sind. Trägt eines dieselbe FS-, PART-, md-, PV- oder
   LUKS-UUID oder Disk-GUID wie das Manifest, zeigt der Plan eine deutliche Warnung mit Gerät,
   Modell und Kennung und den Wegen "Platte abziehen" oder "mit `wipefs -a` leeren" (auf
-  ausdrückliche Wahl führt `recover` das selbst aus, nach Eingabe der Kennung).
+  ausdrückliche Wahl führt `recover` das selbst aus, nach Eingabe der Kennung; unbeaufsichtigt,
+  wenn `answers.confirmErase` die Platte nennt, 10.20). Geleert wird vor der Bestätigung des
+  Plans, dann liest `recover` die Platten neu und plant noch einmal (`wipe.go`, 26.11).
 - Prüfung 10.17 Punkt 8: Bleibt ein Konflikt bis zum Ende bestehen, bietet `recover` keinen
   Neustart an, sondern sagt: "Platte X (Modell, Kennung) abziehen oder mit wipefs leeren;
   sonst startet das System womöglich von der alten Platte."
@@ -2128,11 +2178,17 @@ Vor jedem Schritt prüft der Wächter, dass die zugeordneten Platten noch die be
    alter Partitionen, LVM-Label, GPT-Kopie). Die vorhandenen Partitionen kennt nur der
    Kernel der Zielmaschine, nicht der Planer; der Plan nennt darum vor `wipefs -a <platte>`
    die Operation `wipe-partitions <platte>` (Schritt `wipe_partitions`), und `recover` führt
-   `wipefs -a` für jede Partition aus, die sysfs für die Platte zeigt. Ohne das bliebe alles
-   stehen, was hinter den ersten 16 MiB beginnt (das alte Wurzel-Dateisystem, ein LUKS-Kopf,
-   ein md-Superblock), und erschiene in einer neuen Partition an derselben Stelle wieder; die
-   neue Tabelle legt die Partitionen meist genau dorthin. `blkdiscard` auf Wunsch (Standard
-   aus, auf SSDs angeboten).
+   `wipefs -a` für jede Partition aus, die sysfs für die Platte zeigt. Vorher wartet es auf
+   udev (`udevadm settle`): Die Schreibprobe des Wächters (10.6) schließt die Platte nach dem
+   Schreiben, udev liest darauf ihre Partitionstabelle neu, und solange der Kernel die
+   Partitionen entfernt und wieder anlegt, fehlen ihre Geräteknoten. Scheitert `wipefs` an einer
+   Partition, läuft es nach `udevadm settle` erneut, sobald ihr Knoten wieder da ist; ohne
+   `wipefs` bleibt eine Partition nur, wenn ihr Knoten ausbleibt und sysfs sie nicht mehr zeigt.
+   Danach liest `recover` die Liste erneut, bis sie keine ungelöschte Partition mehr nennt.
+   Ohne diesen Schritt bliebe alles stehen, was hinter den ersten 16 MiB beginnt (das alte
+   Wurzel-Dateisystem, ein LUKS-Kopf, ein md-Superblock), und erschiene in einer neuen
+   Partition an derselben Stelle wieder; die neue Tabelle legt die Partitionen meist genau
+   dorthin. `blkdiscard` auf Wunsch (Standard aus, auf SSDs angeboten).
 3. **Partitionstabelle** mit `sfdisk` aus einem erzeugten Skript (`sfdisk --dump`-Format):
    `label: gpt|dos`, `label-id:` (Disk-GUID bzw. MBR-Kennung, damit PARTUUIDs gleich
    bleiben; bei MBR ist die PARTUUID `<kennung>-<nummer>`), `unit: sectors`,
@@ -2576,6 +2632,22 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   Einträge mit gleichem Pfad und gleicher PARTUUID werden nicht doppelt angelegt) und setzt
   `BootOrder` mit diesen vorn. Liegt die ESP auf md RAID1 mit Metadaten 1.0, entsteht je
   Mitglied ein Eintrag (die Firmware sieht die Mitglieder, nicht `/dev/mdX`).
+- **Kein Eintrag in der Sicherung** (`bootctl install --no-variables`, `grub-install
+  --no-nvram`, eine Platte aus einem anderen Rechner): Die Quelle startete über den
+  Rückfallpfad. Ob die Firmware des Ziels `\EFI\BOOT\BOOTX64.EFI` einer festen Platte
+  überhaupt startet und an welcher Stelle ihrer übrigen Optionen (PXE, ein USB-Stick, eine
+  eingebaute Shell), entscheidet jede Firmware anders; OVMF etwa reiht die Platte nach dem
+  Start des ISOs hinter seine EFI-Shell. Darum legt `recover` dann einen Eintrag an (Schritt
+  `nvram_added`, vorn in `BootOrder`) für genau den Loader, den der Rückfallpfad startet: die
+  Kopie mit gleichem Authenticode-Hash in ihrem eigenen Ordner derselben ESP
+  (`\EFI\systemd\systemd-bootx64.efi` als "Linux Boot Manager" wie `bootctl install`,
+  `\EFI\<vendor>\shimx64.efi` unter dem Namen des Ordners wie `grub-install`), sonst
+  `\EFI\BOOT\BOOTX64.EFI` selbst unter dem Namen des Systems. Kein Eintrag entsteht, wenn
+  der Rückfallpfad den Windows-Loader startet (Windows wird nicht wiederhergestellt), wenn
+  die ESP keine einfache Partition ist (md RAID1) oder wenn es keinen Rückfallpfad gibt.
+  Anders als ein Eintrag der Sicherung darf dieser scheitern: Lehnt die Firmware ihn ab,
+  läuft die Wiederherstellung weiter (Protokollzeile), der Rückfallpfad bleibt, und die
+  Prüfung meldet den Start nur über ihn als Warnung.
 - **Rückfallpfad:** Fehlt auf der ESP `\EFI\BOOT\BOOTX64.EFI`, richtet `recover` ihn ein
   (Option, Vorgabe an), weil manche Firmware NVRAM-Einträge vergisst oder nicht schreiben
   lässt. Liegt `fbx64.efi` samt `BOOTX64.CSV` im Herstellerordner, nutzt `recover` die
@@ -2656,10 +2728,11 @@ Gleiche MAC (gleiche Hardware): nichts zu tun. Testfall in E2: netplan mit `maca
    (Datei vorhanden, Authenticode-Hash gleich dem gesicherten); der Rückfallpfad ist
    vollständig (Loader, Nachbarn, `grub.cfg`-Stub bzw. `fbx64.efi` und `BOOTX64.CSV`).
    Geprüft wird gegen den Plan, nicht nur gegen das Geschriebene: weniger Einträge als
-   `nvram`-Schritte ist `failed`; ein Loader, den das Manifest nicht führt, muss auf der ESP
-   liegen (sonst `failed`) und ist dann eine Warnung, weil nichts seinen Inhalt belegt; ein
-   geplanter und nicht abgewählter Rückfallpfad, der fehlt, ist `failed`. Ohne jeden Eintrag
-   startet das System nur über den Rückfallpfad (Warnung), ohne beides gar nicht (`failed`).
+   `nvram`-Schritte ist `failed` (ein `nvram_added`-Schritt zählt nicht mit, 10.15); ein
+   Loader, den das Manifest nicht führt, muss auf der ESP liegen (sonst `failed`) und ist
+   dann eine Warnung, weil nichts seinen Inhalt belegt; ein geplanter und nicht abgewählter
+   Rückfallpfad, der fehlt, ist `failed`. Ohne jeden Eintrag startet das System nur über den
+   Rückfallpfad (Warnung), ohne beides gar nicht (`failed`).
    BIOS: GRUB-Bootcode im MBR jeder Zielplatte (Kennung wie in `captureBootCode`),
    `core.img` in der BIOS-Boot-Partition bzw. hinter dem MBR, PMBR-Flag wie gesichert.
 7. GRUB-Konfiguration bzw. Loader-Einträge nennen nur UUIDs, die es gibt.
@@ -2811,6 +2884,9 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
   gelöscht ist; `recover` nimmt nie stattdessen den Snapshot des Codes (wer einen älteren
   nennt, will genau den, etwa den letzten vor einem Einbruch).
 - Ohne `confirmErase` mit genau den Kennungen löscht auch der unbeaufsichtigte Modus nichts.
+  Eine Platte mit einem Identitätskonflikt (10.7), die `confirmErase` nennt, leert `recover`
+  mit `wipefs -a`; `confirmErase` nennt dann genau die Platten, die gelöscht werden, und die,
+  die geleert werden.
   Kennungen in `diskMapping` und `confirmErase` müssen je genau eine Platte bezeichnen
   (10.6); doppelte Einträge in `confirmErase` zählen nicht als Bestätigung.
   Ein Code mit `requireApproval: true` braucht auch unbeaufsichtigt die Freigabe (der
@@ -4149,7 +4225,7 @@ Code-Erzeugung (Gleichverteilung grob, Alphabet), `canonicalOrigin`, Pfadabbildu
 | E3 | AlmaLinux 9, UEFI, LVM mit `system.devices` (Platten mit `serial=`), XFS, dracut `hostonly`, SELinux `enforcing`, BLS, `vconsole.conf` mit `de` | SATA (AHCI) statt virtio, andere Seriennummern | nachts |
 | E4 | Fedora (aktuell), UEFI, btrfs mit Subvolumes `root`, `home`, verschachteltem `/var/lib/machines` und Docker mit btrfs-Treiber, `compress=zstd:1`, zram | größer | nachts |
 | E5 | openSUSE Leap 15.6, btrfs mit Snapper nach `snapper rollback` (Wurzel = Snapshot N ≠ 1), Quota an, GRUB2 | gleich | nachts |
-| E6 | Debian 13, UEFI ohne Secure Boot, LVM thin, systemd-boot (selbst eingerichtet) | 4Kn-Platte | nachts |
+| E6 | Debian 13, UEFI ohne Secure Boot, LVM thin, systemd-boot (selbst eingerichtet, ohne Starteintrag) | 4Kn-Platte (SCSI); einmal zusätzlich mit leeren NVRAM-Variablen | nachts |
 | E6b | Arch Linux, systemd-boot mit UKI (mkinitcpio `default_uki`), ESP mit `x-systemd.automount` | NVMe statt virtio | nachts |
 | E7 | Debian 12, LUKS1 mit verschlüsseltem `/boot` (GRUB entsperrt, Eingabe über QMP `send-key`), BIOS + GPT + BIOS-Boot-Partition, Passphrase mit `z`, `y` und `-` | gleich | nachts |
 | E8 | Abbruch mitten im Restore und Fortsetzen; zweiter Code nach "Stromausfall" (QEMU hart beendet), `--overwrite always` | – | nachts |
@@ -4974,8 +5050,8 @@ Karte und i18n im Web.
     übernommenes VG), `mkfs` (`mkfs`, `mkswap`, `btrfs_subvolume`, `btrfs_default`, `mount` und
     `umount` der obersten btrfs-Ebene), `mount` (`mount`, `nocow` für `chattr +C` vor dem
     Restore), `restore` (`restore`), `post` (`mkdirs`, `swapfile`, `keyfile`, `fixup`,
-    `lvm_devices`, `initramfs`, `grub_config`, `bootloader_bios`, `nvram`, `fallback_path`,
-    `verify`).
+    `lvm_devices`, `initramfs`, `grub_config`, `bootloader_bios`, `nvram`, `nvram_added`,
+    `fallback_path`, `verify`).
   - `args[0]` ist ein Programm oder eine Operation, die `recover` selbst ausführt:
     `release-holders`, `wipe-partitions`, `blkzero`, `fixup`, `mkdirs`, `swapfile`, `nvram`,
     `fallback-path`,
@@ -5428,10 +5504,13 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `cryptsetup luksAddKey`, die Passphrase über stdin; nicht als `/dev/fd/N` wie in 10.10. Die
   Datei wird gleich danach gelöscht; sie liegt nie auf einer Platte.
 - **Übernahme ohne `mdadm --examine` und `pvs`:** Die Signaturen der Kandidaten für die Übernahme
-  (10.7) kommen allein aus `blkid -p` (md-Mitglied mit Array-UUID, PV-UUID, LUKS-UUID,
-  Dateisystem-UUID und -Typ); `mdadm --examine` und `pvs --devices … -o pv_uuid,vg_name,vg_uuid`
-  laufen nicht. Ob genug Mitglieder für einen lauffähigen Verbund da sind und ob alle PVs einer
-  VG da sind, prüft der Planer aus diesen UUIDs.
+  (10.7) kommen allein aus `blkid -p` auf Platten und Partitionen (md-Mitglied mit Array-UUID,
+  PV-UUID, LUKS-UUID, Dateisystem-UUID und -Typ); `mdadm --examine` und
+  `pvs --devices … -o pv_uuid,vg_name,vg_uuid` laufen nicht. Ob genug Mitglieder für einen
+  lauffähigen Verbund da sind und ob alle PVs einer VG da sind, prüft der Planer aus diesen
+  UUIDs. Was in einem Array, einer LUKS-Zuordnung oder einem LV liegt, sieht die Erkennung
+  nicht; das prüft `recover` nach dem Zusammensetzen in der Phase `adopt`, vor dem ersten
+  löschenden Schritt (`adopt_check`, 10.7), und nur bei ausdrücklich gewählter Übernahme.
 - **Zugang abgelaufen während des Restores:** `recover` hält sauber an (Marker mit sauberem Ende,
   Einhängungen und Zuordnungen geschlossen) und meldet `access_expired`; weiter geht es nur mit
   einem neuen Code und einem neuen Start des ISO (Fortsetzen nach 10.18), nicht in derselben
@@ -5703,6 +5782,73 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `TestSnapshotIsShownWithTimeAndCheck`, `TestConfirmListsAndAsksEveryDisk`,
   `TestRecoverAttendedEraseNeedsEveryDisk`, `TestVerificationIsShownInTheOperatorsLanguage`,
   `TestExecuteShowsStepsInTheOperatorsLanguage`, `TestTextRules`.
+- **Identitätskonflikt leeren (für E9 ergänzt):** `WipeOther` gab es, aufgerufen wurde es nie;
+  eine alte Systemplatte neben der neuen hielt den Plan immer an (`identity_conflict`), auch
+  wenn `confirmErase` sie nannte (dann lehnte zudem die Bestätigung ab, weil die Kennung keine
+  zu löschende Platte war). Jetzt (`wipe.go`, `wipeConflicts` nach `refinePlan`):
+  - Angeboten bzw. ausgeführt wird das Leeren nur, wenn **jedes** Problem des Plans ein
+    Identitätskonflikt ist (sonst liefe der Plan auch danach nicht), nie mit `--plan-only` und
+    nie in einem fortgesetzten Lauf (der löscht nichts, 10.6). Alles oder nichts: Lässt der
+    Bediener eine Platte stecken oder darf eine nicht geleert werden, wird keine geleert.
+  - Nie geleert werden: Platten, die der Plan löscht oder übernimmt, Platten mit einem
+    übernommenen Teil (`adopted[].targets`), Geräte, die kein mögliches Ziel sind
+    (schreibgeschützt, zoniert, leer; Startmedium und Antwortmedium sind ohnehin keine),
+    Geräte ohne eigene Kennung oder mit einer Kennung, die mehrere Geräte melden, und SAN-LUNs
+    (womöglich die Platte eines anderen Servers, 10.6). Die Konsole nennt den Grund.
+  - An der Konsole: Ja/Nein (Vorgabe Nein), dann die letzten vier Zeichen der Kennung wie bei
+    der Bestätigung (10.4 Punkt 8). Unbeaufsichtigt: `confirmErase` muss jede Platte der
+    Konflikte nennen und genau die Platten des Plans plus diese; sonst wird nichts geleert und
+    der Lauf endet wie bisher. Vom Medium gelesen läuft vor dem Leeren ein eigener Countdown
+    von 30 Sekunden mit den Platten (jede Taste bricht ab, nichts ist geleert); der Countdown
+    vor dem Löschen folgt wie bisher.
+  - `wipefs -a` auf jeder Partition, die sysfs zeigt, dann auf der Platte (wie 10.10 Punkt 2,
+    ohne das Nullen der Enden), danach `udevadm settle`. `wipefs` öffnet exklusiv: eine
+    eingehängte oder gehaltene Platte scheitert, der Lauf endet (`step_failed`), sonst ist
+    nichts verändert.
+  - Das Sitzungsprotokoll hält vor und nach dem Leeren fest, welche Platte (Pfad, Modell,
+    Größe, Kennung) und auf wessen Wort (Eingabe oder `confirmErase`); der Plan an der Konsole
+    nennt sie ("mit wipefs -a geleert (Identitätskonflikt)"). Ein eigener Audit-Code entstand
+    nicht (die Codes sind Vertrag mit dem Server, C-M4-6).
+  - Danach liest `recover` die Hardware neu; außer dem Inhalt der geleerten Platten darf sich
+    nichts geändert haben (sonst `disks_changed`). Der Wächter (10.6) vergleicht vor dem ersten
+    Schritt mit diesem neuen Stand, der neue Plan wird gezeigt und wie gewohnt bestätigt; die
+    Bestätigung zählt die geleerten Kennungen in `confirmErase` mit.
+  Tests: `TestConflictDisksE9`, `TestAnswersWipeRefusals`, `TestConflictDiskRefusals`,
+  `TestConfirmCountsTheWipedDisks`, `TestAskWipe`, `TestWipeConflictsUnattended`,
+  `TestWipeConflictsAttended`, `TestWipeConflictsFailures`,
+  `TestRecoverWipesTheOldDiskNamedInConfirmErase` (mit restic). E9 nennt die alte Platte in
+  `confirmErase` (`eraseAlso` in `cases.mjs`); bewiesen ist der Fall erst im nächtlichen Lauf.
+- **Übernahme dessen, was im Array liegt (für E9 ergänzt):** Der nächtliche Lauf von E9 hielt
+  vor dem Leeren an: `vg data` und `fs f1` waren `adopt_incomplete` ("physical volume … is not
+  on the target", "the file system UUID and type are not on the target"), obwohl `adopt`
+  `md:md0` nannte. Die Erkennung (`hardware_linux.go`) liest nur Platten und Partitionen mit
+  `blkid -p`, und das ISO setzt kein Array zusammen (die Regel `64-md-raid-assembly.rules` ist
+  maskiert, 8.2): Die PV auf `md0` und das Dateisystem auf `data/srv` kann sie nicht sehen. Die
+  Tests des Planers liefen nur, weil ihr Ziel (`adoptTarget`) PV und Dateisystem auf eine
+  Mitgliedsplatte schrieb, was keine Erkennung je liefert. Jetzt (10.7):
+  - Der Planer (`resolveAdoption`) prüft eine Identität aus der Erkennung nur, wenn ihr Gerät
+    eine Platte oder Partition ist. Liegt sie in einem Array, einer LUKS-Zuordnung oder einem
+    LV und hat der Bediener jede Platte darunter ausdrücklich übernommen (Grund `choice`:
+    `adopt` oder `diskMapping` `adopt`), gilt sie als "nach dem Zusammensetzen geprüft"; sonst
+    bleibt sie `adopt_incomplete` mit einem Grund, der den Weg nennt.
+  - Der Plan setzt die übernommenen Teile in der neuen Phase `adopt` vor allem anderen
+    zusammen und prüft nach jedem Schritt mit `adopt_check` (Operation `adopt-check`, keine neue
+    Schrittart des Servers nötig; Phase und Art sind dort freie Texte) Typ und UUID des
+    Inhalts. Ein Fehlschlag in dieser Phase heißt an der Konsole "Es wurde nichts gelöscht"
+    (`exec.failed_adopt`, `exec.adopt_mismatch`); Code bleibt `step_failed` (kein neuer Code im
+    Vertrag mit dem Server).
+  - Erwogen und verworfen: die Arrays schon bei der Erkennung nur lesend zusammensetzen
+    (Begründung in 10.7: Bitmap-Superblock, Erkennung schreibt nie, LUKS ohne Passphrase).
+  - E9 braucht keine weiteren `adopt`-Einträge: `md:md0` übernimmt die Platten des Arrays, damit
+    VG und Dateisystem darauf.
+  Tests: `TestAdoptInsideAfterAssembly`, `TestExecuteAdoptCheck`, `TestConflictDisksE9` und
+  `TestConfirmCountsTheWipedDisks` (das E9-Ziel trägt jetzt nur, was die Erkennung sieht),
+  `TestRecoverE9AdoptsTheDataRAID` (ganzer unbeaufsichtigter Ablauf mit restic: alte Platte
+  geleert, Array zusammengesetzt und geprüft vor dem ersten löschenden Schritt, Erfolg; mit
+  einer fremden PV im Array endet er vor jedem Löschen). Nicht bewiesen ohne KVM: dass
+  `mdadm --assemble` und `vgchange` im echten ISO nach dem Wächter durchgehen, dass `blkid -p`
+  auf `/dev/md/<name>` und `/dev/<vg>/<lv>` direkt danach die Kennungen liefert (udev legt die
+  Links an), und der ganze Fall E9 bis zum Neustart; das zeigt erst der nächtliche Lauf.
 
 ### 26.12 Zurückgestellt (M4)
 

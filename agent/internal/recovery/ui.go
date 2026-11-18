@@ -409,9 +409,20 @@ func IdentityTail(identity string) string {
 // disk that will be erased (the prompt names the disk by path, model, size
 // and identity and says that it is erased); three wrong entries abort.
 func (u *UI) TypeToConfirm(path, model, size, identity string) (bool, error) {
+	return u.typeTail("ui.confirm_tail", path, model, size, identity)
+}
+
+// TypeToWipe asks for the last four characters of the identity of a
+// device of an identity conflict before recover empties it with wipefs
+// (10.7).
+func (u *UI) TypeToWipe(path, model, size, identity string) (bool, error) {
+	return u.typeTail("wipe.confirm_tail", path, model, size, identity)
+}
+
+func (u *UI) typeTail(prompt, path, model, size, identity string) (bool, error) {
 	want := strings.ToLower(IdentityTail(identity))
 	for try := 0; try < 3; try++ {
-		in, err := u.Input(u.Text("ui.confirm_tail", "path", path, "model", model, "size", size, "identity", identity), "")
+		in, err := u.Input(u.Text(prompt, "path", path, "model", model, "size", size, "identity", identity), "")
 		if err != nil {
 			return false, err
 		}

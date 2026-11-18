@@ -546,6 +546,16 @@
   "target": "minimal",
   "warnings": [
     {
+      "code": "untested_distribution",
+      "message": "Fedora Linux 41 (Workstation Edition) is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "Fedora Linux 41 (Workstation Edition)"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
       "code": "partition_shrunk",
       "message": "Partition d0p2 shrinks from 510656512000 to 158685200384 bytes.",
       "params": {

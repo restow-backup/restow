@@ -20,7 +20,9 @@ lvcreate -q -V 8G --thinpool vg0/pool -n root
 mkfs_ext4 debian13 /dev/vg0/root root
 root=/mnt/e2e
 mkdir -p "$root" && mount /dev/vg0/root "$root" && mkdir -p "$root/boot/efi" && mount "$(part "$d" 1)" "$root/boot/efi"
-bootstrap trixie "$root" "$FACTORY_MIRROR" debian-archive-keyring.gpg linux-image-amd64 systemd-boot lvm2 thin-provisioning-tools initramfs-tools
+# e2fsprogs is no longer part of a minbase trixie; without it the agent records no ext
+# parameters and the planner cannot create the root file system (mkfs_unsupported_type).
+bootstrap trixie "$root" "$FACTORY_MIRROR" debian-archive-keyring.gpg linux-image-amd64 lvm2 thin-provisioning-tools e2fsprogs initramfs-tools
 {
   fstab_uuid /dev/vg0/root / ext4 errors=remount-ro 1
   fstab_uuid "$(part "$d" 1)" /boot/efi vfat umask=0077 1
@@ -29,6 +31,12 @@ chroot_mount "$root"
 install_e2e_units "$root" e6-debian13
 finish_root "$root"
 printf 'root=UUID=%s ro console=tty0 console=ttyS0,115200n8\n' "$(blkid -s UUID -o value /dev/vg0/root)" >"$root/etc/kernel/cmdline"
+# systemd-boot with apt in the chroot, not with debootstrap: debootstrap follows only the first
+# alternative of a dependency, the virtual systemd-boot-efi-signed of "systemd-boot-efi-signed |
+# systemd-boot-efi", so systemd-boot stayed unconfigured. Unsigned systemd-boot-efi (no Secure
+# Boot), no shim from the recommends; its postinst finds the ESP through /dev and /sys.
+in_root "$root" apt-get install -y -q --no-install-recommends systemd-boot systemd-boot-efi >/dev/null ||
+  fdie "systemd-boot did not install"
 in_root "$root" bootctl --esp-path=/boot/efi install --no-variables
 in_root "$root" update-initramfs -u -k all
 # The boot probe's size limit (scripts/recovery-e2e P3): 3 GiB of data in a folder under

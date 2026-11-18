@@ -571,10 +571,28 @@
     },
     {
       "args": [
+        "nvram",
+        "--label",
+        "Linux Boot Manager",
+        "--partuuid",
+        "a9000000-0000-4000-8000-000000000001",
+        "--loader",
+        "\\EFI\\systemd\\systemd-bootx64.efi"
+      ],
+      "kind": "nvram_added",
+      "n": 24,
+      "phase": "post",
+      "reason": "create a boot entry Linux Boot Manager for \\EFI\\systemd\\systemd-bootx64.efi: the backup has none, the source started over the fallback path",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "\\EFI\\systemd\\systemd-bootx64.efi"
+    },
+    {
+      "args": [
         "verify"
       ],
       "kind": "verify",
-      "n": 24,
+      "n": 25,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

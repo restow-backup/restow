@@ -39,7 +39,19 @@ rm -rf \
   "$out"/*/node_modules/.pnpm/vite@* "$out"/*/node_modules/.pnpm/vite-node@* \
   "$out"/*/node_modules/.pnpm/vitest@* "$out"/*/node_modules/.pnpm/@vitest* \
   "$out"/*/node_modules/.pnpm/rollup@* "$out"/*/node_modules/.pnpm/@rollup* \
-  "$out"/*/node_modules/.pnpm/drizzle-kit@* "$out"/*/node_modules/.pnpm/lightningcss*
+  "$out"/*/node_modules/.pnpm/drizzle-kit@* "$out"/*/node_modules/.pnpm/lightningcss* \
+  "$out"/*/node_modules/.pnpm/picomatch@* "$out"/*/node_modules/.pnpm/tinyglobby@* \
+  "$out"/*/node_modules/.pnpm/fdir@*
+
+# picomatch (with tinyglobby and fdir, which load it) reaches the trees only through vite and
+# vitest; it has an advisory without a fix (docs/CI.md "Audit exceptions"), so none of the
+# test runner's packages may be left in an image.
+for pkg in vitest vite picomatch tinyglobby fdir; do
+  if find "$out"/*/node_modules/.pnpm -maxdepth 1 -name "$pkg@*" | grep -q .; then
+    echo "restow: $pkg is still in the production trees; it must not reach the image" >&2
+    exit 1
+  fi
+done
 
 # @tutao/oxmsg is a devDependency (tests only) whose license is ambiguous (MIT or
 # GPL-3.0). It must never reach the image: the build stops if a deployed tree holds it.

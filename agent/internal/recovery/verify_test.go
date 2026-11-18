@@ -78,6 +78,21 @@ func TestVerifyChecks(t *testing.T) {
 	if c := v.storageStack(ctx, h.x); c.Result != api.VerifyFailed {
 		t.Error("a missing LV passed")
 	}
+	// A thin pool has no node under /dev/<vg> (E6); its thin volumes
+	// prove it, and a missing thin volume still fails.
+	env.exists["/dev/srv01-vg/home"] = true
+	pool, thin := "srv01-vg/pool", "srv01-vg/thin"
+	h.x.Plan.Steps = append(h.x.Plan.Steps,
+		baremetal.Step{Kind: "lv_create", Target: &pool, Args: []string{"lvcreate", "--yes", "-n", "pool", "--type", "thin-pool", "-L", "1073741824b", "srv01-vg"}},
+		baremetal.Step{Kind: "lv_create", Target: &thin, Args: []string{"lvcreate", "--yes", "-n", "thin", "-V", "1073741824b", "--thinpool", "pool", "srv01-vg"}})
+	env.exists["/dev/srv01-vg/thin"] = true
+	if c := v.storageStack(ctx, h.x); c.Result != api.VerifyOK {
+		t.Errorf("thin pool without a node of its own: %+v", c.Findings)
+	}
+	env.exists["/dev/srv01-vg/thin"] = false
+	if c := v.storageStack(ctx, h.x); c.Result != api.VerifyFailed {
+		t.Error("a missing thin volume passed")
+	}
 
 	// fstab
 	h, env, v = verifyHarness(t)

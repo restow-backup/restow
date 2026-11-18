@@ -75,7 +75,7 @@ var Tools = []Tool{
 // out itself (baremetal.Step).
 var Operations = map[string]bool{
 	"release-holders": true, "wipe-partitions": true, "blkzero": true, "pmbr-boot": true, "fixup": true, "mkdirs": true, "swapfile": true,
-	"keyfile": true, "nvram": true, "fallback-path": true, "mok-import": true, "selinux": true, "verify": true,
+	"keyfile": true, "nvram": true, "fallback-path": true, "mok-import": true, "selinux": true, "verify": true, "adopt-check": true,
 	"chroot-exec": true,
 }
 

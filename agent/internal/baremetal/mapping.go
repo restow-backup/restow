@@ -41,6 +41,10 @@ func normUUID(s string) string {
 	return strings.TrimPrefix(s, "0x")
 }
 
+// NormUUID is normUUID for recover (adopt_check compares what blkid
+// reports on an adopted device with the manifest).
+func NormUUID(s string) string { return normUUID(s) }
+
 // identityRef is an identity of the manifest and the source disks it lives on.
 type identityRef struct {
 	kind  string // disk_guid, part_uuid, fs, md, pv, luks
@@ -620,6 +624,34 @@ func (mp *mapper) resolveAdoption() {
 	}
 	sigs := mp.adoptedSignatures()
 	has := func(kind, uuid string) bool { _, ok := sigs[kind+"|"+normUUID(uuid)]; return ok }
+	// The scan reads disks and partitions with blkid -p only; the ISO
+	// assembles, opens and activates nothing (8.2). What lies on an
+	// array, a LUKS mapping or an LV is invisible to it. When the operator
+	// chose the adoption (adopt or diskMapping "adopt"), recover checks
+	// these identities after assembling the adopted parts and before
+	// anything is erased (adopt phase, adopt_check); the automatic mapping
+	// never adopts what it cannot see (an interrupted recovery leaves
+	// arrays with the identities of the backup, 10.18).
+	inside := func(r BlockRef) bool { return r.Kind != RefDisk && r.Kind != RefPartition }
+	chosen := func(r BlockRef) bool {
+		disks := x.disksUnder(r)
+		n := 0
+		for _, d := range disks {
+			a := mp.assign[d]
+			if a == nil || a.Action == ActionMissing {
+				continue
+			}
+			if a.Action != ActionAdopt || deref(a.Reason) != "choice" {
+				return false
+			}
+			n++
+		}
+		return n > 0
+	}
+	afterAssembly := func(r BlockRef) bool { return inside(r) && chosen(r) }
+	insideReason := func(what string, r BlockRef) string {
+		return what + " lies on " + r.String() + ", which the scan does not open; adopt it explicitly (adopt or diskMapping), then recover checks it after assembling it, before anything is erased"
+	}
 	for _, d := range x.l.Disks {
 		if !adoptedDisk[d.ID] {
 			continue
@@ -657,8 +689,12 @@ func (mp *mapper) resolveAdoption() {
 			continue
 		}
 		mp.adopted[r.key()] = true
-		if !has("luks", c.UUID) {
-			mp.add(newFinding(ProblemAdoptIncomplete, c.ID, "unit", "luks "+c.ID, "reason", "the LUKS UUID is not on the target"))
+		if !has("luks", c.UUID) && !afterAssembly(c.Device) {
+			reason := "the LUKS UUID is not on the target"
+			if inside(c.Device) {
+				reason = insideReason("the LUKS header", c.Device)
+			}
+			mp.add(newFinding(ProblemAdoptIncomplete, c.ID, "unit", "luks "+c.ID, "reason", reason))
 		}
 		mp.units = append(mp.units, AdoptedPart{Kind: "luks", Ref: c.ID, Targets: targetsOf(x.disksUnder(r)), Mounts: []string{}})
 	}
@@ -678,8 +714,12 @@ func (mp *mapper) resolveAdoption() {
 			mp.adopted[LVRef(vg.Name, lv.Name).key()] = true
 		}
 		for _, pv := range pvs {
-			if !has("pv", pv.UUID) {
-				mp.add(newFinding(ProblemAdoptIncomplete, vg.Name, "unit", "vg "+vg.Name, "reason", "physical volume "+pv.UUID+" is not on the target"))
+			if !has("pv", pv.UUID) && !afterAssembly(pv.Device) {
+				reason := "physical volume " + pv.UUID + " is not on the target"
+				if inside(pv.Device) {
+					reason = insideReason("physical volume "+pv.UUID, pv.Device)
+				}
+				mp.add(newFinding(ProblemAdoptIncomplete, vg.Name, "unit", "vg "+vg.Name, "reason", reason))
 				break
 			}
 		}
@@ -703,8 +743,16 @@ func (mp *mapper) resolveAdoption() {
 				ok = true
 			}
 		}
-		if !ok {
-			mp.add(newFinding(ProblemAdoptIncomplete, fs.ID, "unit", "fs "+fs.ID, "reason", "the file system UUID and type are not on the target"))
+		later := true
+		for _, d := range fs.Devices {
+			later = later && afterAssembly(d)
+		}
+		if !ok && !later {
+			reason := "the file system UUID and type are not on the target"
+			if inside(fs.Devices[0]) {
+				reason = insideReason("the file system", fs.Devices[0])
+			}
+			mp.add(newFinding(ProblemAdoptIncomplete, fs.ID, "unit", "fs "+fs.ID, "reason", reason))
 		}
 		var disks []string
 		for _, d := range fs.Devices {
@@ -731,6 +779,24 @@ func (mp *mapper) resolveAdoption() {
 				mp.add(newFinding(ProblemAdoptIncomplete, d.ID, "unit", "disk "+d.ID, "reason", "it also carries "+r.String()+", which is not adopted"))
 				break
 			}
+		}
+	}
+	// Nor an adopted array or LUKS volume: what sits on it is adopted too,
+	// or the plan would create it anew on the kept device (a PV of a
+	// volume group that also lies on an erased disk: pvcreate on the
+	// adopted array).
+	for _, u := range mp.units {
+		var r BlockRef
+		switch u.Kind {
+		case "md":
+			r = MDRef(u.Ref)
+		case "luks":
+			r = LUKSRef(u.Ref)
+		default:
+			continue
+		}
+		if !mp.contentAdopted(r.key()) {
+			mp.add(newFinding(ProblemAdoptIncomplete, u.Ref, "unit", u.Kind+" "+u.Ref, "reason", "what it carries is not adopted"))
 		}
 	}
 }

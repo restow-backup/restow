@@ -6,6 +6,7 @@ import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { CollapsibleNavSection } from "@/components/layout/collapsible-nav-section";
+import { RestoreMarker } from "@/components/layout/restore-marker";
 import { useShellEntry } from "@/components/layout/shell-entry";
 import { SoonBadge, SoonSuffix } from "@/components/layout/soon-badge";
 import { TenantSwitcher } from "@/components/tenant-switcher";
@@ -387,6 +388,7 @@ export function AppSidebar() {
                         className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1 group-data-[collapsible=icon]:ring-2 group-data-[collapsible=icon]:ring-sidebar group-data-[collapsible=icon]:motion-safe:animate-none"
                       />
                     ) : null}
+                    {item.marker === "restore" ? <RestoreMarker /> : null}
                     {stage ? (
                       <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
                         {stage}

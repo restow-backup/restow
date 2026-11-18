@@ -760,6 +760,16 @@
   "target": "hardware",
   "warnings": [
     {
+      "code": "untested_distribution",
+      "message": "AlmaLinux 9.5 (Teal Serval) is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "AlmaLinux 9.5 (Teal Serval)"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
       "code": "nic_driver_missing",
       "message": "The backed-up kernel 5.14.0-503.11.1.el9_5.x86_64 has no driver for network card ens1f0 (pci:v00008086d0000159Bsv00008086sd00000003bc02sc00i00); the system starts without network on it.",
       "params": {

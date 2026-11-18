@@ -36,6 +36,11 @@
     },
     "patchedDependencies": {
       "pg-boss@10.4.2": "patches/pg-boss@10.4.2.patch"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-fc5q-39xc-vjpf"
+      ]
     }
   }
 }

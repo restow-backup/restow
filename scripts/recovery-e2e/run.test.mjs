@@ -34,6 +34,7 @@ import {
   DISK_SERIAL,
 } from "./no-autoactivation.mjs";
 import {
+  assertInterrupted,
   backupProgressLine,
   bootPattern,
   bootThroughPassphrase,
@@ -52,15 +53,20 @@ import {
   labEnv,
   mbrNote,
   needsPassphraseAtBoot,
+  POWER_LOSS_AFTER_MS,
   parseArgs,
   probeOutcome,
+  recoverResult,
   recoveryLogTail,
+  restoreStarted,
+  retryRateLimited,
   targetSummary,
   testAgentDir,
   ubuntuMirror,
   versionOfIso,
   wholeMachineJobSettings,
   wholeMachineNotPossible,
+  withBiosBootDisk,
   withIsoLine,
 } from "./run.mjs";
 
@@ -91,16 +97,26 @@ const ANSWER_KEYS = new Set([
 const byId = (id) => CASES.find((item) => item.id === id);
 
 describe("cases", () => {
-  it("runs E1, E2 and the boot probes P1 and P2 per pull request and the rest at night", () => {
+  it("runs E1, E2 and the boot probes P1 and P2 per pull request and the rest at night, without the cloud image cases", () => {
     assert.deepEqual(
       selectCases("per-pr").map((item) => item.id),
       ["E1", "E2", "P1", "P2"],
     );
     assert.deepEqual(
       selectCases("nightly").map((item) => item.id),
-      ["E1b", "E3", "E4", "E5", "E6", "E6b", "E7", "E8", "E9", "E10", "P3"],
+      ["E1b", "E6", "E7", "E8", "E9", "E10", "P3"],
     );
-    assert.equal(selectCases("all").length, ALL_CASES.length);
+    assert.deepEqual(
+      selectCases("all").map((item) => item.id),
+      ALL_CASES.filter((item) => !["E3", "E4", "E5", "E6b"].includes(item.id)).map(
+        (item) => item.id,
+      ),
+    );
+    // By id they still run (and fail with the explanation that the cloud path is missing).
+    assert.deepEqual(
+      selectCases("E3").map((item) => item.id),
+      ["E3"],
+    );
     assert.deepEqual(
       selectCases("e7, E2").map((item) => item.id),
       ["E7", "E2"],
@@ -115,6 +131,26 @@ describe("cases", () => {
       assert.notEqual(testCase.target.disks[0].bus, testCase.source.disks[0].bus, id);
     }
     assert.equal(byId("E6").target.disks[0].sectorSize, 4096);
+  });
+
+  it("starts the restored systems without a boot entry in the source also with empty NVRAM", () => {
+    // E2 (grub-install --no-nvram) and E6 (bootctl --no-variables): recover adds the entry, the
+    // second boot proves the fallback path without it.
+    for (const id of ["E2", "E6"]) assert.equal(byId(id).target.alsoEmptyNvram, true, id);
+  });
+
+  it("names every source disk where the target has fewer disks (docs/BAREMETAL.md 10.7)", () => {
+    // The automatic mapping needs as many target disks as source disks; an unnamed source disk
+    // stops the plan ("No target disk for d1", E8 in November 2026).
+    for (const testCase of CASES) {
+      const targets = testCase.target.disks.length + (testCase.target.keepSourceDisks ?? []).length;
+      if (targets >= testCase.source.disks.length) continue;
+      const mapping = testCase.answers.diskMapping;
+      assert.equal(typeof mapping, "object", testCase.id);
+      testCase.source.disks.forEach((_, index) => {
+        assert.ok(mapping[`d${index}`], `${testCase.id} names d${index}`);
+      });
+    }
   });
 
   it("names a factory script for every factory case that exists", () => {
@@ -265,12 +301,21 @@ describe("the answers file", () => {
 
   it("keeps the data RAID of E9, wipes its old system disk and leaves the optional keys out", () => {
     const answers = buildAnswers(byId("E9"), context);
-    assert.deepEqual(answers.adopt, ["md0"]);
+    assert.deepEqual(answers.adopt, ["md:md0"]);
     assert.ok(answers.confirmErase.includes("serial.e2e-src0"));
     assert.equal("passphrase" in answers, false);
     assert.equal("rebindToken" in answers, false);
     assert.equal(answers.spkiCheck, "ABCD-EFGH-JKMN-PQRS");
     assert.equal(buildAnswers(byId("E3"), context).keymap, "de");
+  });
+
+  it("names every adopted unit with its kind, as the planner reads it", () => {
+    // mapping.go, unitDisks: anything else is mapping_invalid with reason unknown_adopt.
+    for (const testCase of CASES) {
+      for (const unit of testCase.answers.adopt ?? []) {
+        assert.match(unit, /^(md|vg|luks|fs):[A-Za-z0-9_./:-]+$/, `${testCase.id}: adopt ${unit}`);
+      }
+    }
   });
 
   it("derives the disk identities the way the agent does (shared fixture qemu-e2e.json)", () => {
@@ -328,6 +373,85 @@ describe("the answers file", () => {
   });
 });
 
+describe("the restore of a case", () => {
+  it("interrupts a restore that is over in seconds while it runs (E8, CI run 44039710530)", () => {
+    // E8's restore ran 35 s from the first step to the check; the interrupt came 30 s after the
+    // restore started, after the end, and the next code erased the disks anew.
+    assert.ok(POWER_LOSS_AFTER_MS <= 10_000);
+    assertInterrupted("cancel", { progress: { phase: "restoring", step: 13, stepsTotal: 24 } });
+    assertInterrupted("power-loss", {
+      progress: { phase: "configuring", step: 21, stepsTotal: 24 },
+    });
+    assert.throws(
+      () =>
+        assertInterrupted("cancel", { progress: { phase: "verifying", step: 24, stepsTotal: 24 } }),
+      /the cancel came too late: the ISO had reached step 24 of 24 \(verifying\)/,
+    );
+    assert.throws(() => assertInterrupted("power-loss", { progress: null }), /came too late/);
+  });
+
+  it("reads the result of recover from the ISO's console", () => {
+    const console = [
+      "Step 13/24: Restore the files of the snapshot",
+      "\u001b[KThe recovery was cancelled.\r",
+      "RESTOW-RECOVER-RESULT cancelled\r",
+      "Restow Recovery 0.0.0-dev",
+      "RESTOW-RECOVER-RESULT failed",
+    ].join("\n");
+    assert.equal(recoverResult(console), "cancelled");
+    assert.equal(recoverResult("Step 1/24: Release everything"), null);
+    assert.equal(recoverResult(""), null);
+  });
+
+  it("waits for the restore to start, and stops at once when the recovery ended before", () => {
+    assert.equal(restoreStarted({ status: "running", phase: "restoring" }), true);
+    assert.equal(restoreStarted({ status: "running", phase: "planning" }), false);
+    assert.throws(
+      () =>
+        restoreStarted({
+          status: "failed",
+          phase: "planning",
+          warnings: [{ code: "plan_invalid", message: "No target disk for d1" }],
+        }),
+      /ended as failed before the restore started \(plan_invalid\)/,
+    );
+  });
+
+  it("starts a restored BIOS machine from the disk recover names (docs/BAREMETAL.md 10.5)", () => {
+    const disks = byId("E10").target.disks.map((disk) => ({ ...disk, file: `/d/${disk.serial}` }));
+    const verification = {
+      hints: [
+        { code: "keymap_at_boot", params: { layout: "us" } },
+        {
+          code: "bios_boot_disk",
+          params: { model: "", identity: "serial.restow-e2e-target0" },
+        },
+      ],
+    };
+    const chosen = withBiosBootDisk(disks, verification);
+    assert.deepEqual(
+      chosen.map((disk) => [disk.serial, disk.bootIndex]),
+      [
+        ["restow-e2e-target2", undefined],
+        ["restow-e2e-target0", 1],
+        ["restow-e2e-target1", undefined],
+      ],
+    );
+    const args = diskArgs(chosen).join(" ");
+    assert.match(args, /virtio-blk-pci,drive=disk1,serial=restow-e2e-target0,bootindex=1/);
+    assert.doesNotMatch(args, /serial=restow-e2e-target2,bootindex/);
+    assert.equal(withBiosBootDisk(disks, { hints: [] }), disks);
+    assert.equal(withBiosBootDisk(disks, null), disks);
+    assert.throws(
+      () =>
+        withBiosBootDisk(disks, {
+          hints: [{ code: "bios_boot_disk", params: { identity: "serial.other" } }],
+        }),
+      /no such disk/,
+    );
+  });
+});
+
 describe("the QEMU command line", () => {
   it("gives every disk its serial number on its controller, 4Kn where asked", () => {
     const args = diskArgs([
@@ -360,6 +484,18 @@ describe("the QEMU command line", () => {
       /512-byte/,
     );
     assert.throws(() => diskArgs([{ serial: "x", bus: "floppy", file: "x" }]), /unknown disk bus/);
+    const boot = diskArgs([
+      { serial: "b0", bus: "ahci", file: "/d/a", bootIndex: 1 },
+      { serial: "b1", bus: "nvme", file: "/d/b", eui64: "525400e2e0000004", bootIndex: 2 },
+      { serial: "b2", bus: "scsi", file: "/d/c", bootIndex: 3 },
+    ]).join(" ");
+    assert.match(boot, /ide-hd,drive=disk0,bus=ahci0\.0,serial=b0,bootindex=1/);
+    assert.match(boot, /nvme-ns,drive=disk1,bus=nvme1,nsid=1,eui64=\d+,bootindex=2/);
+    assert.match(boot, /scsi-hd,drive=disk2,bus=scsi0\.0,serial=b2,bootindex=3/);
+    assert.throws(
+      () => diskArgs([{ serial: "x", bus: "virtio", file: "x", bootIndex: -1 }]),
+      /boot index/,
+    );
   });
 
   it("starts BIOS, UEFI and UEFI with Secure Boot", () => {
@@ -948,5 +1084,47 @@ describe("the Ubuntu mirror of the factory", () => {
     for (const value of ["ftp://x/ubuntu", "http://x/ubuntu' ; reboot", "http://x/$(id)"]) {
       assert.throws(() => ubuntuMirror({ RESTOW_E2E_UBUNTU_MIRROR: value }), /not a plain/);
     }
+  });
+});
+
+describe("retryRateLimited", () => {
+  const limited = () => Object.assign(new Error("429"), { status: 429 });
+  it("waits after a 429 and tries again", async () => {
+    const waits = [];
+    let calls = 0;
+    const out = await retryRateLimited(
+      async () => {
+        calls++;
+        if (calls < 3) throw limited();
+        return "client";
+      },
+      { waitMs: 7, pause: async (ms) => waits.push(ms) },
+    );
+    assert.equal(out, "client");
+    assert.deepEqual(waits, [7, 7]);
+  });
+  it("lets other errors and the last 429 through", async () => {
+    const pause = async () => {};
+    await assert.rejects(
+      retryRateLimited(
+        async () => {
+          throw Object.assign(new Error("401"), { status: 401 });
+        },
+        { pause },
+      ),
+      /401/,
+    );
+    let calls = 0;
+    await assert.rejects(
+      retryRateLimited(
+        async () => {
+          calls++;
+          throw limited();
+        },
+        { tries: 3, pause },
+      ),
+      /429/,
+    );
+    assert.equal(calls, 3);
   });
 });

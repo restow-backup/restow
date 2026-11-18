@@ -309,6 +309,67 @@ export function isFinal(status) {
 }
 
 /**
+ * Whether a released recovery has started to restore (the moment a case interrupts it). One that
+ * ended before (a plan that cannot run) will not get there: that is said at once, not after the
+ * wait's timeout.
+ */
+export function restoreStarted(recovery) {
+  if (recovery.phase === "restoring") return true;
+  if (isFinal(recovery.status)) {
+    const warnings = (recovery.warnings ?? []).map((item) => item.code).join(", ");
+    throw new Error(
+      `the recovery ended as ${recovery.status} before the restore started` +
+        (warnings ? ` (${warnings})` : ""),
+    );
+  }
+  return false;
+}
+
+/**
+ * How long after the start of the restore the power goes off. A small restore is over in seconds
+ * (E8: 808 MiB in about 15 s, the whole run 35 s, CI run 44039710530), so the interrupt follows the
+ * start almost at once: a few seconds for restic to write files, not more.
+ */
+export const POWER_LOSS_AFTER_MS = 5_000;
+
+/** The status of the first `RESTOW-RECOVER-RESULT` line of an ISO's console log, or null. */
+export function recoverResult(text) {
+  const match = /RESTOW-RECOVER-RESULT ([a-z_]+)/.exec(text ?? "");
+  return match ? match[1] : null;
+}
+
+/**
+ * That an interrupted recovery stopped before its last step. The instance stores a cancel at once
+ * as `cancelled`, also when the ISO ran to the end before it saw it (it polls every 5 s); such a
+ * run leaves nothing to resume, and the next code erases the disks anew instead of resuming. The
+ * progress is what the ISO reported last (it reports a step as it starts it).
+ */
+export function assertInterrupted(interrupt, recovery) {
+  const progress = recovery?.progress ?? null;
+  const total = progress?.stepsTotal ?? 0;
+  if (total > 0 && progress.step < total) return;
+  throw new Error(
+    `the ${interrupt} came too late: the ISO had reached step ${progress?.step ?? "?"} of ` +
+      `${total || "?"} (${progress?.phase ?? "no progress"}), nothing is left to resume`,
+  );
+}
+
+/**
+ * The restored disks as the operator starts them on BIOS: recover cannot set the start order and
+ * names the disk to select (hint `bios_boot_disk`, docs/BAREMETAL.md 10.5); the driver selects it
+ * as the firmware's first boot device. Without the hint the disks stay as they are.
+ */
+export function withBiosBootDisk(disks, verification) {
+  const hint = (verification?.hints ?? []).find((item) => item.code === "bios_boot_disk");
+  if (!hint) return disks;
+  const identity = hint.params?.identity;
+  if (!disks.some((disk) => identityOf(disk) === identity)) {
+    throw new Error(`recover names ${identity} as the BIOS boot disk, the target has no such disk`);
+  }
+  return disks.map((disk) => (identityOf(disk) === identity ? { ...disk, bootIndex: 1 } : disk));
+}
+
+/**
  * What a stage 1 report found, for the job log: each check that did not pass with its failed
  * and warning findings, and the planner's answer when there is one (at most 3000 characters).
  */
@@ -669,9 +730,26 @@ function factoryDisk(workDir, testCase, context) {
   return disk;
 }
 
+/**
+ * Run fn again after a 429: the instance allows five password sign-ins (and five TOTP checks) a
+ * minute per address (AUTH_RATE_LIMIT), and a case that cancels and resumes (E8) signs in more
+ * often than that. Other errors, and a fourth 429, go through.
+ */
+export async function retryRateLimited(fn, { waitMs = 65_000, tries = 4, pause = sleep } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error?.status !== 429 || attempt >= tries) throw error;
+      console.log(`sign-in limited (429); again in ${Math.round(waitMs / 1000)} s`);
+      await pause(waitMs);
+    }
+  }
+}
+
 async function api(context) {
   const { signIn } = await import("../smoke/lib/restow.mjs");
-  return signIn(context.stack, context.totpSecret);
+  return retryRateLimited(() => signIn(context.stack, context.totpSecret));
 }
 
 async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
@@ -1088,19 +1166,35 @@ async function restore(testCase, context, source, { interrupt } = {}) {
   // longer than that, so the approval signs in anew.
   await (await api(context)).post(`${recoveryPath}/approve`, {}, { tenantId });
   if (interrupt) {
+    // The interrupt must land in the restore, not after it: the restore of a small system takes
+    // seconds (see POWER_LOSS_AFTER_MS), so its start is polled every second.
     await waitUntil(
       "the restore to start",
-      async () => (await client.get(recoveryPath, { tenantId })).phase === "restoring",
-      { timeoutMs: 30 * 60_000 },
+      async () => restoreStarted(await client.get(recoveryPath, { tenantId })),
+      { timeoutMs: 30 * 60_000, intervalMs: 1000 },
     );
-    await sleep(30_000);
-    if (interrupt === "cancel") await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
-    else {
+    if (interrupt === "cancel") {
+      await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
+      // The ISO sees the cancel within 5 s, stops cleanly and prints its result.
+      await waitUntil(
+        "the ISO to stop the cancelled recovery",
+        async () =>
+          isoEnded !== null ||
+          recoverResult(existsSync(log) ? readFileSync(log, "utf8") : "") !== null,
+        { timeoutMs: 10 * 60_000, intervalMs: 2000 },
+      );
+    } else {
+      await sleep(POWER_LOSS_AFTER_MS);
       await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
       // After a power loss the session stays active until the code expires (plus 30 minutes);
       // the admin ends it, as before a second code.
       await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
     }
+    assertInterrupted(interrupt, await client.get(recoveryPath, { tenantId }));
+    // An unattended ISO whose recovery did not succeed starts recover again (systemd
+    // Restart=on-failure) with the same, used code: 409 every few seconds until the instance
+    // answers 429. The machine has done its part; it goes off now.
+    await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
   }
   const final = await waitUntil(
     "the end of the recovery",
@@ -1139,7 +1233,10 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
     name: `${testCase.id}-restored`,
     firmware: testCase.target.firmware,
     varsFile,
-    disks: restored.disks,
+    disks:
+      testCase.target.firmware === "bios"
+        ? withBiosBootDisk(restored.disks, restored.final.verification)
+        : restored.disks,
     serialLog: log,
     serialSocket: join(source.dir, "restored-serial.sock"),
     qmpSocket: join(source.dir, "restored.qmp"),

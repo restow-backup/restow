@@ -63,8 +63,10 @@ while read -r source sversion; do
   apt-get source --download-only "$source=$sversion" >/dev/null
   printf '%s %s http://snapshot.debian.org/package/%s/%s/\n' "$source" "$sversion" "$source" "$(printf '%s' "$sversion" | sed 's/:/%3A/')" >>../sources.txt
 done <../pairs.txt
+# The container runs as root: hand the files back to the caller, who removes them afterwards.
+chown -R "$OWNER" /work
 INNER
-printf 'SNAPSHOT_TIMESTAMP=%s\n' "$SNAPSHOT_TIMESTAMP" >"$work/env"
+printf 'SNAPSHOT_TIMESTAMP=%s\nOWNER=%s:%s\n' "$SNAPSHOT_TIMESTAMP" "$(id -u)" "$(id -g)" >"$work/env"
 docker run --rm --env-file "$work/env" --volume "$work:/work" "$DEBIAN_IMAGE_DIGEST" sh /work/inner.sh
 
 name="restow-lab_${version}_sources.tar"

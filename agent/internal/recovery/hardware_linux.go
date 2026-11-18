@@ -5,11 +5,9 @@ package recovery
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -373,16 +371,29 @@ func alignedBuffer(n, align int) []byte {
 	return b[off : off+n]
 }
 
-var reIdentityTail = regexp.MustCompile(`^[\x21-\x7e]{1,4}$`)
-
-// WipeOther clears the signatures of a device that is neither a target
-// nor adopted (an identity conflict, 10.7); only after the operator typed
-// the last four characters of its identity.
-func WipeOther(ctx context.Context, x Exec, d baremetal.TargetDisk, typedTail string) error {
-	id := deref(d.Identity)
-	if id == "" || !reIdentityTail.MatchString(typedTail) || !strings.EqualFold(IdentityTail(id), typedTail) {
-		return errors.New("the identity was not confirmed; nothing was wiped")
+// WipeOther clears the signatures of a device of an identity conflict
+// that is neither a target nor adopted (10.7): wipefs -a on each of its
+// partitions, then on the disk, as the erase of a target begins (10.10
+// point 2), so a file system or md superblock beyond the start of the
+// disk does not show again in a partition at the same place. wipefs opens
+// every device exclusively: one that is mounted or held fails, and the
+// run stops. Which device may be wiped, and on whose word, recover
+// decides before (wipe.go); this only runs the commands.
+func WipeOther(ctx context.Context, x Exec, partitions func(string) ([]string, error), d baremetal.TargetDisk) error {
+	if !strings.HasPrefix(d.Path, "/dev/") || deref(d.Identity) == "" {
+		return fmt.Errorf("wipe %q: no disk with an identity; nothing was wiped", d.Path)
 	}
-	_, err := x.Run(ctx, RunSpec{Argv: []string{"wipefs", "-a", d.Path}, NoKill: true, Timeout: 5 * time.Minute})
-	return err
+	parts, err := partitions(d.Path)
+	if err != nil {
+		return fmt.Errorf("list the partitions of %s: %w", d.Path, err)
+	}
+	for _, p := range append(parts, d.Path) {
+		if _, err := x.Run(ctx, RunSpec{Argv: []string{"wipefs", "-a", p}, NoKill: true, Timeout: 5 * time.Minute}); err != nil {
+			return err
+		}
+	}
+	// The kernel dropped the partitions; udev follows before the disks
+	// are read again.
+	_, _ = x.Run(ctx, RunSpec{Argv: []string{"udevadm", "settle", "--timeout=30"}, Timeout: time.Minute})
+	return nil
 }

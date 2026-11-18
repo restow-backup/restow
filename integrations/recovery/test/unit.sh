@@ -416,6 +416,7 @@ grep -q 'modprobe.blacklist' "$WORK/auto/config" && fail "auto/config must leave
 unit="$WORK/config/includes.chroot/etc/systemd/system/restow-recover.service"
 grep -qx 'ExecStart=/usr/lib/restow-recovery/restow-agent recover --console /dev/tty1' "$unit" && ok || fail "ExecStart of the unit"
 grep -qx 'Restart=on-failure' "$unit" && ok || fail "Restart of the unit"
+grep -qx 'RestartPreventExitStatus=4' "$unit" && ok || fail "no restart after an unattended session ended"
 grep -qx 'Conflicts=getty@tty1.service' "$unit" && ok || fail "the unit owns tty1"
 grep -q '^After=systemd-networkd.service' "$unit" && ok || fail "the unit starts after the network"
 grep -q 'auto_activation_volume_list = \[\]' "$WORK/config/includes.chroot/etc/lvm/lvmlocal.conf" && ok || fail "lvmlocal.conf"
@@ -433,6 +434,8 @@ for rules in 64-md-raid-assembly.rules 64-btrfs.rules; do
 done
 grep -q 'systemd-gpt-auto-generator' "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "gpt-auto masked"
 grep -q 'enable restow-recover.service' "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "the unit enabled"
+grep -qx 'systemctl mask serial-getty@ttyS0.service serial-getty@ttyS1.service >/dev/null' \
+  "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "no login prompt on the serial consoles"
 grep -q 'ssh_host_' "$WORK/config/hooks/live/9900-restow-clean.hook.chroot" && ok || fail "host keys removed"
 
 # --- the source bundle (sources.sh) -------------------------------------------------------------

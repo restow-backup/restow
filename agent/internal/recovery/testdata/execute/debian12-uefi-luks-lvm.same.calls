@@ -1,6 +1,8 @@
 op release /dev/nvme0n1
+udevadm settle --timeout=30
 wipefs -a /dev/nvme0n1p1
 wipefs -a /dev/nvme0n1p2
+udevadm settle --timeout=30
 wipefs -a /dev/nvme0n1
 op blkzero /dev/nvme0n1 16777216 16777216
 sfdisk --no-reread --wipe always --wipe-partitions always /dev/nvme0n1 <stdin:511 bytes>

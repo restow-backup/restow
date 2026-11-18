@@ -102,6 +102,7 @@ if [ "$CHECK" = yes ]; then
   done <pairs.txt
   [ "$missing" -eq 0 ] || exit 1
   echo "sources: $(wc -l <pairs.txt) source packages of $(wc -l <binaries.txt) binaries resolved"
+  chown -R "$OWNER" /work
   exit 0
 fi
 cd src
@@ -109,8 +110,10 @@ while read -r source version; do
   apt-get source --download-only "$source=$version" >/dev/null
   printf '%s %s http://snapshot.debian.org/package/%s/%s/\n' "$source" "$version" "$source" "$(printf '%s' "$version" | sed 's/:/%3A/')" >>../sources.txt
 done <../pairs.txt
+# The container runs as root: hand the files back to the caller (a later run removes them).
+chown -R "$OWNER" /work
 INNER
-printf 'SNAPSHOT_TIMESTAMP=%s\nCHECK=%s\n' "$SNAPSHOT_TIMESTAMP" "$check" >"$work/env"
+printf 'SNAPSHOT_TIMESTAMP=%s\nCHECK=%s\nOWNER=%s:%s\n' "$SNAPSHOT_TIMESTAMP" "$check" "$(id -u)" "$(id -g)" >"$work/env"
 docker run --rm --env-file "$work/env" --volume "$work:/work" "$DEBIAN_IMAGE_DIGEST" sh /work/inner.sh
 if [ "$check" = yes ]; then
   rm -rf "$work"

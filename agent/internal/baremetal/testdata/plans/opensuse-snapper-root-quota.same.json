@@ -664,5 +664,16 @@
     }
   ],
   "target": "same",
-  "warnings": []
+  "warnings": [
+    {
+      "code": "untested_distribution",
+      "message": "openSUSE Leap 15.6 is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "systemd",
+        "os": "openSUSE Leap 15.6"
+      },
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
 }

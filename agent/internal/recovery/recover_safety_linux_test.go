@@ -32,11 +32,17 @@ type unattendedRun struct {
 
 func newUnattended(t *testing.T) *unattendedRun {
 	t.Helper()
+	return newUnattendedWith(t, "debian12-uefi-luks-lvm")
+}
+
+// newUnattendedWith is newUnattended for the backup of another manifest.
+func newUnattendedWith(t *testing.T, manifest string, change ...func(files map[string]string)) *unattendedRun {
+	t.Helper()
 	bin := os.Getenv("RESTIC_BINARY")
 	if bin == "" {
 		t.Skip("set RESTIC_BINARY to run the recovery flow with restic")
 	}
-	raw, err := os.ReadFile("../baremetal/testdata/manifests/debian12-uefi-luks-lvm.json")
+	raw, err := os.ReadFile("../baremetal/testdata/manifests/" + manifest + ".json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +50,11 @@ func newUnattended(t *testing.T) *unattendedRun {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo, snap := snapshotOf(t, bin, raw)
+	var files func(map[string]string)
+	if len(change) > 0 {
+		files = change[0]
+	}
+	repo, snap := snapshotOfFiles(t, bin, raw, files)
 	f := newFakeRecovery(t, "", testCode)
 	f.status = api.RecoveryActive
 	f.snapshotID, f.layoutSHA = snap, sha256Hex(string(raw))
@@ -527,3 +537,137 @@ func TestResumedPlanKeepsTheAdoption(t *testing.T) {
 		t.Error("a disk that was missing in the first run and is there now was accepted")
 	}
 }
+
+// TestRecoverWipesTheOldDiskNamedInConfirmErase (E9 of 21.2): the old
+// system disk stays connected next to the new one and carries the
+// identities of the backup. Named in confirmErase it is emptied with
+// wipefs before anything else is written, the plan runs on the new disk,
+// and the old disk is never a target; not named, nothing at all is written
+// and the run fails with the identity conflict.
+func TestRecoverWipesTheOldDiskNamedInConfirmErase(t *testing.T) {
+	oldDisk := func(u *unattendedRun) {
+		old := u.env.hw.Blocks[0]
+		old.KName, old.Serial = "sdb", "OLDSYS"
+		old.Signatures = []baremetal.TargetSignature{{Kind: "disk_guid", UUID: u.m.Linux.Disks[0].Table.ID},
+			{Kind: "fs", UUID: deref(u.m.Linux.Filesystems[0].UUID)}}
+		u.env.hw.Blocks = append(u.env.hw.Blocks, old)
+	}
+	u := newUnattended(t)
+	oldDisk(u)
+	res, err := u.run(`"diskMapping":{"d0":"serial.restow-e2e-target0"},"confirmErase":["serial.OLDSYS","serial.restow-e2e-target0"]`)
+	if err != nil || res == nil || res.Status != api.RecoverySucceeded {
+		t.Fatalf("run: %v %+v\n%s\n%s", err, res, u.out.String(), u.exe.lines())
+	}
+	lines := u.exe.lines()
+	if !strings.HasPrefix(lines, "wipe-other /dev/sdb\nprobe-write /dev/nvme0n1\n") || strings.Count(lines, "/dev/sdb") != 1 {
+		t.Errorf("the old disk is not wiped first, or it is used:\n%s", lines[:min(len(lines), 400)])
+	}
+	u.f.mu.Lock()
+	logged := strings.Join(u.f.logLines, "\n")
+	u.f.mu.Unlock()
+	if !strings.Contains(logged, "identity conflict: wiping /dev/sdb") || !strings.Contains(logged, "named in confirmErase") {
+		t.Errorf("the wipe is not in the session's log:\n%s", logged)
+	}
+	if !strings.Contains(u.out.String(), "emptied with wipefs -a (identity conflict)") {
+		t.Errorf("the plan does not show the wipe:\n%s", u.out.String())
+	}
+	// Not named: the plan fails with the conflict, nothing is written.
+	u = newUnattended(t)
+	oldDisk(u)
+	res, _ = u.run(okMapping)
+	fin := u.finish()
+	if res == nil || res.Status != api.RecoveryFailed || fin == nil || !strings.Contains(fmt.Sprint(fin.Warnings), baremetal.ProblemIdentityConflict) {
+		t.Fatalf("not named: %+v, finish %+v\n%s", res, fin, u.out.String())
+	}
+	u.nothingWritten("an old disk not named in confirmErase")
+	if strings.Contains(u.exe.lines(), "wipe-other") {
+		t.Errorf("wiped without confirmErase:\n%s", u.exe.lines())
+	}
+	// Named, but confirmErase lacks the target: nothing is wiped either.
+	u = newUnattended(t)
+	oldDisk(u)
+	res, _ = u.run(`"diskMapping":{"d0":"serial.restow-e2e-target0"},"confirmErase":["serial.OLDSYS"]`)
+	if res == nil || res.Status != api.RecoveryFailed || strings.Contains(u.exe.lines(), "wipe-other") {
+		t.Errorf("without the target: %+v\n%s", res, u.exe.lines())
+	}
+	u.nothingWritten("confirmErase without the target")
+}
+
+// TestRecoverE9AdoptsTheDataRAID (E9 of 21.2, nightly run 44039710530):
+// a new system disk, the data RAID5 with LVM kept, the old system disk
+// still connected. The scan sees only the md superblocks on the data
+// disks (the ISO assembles nothing); the plan adopts the array the
+// answers name and leaves the PV on it and the file system on its LV to
+// the adopt phase. The old disk is wiped (confirmErase), the array is
+// assembled and checked before the first erasing step, and the run goes
+// on; when the array holds something else, nothing is erased.
+func TestRecoverE9AdoptsTheDataRAID(t *testing.T) {
+	setup := func(pvUUID string) *unattendedRun {
+		// raid5-spare has no LUKS volume: the system of the backup has no crypttab.
+		u := newUnattendedWith(t, "raid5-spare", func(files map[string]string) { delete(files, "etc/crypttab") })
+		m := u.m
+		md := m.Linux.MD[0]
+		for i := 1; i < len(u.env.hw.Blocks); i++ {
+			u.env.hw.Blocks[i].Signatures = []baremetal.TargetSignature{{Kind: "disk_guid", UUID: m.Linux.Disks[i].Table.ID},
+				{Kind: "part_uuid", UUID: deref(m.Linux.Disks[i].Table.Partitions[0].UUID), PartNumber: intPtrT(1)},
+				{Kind: "md", UUID: md.UUID, PartNumber: intPtrT(1)}}
+		}
+		old := u.env.hw.Blocks[0]
+		old.KName, old.Serial = "vda", "OLDSYS"
+		old.Signatures = []baremetal.TargetSignature{{Kind: "disk_guid", UUID: m.Linux.Disks[0].Table.ID}}
+		u.env.hw.Blocks = append(u.env.hw.Blocks, old)
+		u.exe.output = func(a []string) (string, bool) {
+			if a[0] != "blkid" {
+				return "", false
+			}
+			switch a[len(a)-1] {
+			case "/dev/md/data":
+				return "UUID=" + pvUUID + "\nTYPE=LVM2_member\n", true
+			case "/dev/data/share":
+				return "UUID=" + deref(m.Linux.Filesystems[2].UUID) + "\nTYPE=xfs\n", true
+			}
+			return "", false
+		}
+		return u
+	}
+	answers := `"diskMapping":{"d0":"serial.restow-e2e-target0"},"adopt":["md:md127"],"confirmErase":["serial.OLDSYS","serial.restow-e2e-target0"]`
+
+	u := setup("pvraid-0000")
+	res, err := u.run(answers)
+	lines := u.exe.lines()
+	if err != nil || res == nil || res.Status != api.RecoverySucceeded || !strings.HasPrefix(lines, "wipe-other /dev/vda\nprobe-write /dev/nvme0n1\nmdadm --assemble ") {
+		t.Fatalf("the old disk is not wiped first: %v %+v\n%s\n%s", err, res, u.out.String(), lines)
+	}
+	adopt := strings.Index(lines, "blkid -p -o export /dev/data/share\n")
+	erase := strings.Index(lines, "op release /dev/nvme0n1")
+	if adopt < 0 || erase < adopt || strings.Index(lines, "mdadm --assemble") > adopt {
+		t.Errorf("the adopt phase does not come before the first erasing step:\n%s", lines)
+	}
+	for _, d := range []string{"/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"} {
+		if strings.Contains(lines, "wipefs -a "+d) || strings.Contains(lines, "op release "+d) || strings.Contains(lines, "op blkzero "+d) {
+			t.Errorf("data disk %s was erased:\n%s", d, lines)
+		}
+	}
+	excluded := false
+	for _, s := range res.Plan.Steps {
+		excluded = excluded || s.Kind == "restore" && strings.Contains(strings.Join(s.Args, " "), "--exclude /srv/share")
+	}
+	if !excluded {
+		t.Error("the adopted file system is restored over")
+	}
+
+	// The array carries another PV: the run stops in the adopt phase and
+	// nothing is erased (the old disk was wiped before, on its own word).
+	u = setup("pvraid-9999")
+	res, _ = u.run(answers)
+	lines = u.exe.lines()
+	if res == nil || res.Status != api.RecoveryFailed || !strings.Contains(u.out.String(), "Nothing was erased") {
+		t.Fatalf("other PV: %+v\n%s", res, u.out.String())
+	}
+	for _, never := range []string{"op release", "wipefs", "op blkzero", "sfdisk", "mkfs.", "restic restore", "vgchange"} {
+		if strings.Contains(lines, never) {
+			t.Errorf("other PV: %s ran:\n%s", never, lines)
+		}
+	}
+}
+func intPtrT(n int64) *int64 { return &n }

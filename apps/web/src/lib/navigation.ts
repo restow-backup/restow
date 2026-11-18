@@ -149,6 +149,12 @@ export interface NavItem {
    */
   stage?: "alpha";
   /**
+   * A mark at the right end of the entry, beside its own icon: `restore` for the entries that
+   * lead to a restore (the restore explorer, the file restore), a turn-back arrow in a Lapis
+   * circle (components/layout/restore-marker.tsx). Drawn only, never a status.
+   */
+  marker?: "restore";
+  /**
    * A count next to the label (open warnings, say): a hook the sidebar calls while the entry
    * is shown, null for no badge. It must be cheap and answer from a cached query; `label` is
    * what assistive technology reads ("3 open warnings").

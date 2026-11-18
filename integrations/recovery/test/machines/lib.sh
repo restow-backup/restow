@@ -80,15 +80,41 @@ mkfs_ext4() {
 }
 
 # debootstrap of <suite> from <mirror> into <root>, with the keyring of the factory medium.
+# debootstrap does not retry a download itself; a mirror that fails one package for a moment
+# ("Couldn't download packages") would end the case. So up to five attempts, each from an
+# emptied target that keeps the packages already downloaded (debootstrap validates and reuses
+# them), with the end of debootstrap.log on the console after a failure.
 bootstrap() {
   suite="$1"
   root="$2"
   mirror="$3"
   keyring="$4"
   shift 4
-  debootstrap --keyring="$FACTORY_MEDIA/keyrings/$keyring" --variant=minbase \
-    --include="systemd-sysv,udev,kmod,ca-certificates,curl,openssh-client,fdisk,$(printf '%s' "$*" | tr ' ' ',')" \
-    "$suite" "$root" "$mirror"
+  include="systemd-sysv,udev,kmod,ca-certificates,curl,openssh-client,fdisk,$(printf '%s' "$*" | tr ' ' ',')"
+  attempt=1
+  while :; do
+    say "debootstrap $suite, attempt $attempt of 5"
+    debootstrap --keyring="$FACTORY_MEDIA/keyrings/$keyring" --variant=minbase \
+      --include="$include" "$suite" "$root" "$mirror" && return 0
+    tail -n 20 "$root/debootstrap/debootstrap.log" 2>/dev/null || true
+    [ "$attempt" -lt 5 ] || fdie "debootstrap $suite failed $attempt times"
+    attempt=$((attempt + 1))
+    sleep 30
+    empty_root "$root" keep-debs
+  done
+}
+
+# Empty <root> and the file systems mounted below it (an aborted debootstrap), keeping the
+# mount points and lost+found; with keep-debs also the downloaded packages of debootstrap.
+#   empty_root <root> [keep-debs]
+empty_root() {
+  keep="/nonexistent/*"
+  [ "${2:-}" = keep-debs ] && keep="$1/var/cache/apt/archives/*.deb"
+  chroot_umount "$1"
+  for mnt in $(findmnt -rn -o TARGET -R "$1"); do
+    find "$mnt" -xdev -mindepth 1 ! -type d ! -path "$keep" -exec rm -f {} +
+    find "$mnt" -xdev -mindepth 1 -depth -type d ! -path "$mnt/lost+found" -exec rmdir {} + 2>/dev/null || true
+  done
 }
 
 # Bring an Ubuntu root to the state of a maintained machine: debootstrap takes the release

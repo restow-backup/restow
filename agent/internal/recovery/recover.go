@@ -49,6 +49,11 @@ type FlowEnv interface {
 	// Guard fills the machine parts of the guard of the confirmed disks
 	// (Scan, Hold, ProbeWrite; devguard.go).
 	Guard(g *DiskGuard)
+	// WipeDisk removes the signatures of a device of an identity conflict
+	// (wipefs -a on each of its partitions, then on the disk; 10.7). The
+	// flow calls it only for a device the operator or confirmErase named
+	// (wipe.go).
+	WipeDisk(ctx context.Context, d baremetal.TargetDisk) error
 	// Finalize prepares the restart (flush, unmount, close).
 	Finalize(ctx context.Context, x *Executor)
 	Shell(ctx context.Context) error
@@ -103,6 +108,9 @@ type Recover struct {
 	// network away; nothing more goes to the instance, the finish goes to
 	// the lab over the console.
 	probeRelayed bool
+	// wiped are the devices of identity conflicts this run emptied with
+	// wipefs (wipe.go); confirmErase names them besides the disks to erase.
+	wiped []baremetal.TargetDisk
 }
 
 // snapshotNote is what the instance says about the chosen snapshot.
@@ -337,6 +345,32 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		plan, _ = baremetal.PlanWith(m, target, facts, choices, popts)
 	}
 	plan, choices = r.refinePlan(ctx, m, target, facts, choices, plan, popts)
+	if !lvmMultiline {
+		// An identity conflict is the only problem left: the device is
+		// wiped on the operator's word or confirmErase, then the disks are
+		// read again and the plan is made anew (10.7).
+		np, nt, nhw, err := r.wipeConflicts(ctx, m, target, facts, choices, plan, popts, shared, answersDisk)
+		switch {
+		case errors.Is(err, ErrAborted):
+			zeroRepo()
+			if !r.wasAborted() {
+				r.UI.Say("ui.aborted")
+			}
+			return r.finishEarly(ctx, plan, api.RecoveryCancelled, "")
+		case err != nil:
+			zeroRepo()
+			code := ProblemCode(err)
+			if errors.Is(err, ErrDisksChanged) {
+				r.UI.Say("code."+ProblemDisksChanged, "detail", strings.TrimPrefix(err.Error(), ErrDisksChanged.Error()+": "))
+			} else {
+				code = ProblemStepFailed
+			}
+			return r.fail(ctx, plan, nil, code, err)
+		case np != nil:
+			plan, target, hw = np, nt, nhw
+			shared = SharedIdentities(hw)
+		}
+	}
 	if lvmMultiline {
 		plan.OK = false
 		plan.Problems = append(plan.Problems, baremetal.Finding{Code: ProblemLVMFilterMultiline, Severity: baremetal.FindingProblem,
@@ -497,7 +531,12 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 			r.UI.Say("code."+ProblemDisksChanged, "detail", strings.TrimPrefix(errors.Unwrap(execErr).Error(), ErrDisksChanged.Error()+": "))
 		}
 		if rep.FailedStep > 0 {
-			r.UI.Say("exec.failed", "n", rep.FailedStep)
+			if failedInAdopt(x.Plan, rep.FailedStep) {
+				// The adopt phase comes before the first erasing step (10.7).
+				r.UI.Say("exec.failed_adopt", "n", rep.FailedStep)
+			} else {
+				r.UI.Say("exec.failed", "n", rep.FailedStep)
+			}
 		}
 	case verification.Result == api.VerifyFailed:
 		status = api.RecoveryFailed
@@ -539,6 +578,20 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	r.UI.Say("done.succeeded")
 	r.after(ctx)
 	return res, nil
+}
+
+// failedInAdopt: step n of the plan belongs to the adopt phase, which
+// runs before any disk is erased.
+func failedInAdopt(p *baremetal.RestorePlan, n int64) bool {
+	if p == nil {
+		return false
+	}
+	for _, s := range p.Steps {
+		if s.N == n {
+			return s.Phase == "adopt"
+		}
+	}
+	return false
 }
 
 // awaitForeignMappings: before the first step, no device-mapper device
@@ -1447,6 +1500,9 @@ func (r *Recover) showPlan(ctx context.Context, p *baremetal.RestorePlan, t *bar
 	for _, a := range p.Adopted {
 		r.UI.Say("plan.adopted", "unit", a.Kind+" "+a.Ref)
 	}
+	for _, d := range r.wiped {
+		r.UI.Say("plan.wiped", "path", d.Path, "model", deref(d.Model), "identity", deref(d.Identity))
+	}
 	if len(p.Problems) > 0 {
 		r.UI.Say("plan.problems")
 		for _, f := range p.Problems {
@@ -1598,8 +1654,9 @@ func mappedDevices(p *baremetal.RestorePlan, t *baremetal.Target) []string {
 
 // confirm: for every disk to erase that carries data, the last four
 // characters of its identity, then the erase word (10.4 point 8).
-// Unattended: confirmErase must name exactly the identities erased; from
-// a medium the disks are shown for 30 seconds first, any key aborts.
+// Unattended: confirmErase must name exactly the identities erased and
+// the ones of the devices this run wiped (identity conflicts, wipe.go);
+// from a medium the disks are shown for 30 seconds first, any key aborts.
 //
 // An identity confirms a disk only when it names that disk alone: one
 // that several devices report is refused (the answers must use the
@@ -1636,37 +1693,20 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 			}
 			want[id] = true
 		}
-		if len(want) != len(disks) || len(want) != len(r.Answers.ConfirmErase) {
-			return false, nil
-		}
+		expect := r.wipedIdentities()
 		for _, d := range disks {
-			if !want[deref(d.Identity)] {
-				return false, nil
-			}
+			expect = append(expect, deref(d.Identity))
+		}
+		if len(want) != len(disks)+len(r.wiped) || !confirmEraseMatches(r.Answers.ConfirmErase, expect) {
+			return false, nil
 		}
 		if r.Answers.Source == SourceMedia {
 			r.showSnapshot("confirm.snapshot")
-			r.UI.Say("unattended.countdown", "instance", r.origin)
+			var lines []string
 			for _, d := range disks {
-				r.UI.Line(r.eraseLine(d))
+				lines = append(lines, r.eraseLine(d))
 			}
-			wait := r.Countdown
-			if wait == 0 {
-				wait = 30 * time.Second
-			}
-			cctx, cancel := context.WithTimeout(ctx, wait)
-			r.curMu.Lock()
-			r.stopCountdown = cancel
-			gone := r.aborted
-			r.curMu.Unlock()
-			pressed := gone || r.UI.AnyKey(cctx)
-			r.curMu.Lock()
-			r.stopCountdown = nil
-			r.curMu.Unlock()
-			cancel()
-			// A key, Ctrl+C or the end of the run: nothing is erased. Only
-			// the full time without any of them goes on.
-			if pressed || r.wasAborted() || ctx.Err() != nil {
+			if !r.countdown(ctx, "unattended.countdown", lines) {
 				return false, nil
 			}
 		}
@@ -1692,6 +1732,34 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 		}
 	}
 	return r.UI.ConfirmErase(lines)
+}
+
+// countdown shows the title (with the instance) and the lines for 30
+// seconds (Countdown in tests) and reports whether the full time passed:
+// a key, Ctrl+C or the end of the run stops it, and then nothing is
+// erased or wiped (10.20).
+func (r *Recover) countdown(ctx context.Context, title string, lines []string) bool {
+	r.UI.Say(title, "instance", r.origin)
+	for _, l := range lines {
+		r.UI.Line(l)
+	}
+	wait := r.Countdown
+	if wait == 0 {
+		wait = 30 * time.Second
+	}
+	cctx, cancel := context.WithTimeout(ctx, wait)
+	r.curMu.Lock()
+	r.stopCountdown = cancel
+	gone := r.aborted
+	r.curMu.Unlock()
+	pressed := gone || r.UI.AnyKey(cctx)
+	r.curMu.Lock()
+	r.stopCountdown = nil
+	r.curMu.Unlock()
+	cancel()
+	// A key, Ctrl+C or the end of the run: nothing is erased. Only the
+	// full time without any of them goes on.
+	return !pressed && !r.wasAborted() && ctx.Err() == nil
 }
 
 // eraseLine names a disk that will be erased: path, model, size, identity.
