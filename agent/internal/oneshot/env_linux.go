@@ -50,6 +50,23 @@ type LinuxEnv struct {
 	Stdout, Stderr io.Writer
 }
 
+// DeviceOf implements Env (stat, following links: /proc/self/exe is one).
+func (e *LinuxEnv) DeviceOf(p string) (string, error) {
+	var st syscall.Stat_t
+	if err := syscall.Stat(p, &st); err != nil {
+		return "", err
+	}
+	dev := st.Dev
+	if st.Mode&syscall.S_IFMT == syscall.S_IFBLK {
+		dev = st.Rdev
+	}
+	return fmt.Sprintf("%d:%d", devMajor(uint64(dev)), devMinor(uint64(dev))), nil
+}
+
+// devMajor and devMinor split a Linux device number (as glibc does).
+func devMajor(dev uint64) uint64 { return ((dev >> 8) & 0xfff) | ((dev >> 32) & 0xfffff000) }
+func devMinor(dev uint64) uint64 { return (dev & 0xff) | ((dev >> 12) & 0xffffff00) }
+
 // HasTool implements Env.
 func (e *LinuxEnv) HasTool(name string) bool { _, err := e.Runner.Resolve(name); return err == nil }
 

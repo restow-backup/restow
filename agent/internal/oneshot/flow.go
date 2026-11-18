@@ -85,6 +85,9 @@ type Env interface {
 	Cleanup()
 	// HasTool reports whether a program is in the root-owned tool folders.
 	HasTool(name string) bool
+	// DeviceOf is the device number (major:minor) a path lives on, or of
+	// the device itself for a block device (a swap partition).
+	DeviceOf(path string) (string, error)
 	// WriteSessionData writes the session data for recover in the direct
 	// mode (root, /run/restow-oneshot 0700, the file 0600) and returns its
 	// path; RemoveSessionData removes it again.
@@ -401,31 +404,7 @@ func (c *Command) directProblems(disks []baremetal.TargetDisk) []string {
 	if c.Opts.ResticBin == "" {
 		out = append(out, u.Text("oneshot.fatal.direct_restic"))
 	}
-	var used []string
-	for _, src := range append(mountSources(c.read("/proc/self/mounts")), mountSources(c.read("/proc/swaps"))...) {
-		for _, d := range disks {
-			if onDisk(src, d.Path) {
-				used = append(used, src)
-			}
-		}
-	}
-	for _, d := range disks {
-		k := strings.TrimPrefix(d.Path, "/dev/")
-		if strings.ContainsAny(k, "/.") || k == "" {
-			continue
-		}
-		if h, _ := c.Env.ReadDir("/sys/block/" + k + "/holders"); len(h) > 0 {
-			used = append(used, d.Path)
-		}
-		parts, _ := c.Env.ReadDir("/sys/block/" + k)
-		for _, p := range parts {
-			if strings.HasPrefix(p, k) {
-				if h, _ := c.Env.ReadDir("/sys/block/" + k + "/" + p + "/holders"); len(h) > 0 {
-					used = append(used, "/dev/"+p)
-				}
-			}
-		}
-	}
+	used := c.disksInUse(disks)
 	if len(used) > 0 {
 		sort.Strings(used)
 		out = append(out, u.Text("oneshot.fatal.direct_in_use", "devices", strings.Join(slicesCompact(used), ", ")))
@@ -443,16 +422,92 @@ func slicesCompact(s []string) []string {
 	return out
 }
 
-// mountSources are the first fields of /proc/self/mounts or /proc/swaps.
-func mountSources(b []byte) []string {
-	var out []string
-	for _, l := range strings.Split(string(b), "\n") {
-		f := strings.Fields(l)
-		if len(f) > 0 && strings.HasPrefix(f[0], "/dev/") {
-			out = append(out, f[0])
+// disksInUse names what holds a disk of the machine in the direct mode
+// (17.1). It compares by device number, which a root mounted as /dev/root
+// or a name in another form cannot hide: the major:minor of every mount
+// (/proc/self/mountinfo), of every swap area, of "/", of this program and
+// of restic, against those of the disks and their partitions
+// (/sys/block/<disk>[/<part>]/dev); by name as well (btrfs mounts carry an
+// anonymous number); and a disk or partition with holders (LVM, md, LUKS).
+func (c *Command) disksInUse(disks []baremetal.TargetDisk) []string {
+	var used []string
+	devs := map[string]string{} // major:minor -> /dev/<name>
+	for _, d := range disks {
+		k := strings.TrimPrefix(d.Path, "/dev/")
+		if strings.ContainsAny(k, "/.") || k == "" {
+			continue
+		}
+		if n := trimRead(c, "/sys/block/"+k+"/dev"); n != "" {
+			devs[n] = d.Path
+		}
+		if h, _ := c.Env.ReadDir("/sys/block/" + k + "/holders"); len(h) > 0 {
+			used = append(used, d.Path)
+		}
+		parts, _ := c.Env.ReadDir("/sys/block/" + k)
+		for _, p := range parts {
+			if !strings.HasPrefix(p, k) || strings.ContainsAny(p, "/.") {
+				continue
+			}
+			if n := trimRead(c, "/sys/block/"+k+"/"+p+"/dev"); n != "" {
+				devs[n] = "/dev/" + p
+			}
+			if h, _ := c.Env.ReadDir("/sys/block/" + k + "/" + p + "/holders"); len(h) > 0 {
+				used = append(used, "/dev/"+p)
+			}
 		}
 	}
-	return out
+	mark := func(n, what string) {
+		if dev, ok := devs[n]; ok {
+			used = append(used, dev+" ("+what+")")
+		}
+	}
+	// mountinfo: ID parent major:minor root mountpoint ... - fstype source options
+	for _, l := range strings.Split(string(c.read("/proc/self/mountinfo")), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 5 {
+			continue
+		}
+		mark(f[2], f[4])
+		if i := indexOf(f, "-"); i >= 0 && i+2 < len(f) {
+			for _, d := range disks {
+				if onDisk(f[i+2], d.Path) {
+					used = append(used, f[i+2]+" ("+f[4]+")")
+				}
+			}
+		}
+	}
+	for _, l := range strings.Split(string(c.read("/proc/swaps")), "\n")[1:] {
+		f := strings.Fields(l)
+		if len(f) == 0 || !strings.HasPrefix(f[0], "/") {
+			continue
+		}
+		if n, err := c.Env.DeviceOf(f[0]); err == nil {
+			mark(n, "swap")
+		}
+		for _, d := range disks {
+			if onDisk(f[0], d.Path) {
+				used = append(used, f[0]+" (swap)")
+			}
+		}
+	}
+	for _, p := range []string{"/", "/proc/self/exe", c.Opts.ResticBin} {
+		if p == "" {
+			continue
+		}
+		if n, err := c.Env.DeviceOf(p); err == nil {
+			mark(n, p)
+		}
+	}
+	return used
+}
+
+func indexOf(list []string, s string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
 }
 
 // onDisk reports whether a device is the disk or one of its partitions

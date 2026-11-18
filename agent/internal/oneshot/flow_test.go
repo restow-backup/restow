@@ -531,6 +531,7 @@ func TestOneshotTestLoadChecksWhatItLoads(t *testing.T) {
 func TestOneshotDirectMode(t *testing.T) {
 	direct := func(o *Options) { o.Direct, o.ResticBin = true, "/run/restow-oneshot.x/restic" }
 	env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+	rescueSys(env)
 	env.files["/proc/sys/kernel/kexec_load_disabled"] = "1\n" // no matter here
 	env.recoverExit = 0
 	res := runCommand(t, env, inst, confirmInput, direct)
@@ -558,6 +559,18 @@ func TestOneshotDirectMode(t *testing.T) {
 	}
 }
 
+// rescueSys is a rescue system in RAM: the disk sda (8:0) with sda1 (8:1)
+// and sda2 (8:2), the root on a tmpfs (0:23), nothing of the disk in use.
+func rescueSys(e *fakeEnv) {
+	e.files["/sys/block/sda/dev"] = "8:0\n"
+	e.files["/sys/block/sda/sda1/dev"] = "8:1\n"
+	e.files["/sys/block/sda/sda2/dev"] = "8:2\n"
+	e.dirs["/sys/block/sda"] = []string{"dev", "queue", "sda1", "sda2"}
+	e.files["/proc/self/mountinfo"] = "22 1 0:23 / / rw - tmpfs rootfs rw\n25 22 0:5 / /proc rw - proc proc rw\n"
+	e.files["/proc/swaps"] = "Filename Type Size Used Priority\n"
+	e.devOf = map[string]string{"/": "0:23", "/proc/self/exe": "0:23", "/x/restic": "0:23", "/run/restow-oneshot.x/restic": "0:23"}
+}
+
 func TestOneshotDirectModeRefusals(t *testing.T) {
 	direct := func(o *Options) { o.Direct, o.ResticBin = true, "/x/restic" }
 	cases := map[string]struct {
@@ -568,11 +581,24 @@ func TestOneshotDirectModeRefusals(t *testing.T) {
 		"a program missing": {edit: func(e *fakeEnv) { e.missing["sgdisk"] = true }, want: "lacks: sgdisk"},
 		"no restic":         {opts: func(o *Options) { o.Direct, o.ResticBin = true, "" }, want: "checked restic"},
 		"a mounted partition": {edit: func(e *fakeEnv) {
-			e.files["/proc/self/mounts"] = "/dev/sda1 /mnt ext4 rw 0 0\nproc /proc proc rw 0 0\n"
-		}, want: "in use (/dev/sda1)"},
+			e.files["/proc/self/mountinfo"] = "30 1 8:1 / /mnt rw,relatime shared:1 - ext4 /dev/sda1 rw\n"
+		}, want: "/dev/sda1 (/mnt)"},
+		"the root as /dev/root on a partition (no initramfs)": {edit: func(e *fakeEnv) {
+			e.files["/proc/self/mountinfo"] = "22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/root rw\n"
+		}, want: "/dev/sda1 (/)"},
+		"the whole disk mounted under another name": {edit: func(e *fakeEnv) {
+			e.files["/proc/self/mountinfo"] = "23 1 8:0 / /data rw - xfs /dev/disk/by-label/data rw\n"
+		}, want: "/dev/sda (/data)"},
 		"swap on the disk": {edit: func(e *fakeEnv) {
 			e.files["/proc/swaps"] = "Filename Type Size Used Priority\n/dev/sda2 partition 1 0 -2\n"
-		}, want: "in use (/dev/sda2)"},
+		}, want: "/dev/sda2 (swap)"},
+		"a swap file on the disk": {edit: func(e *fakeEnv) {
+			e.files["/proc/swaps"] = "Filename Type Size Used Priority\n/swapfile file 1 0 -2\n"
+			e.devOf["/swapfile"] = "8:1"
+		}, want: "/dev/sda1 (swap)"},
+		"the root file system on the disk": {edit: func(e *fakeEnv) { e.devOf["/"] = "8:1" }, want: "/dev/sda1 (/)"},
+		"this program on the disk":         {edit: func(e *fakeEnv) { e.devOf["/proc/self/exe"] = "8:1" }, want: "/dev/sda1 (/proc/self/exe)"},
+		"restic on the disk":               {edit: func(e *fakeEnv) { e.devOf["/x/restic"] = "8:0" }, want: "/dev/sda (/x/restic)"},
 		"a volume group on a partition": {edit: func(e *fakeEnv) {
 			e.dirs["/sys/block/sda"] = []string{"sda1", "sda2", "queue"}
 			e.dirs["/sys/block/sda/sda2/holders"] = []string{"dm-0"}
@@ -582,6 +608,7 @@ func TestOneshotDirectModeRefusals(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+			rescueSys(env)
 			if tc.edit != nil {
 				tc.edit(env)
 			}

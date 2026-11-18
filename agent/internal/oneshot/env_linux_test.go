@@ -193,3 +193,30 @@ func TestWriteSessionDataForTheDirectMode(t *testing.T) {
 		t.Error("a folder of mode 0755 accepted")
 	}
 }
+
+// DeviceOf gives the number the kernel shows for the mount of "/" in
+// mountinfo, the form the direct mode compares with /sys/block.
+func TestDeviceOfMatchesMountinfo(t *testing.T) {
+	got, err := (&LinuxEnv{}).DeviceOf("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile("/proc/self/mountinfo")
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) > 4 && f[4] == "/" {
+			if f[2] != got {
+				t.Errorf("DeviceOf(/) = %s, mountinfo says %s", got, f[2])
+			}
+			return
+		}
+	}
+	t.Skip("no mount of / in mountinfo")
+}
+
+func TestDeviceNumberSplit(t *testing.T) {
+	// 8:1 and a large minor (glibc's encoding: minor bits above 8 move up).
+	if devMajor(0x0801) != 8 || devMinor(0x0801) != 1 || devMajor(259<<8|5) != 259 || devMinor(0x10<<20|0x01) != 0x1001 {
+		t.Error("device number split")
+	}
+}

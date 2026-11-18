@@ -265,6 +265,8 @@ type fakeEnv struct {
 	removed     []string
 	recoverRuns []string
 	recoverExit int
+	// devOf is the device number of a path (DeviceOf).
+	devOf map[string]string
 }
 
 const (
@@ -412,6 +414,13 @@ func (e *fakeEnv) Kexec(ctx context.Context) error {
 func (e *fakeEnv) Cleanup() { e.cleaned = true }
 
 func (e *fakeEnv) HasTool(name string) bool { return !e.missing[name] }
+
+func (e *fakeEnv) DeviceOf(p string) (string, error) {
+	if d, ok := e.devOf[p]; ok {
+		return d, nil
+	}
+	return "", errors.New("no such file")
+}
 
 func (e *fakeEnv) WriteSessionData(data []byte) (string, error) {
 	e.sessionData = append([]byte(nil), data...)
