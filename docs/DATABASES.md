@@ -868,12 +868,21 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   Sekunden und spätestens nach 12 Stunden. Während der Anmeldung bietet das Relais dem Programm
   SCRAM ohne Kanalbindung an: libpq lehnt `SCRAM-SHA-256-PLUS` auf einem Socket ohne TLS ab; das
   Zertifikat hält das Relais fest. Das Programm bekommt eine eigene Umgebung (Socket, Benutzer,
-  `PGPASSFILE`), keine Variable des Workers oder Agenten.
+  `PGPASSFILE`), keine Variable des Workers oder Agenten. Die erste Verbindung eines Laufs prüft
+  die Instanz; jede weitere (Relais, eigene Anweisungen) geht an genau die Adresse, die sie
+  erreicht hat, nach denselben Regeln geprüft, nie an das, was der Name inzwischen auflöst
+  (`db_instance_changed`). Was ein abgebrochener Lauf in `/dev/shm` liegen ließ
+  (`restow-db-*`, `restow-pg-relay-*`, nur eigene, älter als jede Laufzeit), räumen Worker beim
+  Start und Agent bei jedem Lauf weg.
 - **Programme** (O2): Worker-Image mit `postgresql-client-18` aus dem PGDG-Archiv, Schlüssel im
   Repository (`scripts/docker/pgdg-ACCC4CF8.asc`), Fingerabdruck beim Bau geprüft; die Schicht
   ist unkomprimiert etwa 74 MB groß, davon etwa 47 MB Perl (Abhängigkeit von
-  `postgresql-client-common`). Der Agent nimmt die Programme aus `/usr/lib/postgresql/*/bin`,
-  `/usr/pgsql-*/bin`, Homebrew und `PATH`.
+  `postgresql-client-common`). Der Bau verlangt genau einen Schlüssel ohne Unterschlüssel in der
+  Datei. Der Agent sucht die Programme in `/usr/lib/postgresql/*/bin`, `/usr/pgsql-*/bin`,
+  Homebrew und `PATH`, startet aber nur solche, deren Datei und jeder Ordner darüber root gehören
+  (Windows: nur SYSTEM, Administratoren und TrustedInstaller dürfen sie ändern) und für Gruppe und
+  andere nicht beschreibbar sind, auch nicht für `--version`; übersprungene nennt
+  `db_tool_missing` mit Grund. Einen eigens konfigurierten Pfad gibt es in D3 nicht.
 - **Sicherung:** Planung im Worker (eine Minute, Zeitplan der Verbindung, mindestens 15 Minuten,
   `db_run_overlap`), Läufe des Servers in der Queue `db` (`DB_CONCURRENCY`, Vorgabe 2), Läufe eines
   Agenten als Aufgabe `db_backup`. Je Lauf: Instanz über die festgehaltene Verbindung prüfen
@@ -886,20 +895,47 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
 - **Repository:** `db/<verbindung>/` auf dem primären Speicherziel des Mandanten, Kennwort im
   Geheimnisspeicher (`database_repository`), `restic init` einmal (Worker bzw. API beim Abruf
   eines Agenten-Laufs). Agenten schreiben über `/agent/db/restic/:connectionId` mit dem Token des
-  Laufs: anhängend für eine Sicherung, lesend für einen Restore.
-- **Aufbewahrung:** einmal am Tag je Verbindung durch den Worker, je Datenbank und für die
-  globalen Objekte getrennt, nach dem Ende der gemeldeten Läufe datiert; vergessen wird nur, was
-  ein Lauf meldete (`pruned`), danach `restic prune`. Beides läuft unter dem Löschdurchgang
+  Laufs, nur für eine Sicherung und nur anhängend. Jeder Snapshot trägt `restow-db-run=<lauf>`.
+- **Bericht eines Agenten:** Der Server trägt eine gemeldete Sicherung nur ein, wenn er sie im
+  Repository der Verbindung findet: volle Snapshot-ID (64 Zeichen, nie ein Präfix, das restic als
+  jeden passenden Snapshot läse), Host `restow-db`, Tags dieser Verbindung und dieses Laufs,
+  genau die gemeldete Datei, Zeit im Lauf, eine Datenbank der gemeldeten Instanz. Höchstens eine
+  Sicherung je Datenbank und eine der globalen Objekte je Lauf. Die Zeiten sind die des Servers
+  (die des Snapshots, begrenzt auf Beginn des Laufs und jetzt). Was nicht passt, wird nicht
+  eingetragen (`db_snapshot_failed`, Lauf `partial` oder `failed`).
+- **Ausführer gewechselt:** Wechselt eine Verbindung den Ausführer, scheitern ihre wartenden und
+  laufenden Läufe sofort (`db_run_failed`, Token gelöscht); beim Abruf prüft die API außerdem, dass
+  der Agent die Verbindung noch ausführt und sie eingeschaltet ist.
+- **Aufbewahrung:** einmal am Tag je Verbindung durch den Worker (`retention_checked_at`, die am
+  längsten ungeprüfte zuerst, die Mandanten im Wechsel, höchstens 20 je Durchlauf), je Datenbank
+  und für die globalen Objekte getrennt, nach den vom Server eingetragenen Zeiten; vergessen wird
+  nur mit voller ID und nur, was das Repository für diese Verbindung führt (`pruned`), danach
+  `restic prune`. Beides läuft unter dem Löschdurchgang
   `database_retention` (storage/deletion-guard.ts): im Restore-Modus nichts, auf nur einmal
   beschreibbarem Primärziel und während einer Speicher-Migration ("move") ebenfalls nicht; was
   Object Lock oder die Löschverzögerung zurückhält, wird für die Verlängerung vermerkt.
 - **Restore** (O3): `POST /api/v1/databases/:id/restore` (Administratoren, auditiert) mit Sicherung,
   Zielverbindung derselben Engine und Name; der Ausführer des Ziels führt ihn aus. Vor dem
   Anlegen: Rechte (`CREATEDB`), Name frei; der SHA-256 des Datenstroms wird mit der Sicherung
-  verglichen (`db_backup_mismatch`).
-- **Download und Anleitung:** `GET …/:id/backups/:backupId/download` liest die Datei aus dem
-  Repository (auditiert), `…/restore-guide` ist Text mit `createdb`- und `pg_restore`-Befehlen,
-  ohne Geheimnis. Die Datenbankseite zeigt die Sicherungen mit diesen Aktionen.
+  verglichen (`db_backup_mismatch`). Namen ohne Steuerzeichen; SQL-Literale stehen in der Form
+  `E'…'` und bedeuten mit und ohne `standard_conforming_strings` dasselbe. Ein Agent bekommt für
+  einen Restore weder Repository noch Snapshot-ID: Er liest die eine Datei über
+  `GET /agent/v1/databases/runs/:runId/dump`, die der Server aus dem Repository der Quelle
+  streamt. Bei einem Restore auf eine andere Verbindung erhält der Agent des Ziels damit den
+  Inhalt dieser einen Sicherung, nie die übrigen Sicherungen der Quelle; der Dialog sagt das.
+- **Download und Anleitung:** `GET …/:id/backups/:backupId/download` liest den Dump der Datenbank
+  aus dem Repository (auditiert, Wiederherstellungsbediener dürfen ihn), ohne Länge (die Größe
+  meldete der Ausführer), höchstens zwei Downloads je Mandant und vier insgesamt zugleich (sonst
+  429). `…/restore-guide` ist Text mit `createdb`- und `pg_restore`-Befehlen, ohne Geheimnis,
+  Dateiname wie beim Download (nur `[A-Za-z0-9._-]`) und jedes Wort in einfachen Anführungszeichen.
+  Die Datenbankseite zeigt die Sicherungen mit diesen Aktionen.
+- **Globale Objekte** (Entscheidung nach der Prüfung, November 2026): Die Kennwort-Hashes der
+  Rollen bleiben in der Sicherung (verschlüsseltes Repository, für die Wiederherstellung nach einem
+  Totalausfall nötig). `globals.sql` gibt es nur über
+  `GET /api/v1/databases/connections/:id/globals` und `…/globals/:backupId/download`, nur für
+  Administratoren des Mandanten bzw. des Anbieterteams, protokolliert als
+  `database_connection.globals_downloaded`; die Seite zeigt sie nur ihnen. Der Download einer
+  Datenbank liefert nie die globalen Objekte.
 - **Bewertung:** Mit einer Sicherung ist eine Datenbank "ungeprüft" (`unverified`), bis D6 prüft.
 
 ### Abweichungen und Grenzen von D3
