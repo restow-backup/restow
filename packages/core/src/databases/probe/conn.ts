@@ -42,7 +42,7 @@ export class DbProbeScope {
   private readonly timer: NodeJS.Timeout;
   private done = false;
   private received = 0;
-  expired = false;
+  private timedOut = false;
 
   constructor(
     readonly deadline: number,
@@ -50,6 +50,15 @@ export class DbProbeScope {
   ) {
     this.timer = setTimeout(() => this.expire(), Math.max(0, deadline - Date.now()));
     this.timer.unref?.();
+  }
+
+  /**
+   * The deadline passed. Also true in the moment before its timer fired: a step's wait ends at
+   * the deadline too, and what it failed with must read as the deadline, not as the server's
+   * answer.
+   */
+  get expired(): boolean {
+    return this.timedOut || Date.now() >= this.deadline;
   }
 
   /** Milliseconds left until the deadline (0 once it passed). */
@@ -78,7 +87,7 @@ export class DbProbeScope {
   }
 
   private expire(): void {
-    this.expired = true;
+    this.timedOut = true;
     this.destroyAll();
   }
 
