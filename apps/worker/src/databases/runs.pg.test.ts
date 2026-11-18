@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import {
   choosePgTools,
   generateDek,
+  installDeletionEnforcement,
   Keyring,
   LocalStorageBackend,
   openPgAdminSession,
@@ -72,6 +73,7 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
   const credentials: Record<string, { user: string; password: string }> = {};
   const queued: { tenantId: string; runId: string }[] = [];
   let now = new Date("2026-11-18T10:00:00.000Z");
+  let writeOnce = false;
   const keys = new Keyring("x", [generateDek(1)]);
 
   const q = <T extends Record<string, unknown>>(text: string, values: unknown[] = []) =>
@@ -84,6 +86,7 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     now: () => now,
     keyrings: new TenantCache(async () => keys),
     primaryStorage: async () => new LocalStorageBackend(storageDir),
+    primaryWriteOnce: async () => writeOnce,
     privateNetworksAllowed: true,
     restoreModeActive: async () => false,
     readCredentials: async (_tenant, secretId) =>
@@ -486,7 +489,45 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
       .select()
       .from(databaseBackups)
       .where(eq(databaseBackups.connectionId, connectionId));
-    const outcome = await databaseRetention(deps(), full as NonNullable<typeof full>);
+    // Write-once storage and restore mode hold it: nothing is forgotten.
+    writeOnce = true;
+    expect(await databaseRetention(deps(), full as NonNullable<typeof full>)).toEqual({
+      forgotten: 0,
+    });
+    writeOnce = false;
+    const passes: string[] = [];
+    const refuse = installDeletionEnforcement({
+      decide: async (request) => {
+        passes.push(request.pass);
+        return { allowed: false, reason: "restore_mode", restoreModeId: null };
+      },
+      holding: () => true,
+    });
+    try {
+      expect(await databaseRetention(deps(), full as NonNullable<typeof full>)).toEqual({
+        forgotten: 0,
+      });
+    } finally {
+      refuse();
+    }
+    expect(passes).toEqual(["database_retention"]);
+    expect((await withRepository(access, (session) => resticSnapshots(session))).length).toBe(
+      before,
+    );
+    // Strict: every delete of restic's prune must carry the permit of the pass.
+    const allow = installDeletionEnforcement(
+      {
+        decide: async () => ({ allowed: true, keepUnknownBefore: null, inRestoreMode: false }),
+        holding: () => false,
+      },
+      { strict: true },
+    );
+    let outcome: { forgotten: number };
+    try {
+      outcome = await databaseRetention(deps(), full as NonNullable<typeof full>);
+    } finally {
+      allow();
+    }
     // The policy of the machines per group (the database and the globals): some of today's go,
     // the newest of each group stays.
     const after = await db

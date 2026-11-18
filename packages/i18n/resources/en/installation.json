@@ -771,6 +771,7 @@
       "enrollment_cleanup": "Enrollment clean-up",
       "progress_marker_prune": "Progress marker pruning",
       "repository_copy_retention": "Retention on repository copies",
+      "database_retention": "Retention on database backups",
       "storage_target_removal": "Storage target removal",
       "primary_replacement": "Primary target replacement",
       "other": "Other deletion"

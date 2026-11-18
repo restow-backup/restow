@@ -49,6 +49,8 @@ export const DELETION_PASSES = [
   // Retention on the restic repositories a copy target holds (docs/STORAGE.md, "restic
   // repositories on copies"): restic forget and prune there.
   "repository_copy_retention",
+  // Retention on the restic repositories of the database connections (docs/DATABASES.md, D3).
+  "database_retention",
   // Not deletes of their own, but they leave data behind that a later removal loses: removing a
   // storage target, and replacing the primary (the copy is filled from the database's rows).
   "storage_target_removal",
@@ -95,6 +97,7 @@ export const DELETION_PASS_BEHAVIOUR: Readonly<Record<DeletionPass, RestoreModeB
   enrollment_cleanup: "own_scope",
   progress_marker_prune: "refuse",
   repository_copy_retention: "refuse",
+  database_retention: "refuse",
   storage_target_removal: "refuse",
   primary_replacement: "refuse",
 };

@@ -151,6 +151,7 @@ import {
   loadTenantKeyring,
   mirrorTenantKeys,
   PgSecretReader,
+  primaryWriteOnce,
   resolveTenantStorage,
   TenantCache,
   TenantConcurrencyLimiter,
@@ -713,6 +714,7 @@ async function main(): Promise<void> {
     now: () => new Date(),
     keyrings,
     primaryStorage: async (tenantId) => (await runtime.storage.get(tenantId)).primary,
+    primaryWriteOnce: async (tenantId) => primaryWriteOnce(await runtime.storage.get(tenantId)),
     privateNetworksAllowed:
       process.env.RESTOW_DB_ALLOW_PRIVATE_NETWORKS?.trim().toLowerCase() === "true",
     restoreModeActive: async () => (await restoreMode.guard.restoreMode()).active,

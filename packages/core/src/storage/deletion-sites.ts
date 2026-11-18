@@ -24,6 +24,8 @@ export const DELETION_SITES: Readonly<
   "apps/api/src/features/pve/repository.ts#createRepository#moveRepositoryAside": "pve_chain_clear",
   "apps/api/src/features/pve/repository.ts#moveRepositoryAside#.delete": "helper",
   // --- apps/worker -------------------------------------------------------------------------
+  "apps/worker/src/databases/runs.ts#databaseRetention#resticForget": "database_retention",
+  "apps/worker/src/databases/runs.ts#databaseRetention#resticPrune": "database_retention",
   "apps/worker/src/endpoints/removal.ts#deleteUnder#.delete": "helper",
   "apps/worker/src/endpoints/removal.ts#endpointRemoval#deleteUnder": "endpoint_removal",
   "apps/worker/src/endpoints/retention.ts#retain#resticForget": "endpoint_retention",

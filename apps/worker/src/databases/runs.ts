@@ -42,6 +42,7 @@ import {
   type DbStreamSpec,
   type DbStreamStats,
   DEFAULT_ENDPOINT_RETENTION,
+  deletionDecision,
   openPgAdminSession,
   openPgRelay,
   type PgAdminSession,
@@ -65,6 +66,7 @@ import {
   type StorageBackend,
   sanitizeDbMessage,
   sealSecret,
+  withDeletionPermit,
   withRepository,
   writePgPassFile,
 } from "@restow/core";
@@ -87,6 +89,8 @@ import {
   tenantRunner,
   withTenantTx,
 } from "../handlers/framework.js";
+import { recordDeferredDeletion } from "../handlers/immutability.js";
+import { hasActiveMigration } from "../handlers/storage-migration.js";
 
 const MINUTE_MS = 60 * 1000;
 /** The pass runs every minute. */
@@ -127,6 +131,8 @@ export interface DatabaseRunDeps {
   readonly keyrings: TenantKeyringCache;
   /** The tenant's primary storage target. */
   readonly primaryStorage: (tenantId: string) => Promise<StorageBackend>;
+  /** Whether the tenant's primary storage target is write-once (retention then keeps all). */
+  readonly primaryWriteOnce: (tenantId: string) => Promise<boolean>;
   readonly privateNetworksAllowed: boolean;
   readonly restoreModeActive: () => Promise<boolean>;
   readonly readCredentials: (
@@ -1101,11 +1107,44 @@ export async function databaseRetention(
   if (remove.length === 0) {
     return { forgotten: 0 };
   }
-  const access = await ensureDatabaseRepository(deps, connection);
-  await withRepository(access, async (session) => {
-    await resticForget(session, remove);
-    await resticPrune(session, { storage: access.storage });
-  });
+  const { tenantId } = connection;
+  const context = { tenantId, connectionId: connection.id };
+  // Write-once storage (docs/STORAGE.md, "Write-once storage"): forget and prune would only fail
+  // on every deletion; every backup stays.
+  if (await deps.primaryWriteOnce(tenantId)) {
+    deps.logger.info(
+      "database retention: not applied, the primary storage target of the tenant is write-once",
+      context,
+    );
+    return { forgotten: 0 };
+  }
+  // A "move" storage migration copies the repository file by file: retention waits for it.
+  if (await hasActiveMigration(tenantRunner(deps.db, tenantId), tenantId)) {
+    return { forgotten: 0 };
+  }
+  // Restore mode after restoring a database dump (docs/STORAGE.md): nothing is deleted.
+  const deletions = await deletionDecision({ pass: "database_retention", tenantId });
+  if (!deletions.allowed) {
+    deps.logger.warn("database retention held: deleting is paused", {
+      ...context,
+      reason: deletions.reason,
+    });
+    return { forgotten: 0 };
+  }
+  const ensured = await ensureDatabaseRepository(deps, connection);
+  // A deletion the storage refuses (Object Lock, deletion delay) is recorded for the renewal.
+  const access: RepositoryAccess = {
+    ...ensured,
+    onDeletionDeferred: (key, retainUntil) =>
+      recordDeferredDeletion(deps.db, tenantId, ensured.storage, key, retainUntil),
+  };
+  // restic's deletes through the loopback carry this permit (storage/deletion-guard.ts).
+  await withDeletionPermit({ pass: "database_retention", tenantId }, () =>
+    withRepository(access, async (session) => {
+      await resticForget(session, remove);
+      await resticPrune(session, { storage: access.storage });
+    }),
+  );
   await withTenantTx(deps.db, connection.tenantId, (tx) =>
     tx
       .update(databaseBackups)

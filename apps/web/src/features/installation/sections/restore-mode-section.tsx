@@ -389,6 +389,7 @@ const PASSES = new Set([
   "enrollment_cleanup",
   "progress_marker_prune",
   "repository_copy_retention",
+  "database_retention",
   "storage_target_removal",
   "primary_replacement",
 ]);

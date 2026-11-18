@@ -889,7 +889,10 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   Laufs: anhängend für eine Sicherung, lesend für einen Restore.
 - **Aufbewahrung:** einmal am Tag je Verbindung durch den Worker, je Datenbank und für die
   globalen Objekte getrennt, nach dem Ende der gemeldeten Läufe datiert; vergessen wird nur, was
-  ein Lauf meldete (`pruned`), danach `restic prune`.
+  ein Lauf meldete (`pruned`), danach `restic prune`. Beides läuft unter dem Löschdurchgang
+  `database_retention` (storage/deletion-guard.ts): im Restore-Modus nichts, auf nur einmal
+  beschreibbarem Primärziel und während einer Speicher-Migration ("move") ebenfalls nicht; was
+  Object Lock oder die Löschverzögerung zurückhält, wird für die Verlängerung vermerkt.
 - **Restore** (O3): `POST /api/v1/databases/:id/restore` (Administratoren, auditiert) mit Sicherung,
   Zielverbindung derselben Engine und Name; der Ausführer des Ziels führt ihn aus. Vor dem
   Anlegen: Rechte (`CREATEDB`), Name frei; der SHA-256 des Datenstroms wird mit der Sicherung
@@ -903,9 +906,9 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
 
 - **Aufbewahrung:** die Vorgabe der Rechner (30 Tage, 12 Wochen, 12 Monate); eine Regel je
   Verbindung (`retention_policy_id`) wird noch nicht gelesen.
-- **Speicherziel:** nur das primäre Ziel; Kopie-Ziele, verschobene Repositories und Speicher,
-  der nur einmal beschrieben werden kann, behandeln die Datenbank-Repositories noch nicht wie die
-  der Freigaben (D7).
+- **Speicherziel:** nur das primäre Ziel; Kopie-Ziele und verschobene Repositories behandeln die
+  Datenbank-Repositories noch nicht wie die der Freigaben (D7). Haltepunkte aus Verdachtsfällen
+  gibt es für Datenbanken noch nicht.
 - **Download im Browser:** die Datei wird im Speicher des Browsers gesammelt, bevor sie gespeichert
   wird; sehr große Dumps besser über die Anleitung und einen Restore holen.
 - **Agent ohne Programme:** ohne `pg_dump` auf dem Rechner scheitert der Lauf mit
