@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/restow-backup/restow/agent/internal/cmdrun"
+	"github.com/restow-backup/restow/agent/internal/recovery"
 )
 
 func TestMemfdHoldsWhatWasWritten(t *testing.T) {
@@ -156,4 +157,39 @@ func fcntlGetfd(fd uintptr) (int, error) {
 		return 0, errno
 	}
 	return int(r), nil
+}
+
+func TestWriteSessionDataForTheDirectMode(t *testing.T) {
+	base := t.TempDir()
+	e := &LinuxEnv{DataDir: filepath.Join(base, "restow-oneshot")}
+	p, err := e.WriteSessionData([]byte(`{"x":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(p)
+	di, _ := os.Stat(e.DataDir)
+	if fi.Mode().Perm() != 0o600 || di.Mode().Perm() != 0o700 {
+		t.Errorf("modes %o %o", fi.Mode().Perm(), di.Mode().Perm())
+	}
+	if os.Geteuid() == 0 {
+		// recover reads it with its own checks.
+		if b, err := recovery.ReadOneshotFile(p); err != nil || string(b) != `{"x":1}` {
+			t.Errorf("recover reads %q, %v", b, err)
+		}
+	}
+	// Written again: a fresh file in place of the old one.
+	if _, err := e.WriteSessionData([]byte(`{"x":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	e.RemoveSessionData(p)
+	if _, err := os.Stat(e.DataDir); !os.IsNotExist(err) {
+		t.Error("the folder is still there")
+	}
+	// A folder others can read is refused.
+	open := filepath.Join(base, "open")
+	_ = os.Mkdir(open, 0o755)
+	_ = os.Chmod(open, 0o755)
+	if _, err := (&LinuxEnv{DataDir: open}).WriteSessionData([]byte("{}")); err == nil {
+		t.Error("a folder of mode 0755 accepted")
+	}
 }

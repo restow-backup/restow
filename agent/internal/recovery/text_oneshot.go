@@ -49,6 +49,18 @@ var oneshotTextEN = map[string]string{
 	"oneshot.load_failed":          "The recovery environment could not be loaded: {reason}. Nothing was changed on this machine.",
 	"oneshot.switching":            "Released. Switching into the recovery environment. The connection breaks off now. Follow the progress in Restow and on the console of your provider.",
 	"oneshot.kexec_exec_failed":    "The switch into the recovery environment failed: {reason}.",
+	"oneshot.not_confirmed":        "The plan would erase {identity}, which the console of this machine did not confirm. Nothing was erased.",
+	"oneshot.session_ended":        "The restore ended in Restow before this machine reported back from the recovery environment (other hardware, cancelled or no release). Nothing was erased.",
+	"oneshot.keys_mismatch":        "Remote access stays off: the SSH keys of this machine are not the ones shown with the release.",
+	"oneshot.reboot":               "The restored system starts in {seconds} seconds. Press any key to stay in the recovery environment.",
+	"oneshot.reboot_stopped":       "The machine stays in the recovery environment.",
+	"oneshot.failed_untouched":     "Nothing was written to a disk: this machine starts its own system again in {seconds} seconds. Press any key to stay in the recovery environment.",
+	"oneshot.failed_written":       "The disks were changed already. The machine stays in the recovery environment; start it in the provider's rescue system or create it anew, and try again.",
+	"oneshot.failed_direct":        "The restore did not succeed. The rescue system keeps running.",
+	"oneshot.fatal.direct_tools":   "The direct mode needs every program of the recovery environment; this rescue system lacks: {tools}.",
+	"oneshot.fatal.direct_restic":  "The direct mode needs the checked restic (oneshot.sh --direct downloads it).",
+	"oneshot.fatal.direct_in_use":  "A disk of this machine is in use ({devices}); in the direct mode no disk may be mounted, used as swap or held by LVM, md or LUKS.",
+	"oneshot.direct_start":         "Released. The restore runs here, in the rescue system.",
 }
 
 var oneshotTextDE = map[string]string{
@@ -96,6 +108,18 @@ var oneshotTextDE = map[string]string{
 	"oneshot.load_failed":          "Die Recovery-Umgebung ließ sich nicht laden: {reason}. An diesem Rechner wurde nichts geändert.",
 	"oneshot.switching":            "Freigegeben. Umschalten in die Recovery-Umgebung. Die Verbindung bricht jetzt ab. Fortschritt in Restow und auf der Konsole Ihres Anbieters.",
 	"oneshot.kexec_exec_failed":    "Das Umschalten in die Recovery-Umgebung ist gescheitert: {reason}.",
+	"oneshot.not_confirmed":        "Der Plan würde {identity} löschen; diese Platte wurde an der Konsole dieses Rechners nicht bestätigt. Es wurde nichts gelöscht.",
+	"oneshot.session_ended":        "Die Wiederherstellung wurde in Restow beendet, bevor sich dieser Rechner aus der Recovery-Umgebung gemeldet hat (andere Hardware, abgebrochen oder nicht freigegeben). Es wurde nichts gelöscht.",
+	"oneshot.keys_mismatch":        "Der Fernzugang bleibt aus: Die SSH-Schlüssel dieses Rechners sind nicht die, die mit der Freigabe gezeigt wurden.",
+	"oneshot.reboot":               "Das wiederhergestellte System startet in {seconds} Sekunden. Eine beliebige Taste lässt den Rechner in der Recovery-Umgebung.",
+	"oneshot.reboot_stopped":       "Der Rechner bleibt in der Recovery-Umgebung.",
+	"oneshot.failed_untouched":     "Auf keine Platte wurde geschrieben: Dieser Rechner startet in {seconds} Sekunden wieder sein eigenes System. Eine beliebige Taste lässt ihn in der Recovery-Umgebung.",
+	"oneshot.failed_written":       "Die Platten sind schon verändert. Der Rechner bleibt in der Recovery-Umgebung; starten Sie ihn im Rettungssystem des Anbieters oder legen Sie ihn neu an und versuchen Sie es erneut.",
+	"oneshot.failed_direct":        "Die Wiederherstellung ist nicht gelungen. Das Rettungssystem läuft weiter.",
+	"oneshot.fatal.direct_tools":   "Der Direktmodus braucht alle Programme der Recovery-Umgebung; diesem Rettungssystem fehlen: {tools}.",
+	"oneshot.fatal.direct_restic":  "Der Direktmodus braucht das geprüfte restic (oneshot.sh --direct lädt es).",
+	"oneshot.fatal.direct_in_use":  "Eine Platte dieses Rechners ist in Gebrauch ({devices}); im Direktmodus darf keine Platte eingehängt, als Swap genutzt oder von LVM, md oder LUKS gehalten sein.",
+	"oneshot.direct_start":         "Freigegeben. Die Wiederherstellung läuft hier, im Rettungssystem.",
 }
 
 func init() {

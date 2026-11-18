@@ -480,9 +480,17 @@ export function assertOneshotBooted(access: RecoverySessionAccess): void {
 export function oneshotCurrent(access: RecoverySessionAccess): {
   decided: EndpointRecoveryOneshot["decided"] | null;
   booted: boolean;
+  sshKeys: string[];
 } | null {
   if (access.kind !== "oneshot") return null;
-  return { decided: access.oneshot?.decided ?? null, booted: Boolean(access.oneshot?.booted) };
+  // The fingerprints the admin saw with the release: recover in the recovery environment lets in
+  // only exactly these keys (docs/BAREMETAL-ONESHOT.md 8.4).
+  const keys = (access.oneshot?.reported?.sshKeys ?? []) as { fingerprint: string }[];
+  return {
+    decided: access.oneshot?.decided ?? null,
+    booted: Boolean(access.oneshot?.booted),
+    sshKeys: keys.map((key) => key.fingerprint),
+  };
 }
 
 /** A released oneshot session that did not report back from the recovery environment in time. */

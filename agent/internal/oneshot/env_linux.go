@@ -43,6 +43,64 @@ type LinuxEnv struct {
 	Log    func(string)
 	// Dir replaces WorkDir (tests).
 	Dir string
+	// DataDir replaces recovery.OneshotDir (tests).
+	DataDir string
+	// Stdin, Stdout, Stderr are the console of recover in the direct mode.
+	Stdin          io.Reader
+	Stdout, Stderr io.Writer
+}
+
+// HasTool implements Env.
+func (e *LinuxEnv) HasTool(name string) bool { _, err := e.Runner.Resolve(name); return err == nil }
+
+func (e *LinuxEnv) dataDir() string {
+	if e.DataDir != "" {
+		return e.DataDir
+	}
+	return recovery.OneshotDir
+}
+
+// WriteSessionData implements Env: a fresh folder of root's (0700) and the
+// file (0600), never through a link; recover checks both again.
+func (e *LinuxEnv) WriteSessionData(data []byte) (string, error) {
+	dir := e.dataDir()
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		fi, err := os.Lstat(dir)
+		if err != nil {
+			return "", err
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !fi.IsDir() || !ok || int(st.Uid) != os.Geteuid() || fi.Mode().Perm() != 0o700 {
+			return "", fmt.Errorf("%s is not a private folder of this user", dir)
+		}
+	}
+	p := filepath.Join(dir, "oneshot.json")
+	_ = os.Remove(p)
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		_ = os.Remove(p)
+		return "", err
+	}
+	return p, f.Close()
+}
+
+// RemoveSessionData implements Env.
+func (e *LinuxEnv) RemoveSessionData(path string) {
+	_ = os.Remove(path)
+	_ = os.Remove(filepath.Dir(path))
+}
+
+// RunRecover implements Env: recover in this process, outside the ISO.
+func (e *LinuxEnv) RunRecover(ctx context.Context, dataPath, resticBin string) int {
+	return recovery.Main(recovery.MainOptions{NotISO: true, OneshotFile: dataPath, ResticBin: resticBin,
+		Stdin: e.Stdin, Stdout: e.Stdout, Stderr: e.Stderr})
 }
 
 func (e *LinuxEnv) dir() string {

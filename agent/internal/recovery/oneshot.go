@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/redact"
 )
 
@@ -150,6 +151,67 @@ func LoadOneshotData(b []byte, isQEMU bool) (*OneshotData, error) {
 		return nil, errors.New("oneshot data: network is not a JSON object")
 	}
 	return &d, nil
+}
+
+// Answers are the answers of a oneshot restore (docs/BAREMETAL-ONESHOT.md
+// 9.3): the keyboard is us, the language the issuer's, the disks are mapped
+// automatically, the disks to erase are the ones the console of the fresh
+// machine confirmed, and the machine restarts after a success. What the
+// release decides (shrinking, Secure Boot) comes with ApplyDecided.
+func (d *OneshotData) Answers() *Answers {
+	a := &Answers{Format: AnswersFormat, InstanceURL: d.InstanceURL, Keymap: "us", Language: d.Language,
+		DiskMapping: DiskMapping{Auto: true}, Passphrase: d.Passphrase, ConfirmErase: append([]string(nil), d.ConfirmErase...),
+		AfterSuccess: "reboot", Shrink: "none", Source: SourceOneshot}
+	if d.SPKISHA256 != "" {
+		a.SPKICheck = d.SPKISHA256
+	}
+	if d.CAPEM != "" {
+		a.CAPEM = []byte(d.CAPEM)
+	}
+	return a
+}
+
+// ApplyDecided takes the admin's decisions of the release into the answers.
+func (a *Answers) ApplyDecided(dec *api.OneshotDecided) {
+	a.Shrink = "none"
+	if dec.ConfirmShrink {
+		a.Shrink = "auto"
+	}
+	a.SecureBootOff = dec.SecureBootWarningsOnly
+}
+
+// ApprovedKeys returns the keys of the session data whose fingerprints are
+// exactly the ones the admin saw with the release (docs/BAREMETAL-ONESHOT.md
+// 8.4): every key's fingerprint is among them and every fingerprint has its
+// key. Anything else is an error: remote access then stays off.
+func (d *OneshotData) ApprovedKeys(approved []string) ([]string, error) {
+	if len(d.SSHKeys) == 0 || len(approved) == 0 {
+		return nil, errors.New("no SSH keys to allow")
+	}
+	want := map[string]bool{}
+	for _, fp := range approved {
+		want[fp] = true
+	}
+	have := map[string]bool{}
+	var keys []string
+	for _, line := range d.SSHKeys {
+		k, err := ParseAuthorizedKey(line)
+		if err != nil {
+			return nil, err
+		}
+		fp := k.Fingerprint()
+		if !want[fp] {
+			return nil, fmt.Errorf("the key %s was not shown with the release", fp)
+		}
+		have[fp] = true
+		keys = append(keys, k.Line())
+	}
+	for fp := range want {
+		if !have[fp] {
+			return nil, fmt.Errorf("the release names the key %s, which the session data lacks", fp)
+		}
+	}
+	return keys, nil
 }
 
 // RegisterSecrets hands the session secret and the passphrase to the

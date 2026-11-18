@@ -35,6 +35,8 @@ type MainOptions struct {
 	Lang        string
 	Keymap      string
 	Version     string
+	Direct      bool
+	ResticBin   string
 	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer
@@ -108,7 +110,11 @@ func Main(o MainOptions) int {
 		fmt.Fprintln(o.Stderr, "restow-agent oneshot: no code on stdin")
 		return ExitUsage
 	}
-	opts := Options{Instance: o.Instance, Code: strings.TrimSpace(code),
+	if o.Direct && o.ResticBin == "" {
+		fmt.Fprintln(o.Stderr, "restow-agent oneshot --direct needs --restic <checked restic>")
+		return ExitUsage
+	}
+	opts := Options{Instance: o.Instance, Code: strings.TrimSpace(code), Direct: o.Direct, ResticBin: o.ResticBin,
 		Lang: o.Lang, Keymap: o.Keymap, Version: o.Version}
 	if o.AnswersFile != "" {
 		b, err := os.ReadFile(o.AnswersFile)
@@ -172,7 +178,7 @@ func Main(o MainOptions) int {
 		in = tty
 	}
 	ui := &recovery.UI{In: in, Out: o.Stdout, Lang: opts.Lang, Serial: true}
-	env := &LinuxEnv{Runner: cmdrun.ExecRunner{}}
+	env := &LinuxEnv{Runner: cmdrun.ExecRunner{}, Stdin: in, Stdout: o.Stdout, Stderr: o.Stderr}
 	c := &Command{UI: ui, Env: env, Opts: opts}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

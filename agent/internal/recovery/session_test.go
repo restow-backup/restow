@@ -52,6 +52,12 @@ type fakeRecovery struct {
 	snapshotGone bool
 	// check overrides the check state of the snapshot (passed).
 	check string
+	// oneshot is the oneshot part of the session (a oneshot restore);
+	// booted are its reports from the recovery environment, bootedProblem
+	// the problem the instance answers them with.
+	oneshot       *api.OneshotCurrent
+	booted        []api.RecoveryHardware
+	bootedProblem string
 	// refused are the reports a closed session refused with 409
 	// recovery-state-conflict (the real instance audits the first).
 	refused []string
@@ -169,8 +175,27 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 	switch route {
 	case "GET ":
 		writeJSON(w, 200, api.RecoverySessionState{SessionID: f.sessionID, Status: f.status,
-			ExpiresAt: time.Date(2026, 11, 5, 14, 0, 0, 0, time.UTC), Approved: f.status != api.RecoveryPendingApproval})
+			ExpiresAt: time.Date(2026, 11, 5, 14, 0, 0, 0, time.UTC), Approved: f.status != api.RecoveryPendingApproval, Oneshot: f.oneshot})
+	case "POST /oneshot/booted":
+		if f.bootedProblem != "" {
+			problem(w, http.StatusUnauthorized, f.bootedProblem, "ended")
+			return
+		}
+		var b struct {
+			Hardware api.RecoveryHardware `json:"hardware"`
+		}
+		if f.oneshot == nil || json.Unmarshal(body, &b) != nil {
+			problem(w, 404, "not-found", "no oneshot session")
+			return
+		}
+		f.booted = append(f.booted, b.Hardware)
+		f.oneshot.Booted = true
+		writeJSON(w, 200, map[string]any{})
 	case "GET /credentials":
+		if f.oneshot != nil && !f.oneshot.Booted {
+			problem(w, 409, "recovery-not-booted", "Not booted yet")
+			return
+		}
 		if f.status == api.RecoveryPendingApproval {
 			problem(w, 409, ProblemNotApproved, "Not approved yet")
 			return

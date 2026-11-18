@@ -524,3 +524,91 @@ func TestOneshotTestLoadChecksWhatItLoads(t *testing.T) {
 		t.Errorf("checks %+v", inst.checks)
 	}
 }
+
+// The direct mode in the provider's rescue system (docs/BAREMETAL-ONESHOT.md
+// 17.1): no ISO, no kexec; after the release recover runs here with the
+// session data, which is removed afterwards.
+func TestOneshotDirectMode(t *testing.T) {
+	direct := func(o *Options) { o.Direct, o.ResticBin = true, "/run/restow-oneshot.x/restic" }
+	env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+	env.files["/proc/sys/kernel/kexec_load_disabled"] = "1\n" // no matter here
+	env.recoverExit = 0
+	res := runCommand(t, env, inst, confirmInput, direct)
+	if res.code != ExitOK || len(env.recoverRuns) != 1 || !strings.Contains(res.out, "rescue system") {
+		t.Fatalf("exit %d, runs %v:\n%s", res.code, env.recoverRuns, res.out)
+	}
+	if len(env.loads) != 0 || env.kexecs != 0 || inst.isoDownloads != 0 || len(inst.checks) != 0 {
+		t.Errorf("loads %d, kexec %d, iso %d, checks %d", len(env.loads), env.kexecs, inst.isoDownloads, len(inst.checks))
+	}
+	if inst.exchangeReq.Checks.Mode != api.OneshotModeDirect || !inst.exchangeReq.Target.Rescue {
+		t.Errorf("checks %+v, rescue %v", inst.exchangeReq.Checks, inst.exchangeReq.Target.Rescue)
+	}
+	d, err := recovery.LoadOneshotData(env.sessionData, true)
+	if err != nil || d.Session.ID != "rs_1" || d.ConfirmErase[0] != "serial.QM00001" {
+		t.Fatalf("session data %+v %v", d, err)
+	}
+	if len(env.removed) != 1 || !strings.Contains(env.recoverRuns[0], "/run/restow-oneshot.x/restic") {
+		t.Errorf("removed %v, runs %v", env.removed, env.recoverRuns)
+	}
+	// recover's exit code is the command's.
+	env, inst = newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+	env.recoverExit = 4
+	if res := runCommand(t, env, inst, confirmInput, direct); res.code != 4 || len(env.removed) != 1 {
+		t.Errorf("exit %d, removed %v", res.code, env.removed)
+	}
+}
+
+func TestOneshotDirectModeRefusals(t *testing.T) {
+	direct := func(o *Options) { o.Direct, o.ResticBin = true, "/x/restic" }
+	cases := map[string]struct {
+		edit func(*fakeEnv)
+		opts func(*Options)
+		want string
+	}{
+		"a program missing": {edit: func(e *fakeEnv) { e.missing["sgdisk"] = true }, want: "lacks: sgdisk"},
+		"no restic":         {opts: func(o *Options) { o.Direct, o.ResticBin = true, "" }, want: "checked restic"},
+		"a mounted partition": {edit: func(e *fakeEnv) {
+			e.files["/proc/self/mounts"] = "/dev/sda1 /mnt ext4 rw 0 0\nproc /proc proc rw 0 0\n"
+		}, want: "in use (/dev/sda1)"},
+		"swap on the disk": {edit: func(e *fakeEnv) {
+			e.files["/proc/swaps"] = "Filename Type Size Used Priority\n/dev/sda2 partition 1 0 -2\n"
+		}, want: "in use (/dev/sda2)"},
+		"a volume group on a partition": {edit: func(e *fakeEnv) {
+			e.dirs["/sys/block/sda"] = []string{"sda1", "sda2", "queue"}
+			e.dirs["/sys/block/sda/sda2/holders"] = []string{"dm-0"}
+		}, want: "in use (/dev/sda2)"},
+		"md on the disk": {edit: func(e *fakeEnv) { e.dirs["/sys/block/sda/holders"] = []string{"md0"} }, want: "in use (/dev/sda)"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+			if tc.edit != nil {
+				tc.edit(env)
+			}
+			o := direct
+			if tc.opts != nil {
+				o = tc.opts
+			}
+			res := runCommand(t, env, inst, confirmInput, o)
+			if res.code != ExitRefused || !strings.Contains(res.out, tc.want) {
+				t.Fatalf("exit %d, want %q:\n%s", res.code, tc.want, res.out)
+			}
+			if inst.exchanges != 0 || len(env.recoverRuns) != 0 || env.sessionData != nil {
+				t.Errorf("exchanges %d, runs %v", inst.exchanges, env.recoverRuns)
+			}
+		})
+	}
+	// A partition of another disk is no problem; sdb1 is no partition of sda.
+	if onDisk("/dev/sdb1", "/dev/sda") || onDisk("/dev/sdab", "/dev/sda") || !onDisk("/dev/nvme0n1p3", "/dev/nvme0n1") || !onDisk("/dev/sda", "/dev/sda") {
+		t.Error("onDisk")
+	}
+}
+
+func TestOneshotDirectModeEndsWithoutTheRelease(t *testing.T) {
+	env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+	inst.states = []api.RecoverySessionState{{Status: "rejected"}}
+	res := runCommand(t, env, inst, confirmInput, func(o *Options) { o.Direct, o.ResticBin = true, "/x/restic" })
+	if res.code != ExitEnded || len(env.recoverRuns) != 0 || env.sessionData != nil {
+		t.Fatalf("exit %d, runs %v:\n%s", res.code, env.recoverRuns, res.out)
+	}
+}

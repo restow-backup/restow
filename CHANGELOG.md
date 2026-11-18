@@ -74,6 +74,17 @@ private repository.
     match code the machine shows (refused and audited when it differs); every ISO download of a
     session is audited; with `RESTOW_BAREMETAL_ONESHOT` or `RESTOW_BAREMETAL_PREVIEW` off the
     exchange knows no oneshot code and the session's routes and the release refuse.
+  - O4: `recover` in the oneshot mode. The session data answers instead of a person: it brings
+    up the network the command measured (one networkd file per interface, matched by MAC,
+    on-link gateways), trusts the instance by the full key hash the command saw, reports back
+    (`booted`) before it fetches anything else and takes the release's decisions (shrinking,
+    Secure Boot findings as warnings). Every disk the plan erases must be one the console of the
+    fresh machine confirmed. Remote access is turned on only when the release allows it and the
+    keys are exactly the ones the release showed, keys only. After a success the machine restarts
+    after 60 seconds; a failure before the first write restarts it into its own system, a failure
+    after it keeps it in the recovery environment. The direct mode for a provider's rescue system
+    (`--direct`: the script also checks restic) restores from the rescue system itself, after
+    checking that every program is there and no disk of the machine is in use.
 
 ## [0.5.0] - 2026-11-18
 

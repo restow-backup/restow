@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -83,6 +84,12 @@ type Recover struct {
 	HTTPClient *http.Client
 	// Countdown replaces the 30 seconds of the unattended countdown (tests).
 	Countdown time.Duration
+	// RebootWait replaces the 60 seconds before a oneshot restore restarts
+	// the machine (tests).
+	RebootWait time.Duration
+	// Direct: a oneshot restore in the provider's rescue system itself
+	// (docs/BAREMETAL-ONESHOT.md 17.1): its network stays as it is.
+	Direct bool
 	// Poll replaces the 5 seconds of the approval poll (tests).
 	Poll time.Duration
 	// SysClassNet replaces /sys/class/net, where a probe waits for the lab
@@ -104,6 +111,9 @@ type Recover struct {
 	ownLayout     string
 	started       time.Time
 	remoteOn      bool
+	// writing: the execution started; a oneshot restore that fails from
+	// here does not restart into the old system (9.3).
+	writing bool
 	// snap is the snapshot that will be restored, as the operator is shown
 	// it before the plan and again before the erase.
 	snap snapshotNote
@@ -226,6 +236,7 @@ func (r *Recover) Run(ctx context.Context) (*Result, error) {
 	}
 	r.flushLog(context.WithoutCancel(ctx))
 	r.UI.Line("RESTOW-RECOVER-RESULT " + status)
+	r.oneshotEnd(ctx, res)
 	return res, err
 }
 
@@ -491,6 +502,7 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		return r.fail(ctx, plan, nil, code, err)
 	}
 	x.Guard = guard
+	r.writing = true
 	rep, execErr := x.Run(ctx)
 	// No step follows: the disks are let go before the shell, the restart
 	// or the power-off.
@@ -723,7 +735,11 @@ func (r *Recover) keyboard(ctx context.Context) error {
 // operator; the wait for an address (120 s) with the hints of 10.3.
 func (r *Recover) network(ctx context.Context) error {
 	var n *AnswersNetwork
-	if r.Answers != nil {
+	if r.Oneshot != nil {
+		if err := r.oneshotNetwork(ctx); err != nil {
+			return fmt.Errorf("oneshot network: %w", err)
+		}
+	} else if r.Answers != nil {
 		n = r.Answers.Network
 	} else {
 		r.UI.Say("net.limits")
@@ -805,7 +821,8 @@ func (r *Recover) instance(ctx context.Context) error {
 	allowHTTP := false
 	if r.Answers != nil {
 		addr = r.Answers.InstanceURL
-		allowHTTP = r.Answers.Source == SourceFWCfg && strings.HasPrefix(addr, "http://")
+		// The session data of a oneshot restore names http:// only in QEMU (LoadOneshotData).
+		allowHTTP = (r.Answers.Source == SourceFWCfg || r.Answers.Source == SourceOneshot) && strings.HasPrefix(addr, "http://")
 	} else {
 		var err error
 		if addr, err = r.UI.Input(r.UI.Text("instance.address"), ""); err != nil {
@@ -828,6 +845,10 @@ func (r *Recover) instance(ctx context.Context) error {
 		probe, err := r.Env.ProbeTLS(ctx, origin, r.trust.Proxy)
 		if err != nil {
 			return &problemError{code: ProblemTLSUntrusted, err: err}
+		}
+		if r.Answers != nil && len(r.Answers.CAPEM) > 0 && probe.SystemErr != nil {
+			r.trust.Mode, r.trust.CAPEM = TrustCAFile, r.Answers.CAPEM
+			return nil
 		}
 		if r.Answers != nil && r.Answers.CAFile != "" {
 			pem, err := r.Env.ReadFile(r.Answers.CAFile)
@@ -881,6 +902,15 @@ func (r *Recover) instance(ctx context.Context) error {
 // the operator (a prefix is not enough; a mismatch sends nothing).
 func (r *Recover) trustFallback(probe *TLSProbe) error {
 	if r.Answers != nil {
+		if r.Answers.Source == SourceOneshot && r.Answers.SPKICheck != "" {
+			// The whole SHA-256 the command saw on a connection with a valid
+			// certificate (docs/BAREMETAL-ONESHOT.md 5.1), not a typed check value.
+			if probe.Leaf == nil || subtle.ConstantTimeCompare([]byte(SPKISHA256(probe.Leaf)), []byte(r.Answers.SPKICheck)) != 1 {
+				return &problemError{code: ProblemSPKIMismatch, err: errors.New("the instance presents another key than the command saw")}
+			}
+			r.trust.Mode, r.trust.Leaf = TrustPinned, probe.Leaf
+			return nil
+		}
 		if r.Answers.SPKICheck != "" {
 			if !CheckSPKI(probe.Leaf, r.Answers.SPKICheck) {
 				return &problemError{code: ProblemSPKIMismatch, err: errors.New("the check value does not match")}
@@ -936,6 +966,9 @@ func (r *Recover) trustFallback(probe *TLSProbe) error {
 
 // exchange redeems the code and waits for the approval (10.4 point 1).
 func (r *Recover) exchange(ctx context.Context, target *baremetal.Target) error {
+	if r.Oneshot != nil {
+		return r.oneshotSession(ctx, target)
+	}
 	hc := r.HTTPClient
 	if hc == nil {
 		var err error
@@ -1700,10 +1733,20 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 		for _, d := range disks {
 			expect = append(expect, deref(d.Identity))
 		}
-		if len(want) != len(disks)+len(r.wiped) || !confirmEraseMatches(r.Answers.ConfirmErase, expect) {
+		if r.Answers.Source == SourceOneshot {
+			// The console of the fresh machine confirmed its disks: every
+			// disk the plan erases must be among them; one it leaves alone
+			// may be too (9.3).
+			for _, id := range expect {
+				if !want[id] {
+					r.UI.Say("oneshot.not_confirmed", "identity", id)
+					return false, nil
+				}
+			}
+		} else if len(want) != len(disks)+len(r.wiped) || !confirmEraseMatches(r.Answers.ConfirmErase, expect) {
 			return false, nil
 		}
-		if r.Answers.Source == SourceMedia {
+		if r.Answers.Source == SourceMedia || r.Answers.Source == SourceOneshot {
 			r.showSnapshot("confirm.snapshot")
 			var lines []string
 			for _, d := range disks {
@@ -1742,13 +1785,17 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 // a key, Ctrl+C or the end of the run stops it, and then nothing is
 // erased or wiped (10.20).
 func (r *Recover) countdown(ctx context.Context, title string, lines []string) bool {
-	r.UI.Say(title, "instance", r.origin)
+	return r.countdownFor(ctx, r.Countdown, 30*time.Second, title, lines)
+}
+
+// countdownFor is countdown with its own time (wait, else def).
+func (r *Recover) countdownFor(ctx context.Context, wait, def time.Duration, title string, lines []string) bool {
+	r.UI.Say(title, "instance", r.origin, "seconds", int(def/time.Second))
 	for _, l := range lines {
 		r.UI.Line(l)
 	}
-	wait := r.Countdown
 	if wait == 0 {
-		wait = 30 * time.Second
+		wait = def
 	}
 	cctx, cancel := context.WithTimeout(ctx, wait)
 	r.curMu.Lock()
@@ -1873,6 +1920,10 @@ func (r *Recover) finish(ctx context.Context, status string, v api.RecoveryVerif
 		return status, ""
 	}
 	res, err := r.session.Finish(ctx, f)
+	if err == nil || errors.Is(err, ErrSessionClosed) {
+		// The session is over: its data in /run has done its work.
+		r.forgetOneshot()
+	}
 	switch {
 	case errors.Is(err, ErrSessionClosed):
 		r.logf("finish: %v", err)
@@ -1959,6 +2010,16 @@ func (r *Recover) rebind(ctx context.Context, x *Executor, m *baremetal.Manifest
 
 // after: restart, power off or shell.
 func (r *Recover) after(ctx context.Context) {
+	if r.Oneshot != nil {
+		// 60 seconds, then the restored system starts; any key on a
+		// console stops it (decision 22.11).
+		if r.countdownFor(ctx, r.RebootWait, 60*time.Second, "oneshot.reboot", nil) {
+			_ = r.Env.Reboot(ctx)
+			return
+		}
+		r.UI.Say("oneshot.reboot_stopped")
+		return
+	}
 	if r.Answers != nil {
 		if r.Answers.AfterSuccess == "poweroff" {
 			_ = r.Env.PowerOff(ctx)

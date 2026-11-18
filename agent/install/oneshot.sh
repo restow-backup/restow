@@ -22,7 +22,9 @@
 # installs nothing, creates no service and changes no package source.
 #
 # Options (sh -s -- <options>): --answers <file> (unattended), --lang de|en,
-# --keymap us|de|ch|at|fr.
+# --keymap us|de|ch|at|fr, --direct (in the provider's rescue system when
+# kexec is not possible there: restow-agent and restic restore from the
+# rescue system itself; the script then downloads and checks restic too).
 #
 # Environment: RESTOW_SHA256SUMS_SHA256 (the SHA-256 of a SHA256SUMS whose
 # signature you checked elsewhere; then the recovery ISO is checked against
@@ -200,8 +202,11 @@ work_dir() {
 main() {
   CODE="${RESTOW_ONESHOT_CODE:-}"
   unset RESTOW_ONESHOT_CODE
+  DIRECT=''
   for _arg in "$@"; do
     case "$_arg" in
+      --direct) DIRECT=yes ;;
+      --restic | --restic=*) die "--restic is set by this script (with --direct)" ;;
       [Oo][Ss]-*) die "the code does not belong on the command line, where every user of this machine can read it. Copy the command from Restow again: curl -fsSL '<instance>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='OS-...' sh" ;;
     esac
   done
@@ -272,24 +277,36 @@ main() {
   fetch "$base_url/SHA256SUMS" "$TMP/SHA256SUMS" || die "cannot download $base_url/SHA256SUMS. Check that this machine can reach $INSTANCE_URL over HTTPS."
   fetch "$base_url/SHA256SUMS.sig" "$TMP/SHA256SUMS.sig" 2>/dev/null || : >"$TMP/SHA256SUMS.sig"
   fetch "$base_url/linux-amd64/restow-agent" "$TMP/restow-agent" || die "cannot download the agent from $base_url/linux-amd64/restow-agent"
+  files=restow-agent
+  if [ -n "$DIRECT" ]; then
+    fetch "$base_url/linux-amd64/restic" "$TMP/restic" || die "cannot download restic from $base_url/linux-amd64/restic"
+    files="restow-agent restic"
+  fi
 
   step "Verifying the release signature and the SHA-256 checksum"
   verify_release "$TMP/SHA256SUMS" "$TMP/SHA256SUMS.sig"
-  expected=$(awk -v n="linux-amd64/restow-agent" '$2 == n || $2 == "*" n { print $1 }' "$TMP/SHA256SUMS")
-  [ -n "$expected" ] || die "SHA256SUMS has no entry for linux-amd64/restow-agent"
-  actual=$(sha256_of "$TMP/restow-agent")
-  [ "$expected" = "$actual" ] || die "checksum mismatch for restow-agent (expected $expected, got $actual). Nothing was changed."
-  say "    restow-agent: OK"
-  chmod 0700 "$TMP/restow-agent"
+  for name in $files; do
+    sum=$(awk -v n="linux-amd64/$name" '$2 == n || $2 == "*" n { print $1 }' "$TMP/SHA256SUMS")
+    [ -n "$sum" ] || die "SHA256SUMS has no entry for linux-amd64/$name"
+    actual=$(sha256_of "$TMP/$name")
+    [ "$sum" = "$actual" ] || die "checksum mismatch for $name (expected $sum, got $actual). Nothing was changed."
+    say "    $name: OK"
+    chmod 0700 "$TMP/$name"
+  done
   if ! reported=$("$TMP/restow-agent" version --short 2>/dev/null); then
     # The folder does not allow running programs (noexec): once more below /var/tmp.
     [ -z "$TEST_DIR" ] || die "the downloaded agent does not run"
     moved=$(work_dir /var/tmp) || die "the downloaded agent cannot run in $TMP, and /var/tmp has no room for it"
-    cp "$TMP/restow-agent" "$moved/restow-agent"
+    for name in SHA256SUMS $files; do
+      cp "$TMP/$name" "$moved/$name"
+    done
     rm -rf "$TMP"
     TMP=$moved
-    [ "$(sha256_of "$TMP/restow-agent")" = "$expected" ] || die "the copy of restow-agent changed"
-    chmod 0700 "$TMP/restow-agent"
+    for name in $files; do
+      sum=$(awk -v n="linux-amd64/$name" '$2 == n || $2 == "*" n { print $1 }' "$TMP/SHA256SUMS")
+      [ "$(sha256_of "$TMP/$name")" = "$sum" ] || die "the copy of $name changed"
+      chmod 0700 "$TMP/$name"
+    done
     reported=$("$TMP/restow-agent" version --short 2>/dev/null) || die "the downloaded agent does not run on this machine"
   fi
   [ "$reported" = "$AGENT_VERSION" ] || die "the downloaded agent reports version '$reported', expected '$AGENT_VERSION'. Nothing was changed."
@@ -303,6 +320,9 @@ main() {
   fi
   # The code goes over stdin, never into the process list; the agent asks
   # its questions on the terminal.
+  if [ -n "$DIRECT" ]; then
+    set -- "$@" --restic "$TMP/restic"
+  fi
   rc=0
   printf '%s\n' "$CODE" | "$TMP/restow-agent" oneshot --instance "$INSTANCE_URL" --code-stdin "$@" || rc=$?
   exit "$rc"

@@ -11,6 +11,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -82,6 +83,16 @@ type Env interface {
 	Kexec(ctx context.Context) error
 	// Cleanup removes the work files (the ISO).
 	Cleanup()
+	// HasTool reports whether a program is in the root-owned tool folders.
+	HasTool(name string) bool
+	// WriteSessionData writes the session data for recover in the direct
+	// mode (root, /run/restow-oneshot 0700, the file 0600) and returns its
+	// path; RemoveSessionData removes it again.
+	WriteSessionData(data []byte) (string, error)
+	RemoveSessionData(path string)
+	// RunRecover runs recover on this console with the session data and
+	// returns its exit code.
+	RunRecover(ctx context.Context, dataPath, resticBin string) int
 }
 
 // Blob is a file in memory made by Env.Memfd.
@@ -115,6 +126,11 @@ type Options struct {
 	Lang      string
 	Keymap    string
 	Version   string
+	// Direct: run recover in the provider's rescue system itself instead of
+	// switching with kexec (--direct, docs/BAREMETAL-ONESHOT.md 17.1);
+	// ResticBin is the checked restic for it.
+	Direct    bool
+	ResticBin string
 	// Poll is the interval of the wait for the release (default 5 s).
 	Poll time.Duration
 }
@@ -190,13 +206,16 @@ func (c *Command) Run(ctx context.Context) int {
 		m.checks.Warnings = appendUnique(m.checks.Warnings, "ram_below_need")
 		u.Say("oneshot.warn.ram_need", "need", recovery.FormatBytes(extras.Needs.RAMBytes), "ram", recovery.FormatBytes(m.checks.MemTotalBytes))
 	}
-	iso, code := c.fetchISO(ctx, extras.ISO)
-	if code != ExitOK {
-		return code
-	}
-	defer iso.f.Close()
-	if code := c.testLoad(ctx, iso.lf); code != ExitOK {
-		return code
+	var iso *download
+	if !c.Opts.Direct {
+		// The direct mode needs neither the ISO nor kexec: recover runs here.
+		if iso, code = c.fetchISO(ctx, extras.ISO); code != ExitOK {
+			return code
+		}
+		defer iso.f.Close()
+		if code := c.testLoad(ctx, iso.lf); code != ExitOK {
+			return code
+		}
 	}
 	confirmed, passphrase, code := c.confirm(extras)
 	if code != ExitOK {
@@ -206,7 +225,34 @@ func (c *Command) Run(ctx context.Context) int {
 	if code := c.waitRelease(ctx); code != ExitOK {
 		return code
 	}
+	if c.Opts.Direct {
+		return c.runDirect(ctx, confirmed, passphrase)
+	}
 	return c.switchOver(ctx, iso, confirmed, passphrase)
+}
+
+// runDirect runs recover in the rescue system itself (docs/BAREMETAL-ONESHOT.md
+// 17.1): the session data goes to /run/restow-oneshot (0700/0600) for it and
+// is removed when it returns.
+func (c *Command) runDirect(ctx context.Context, confirmed []string, passphrase []byte) int {
+	data, err := c.SessionData(confirmed, passphrase)
+	if err != nil {
+		c.UI.Say("oneshot.load_failed", "reason", redact.Redact(err.Error()))
+		return ExitError
+	}
+	path, err := c.Env.WriteSessionData(data)
+	zero(data)
+	if err != nil {
+		c.UI.Say("oneshot.load_failed", "reason", redact.Redact(err.Error()))
+		return ExitError
+	}
+	defer c.Env.RemoveSessionData(path)
+	if ctx.Err() != nil {
+		c.UI.Say("oneshot.aborted")
+		return ExitEnded
+	}
+	c.UI.Say("oneshot.direct_start")
+	return c.Env.RunRecover(ctx, path, c.Opts.ResticBin)
 }
 
 func zero(b []byte) {
@@ -235,6 +281,10 @@ func (c *Command) measure(ctx context.Context) (*machine, error) {
 	u := c.UI
 	m := &machine{}
 	m.checks = api.OneshotChecks{Mode: api.OneshotModeKexec, Kexec: api.OneshotKexecNotTried, InUse: []string{}, Warnings: []string{}}
+	if c.Opts.Direct {
+		m.checks.Mode = api.OneshotModeDirect
+		m.target.Rescue = true
+	}
 	total, avail := ParseMeminfo(c.read("/proc/meminfo"))
 	m.checks.MemTotalBytes, m.checks.MemAvailableBytes = total, avail
 	switch {
@@ -245,7 +295,7 @@ func (c *Command) measure(ctx context.Context) (*machine, error) {
 		m.warnings = append(m.warnings, u.Text("oneshot.warn.ram_low", "ram", recovery.FormatBytes(total)))
 	}
 	m.checks.KexecLoadDisabled = trimRead(c, "/proc/sys/kernel/kexec_load_disabled") == "1"
-	if m.checks.KexecLoadDisabled {
+	if m.checks.KexecLoadDisabled && !c.Opts.Direct {
 		m.fatal = append(m.fatal, u.Text("oneshot.fatal.kexec_disabled"))
 	}
 	m.checks.Lockdown = ParseLockdown(c.read("/sys/kernel/security/lockdown"))
@@ -282,6 +332,9 @@ func (c *Command) measure(ctx context.Context) (*machine, error) {
 	}
 	if len(m.disks) == 0 {
 		m.fatal = append(m.fatal, u.Text("oneshot.fatal.no_disk"))
+	}
+	if c.Opts.Direct {
+		m.fatal = append(m.fatal, c.directProblems(m.disks)...)
 	}
 	if err := c.measureNetwork(ctx, m); err != nil {
 		return nil, err
@@ -327,6 +380,98 @@ func (c *Command) measure(ctx context.Context) (*machine, error) {
 	}
 	c.readKeys(m)
 	return m, nil
+}
+
+// directProblems are the conditions of the direct mode (17.1): every
+// program recover calls is here, restic was checked, and no disk of the
+// machine is in use (mounted, swap, or held by device mapper, md or LUKS).
+func (c *Command) directProblems(disks []baremetal.TargetDisk) []string {
+	u := c.UI
+	var out []string
+	var missing []string
+	for _, t := range recovery.Tools {
+		if !c.Env.HasTool(t.Program) {
+			missing = append(missing, t.Program)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		out = append(out, u.Text("oneshot.fatal.direct_tools", "tools", strings.Join(missing, ", ")))
+	}
+	if c.Opts.ResticBin == "" {
+		out = append(out, u.Text("oneshot.fatal.direct_restic"))
+	}
+	var used []string
+	for _, src := range append(mountSources(c.read("/proc/self/mounts")), mountSources(c.read("/proc/swaps"))...) {
+		for _, d := range disks {
+			if onDisk(src, d.Path) {
+				used = append(used, src)
+			}
+		}
+	}
+	for _, d := range disks {
+		k := strings.TrimPrefix(d.Path, "/dev/")
+		if strings.ContainsAny(k, "/.") || k == "" {
+			continue
+		}
+		if h, _ := c.Env.ReadDir("/sys/block/" + k + "/holders"); len(h) > 0 {
+			used = append(used, d.Path)
+		}
+		parts, _ := c.Env.ReadDir("/sys/block/" + k)
+		for _, p := range parts {
+			if strings.HasPrefix(p, k) {
+				if h, _ := c.Env.ReadDir("/sys/block/" + k + "/" + p + "/holders"); len(h) > 0 {
+					used = append(used, "/dev/"+p)
+				}
+			}
+		}
+	}
+	if len(used) > 0 {
+		sort.Strings(used)
+		out = append(out, u.Text("oneshot.fatal.direct_in_use", "devices", strings.Join(slicesCompact(used), ", ")))
+	}
+	return out
+}
+
+func slicesCompact(s []string) []string {
+	var out []string
+	for i, v := range s {
+		if i == 0 || v != s[i-1] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// mountSources are the first fields of /proc/self/mounts or /proc/swaps.
+func mountSources(b []byte) []string {
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) > 0 && strings.HasPrefix(f[0], "/dev/") {
+			out = append(out, f[0])
+		}
+	}
+	return out
+}
+
+// onDisk reports whether a device is the disk or one of its partitions
+// (sda1, nvme0n1p2).
+func onDisk(dev, disk string) bool {
+	if dev == disk {
+		return true
+	}
+	rest, ok := strings.CutPrefix(dev, disk)
+	if !ok || rest == "" {
+		return false
+	}
+	rest = strings.TrimPrefix(rest, "p")
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return rest != ""
 }
 
 func withoutString(list []string, s string) []string {

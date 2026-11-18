@@ -1260,6 +1260,34 @@ Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
   eingerichteter Agent zählt auch der Proxmox-VE-Helfer (`/etc/restow-pve/state.json`). Ein
   Abgleich der Adresse, MACs und Plattenseriennummern mit den Rechnern des Mandanten auf dem
   Server unterbleibt: Der Server speichert davon nichts, mit dem er vergleichen könnte.
+- **O4, `recover` im Modus `oneshot`:** Die Sitzungsdaten sind eine Antwortquelle eigener Art
+  (`SourceOneshot`): Tastatur `us`, Sprache aus den Daten, Zuordnung automatisch, Neustart nach
+  Erfolg. Die Instanz wird über die **ganze** SHA-256 des Schlüssels angenommen, die der Befehl
+  auf einer gültigen Verbindung sah (kein 16-stelliger Prüfwert), oder über die CA aus den Daten,
+  wenn die Systemzertifikate nicht reichen. Das Netz kommt aus `network` als
+  `/run/systemd/network/10-restow-oneshot-<n>.network` je Schnittstelle (über die MAC): Adressen
+  aus DHCP/SLAAC kommen wieder so, statische fest, Standardrouten nur für statische Adressen, mit
+  `GatewayOnLink=yes` bei on-link; jeder Wert wird geprüft, ein unbrauchbares Netz fällt auf DHCP
+  zurück. `booted` geht vor jeder anderen Anfrage an die Instanz außer dem Fortschritt; erst dann
+  `current` mit den Entscheidungen (Schrumpfen, Secure-Boot-Befunde als Warnungen; `networkMode`
+  wirkt ab O5). `confirmErase` ist eine Obergrenze: Jede Platte, die der Plan löscht, muss
+  darunter sein, sonst endet der Lauf vor dem ersten Schreiben; vor dem ersten Schritt läuft der
+  Countdown von 30 Sekunden. Fernzugang nur, wenn die Freigabe ihn erlaubt **und** die Schlüssel
+  der Daten genau die Fingerabdrücke haben, die die Freigabe zeigte (`current` liefert sie als
+  `oneshot.sshKeys`); dann `sshd` nur mit diesen Schlüsseln, ohne Passwort. Ende: Erfolg →
+  Neustart nach 60 Sekunden (eine Taste stoppt ihn); Fehler vor dem ersten Schreiben → nach 60
+  Sekunden Neustart ins eigene System des Rechners (eine Taste stoppt ihn); Fehler danach → kein
+  Neustart. Die Sitzungsdaten löscht `recover`, sobald die Instanz das Ende angenommen hat.
+  "Abbrechen" des Neustarts in der Oberfläche kommt mit O8a.
+- **O4, Direktmodus (17.1):** `curl … | RESTOW_ONESHOT_CODE=… sh -s -- --direct`; das Skript lädt
+  und prüft dann auch `restic` und übergibt es mit `--restic` (ein eigenes `--restic` lehnt es
+  ab). `restow-agent oneshot --direct` meldet `mode: direct` und `rescue: true`, lädt kein ISO und
+  lädt keinen Kernel; es bricht ab, wenn ein Programm aus `recover --list-tools` fehlt oder eine
+  Platte des Rechners eingehängt, Swap oder von LVM/md/LUKS gehalten ist. Nach der Freigabe
+  schreibt es die Sitzungsdaten nach `/run/restow-oneshot` (0700/0600) und startet `recover`
+  im selben Prozess mit `--oneshot <datei> --i-know-this-is-not-the-iso`; danach sind die Daten
+  gelöscht. Im Direktmodus ändert `recover` das Netz nicht und schaltet keinen Fernzugang ein
+  (das Rettungssystem hat beides), und nach einem Fehler startet es nicht neu.
 - **Für O8a:** Die Oberfläche zeigt "gebootet" nur aus `oneshot.booted` (dem Bericht von
   `recover`), nie aus einer Phase des Fortschritts. **Für O4:** `recover` schaltet `sshd` mit den
   Schlüsseln aus `oneshot.json` nur ein, wenn ihre Fingerabdrücke genau die sind, die der Admin in

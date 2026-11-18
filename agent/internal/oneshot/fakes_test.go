@@ -259,6 +259,12 @@ type fakeEnv struct {
 	cancel   context.CancelFunc
 	// hookISOFile changes the image before the first copy into memory.
 	hookISOFile func(*memISO)
+	// The direct mode: the session data written, removed, the runs of
+	// recover and their exit code.
+	sessionData []byte
+	removed     []string
+	recoverRuns []string
+	recoverExit int
 }
 
 const (
@@ -404,6 +410,20 @@ func (e *fakeEnv) Kexec(ctx context.Context) error {
 	return e.kexecErr
 }
 func (e *fakeEnv) Cleanup() { e.cleaned = true }
+
+func (e *fakeEnv) HasTool(name string) bool { return !e.missing[name] }
+
+func (e *fakeEnv) WriteSessionData(data []byte) (string, error) {
+	e.sessionData = append([]byte(nil), data...)
+	return "/run/restow-oneshot/oneshot.json", nil
+}
+
+func (e *fakeEnv) RemoveSessionData(path string) { e.removed = append(e.removed, path) }
+
+func (e *fakeEnv) RunRecover(ctx context.Context, dataPath, resticBin string) int {
+	e.recoverRuns = append(e.recoverRuns, dataPath+" "+resticBin)
+	return e.recoverExit
+}
 
 // run runs the command against the fakes with the console input.
 type runResult struct {

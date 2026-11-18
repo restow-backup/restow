@@ -554,7 +554,11 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       const current = await get("/sessions/current", s.auth);
       expect(await current.json()).toMatchObject({
         status: "active",
-        oneshot: { booted: false, decided: { networkMode: "takeover", remoteAccess: true } },
+        oneshot: {
+          booted: false,
+          decided: { networkMode: "takeover", remoteAccess: true },
+          sshKeys: SSH_KEYS.map((key) => key.fingerprint),
+        },
       });
       // Checks after the release are refused.
       expect(

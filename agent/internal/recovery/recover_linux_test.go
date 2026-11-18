@@ -53,6 +53,8 @@ type testEnv struct {
 	onExecutor func()
 	// wipeErr fails the wipe of a device of an identity conflict.
 	wipeErr error
+	// netFiles are the networkd files of a oneshot restore.
+	netFiles []NetworkFile
 }
 
 func (e *testEnv) note(s string) { e.mu.Lock(); e.actions = append(e.actions, s); e.mu.Unlock() }
@@ -170,6 +172,20 @@ func (e *testEnv) EnableRemote(ctx context.Context) (string, []api.RecoverySSHHo
 	return "", nil, fmt.Errorf("no remote access in this test")
 }
 func (e *testEnv) RemoteKeys(ctx context.Context, keys []string) error { return nil }
+
+// OneshotEnv of the test: the network files and the keys are noted.
+func (e *testEnv) OneshotNetwork(ctx context.Context, files []NetworkFile) error {
+	e.mu.Lock()
+	e.netFiles = append(e.netFiles, files...)
+	e.mu.Unlock()
+	e.note(fmt.Sprintf("network files %d", len(files)))
+	return nil
+}
+func (e *testEnv) EnableRemoteKeys(ctx context.Context, keys []string) ([]api.RecoverySSHHostKey, error) {
+	e.note(fmt.Sprintf("remote keys %d", len(keys)))
+	return []api.RecoverySSHHostKey{{Type: "ssh-ed25519", Fingerprint: "SHA256:" + strings.Repeat("A", 43)}}, nil
+}
+func (e *testEnv) ForgetOneshot() error { e.note("forget oneshot"); return nil }
 
 // chownless lets the flow run without root: owners are not changed.
 type chownless struct{ *DirRootfs }

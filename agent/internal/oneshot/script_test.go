@@ -82,7 +82,9 @@ func runScriptPinned(t *testing.T, code string, args []string, edit func(root st
 	}
 	agent := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 0.5.1; exit 0; fi\nprintf '%s\\n' \"$@\" >\"$FAKE_OUT/argv\"\nenv >\"$FAKE_OUT/env\"\ncat >\"$FAKE_OUT/stdin\"\nexit 4\n"
 	write(filepath.Join(root, "install/agent/0.5.1/linux-amd64/restow-agent"), agent, 0o644)
-	sums := sumHex([]byte(agent)) + "  linux-amd64/restow-agent\n" + strings.Repeat("ab", 32) + "  linux-amd64/restic\n"
+	restic := "#!/bin/sh\necho restic\n"
+	write(filepath.Join(root, "install/agent/0.5.1/linux-amd64/restic"), restic, 0o644)
+	sums := sumHex([]byte(agent)) + "  linux-amd64/restow-agent\n" + sumHex([]byte(restic)) + "  linux-amd64/restic\n"
 	write(filepath.Join(root, "install/agent/0.5.1/SHA256SUMS"), sums, 0o644)
 	curl := `#!/bin/sh
 out=''; url=''; prev=''
@@ -191,5 +193,46 @@ func TestOneshotScriptRefusesAnotherSumsList(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.out, "argv")); err == nil {
 		t.Error("the agent ran")
+	}
+}
+
+func TestOneshotScriptDirectModeChecksRestic(t *testing.T) {
+	code := "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+	r := runScript(t, code, []string{"--direct"}, nil)
+	if r.code != 4 {
+		t.Fatalf("exit %d:\n%s", r.code, r.output)
+	}
+	argv, _ := os.ReadFile(filepath.Join(r.out, "argv"))
+	lines := strings.Split(strings.TrimSpace(string(argv)), "\n")
+	if len(lines) != 7 || lines[4] != "--direct" || lines[5] != "--restic" || !strings.HasSuffix(lines[6], "/restic") {
+		t.Fatalf("argv %q", lines)
+	}
+	if log, _ := os.ReadFile(filepath.Join(r.out, "curl.log")); !strings.Contains(string(log), "linux-amd64/restic") {
+		t.Errorf("downloads %s", log)
+	}
+	// Without --direct restic is not downloaded.
+	r = runScript(t, code, nil, nil)
+	if log, _ := os.ReadFile(filepath.Join(r.out, "curl.log")); strings.Contains(string(log), "restic") {
+		t.Errorf("downloads %s", log)
+	}
+	for name, tc := range map[string]struct {
+		args []string
+		edit func(root string)
+		want string
+	}{
+		"changed restic": {[]string{"--direct"}, func(root string) {
+			p := filepath.Join(root, "install/agent/0.5.1/linux-amd64/restic")
+			b, _ := os.ReadFile(p)
+			_ = os.WriteFile(p, append(b, '#'), 0o644)
+		}, "checksum mismatch for restic"},
+		"a restic of one's own": {[]string{"--direct", "--restic", "/tmp/x"}, nil, "set by this script"},
+	} {
+		r := runScript(t, code, tc.args, tc.edit)
+		if r.code == 0 || r.code == 4 || !strings.Contains(r.output, tc.want) {
+			t.Errorf("%s: exit %d, want %q:\n%s", name, r.code, tc.want, r.output)
+		}
+		if _, err := os.Stat(filepath.Join(r.out, "argv")); err == nil {
+			t.Errorf("%s: the agent ran", name)
+		}
 	}
 }

@@ -142,4 +142,7 @@ type OneshotDecided struct {
 type OneshotCurrent struct {
 	Decided *OneshotDecided `json:"decided"`
 	Booted  bool            `json:"booted"`
+	// SSHKeys are the fingerprints of the keys the machine reported and
+	// the admin saw with the release (reported.sshKeys).
+	SSHKeys []string `json:"sshKeys"`
 }
