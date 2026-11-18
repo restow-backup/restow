@@ -291,14 +291,21 @@ RUN apt-get update \
 # for the database runs of the Restow server (docs/DATABASES.md 11, 16 "D3"): from the PGDG
 # archive (apt.postgresql.org), whose signing key is kept in the repository
 # (scripts/docker/pgdg-ACCC4CF8.asc, fingerprint B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC
-# 4CF8) and checked here, never fetched at build time. Only the client package, no server.
+# 4CF8) and checked here, never fetched at build time: exactly one key without subkeys, the
+# pinned one (a file with a second key would let that key sign the archive too). Only the client
+# package, no server.
 ARG PG_CLIENT_MAJOR=18
 ARG PGDG_FINGERPRINT=B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
 COPY scripts/docker/pgdg-ACCC4CF8.asc /etc/apt/keyrings/pgdg.asc
 RUN set -eu; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates gpg; \
-    test "$(gpg --show-keys --with-colons /etc/apt/keyrings/pgdg.asc | awk -F: '$1 == "fpr" { print $10; exit }')" = "$PGDG_FINGERPRINT"; \
+    gpg --show-keys --with-colons /etc/apt/keyrings/pgdg.asc > /tmp/pgdg.colons; \
+    test "$(grep -c '^pub:' /tmp/pgdg.colons)" = 1; \
+    test "$(grep -c '^sub:' /tmp/pgdg.colons)" = 0; \
+    test "$(grep -c '^fpr:' /tmp/pgdg.colons)" = 1; \
+    test "$(awk -F: '$1 == "fpr" { print $10 }' /tmp/pgdg.colons)" = "$PGDG_FINGERPRINT"; \
+    rm -f /tmp/pgdg.colons; \
     apt-get purge -y --auto-remove gpg; \
     codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"; \
     echo "deb [signed-by=/etc/apt/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" > /etc/apt/sources.list.d/pgdg.list; \
