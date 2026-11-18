@@ -13,6 +13,7 @@ import {
   pgToolEnv,
   pgToolMajor,
 } from "./pg-tools.js";
+import { pgStartupMessage } from "./probe/postgres.js";
 import {
   openPgRelay,
   PgSignInFilter,
@@ -291,6 +292,12 @@ describe("the pinning relay [DB-003]", () => {
 });
 
 describe("SQL literals [DB-008]", () => {
+  it("meet only UTF-8 sessions: the client asks for it at the start", () => {
+    expect(pgStartupMessage("backup", "app").includes(Buffer.from("client_encoding\0UTF8\0"))).toBe(
+      true,
+    );
+  });
+
   it("mean the same with and without standard_conforming_strings", () => {
     expect(pgQuoteLiteral("plain")).toBe("E'plain'");
     // A backslash before the quote must not escape it: both are doubled in the escape form.

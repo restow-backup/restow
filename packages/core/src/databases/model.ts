@@ -91,6 +91,8 @@ export const DB_ERROR_CODES = [
   "db_verify_no_space",
   "db_verify_timeout",
   "db_runner_offline",
+  /** The executor's platform cannot run this (PostgreSQL and MySQL on a Windows agent: E7). */
+  "db_platform_unsupported",
   "db_pitr_slot_unbounded",
   "db_pitr_gap",
   "db_warm_copy_name_taken",

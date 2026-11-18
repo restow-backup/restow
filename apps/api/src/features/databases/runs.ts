@@ -22,6 +22,7 @@ import {
   databaseConnections,
   databaseRuns,
   databases,
+  endpoints,
   insertDatabaseRunTx,
   recordInstanceDatabasesTx,
   tenants,
@@ -37,7 +38,7 @@ import { ProblemError } from "../../problem.js";
 import { tenantStorage } from "../endpoints/repository.js";
 import { restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
 import type { DatabaseContext } from "./service.js";
-import { restowSystemIdentifier } from "./service.js";
+import { dbRunPlatformUnsupported, restowSystemIdentifier } from "./service.js";
 
 /**
  * Backup and restore runs, stage D3 (docs/DATABASES.md 4.3, 4.4, 7.1, 9, 16 "D3"): the session
@@ -52,6 +53,8 @@ export const RUN_PROBLEMS = {
   restoreName: "urn:restow:problem:database-restore-name",
   backupGone: "urn:restow:problem:database-backup-gone",
   target: "urn:restow:problem:database-restore-target",
+  /** PostgreSQL and MySQL by an agent on Windows come later (E7). */
+  platform: "urn:restow:problem:database-platform-unsupported",
 } as const;
 
 export const DB_RUN_AUDIT = {
@@ -206,6 +209,26 @@ async function databaseAndConnection(tx: DbExecutor, tenantId: string, databaseI
   return row;
 }
 
+/** Refuse a run its executor cannot do: an agent on Windows for PostgreSQL or MySQL (E7). */
+async function assertPlatformRuns(tx: DbExecutor, connection: DatabaseConnection): Promise<void> {
+  if (connection.executorKind !== "agent" || !connection.executorEndpointId) {
+    return;
+  }
+  const [endpoint] = await tx
+    .select({ os: endpoints.os })
+    .from(endpoints)
+    .where(eq(endpoints.id, connection.executorEndpointId))
+    .limit(1);
+  if (dbRunPlatformUnsupported(connection, endpoint ?? null)) {
+    throw new ProblemError(422, "Not on this executor's platform yet", {
+      type: RUN_PROBLEMS.platform,
+      detail:
+        "Backups and restores of this engine by an agent on Windows come with a later version; the agent tests and checks the connection meanwhile.",
+      extensions: { code: "db_platform_unsupported" },
+    });
+  }
+}
+
 function runActive(): ProblemError {
   return new ProblemError(409, "A run of this connection is active", {
     type: RUN_PROBLEMS.active,
@@ -229,6 +252,7 @@ export async function requestBackup(
         detail: "Backups of this engine come with a later stage.",
       });
     }
+    await assertPlatformRuns(tx, connection);
     const run = await insertDatabaseRunTx(
       tx,
       connection,
@@ -345,6 +369,7 @@ export async function requestRestore(
       }
       target = other;
     }
+    await assertPlatformRuns(tx, target);
     const name = input.name ?? defaultRestoreName(database.name, now);
     if (!validRestoreName(name)) {
       throw new ProblemError(422, "Invalid database name", {
@@ -1239,12 +1264,22 @@ export async function agentRunDump(
   if (!found) {
     throw runNotFound();
   }
-  const access = await repositoryAccess(db, found.connection, false);
-  const open = await openRepository(access);
-  const dump = resticDump(open.session, found.backup.snapshotId, `/${found.backup.fileName}`);
-  const done = dump.done.finally(() => open.close());
-  done.catch(() => undefined);
-  return { stream: dump.stream, fileName: downloadFileNameOf(found.backup.fileName), done };
+  // Counts against the downloads at once like a user's (429: the agent tries again).
+  const release = takeDownloadSlot(agent.tenantId);
+  try {
+    const access = await repositoryAccess(db, found.connection, false);
+    const open = await openRepository(access);
+    const dump = resticDump(open.session, found.backup.snapshotId, `/${found.backup.fileName}`);
+    const done = dump.done.finally(() => {
+      open.close();
+      release();
+    });
+    done.catch(() => undefined);
+    return { stream: dump.stream, fileName: downloadFileNameOf(found.backup.fileName), done };
+  } catch (error) {
+    release();
+    throw error;
+  }
 }
 
 /** The run credential of `/agent/db/restic/:connectionId` (append-only backup, read-only restore). */

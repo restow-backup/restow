@@ -67,6 +67,7 @@ export function DatabaseBackupsCard({
   connectionId,
   admin,
   format,
+  platformUnsupported = false,
 }: {
   databaseId: string;
   databaseName: string;
@@ -74,6 +75,8 @@ export function DatabaseBackupsCard({
   connectionId: string;
   admin: boolean;
   format: DbFormat;
+  /** The executor cannot back up this engine yet (an agent on Windows, E7). */
+  platformUnsupported?: boolean;
 }) {
   const { t } = format;
   const backups = useDatabaseBackups(databaseId);
@@ -81,7 +84,7 @@ export function DatabaseBackupsCard({
   const backup = useRequestBackup(databaseId);
   const [restoring, setRestoring] = React.useState<DbBackup | null>(null);
   const [downloadError, setDownloadError] = React.useState<unknown>(null);
-  const supported = engine === "postgresql";
+  const supported = engine === "postgresql" && !platformUnsupported;
   const download = async (row: DbBackup, kind: "dump" | "guide" | "globals") => {
     setDownloadError(null);
     try {
@@ -121,6 +124,11 @@ export function DatabaseBackupsCard({
         ) : null}
       </CardHeader>
       <CardContent className="space-y-3">
+        {platformUnsupported ? (
+          <Alert data-slot="database-platform-unsupported">
+            <AlertTitle>{t("backups.platformUnsupported")}</AlertTitle>
+          </Alert>
+        ) : null}
         {backup.isSuccess ? (
           <Alert>
             <AlertTitle>{t("backups.queued")}</AlertTitle>
@@ -165,7 +173,7 @@ export function DatabaseBackupsCard({
                     <FileText aria-hidden="true" />
                     {t("backups.guide")}
                   </Button>
-                  {admin ? (
+                  {admin && supported ? (
                     <Button size="sm" variant="outline" onClick={() => setRestoring(row)}>
                       <RotateCcw aria-hidden="true" />
                       {t("backups.restore")}

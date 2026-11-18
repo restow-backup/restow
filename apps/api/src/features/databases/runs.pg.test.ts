@@ -785,6 +785,54 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
     expect(words).toBe(`--template=template0\n${evil}_restored_20261118_120000\n`);
   });
 
+  it("runs no backup through an agent on Windows yet, and says so [DB-002]", async () => {
+    const [windows] = await fixture.db
+      .insert(endpoints)
+      .values({
+        tenantId: fixture.tenantId,
+        hostname: "db-bridge-win",
+        os: "windows",
+        arch: "amd64",
+        profile: "server",
+        secretHash: "w",
+        config: {} as never,
+        lastSeenAt: new Date(),
+        settings: { agent: { capabilities: ["db_runner_v1"] } },
+      })
+      .returning();
+    try {
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: windows?.id as string })
+        .where(eq(databaseConnections.id, connectionId));
+      await expect(
+        runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx()),
+      ).rejects.toMatchObject({ status: 422, type: runs.RUN_PROBLEMS.platform });
+      const [backup] = await fixture.db
+        .select()
+        .from(databaseBackups)
+        .where(eq(databaseBackups.databaseId, databaseId))
+        .limit(1);
+      await expect(
+        runs.requestRestore(
+          shared.db,
+          fixture.tenantId,
+          databaseId,
+          { backupId: backup?.id as string },
+          ctx(),
+        ),
+      ).rejects.toMatchObject({ status: 422, type: runs.RUN_PROBLEMS.platform });
+      expect(await fixture.db.select().from(databaseRuns)).toEqual([]);
+      const detail = await service.getDatabase(shared.db, fixture.tenantId, databaseId);
+      expect(detail.connection.notices).toContain("db_platform_unsupported");
+    } finally {
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: agentId })
+        .where(eq(databaseConnections.id, connectionId));
+    }
+  });
+
   it("limits downloads at once, per tenant and in all", () => {
     const first = runs.takeDownloadSlot("tenant-a");
     const second = runs.takeDownloadSlot("tenant-a");

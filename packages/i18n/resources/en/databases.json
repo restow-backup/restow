@@ -258,6 +258,7 @@
     "db_verify_no_space": "No space for the check",
     "db_verify_timeout": "Check stopped (time limit)",
     "db_runner_offline": "Executor not reachable",
+    "db_platform_unsupported": "Not on this executor's platform yet",
     "db_pitr_slot_unbounded": "Replication slot without a limit",
     "db_pitr_gap": "Gap in the log",
     "db_warm_copy_name_taken": "Name already taken on the target",
@@ -290,7 +291,8 @@
     "run-active": "This connection is running a backup or a restore right now. Try again when it has ended.",
     "restore-name": "The new database's name is too long (at most 63 bytes).",
     "backup-gone": "This backup is no longer available.",
-    "restore-target": "Choose a connection of the same engine."
+    "restore-target": "Choose a connection of the same engine.",
+    "platform-unsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the Restow server, as the executor."
   },
   "health": {
     "title": "Health checks",
@@ -400,6 +402,7 @@
     "restoreOtherConnection": "The executor of the target connection receives the content of this one backup through {appName}, not the source connection's repository.",
     "globalsTitle": "Roles and global objects",
     "globalsDescription": "The instance's roles, with their password hashes where the user could read them. Administrators only; every download is logged.",
-    "globalsDownload": "Download globals.sql"
+    "globalsDownload": "Download globals.sql",
+    "platformUnsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the Restow server, as the executor."
   }
 }

@@ -326,6 +326,33 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     expect(database?.instance_key).toMatch(/^postgresql:\d+$/);
   }, 120_000);
 
+  it("plans no backup for an agent on Windows (E7)", async () => {
+    const [endpoint] = await q<{ id: string }>(
+      `INSERT INTO endpoints (tenant_id, hostname, os, arch, profile, secret_hash, config)
+       VALUES ($1, 'win-bridge', 'windows', 'amd64', 'server', 'x', '{}'::jsonb) RETURNING id`,
+      [tenantId],
+    );
+    const [connection] = await q<{ id: string }>(
+      `INSERT INTO database_connections
+         (tenant_id, name, engine, host, port, executor_kind, executor_endpoint_id, auth_method,
+          schedule, selection)
+       VALUES ($1, 'Windows ERP', 'postgresql', 'db.example.test', 5432, 'agent', $2, 'password',
+               '{"kind":"interval","intervalMinutes":60,"timeZone":"UTC"}'::jsonb,
+               '{"mode":"all","names":[],"exclude":[]}'::jsonb)
+       RETURNING id`,
+      [tenantId, endpoint?.id],
+    );
+    try {
+      await databaseRunsPass(deps());
+      expect(
+        await q("SELECT id FROM database_runs WHERE connection_id = $1", [connection?.id]),
+      ).toEqual([]);
+    } finally {
+      await q("DELETE FROM database_connections WHERE id = $1", [connection?.id]);
+      await q("DELETE FROM endpoints WHERE id = $1", [endpoint?.id]);
+    }
+  });
+
   it("drops a due run beside an active one, visibly", async () => {
     const connection = {
       id: connectionId,

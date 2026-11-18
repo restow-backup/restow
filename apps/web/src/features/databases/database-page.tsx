@@ -94,6 +94,7 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
         connectionId={data.connectionId}
         admin={admin}
         format={format}
+        platformUnsupported={data.connection.notices.includes("db_platform_unsupported")}
       />
       <DatabaseSizeCard databaseId={data.id} format={format} />
     </div>

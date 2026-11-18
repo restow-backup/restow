@@ -167,6 +167,24 @@ describe("the backups of a database [DB-008]", () => {
     expect(buttonByText(slot("database-backups") as ParentNode, "Restore")).toBeNull();
   });
 
+  it("offers no backup or restore through an agent on Windows yet", async () => {
+    const base = routes([]);
+    rendered = await render(<DatabasePage databaseId="db-1" />, {
+      routes: {
+        ...base,
+        "GET /databases/db-1": () =>
+          json({
+            ...databaseFixture({ id: "db-1", name: "app", lastBackupAt: backup.finishedAt }),
+            connection: connectionFixture({ notices: ["db_platform_unsupported"] }),
+          }),
+      },
+    });
+    expect(slot("database-platform-unsupported")).not.toBeNull();
+    expect(buttonByText(document, "Back up now")).toBeNull();
+    expect(buttonByText(slot("database-backups") as ParentNode, "Restore")).toBeNull();
+    expect(buttonByText(document, "Download")).not.toBeNull();
+  });
+
   it("accepts a new name of at most 63 bytes", () => {
     expect(restoreNameValid("a".repeat(63))).toBe(true);
     expect(restoreNameValid("a".repeat(64))).toBe(false);

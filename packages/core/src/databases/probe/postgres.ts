@@ -93,7 +93,12 @@ function errorOf(body: Buffer): PgServerError {
   return new PgServerError(fields.get("C") ?? "XX000", fields.get("M") ?? "server error");
 }
 
-function startupMessage(user: string, database: string): Buffer {
+/**
+ * The startup message. `client_encoding` UTF8: the session never runs in a client-only multibyte
+ * encoding (SJIS, BIG5, GBK) where a byte of a character could read as a quote or a backslash in
+ * an `E'…'` literal.
+ */
+export function pgStartupMessage(user: string, database: string): Buffer {
   const body = Buffer.concat([
     Buffer.from([0x00, 0x03, 0x00, 0x00]),
     cstring("user"),
@@ -102,6 +107,8 @@ function startupMessage(user: string, database: string): Buffer {
     cstring(database),
     cstring("application_name"),
     cstring("restow"),
+    cstring("client_encoding"),
+    cstring("UTF8"),
     Buffer.from([0]),
   ]);
   const length = Buffer.alloc(4);
@@ -209,7 +216,7 @@ export async function pgSignIn(
   password: string | null,
   database: string,
 ): Promise<PgSession> {
-  conn.write(startupMessage(user, database));
+  conn.write(pgStartupMessage(user, database));
   let scram: PgScram | null = null;
   /** start, then password (3, 5) or sasl (10) -> sasl-continue (11) -> sasl-final (12), then ok. */
   let state: "start" | "password" | "sasl" | "sasl-continue" | "sasl-final" | "ok" = "start";

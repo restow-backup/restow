@@ -214,6 +214,11 @@ export async function databaseRunsPass(deps: DatabaseRunDeps): Promise<DatabaseR
          AND c.enabled
          AND c.engine = 'postgresql'
          AND c.mode = 'backup'
+         -- An agent on Windows runs no PostgreSQL backup yet (E7, db_platform_unsupported).
+         AND NOT EXISTS (SELECT 1 FROM endpoints e
+                          WHERE c.executor_kind = 'agent'
+                            AND e.id = c.executor_endpoint_id
+                            AND e.os = 'windows')
          AND (last.at IS NULL
               OR last.at <= ${now.toISOString()}::timestamptz - make_interval(
                    mins => greatest(${DB_BACKUP_MIN_INTERVAL_MINUTES}, (c.schedule ->> 'intervalMinutes')::int)))

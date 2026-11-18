@@ -597,9 +597,26 @@ function stateOf(connection: DatabaseConnection, runnerOffline: boolean): Connec
   return connection.lastCheck ? "ok" : "unchecked";
 }
 
+/**
+ * Backups and restores of PostgreSQL and MySQL by an agent on Windows come later (E7): such an
+ * agent tests and checks the connection, but runs no backup or restore.
+ */
+export function dbRunPlatformUnsupported(
+  connection: Pick<DatabaseConnection, "executorKind" | "engine">,
+  executor: Pick<Endpoint, "os"> | null,
+): boolean {
+  return (
+    connection.executorKind === "agent" &&
+    executor?.os === "windows" &&
+    (connection.engine === "postgresql" ||
+      connection.engine === "mysql" ||
+      connection.engine === "mariadb")
+  );
+}
+
 function connectionDto(
   connection: DatabaseConnection,
-  executor: Pick<Endpoint, "hostname" | "lastSeenAt"> | null,
+  executor: Pick<Endpoint, "hostname" | "lastSeenAt" | "os"> | null,
   databaseCount: number,
   now: Date,
 ): DatabaseConnectionDto {
@@ -613,6 +630,9 @@ function connectionDto(
   }
   if (runnerOffline) {
     notices.push("db_runner_offline");
+  }
+  if (dbRunPlatformUnsupported(connection, executor)) {
+    notices.push("db_platform_unsupported");
   }
   const code = connection.lastCheck?.errorCode;
   if (code) {
@@ -1755,12 +1775,17 @@ async function executorsOf(
   tx: Transaction,
   tenantId: string,
   ids: string[],
-): Promise<Map<string, Pick<Endpoint, "hostname" | "lastSeenAt">>> {
+): Promise<Map<string, Pick<Endpoint, "hostname" | "lastSeenAt" | "os">>> {
   if (ids.length === 0) {
     return new Map();
   }
   const rows = await tx
-    .select({ id: endpoints.id, hostname: endpoints.hostname, lastSeenAt: endpoints.lastSeenAt })
+    .select({
+      id: endpoints.id,
+      hostname: endpoints.hostname,
+      lastSeenAt: endpoints.lastSeenAt,
+      os: endpoints.os,
+    })
     .from(endpoints)
     .where(and(eq(endpoints.tenantId, tenantId), inArray(endpoints.id, ids)));
   return new Map(rows.map((row) => [row.id, row]));

@@ -258,6 +258,7 @@
     "db_verify_no_space": "Kein Platz für die Prüfung",
     "db_verify_timeout": "Prüfung abgebrochen (Zeitlimit)",
     "db_runner_offline": "Ausführer nicht erreichbar",
+    "db_platform_unsupported": "Auf der Plattform des Ausführers noch nicht möglich",
     "db_pitr_slot_unbounded": "Replikationsslot ohne Grenze",
     "db_pitr_gap": "Lücke im Log",
     "db_warm_copy_name_taken": "Name auf dem Ziel schon vergeben",
@@ -290,7 +291,8 @@
     "run-active": "Für diese Verbindung läuft gerade eine Sicherung oder Wiederherstellung. Versuchen Sie es danach noch einmal.",
     "restore-name": "Der Name der neuen Datenbank ist zu lang (höchstens 63 Bytes).",
     "backup-gone": "Diese Sicherung ist nicht mehr verfügbar.",
-    "restore-target": "Wählen Sie eine Verbindung derselben Engine."
+    "restore-target": "Wählen Sie eine Verbindung derselben Engine.",
+    "platform-unsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den Restow-Server als Ausführer."
   },
   "health": {
     "title": "Healthchecks",
@@ -400,6 +402,7 @@
     "restoreOtherConnection": "Der Ausführer der Zielverbindung erhält den Inhalt dieser einen Sicherung über {appName}, nicht das Repository der Quellverbindung.",
     "globalsTitle": "Rollen und globale Objekte",
     "globalsDescription": "Die Rollen der Instanz, mit ihren Kennwort-Hashes, soweit der Benutzer sie lesen durfte. Nur für Administratoren; jeder Download wird protokolliert.",
-    "globalsDownload": "globals.sql herunterladen"
+    "globalsDownload": "globals.sql herunterladen",
+    "platformUnsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den Restow-Server als Ausführer."
   }
 }
