@@ -403,6 +403,14 @@ export const databaseBackups = pgTable(
     sha256: text("sha256").notNull(),
     bytes: bigint("bytes", { mode: "number" }).notNull(),
     objects: jsonb("objects").$type<Record<string, number>>().notNull().default({}),
+    /**
+     * What a restore needs beyond the dump (D4): MySQL and MariaDB the schema's character set and
+     * collation (a dump without `--databases` carries no CREATE DATABASE).
+     */
+    engineOptions: jsonb("engine_options")
+      .$type<{ characterSet?: string; collation?: string }>()
+      .notNull()
+      .default({}),
     toolVersion: text("tool_version"),
     serverVersion: text("server_version"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),

@@ -99,7 +99,8 @@ export async function recordInstanceDatabasesTx(
   tx: RunTx,
   connection: Pick<DatabaseConnection, "id" | "tenantId">,
   instanceKey: string,
-  found: readonly { name: string; oid: string }[],
+  // MySQL and MariaDB schemas have no stable identity (3.3): `oid` null, known by the name.
+  found: readonly { name: string; oid: string | null }[],
   now: Date,
 ): Promise<Map<string, string>> {
   const rows = await tx
