@@ -7,10 +7,12 @@ import { DB_BACKUP_USER, type DbEngine } from "./model.js";
  *
  *   capability          PostgreSQL                     MySQL/MariaDB                         SQL Server
  *   backup              CONNECT, read all objects      SELECT, SHOW VIEW, TRIGGER, EVENT,     db_backupoperator
- *                       (pg_read_all_data from 14)     LOCK TABLES, PROCESS, RELOAD
+ *                       (pg_read_all_data from 14)     LOCK TABLES, PROCESS, RELOAD; MySQL
+ *                                                      from 8.0.20 SHOW_ROUTINE
  *   verifyOnInstance    additionally CREATEDB          additionally CREATE, DROP, INSERT,     dbcreator
  *                                                      ALTER, INDEX, REFERENCES, CREATE
- *                                                      ROUTINE, ALTER ROUTINE
+ *                                                      ROUTINE, ALTER ROUTINE, CREATE VIEW,
+ *                                                      SHOW VIEW, TRIGGER, EVENT
  *   pitr                REPLICATION and a pg_hba.conf  REPLICATION SLAVE, REPLICATION         sysadmin or the log
  *                       entry `replication`            CLIENT, binlog on                      backup (7.2)
  *
@@ -170,7 +172,30 @@ export const MYSQL_VERIFY_PRIVILEGES = [
   "REFERENCES",
   "CREATE ROUTINE",
   "ALTER ROUTINE",
+  "CREATE VIEW",
+  "SHOW VIEW",
+  "TRIGGER",
+  "EVENT",
 ] as const;
+/**
+ * MySQL from 8.0.20 shows a routine's body only with SHOW_ROUTINE, a global SELECT, or CREATE
+ * ROUTINE, ALTER ROUTINE or EXECUTE where the routine lies (16 "D4" M3).
+ */
+export const MYSQL_SHOW_ROUTINE = "SHOW_ROUTINE";
+const SHOW_ROUTINE_ALSO = ["CREATE ROUTINE", "ALTER ROUTINE", "EXECUTE"] as const;
+
+/** Whether a MySQL server of `version` knows SHOW_ROUTINE (8.0.20 and later). */
+export function mysqlHasShowRoutine(engine: "mysql" | "mariadb", version: string): boolean {
+  if (engine !== "mysql") {
+    return false;
+  }
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!match) {
+    return false;
+  }
+  const [major, minor, patch] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return major > 8 || (major === 8 && (minor > 0 || patch >= 20));
+}
 export const MYSQL_PITR_PRIVILEGES = ["REPLICATION SLAVE", "REPLICATION CLIENT"] as const;
 
 /** Names that stand for the same privilege on MySQL 8.4 or MariaDB 10.5 and later. */
@@ -222,7 +247,11 @@ function mysqlRights(engine: "mysql" | "mariadb", facts: DbMysqlFacts): DbRights
   }
   const all = global.has("ALL PRIVILEGES") || global.has("ALL");
   const admin = all || global.has("SUPER");
-  const has = (privilege: string) => all || global.has(privilege);
+  const holds = (set: ReadonlySet<string>, privilege: string) =>
+    set.has(privilege) ||
+    (privilege === MYSQL_SHOW_ROUTINE && SHOW_ROUTINE_ALSO.some((other) => set.has(other)));
+  const has = (privilege: string) =>
+    all || holds(global, privilege) || (privilege === MYSQL_SHOW_ROUTINE && global.has("SELECT"));
   const judge = (wanted: readonly string[], perDatabaseCounts = false): DbCapabilityVerdict => {
     const missing = wanted.filter((privilege) => !has(privilege));
     if (missing.length === 0) {
@@ -235,7 +264,7 @@ function mysqlRights(engine: "mysql" | "mariadb", facts: DbMysqlFacts): DbRights
       [...perDatabase.values()].some((set) =>
         missing.every(
           (privilege) =>
-            set.has(privilege) ||
+            holds(set, privilege) ||
             set.has("ALL PRIVILEGES") ||
             set.has("ALL") ||
             // PROCESS and RELOAD are global privileges only; a database grant cannot carry them.
@@ -247,7 +276,11 @@ function mysqlRights(engine: "mysql" | "mariadb", facts: DbMysqlFacts): DbRights
       ? verdict("partial", missing, "some_databases")
       : verdict("missing", missing);
   };
-  const backup = judge(MYSQL_BACKUP_PRIVILEGES, true);
+  const showRoutine = mysqlHasShowRoutine(engine, facts.version);
+  const backup = judge(
+    showRoutine ? [...MYSQL_BACKUP_PRIVILEGES, MYSQL_SHOW_ROUTINE] : MYSQL_BACKUP_PRIVILEGES,
+    true,
+  );
   const verifyOnInstance = judge(MYSQL_VERIFY_PRIVILEGES);
   let pitr = judge(MYSQL_PITR_PRIVILEGES);
   if (facts.logBin === false) {
@@ -272,23 +305,33 @@ function mysqlRights(engine: "mysql" | "mariadb", facts: DbMysqlFacts): DbRights
     engine,
     admin,
     capabilities,
-    grantSql: mysqlGrantSql(wanted),
+    grantSql: mysqlGrantSql(wanted, { showRoutine }),
     adminExtras: admin ? (all ? ["ALL PRIVILEGES"] : ["SUPER"]) : [],
   };
 }
 
-/** `CREATE USER 'restow_backup'` with exactly the privileges of `capabilities` (3.2). */
-export function mysqlGrantSql(capabilities: readonly DbCapability[]): string {
-  const privileges: string[] = [];
+/**
+ * `CREATE USER 'restow_backup'` with exactly the privileges of `capabilities` (3.2);
+ * `showRoutine` for MySQL from 8.0.20.
+ */
+export function mysqlGrantSql(
+  capabilities: readonly DbCapability[],
+  options: { showRoutine?: boolean } = {},
+): string {
+  const wanted: string[] = [];
   if (capabilities.includes("backup")) {
-    privileges.push(...MYSQL_BACKUP_PRIVILEGES);
+    wanted.push(...MYSQL_BACKUP_PRIVILEGES);
+    if (options.showRoutine) {
+      wanted.push(MYSQL_SHOW_ROUTINE);
+    }
   }
   if (capabilities.includes("verifyOnInstance")) {
-    privileges.push(...MYSQL_VERIFY_PRIVILEGES);
+    wanted.push(...MYSQL_VERIFY_PRIVILEGES);
   }
   if (capabilities.includes("pitr")) {
-    privileges.push(...MYSQL_PITR_PRIVILEGES);
+    wanted.push(...MYSQL_PITR_PRIVILEGES);
   }
+  const privileges = [...new Set(wanted)];
   const user = `'${DB_BACKUP_USER}'@'%'`;
   return [
     `CREATE USER ${user} IDENTIFIED BY '<password>';`,
