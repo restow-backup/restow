@@ -378,6 +378,13 @@ describe("the answers file", () => {
       2,
     );
     assert.match(overlay, /\n {2}api:\n {4}environment:\n {6}RESTIC_BINARY: /);
+    // The next release run got past the enrollment; P1's layout check then found no restore
+    // planner (planner_unavailable): its link in the image points into 0.0.0-dev as well.
+    assert.match(
+      overlay,
+      /\n {2}worker:\n {4}environment:\n(?: {6}.*\n)* {6}RESTOW_PLANNER_BIN: \/srv\/agent\/0\.5\.0\/linux-amd64\/restow-agent\n/,
+    );
+    assert.equal(overlay.match(/RESTOW_PLANNER_BIN/g).length, 1);
     assert.throws(() => e2eOverlay("/w/agent", "/w/iso", "0.5.0\n  evil: x"), /not a version/);
     assert.throws(() => e2eOverlay("/w/agent", "/w/iso", undefined), /not a version/);
   });
