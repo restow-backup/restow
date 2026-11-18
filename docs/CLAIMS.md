@@ -1221,7 +1221,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Zugangsdaten einer Datenbank liegen nur verschlüsselt auf dem Server und erscheinen in keiner API-Antwort und keinem Fehlertext; Fehlertexte der Clients werden vor dem Speichern um URL, Benutzer und Kennwort bereinigt.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.2 "Zugangsdaten", Abschnitt 10, Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go, packages/core/src/databases/relay.test.ts
+- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go, packages/core/src/databases/relay.test.ts, apps/worker/src/databases/runs.pg.test.ts
 - Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log, gespeicherte Prüfungen und Healthchecks; MySQL als Simulator)
 - Stand: belegt
 - Hinweis: "keine Kommandozeile" gilt mit den Dump-Programmen ab Stufe D3 und wird dort belegt.
@@ -1250,6 +1250,30 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: beides (Einheitentest der Episode, der Ruhezeit und des Abstands; der Durchlauf des Workers gegen PostgreSQL 16, Job test in ci.yml, mit Prüfungen des Servers und gemeldeten Prüfungen eines Agenten, auch gebündelt und flatternd; die Meldungen eines Agenten gegen PostgreSQL 16 mit Obergrenze und Abstand)
 - Stand: belegt
 
+
+### DB-006
+- Aussage: Ein abgebrochener oder fehlgeschlagener Dump wird nie zu einer Sicherung: restic legt mit `--stdin-from-command` keinen Snapshot an, wenn das Dump-Programm mit einem Fehler endet, und der Lauf meldet die Datenbank als fehlgeschlagen.
+- Fundstelle: docs/DATABASES.md (Abschnitt 5.1, Abschnitt 12, Abschnitt 16 "D3")
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/worker/src/databases/runs.pg.test.ts
+- Belegt gegen: beides (restic 0.19.1 echt, PostgreSQL 16 echt mit TLS, Job test in ci.yml; das Dump-Programm, das mittendrin abbricht, ist ein Skript, das einen Teil eines Archivs schreibt und mit Fehler endet)
+- Stand: belegt
+
+### DB-007
+- Aussage: Der Restow-Server sichert jede ausgewählte PostgreSQL-Datenbank einer Verbindung als eigenen restic-Snapshot im Repository der Verbindung, mit SHA-256, Größe und Objektzählung, dazu einmal je Instanz die Rollen und Tablespaces; die Programme erreichen den Server nur über das Relais mit dem bestätigten Zertifikat.
+- Fundstelle: docs/DATABASES.md (Abschnitte 4.3, 4.4, 5.1, 5.2, 16 "D3")
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/worker/src/databases/runs.pg.test.ts
+- Belegt gegen: beides (PostgreSQL 16 echt mit TLS und pg_dump 16, restic 0.19.1 echt auf einem lokalen Speicherziel, Job test in ci.yml)
+- Stand: belegt
+
+### DB-008
+- Aussage: Eine Wiederherstellung legt immer eine neue Datenbank an (auf derselben oder einer anderen Verbindung), nie über eine vorhandene; ohne `CREATEDB` wird sie abgelehnt, und scheitert sie, löscht Restow nur die Datenbank, die dieser Lauf angelegt hat (an Name und OID erkannt).
+- Fundstelle: docs/DATABASES.md (Abschnitt 7.1, Abschnitt 16 "D3" O3)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/worker/src/databases/runs.pg.test.ts
+- Belegt gegen: beides (PostgreSQL 16 echt mit TLS, pg_restore 16, restic 0.19.1 echt, Job test in ci.yml)
+- Stand: belegt
 ## Prüfungen gegen echte Systeme, die es gibt, die aber in der Pipeline nicht laufen
 
 Diese Prüfungen stehen im Repository und würden mehrere Aussagen gegen das echte System

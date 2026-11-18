@@ -126,6 +126,13 @@ import {
   startDatabaseHealth,
   workerCredentialsReader,
 } from "./databases/health.js";
+import {
+  DATABASE_RUN_QUEUE,
+  DATABASE_RUN_QUEUE_OPTIONS,
+  type DatabaseRunDeps,
+  runDatabaseJob,
+  startDatabaseRuns,
+} from "./databases/runs.js";
 import { configureDefaultStorage } from "./default-storage.js";
 import { LAB_API_PORT, labApiOptionsFromEnv, startLabApi } from "./endpoints/lab-api.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
@@ -138,6 +145,7 @@ import { registerAuditAnchor } from "./handlers/audit-anchor.js";
 import {
   createWorkHandler,
   HandlerRegistry,
+  isUuid,
   loadTenantKeyring,
   mirrorTenantKeys,
   PgSecretReader,
@@ -692,6 +700,44 @@ async function main(): Promise<void> {
     },
     runtime.shutdownSignal,
   );
+
+  // Backup and restore runs of the database connections (docs/DATABASES.md 4.3, 16 "D3"): one
+  // planning pass a minute in one worker at a time; the server's runs on the queue `db`,
+  // DB_CONCURRENCY (default 2) at once per worker process. Nothing starts in restore mode.
+  const databaseRunDeps: DatabaseRunDeps = {
+    db,
+    providerDb,
+    logger: logger.child({ component: "database-runs" }),
+    now: () => new Date(),
+    keyrings,
+    primaryStorage: async (tenantId) => (await runtime.storage.get(tenantId)).primary,
+    privateNetworksAllowed:
+      process.env.RESTOW_DB_ALLOW_PRIVATE_NETWORKS?.trim().toLowerCase() === "true",
+    restoreModeActive: async () => (await restoreMode.guard.restoreMode()).active,
+    readCredentials: workerCredentialsReader(db, keyrings),
+    ownSystemIdentifier: ownSystemIdentifierOf(providerDb),
+    ownDatabaseTargets: ownDatabaseTargetsOf([config.databaseUrl, config.databaseProviderUrl]),
+    enqueue: async (payload) => {
+      await boss.send(DATABASE_RUN_QUEUE, payload, { singletonKey: payload.runId });
+    },
+  };
+  await retryConcurrentSetup(async () => {
+    await boss.createQueue(DATABASE_RUN_QUEUE, DATABASE_RUN_QUEUE_OPTIONS);
+    await boss.updateQueue(DATABASE_RUN_QUEUE, DATABASE_RUN_QUEUE_OPTIONS);
+  });
+  for (let slot = 0; slot < positiveInt(process.env, "DB_CONCURRENCY", 2); slot++) {
+    await boss.work(
+      DATABASE_RUN_QUEUE,
+      { batchSize: 1, pollingIntervalSeconds: 5 },
+      async ([job]) => {
+        const data = (job?.data ?? {}) as { tenantId?: unknown; runId?: unknown };
+        if (isUuid(data.tenantId) && isUuid(data.runId)) {
+          await runDatabaseJob(databaseRunDeps, { tenantId: data.tenantId, runId: data.runId });
+        }
+      },
+    );
+  }
+  startDatabaseRuns(databaseRunDeps, runtime.shutdownSignal);
 
   // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
   // (manifest-conversion.ts); ends by itself once nothing is left.
