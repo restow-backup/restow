@@ -12,8 +12,9 @@ import { toast } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
-import type { RecoveryDetail } from "../api.js";
+import type { ApproveOneshotInput, RecoveryDetail } from "../api.js";
 import {
+  useApproveOneshot,
   useApproveRecovery,
   useCancelRecovery,
   useEndpointFormat,
@@ -28,6 +29,7 @@ import {
   RECOVERY_STATUS_TONE,
   recoveryOpen,
 } from "../presenters.js";
+import { OneshotApproval, OneshotChecklist, OneshotSteps } from "./oneshot.js";
 import { typedAddress } from "./recovery-code-dialog.js";
 import { RecoveryVerificationBlock, RecoveryWarnings } from "./recovery-verification.js";
 
@@ -265,6 +267,8 @@ export interface RecoveryLiveViewProps {
   endpointId: string;
   pending: boolean;
   onApprove: () => void;
+  /** Kind `oneshot`: the release with the admin's decisions and the match code. */
+  onApproveOneshot?: (answers: ApproveOneshotInput) => void;
   onCancel: () => void;
   onRevoke: () => void;
   onExtend: () => void;
@@ -275,6 +279,7 @@ export function RecoveryLiveView(props: RecoveryLiveViewProps) {
   const format = useEndpointFormat();
   const { recovery } = props;
   const open = recoveryOpen(recovery.status);
+  const oneshot = recovery.kind === "oneshot";
   return (
     <div className="grid gap-4" data-slot="recovery-live" data-status={recovery.status}>
       <div className="flex flex-wrap items-center gap-2">
@@ -288,10 +293,19 @@ export function RecoveryLiveView(props: RecoveryLiveViewProps) {
       </div>
       {recovery.status === "issued" ? (
         <p className="text-sm text-muted-foreground" data-slot="recovery-waiting">
-          {t("recovery.live.waiting")}
+          {t(oneshot ? "recovery.oneshot.waiting" : "recovery.live.waiting")}
         </p>
       ) : null}
-      {recovery.status === "pending_approval" ? (
+      {oneshot ? <OneshotSteps recovery={recovery} /> : null}
+      {recovery.status === "pending_approval" && oneshot ? (
+        <OneshotApproval
+          recovery={recovery}
+          onApprove={(answers) => props.onApproveOneshot?.(answers)}
+          onReject={props.onCancel}
+          pending={props.pending}
+        />
+      ) : null}
+      {recovery.status === "pending_approval" && !oneshot ? (
         <ApprovalBlock
           recovery={recovery}
           onApprove={props.onApprove}
@@ -307,6 +321,7 @@ export function RecoveryLiveView(props: RecoveryLiveViewProps) {
         />
       ) : null}
       <RecoveryWarnings warnings={recovery.warnings} />
+      {oneshot ? <OneshotChecklist recovery={recovery} /> : null}
       {open ? (
         <div className="flex flex-wrap gap-2">
           {recovery.status === "issued" ? (
@@ -365,6 +380,7 @@ export function RecoveryLive({
   const { t } = useTranslation("endpoints");
   const query = useRecovery(endpointId, recoveryId);
   const approve = useApproveRecovery(endpointId);
+  const approveOneshot = useApproveOneshot(endpointId);
   const cancel = useCancelRecovery(endpointId);
   const revoke = useRevokeRecoveryCode(endpointId);
   const extend = useExtendRecoveryCode(endpointId);
@@ -378,6 +394,17 @@ export function RecoveryLive({
       onSuccess: () => void refetch(),
       onError: (error) => (isRecentSignInRequired(error) ? identity.ask(doApprove) : failed(error)),
     });
+  const doApproveOneshot = (answers: ApproveOneshotInput) =>
+    approveOneshot.mutate(
+      { recoveryId, answers },
+      {
+        onSuccess: () => void refetch(),
+        onError: (error) =>
+          isRecentSignInRequired(error)
+            ? identity.ask(() => doApproveOneshot(answers))
+            : failed(error),
+      },
+    );
   const doExtend = () =>
     extend.mutate(
       { codeId: recoveryId, validityHours: EXTEND_HOURS },
@@ -400,8 +427,15 @@ export function RecoveryLive({
         <RecoveryLiveView
           recovery={recovery}
           endpointId={endpointId}
-          pending={approve.isPending || cancel.isPending || revoke.isPending || extend.isPending}
+          pending={
+            approve.isPending ||
+            approveOneshot.isPending ||
+            cancel.isPending ||
+            revoke.isPending ||
+            extend.isPending
+          }
           onApprove={doApprove}
+          onApproveOneshot={doApproveOneshot}
           onCancel={() => setConfirmCancel(true)}
           onRevoke={() =>
             revoke.mutate(recoveryId, { onSuccess: () => void refetch(), onError: failed })
