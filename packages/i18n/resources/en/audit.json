@@ -846,7 +846,11 @@
       "private_network_approved": "Database connection in a private network approved",
       "tls_confirmed": "New TLS certificate of a database connection confirmed",
       "instance_confirmed": "New instance under the address of a database connection confirmed",
-      "tested": "Database connection tested"
+      "tested": "Database connection tested",
+      "backup_requested": "Backup of a database connection requested",
+      "restore_requested": "Restore of a database backup requested",
+      "backup_downloaded": "Database backup downloaded",
+      "restic_denied": "Forbidden repository access of a database run refused"
     }
   },
   "targetTypes": {

@@ -150,6 +150,9 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // The health checks of the module "Databases" (D2, docs/DATABASES.md 8): the agent's own secret.
   "GET /agent/v1/databases/health/:taskId",
   "POST /agent/v1/databases/health/:taskId/samples",
+  // Backup and restore runs (D3, docs/DATABASES.md 16): the agent's own secret; the run's spec once.
+  "GET /agent/v1/databases/runs/:runId",
+  "POST /agent/v1/databases/runs/:runId/finish",
   // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
   // per address), the session routes authenticate with the session's own secret (HTTP Basic).
   "POST /agent/v1/recovery/sessions",
@@ -720,6 +723,14 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/databases/connections/:id/health": view(),
   "GET /api/v1/databases/:id": view(),
   "GET /api/v1/databases/:id/health": view(),
+  // Backups and restores (D3): administrators start them; the dump itself is content and needs a
+  // technician; that backups and runs exist, and the restore guide (no secrets), everyone reads.
+  "GET /api/v1/databases/connections/:id/runs": view(),
+  "POST /api/v1/databases/:id/backup": configure(),
+  "GET /api/v1/databases/:id/backups": view(),
+  "POST /api/v1/databases/:id/restore": configure(),
+  "GET /api/v1/databases/:id/backups/:backupId/download": operate(),
+  "GET /api/v1/databases/:id/backups/:backupId/restore-guide": view(),
   "GET /api/v1/file-shares": view(),
   "POST /api/v1/file-shares": configure(),
   "GET /api/v1/file-shares/settings": view(),

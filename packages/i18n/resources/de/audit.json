@@ -846,7 +846,11 @@
       "private_network_approved": "Datenbankverbindung in einem privaten Netz genehmigt",
       "tls_confirmed": "Neues TLS-Zertifikat einer Datenbankverbindung bestätigt",
       "instance_confirmed": "Neue Instanz unter der Adresse einer Datenbankverbindung bestätigt",
-      "tested": "Datenbankverbindung geprüft"
+      "tested": "Datenbankverbindung geprüft",
+      "backup_requested": "Sicherung einer Datenbankverbindung angefordert",
+      "restore_requested": "Wiederherstellung einer Datenbanksicherung angefordert",
+      "backup_downloaded": "Datenbanksicherung heruntergeladen",
+      "restic_denied": "Unerlaubter Repository-Zugriff eines Datenbanklaufs abgewiesen"
     }
   },
   "targetTypes": {
