@@ -251,8 +251,14 @@ type fakeEnv struct {
 	kexecs   int
 	kexecErr error
 	cleaned  bool
-	// beforeReopen changes the image on the disk after the check.
+	// afterTestLoad changes the image on the disk after the check.
 	afterTestLoad func(*memISO)
+	// cancelOn cancels the run at a step: test-memfd, test-load,
+	// final-memfd, final-load, loaded, kexec.
+	cancelOn string
+	cancel   context.CancelFunc
+	// hookISOFile changes the image before the first copy into memory.
+	hookISOFile func(*memISO)
 }
 
 const (
@@ -337,20 +343,45 @@ func (e *fakeEnv) Hardware(context.Context) (recovery.HardwareInput, error) { re
 func (e *fakeEnv) UsedBytes() int64                                         { return e.used }
 func (e *fakeEnv) ISOFile() (ISOFile, error)                                { e.iso = &memISO{}; return e.iso, nil }
 
-func (e *fakeEnv) KexecLoad(kernel io.Reader, fill func(io.Writer) error, cmdline string) error {
-	k, err := io.ReadAll(kernel)
-	if err != nil {
-		return err
+type fakeBlob struct {
+	name string
+	b    []byte
+}
+
+func (*fakeBlob) Close() error { return nil }
+
+func (e *fakeEnv) phase() string {
+	if len(e.loads) == 0 {
+		return "test"
 	}
-	var i bytes.Buffer
-	if err := fill(&i); err != nil {
-		return err
+	return "final"
+}
+
+func (e *fakeEnv) Memfd(name string, fill func(io.Writer) error) (Blob, error) {
+	if e.hookISOFile != nil {
+		e.hookISOFile(e.iso)
+		e.hookISOFile = nil
 	}
-	e.loads = append(e.loads, kexecLoad{kernel: k, initrd: i.Bytes(), cmdline: cmdline})
+	if name == "restow-initrd" && e.cancelOn == e.phase()+"-memfd" {
+		e.cancel()
+	}
+	var buf bytes.Buffer
+	if err := fill(&buf); err != nil {
+		return nil, err
+	}
+	return &fakeBlob{name: name, b: buf.Bytes()}, nil
+}
+
+func (e *fakeEnv) KexecFileLoad(kernel, initrd Blob, cmdline string) error {
+	phase := e.phase()
+	e.loads = append(e.loads, kexecLoad{kernel: kernel.(*fakeBlob).b, initrd: initrd.(*fakeBlob).b, cmdline: cmdline})
 	if n := len(e.loads) - 1; n < len(e.loadErrs) && e.loadErrs[n] != nil {
 		return e.loadErrs[n]
 	}
 	e.loaded = true
+	if e.cancelOn == phase+"-load" {
+		e.cancel()
+	}
 	if len(e.loads) == 1 && e.afterTestLoad != nil {
 		e.afterTestLoad(e.iso)
 	}
@@ -358,8 +389,17 @@ func (e *fakeEnv) KexecLoad(kernel io.Reader, fill func(io.Writer) error, cmdlin
 }
 
 func (e *fakeEnv) KexecUnload() error { e.unloads++; e.loaded = false; return nil }
-func (e *fakeEnv) KexecLoaded() bool  { return e.loaded && !e.noLoaded }
-func (e *fakeEnv) Kexec(context.Context) error {
+func (e *fakeEnv) KexecLoaded() bool {
+	if e.cancelOn == "loaded" {
+		e.cancel()
+	}
+	return e.loaded && !e.noLoaded
+}
+func (e *fakeEnv) Kexec(ctx context.Context) error {
+	if e.cancelOn == "kexec" {
+		e.cancel()
+		return ErrCancelled
+	}
 	e.kexecs++
 	return e.kexecErr
 }
@@ -383,7 +423,10 @@ func runCommand(t *testing.T, env *fakeEnv, inst *fakeInstance, input string, ed
 	}
 	ui.Lang = opts.Lang
 	c := &Command{UI: ui, Env: env, Opts: opts}
-	code := c.Run(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	env.cancel = cancel
+	code := c.Run(ctx)
 	return runResult{code: code, out: out.String()}
 }
 

@@ -243,6 +243,13 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
     remoteAccess: false,
   };
 
+  /** The answers of a release with the match code the machine shows. */
+  const withCode = (s: { matchCode: string }, extra: Record<string, unknown> = {}) => ({
+    ...ANSWERS,
+    matchCode: `${s.matchCode.slice(0, 3)} ${s.matchCode.slice(3)}`,
+    ...extra,
+  });
+
   /** Issue a oneshot code and exchange it as the command does; answers what the command holds. */
   async function session(options: { checks?: Record<string, unknown> } = {}) {
     const target = await machine();
@@ -257,6 +264,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       sessionId: string;
       status: string;
       expiresAt: string;
+      matchCode: string;
       oneshot: { iso: { sha256: string } | null; needs: { passphrase: boolean; ramBytes: number } };
     };
     return {
@@ -278,7 +286,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
     );
     expect(checked.status, await checked.clone().text()).toBe(204);
     cache.forgetRecoverySession();
-    await approve(s.endpointId, s.sessionId, ANSWERS);
+    await approve(s.endpointId, s.sessionId, withCode(s));
     cache.forgetRecoverySession();
     return s;
   }
@@ -295,7 +303,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
         sessionValidityHours: 12,
       });
       expect(issued.command).toBe(
-        `curl -fsSL '${ORIGIN}/install/oneshot.sh' | sh -s -- ${issued.code}`,
+        `curl -fsSL '${ORIGIN}/install/oneshot.sh' | RESTOW_ONESHOT_CODE='${issued.code}' sh`,
       );
       const expires = Date.parse(issued.expiresAt);
       expect(expires - before).toBeGreaterThanOrEqual(29 * 60 * 1000);
@@ -309,6 +317,83 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
         createHash("sha256").update(oneshotCodeProof(ORIGIN, normalized)).digest("hex"),
       );
       expect(JSON.stringify(row)).not.toContain(normalized);
+    });
+
+    it("refuses an instance address that is unsafe in a shell command", async () => {
+      const target = await machine();
+      for (const url of [
+        "https://restow.firma.de'",
+        "https://a$(reboot).example",
+        "https://a`reboot`.example",
+        "https://a;reboot.example",
+      ]) {
+        await expect(
+          codes.issueRecoveryCode(
+            shared.db,
+            fixture.tenantId,
+            target.id,
+            { kind: "oneshot", validityHours: 12, requireApproval: true } as never,
+            actor(),
+            { url, configured: true },
+          ),
+          url,
+        ).rejects.toMatchObject({ status: 503, type: "urn:restow:problem:instance-url-unsafe" });
+        expect(() => codes.oneshotCommand(url, "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS")).toThrow();
+      }
+      expect(() => codes.oneshotCommand(ORIGIN, "OS-1';reboot;'")).toThrow();
+      const rows = await fixture.db
+        .select()
+        .from(endpointRecoveries)
+        .where(eq(endpointRecoveries.endpointId, target.id));
+      expect(rows).toHaveLength(0);
+    });
+
+    it("keeps the 30 minutes to redeem: no extension before the exchange, a consistent end after", async () => {
+      const target = await machine();
+      const issued = await issue(target.id, { validityHours: 4 });
+      await expect(
+        codes.extendRecoveryCode(shared.db, fixture.tenantId, target.id, issued.id, 48, actor()),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(Date.parse((await stored(issued.id))?.expiresAt.toISOString() ?? "")).toBe(
+        Date.parse(issued.expiresAt),
+      );
+      const response = await post("/oneshot", oneshotBody(commandSide(issued.code, ORIGIN)));
+      expect(response.status).toBe(202);
+      const row = await stored(issued.id);
+      const issuedAt = row?.issuedAt.getTime() ?? 0;
+      expect(row?.expiresAt.getTime()).toBe(issuedAt + 4 * 60 * 60 * 1000);
+      // The running session can be extended, up to 48 hours after the issue.
+      const extended = await codes.extendRecoveryCode(
+        shared.db,
+        fixture.tenantId,
+        target.id,
+        issued.id,
+        48,
+        actor(),
+      );
+      expect(Date.parse(extended.expiresAt)).toBe(issuedAt + 48 * 60 * 60 * 1000);
+    });
+
+    it("never ends a session before the code's own end (a code extended before this release)", async () => {
+      const { oneshotClaim } = await import("./recovery-oneshot.js");
+      const issuedAt = new Date("2026-11-18T10:00:00Z");
+      const row = {
+        issuedAt,
+        expiresAt: new Date("2026-11-19T20:00:00Z"),
+        oneshot: { validityHours: 4 },
+      } as never;
+      const report = { target: TARGET, checks: CHECKS_NOT_TRIED, sshKeys: [] } as never;
+      expect(oneshotClaim(row, report, "0.5.1").expiresAt.toISOString()).toBe(
+        "2026-11-19T20:00:00.000Z",
+      );
+      const late = {
+        issuedAt,
+        expiresAt: new Date("2026-11-21T20:00:00Z"),
+        oneshot: { validityHours: 4 },
+      };
+      expect(oneshotClaim(late as never, report, "0.5.1").expiresAt.toISOString()).toBe(
+        "2026-11-20T10:00:00.000Z",
+      );
     });
 
     it("needs RESTOW_BAREMETAL_ONESHOT, the release and a session of four hours at least", async () => {
@@ -432,7 +517,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
     it("needs the answers and a machine that has shown it can switch", async () => {
       const s = await session();
       await expect(approve(s.endpointId, s.sessionId, null)).rejects.toMatchObject({ status: 422 });
-      await expect(approve(s.endpointId, s.sessionId, ANSWERS)).rejects.toMatchObject({
+      await expect(approve(s.endpointId, s.sessionId, withCode(s))).rejects.toMatchObject({
         status: 409,
         type: "urn:restow:problem:oneshot-not-ready",
         extensions: { reason: "kexec_not_tried" },
@@ -443,7 +528,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
         s.auth,
       );
       expect(failed.status).toBe(204);
-      await expect(approve(s.endpointId, s.sessionId, ANSWERS)).rejects.toMatchObject({
+      await expect(approve(s.endpointId, s.sessionId, withCode(s))).rejects.toMatchObject({
         extensions: { reason: "kexec_failed" },
       });
       expect((await stored(s.sessionId))?.status).toBe("pending_approval");
@@ -454,7 +539,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
         { ...CHECKS_NOT_TRIED, mode: "direct" },
         s.auth,
       );
-      const dto = await approve(s.endpointId, s.sessionId, { ...ANSWERS, remoteAccess: true });
+      const dto = await approve(s.endpointId, s.sessionId, withCode(s, { remoteAccess: true }));
       expect(dto).toMatchObject({ status: "active", kind: "oneshot" });
       const row = await stored(s.sessionId);
       expect(row?.oneshot?.decided).toMatchObject({
@@ -462,6 +547,8 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
         remoteAccess: true,
         by: fixture.adminId,
       });
+      // The match code is a check, no decision: it is not kept.
+      expect(row?.oneshot?.decided).not.toHaveProperty("matchCode");
       // The machine's report is still its own.
       expect(row?.oneshot?.reported?.target).toEqual(TARGET);
       const current = await get("/sessions/current", s.auth);
@@ -479,7 +566,7 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       const s = await session({
         checks: { ...CHECKS_NOT_TRIED, kexec: "ok", inUse: ["agent_enrolled"] },
       });
-      await expect(approve(s.endpointId, s.sessionId, ANSWERS)).rejects.toMatchObject({
+      await expect(approve(s.endpointId, s.sessionId, withCode(s))).rejects.toMatchObject({
         extensions: { reason: "agent_enrolled" },
       });
       const target = await machine();
@@ -495,6 +582,75 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       const exchanged = await post("/sessions", exchangeBody(iso));
       const { sessionId } = (await exchanged.json()) as { sessionId: string };
       await expect(approve(target.id, sessionId, ANSWERS)).rejects.toMatchObject({ status: 422 });
+    });
+
+    it("needs the match code the machine shows, refuses and audits another one", async () => {
+      const s = await session({ checks: { ...CHECKS_NOT_TRIED, kexec: "ok" } });
+      const wrong = String((Number(s.matchCode) + 1) % 1_000_000).padStart(6, "0");
+      await expect(
+        approve(s.endpointId, s.sessionId, { ...ANSWERS, matchCode: wrong }),
+      ).rejects.toMatchObject({
+        status: 422,
+        type: "urn:restow:problem:recovery-match-code-mismatch",
+      });
+      expect((await stored(s.sessionId))?.status).toBe("pending_approval");
+      expect(await audits("endpoint.recovery.match_code_mismatch", s.sessionId)).toHaveLength(1);
+      expect(await audits("endpoint.recovery.approved", s.sessionId)).toHaveLength(0);
+      // Without a match code the answers are incomplete (the schema of the route).
+      const { approveOneshotSchema } = await import("./schemas.js");
+      expect(approveOneshotSchema.safeParse(ANSWERS).success).toBe(false);
+      expect(approveOneshotSchema.safeParse({ ...ANSWERS, matchCode: "12345" }).success).toBe(
+        false,
+      );
+      expect(approveOneshotSchema.safeParse({ ...ANSWERS, matchCode: "123 456" }).success).toBe(
+        true,
+      );
+      // Six digits without the space count as well.
+      const dto = await approve(s.endpointId, s.sessionId, { ...ANSWERS, matchCode: s.matchCode });
+      expect(dto.status).toBe("active");
+    });
+
+    it("refuses the release while the restore onto a fresh machine is switched off", async () => {
+      const s = await session({ checks: { ...CHECKS_NOT_TRIED, kexec: "ok" } });
+      for (const flag of ["baremetalOneshot", "baremetalPreview"] as const) {
+        appConfig[flag] = false;
+        await expect(approve(s.endpointId, s.sessionId, withCode(s))).rejects.toMatchObject({
+          status: 409,
+          extensions: { reason: "oneshot_off" },
+        });
+        appConfig[flag] = true;
+      }
+      expect((await stored(s.sessionId))?.status).toBe("pending_approval");
+    });
+  });
+
+  describe("the switches RESTOW_BAREMETAL_ONESHOT and RESTOW_BAREMETAL_PREVIEW", () => {
+    it("answer the exchange as for an unknown code and close the session's routes when off", async () => {
+      const s = await session();
+      for (const flag of ["baremetalOneshot", "baremetalPreview"] as const) {
+        appConfig[flag] = false;
+        cache.forgetRecoverySession();
+        const target = await machine();
+        appConfig[flag] = true;
+        const issued = await issue(target.id);
+        appConfig[flag] = false;
+        const exchanged = await post("/oneshot", oneshotBody(commandSide(issued.code, ORIGIN)));
+        expect(exchanged.status).toBe(401);
+        expect(((await exchanged.json()) as { type: string }).type).toBe(
+          "urn:restow:problem:recovery-code-invalid",
+        );
+        expect((await stored(issued.id))?.status).toBe("issued");
+        expect((await get("/sessions/current/iso", s.auth)).status).toBe(404);
+        expect((await get("/sessions/current/iso/sums", s.auth)).status).toBe(404);
+        expect(
+          (await post("/sessions/current/oneshot/checks", CHECKS_NOT_TRIED, s.auth)).status,
+        ).toBe(404);
+        expect(
+          (await post("/sessions/current/oneshot/booted", { hardware: HARDWARE }, s.auth)).status,
+        ).toBe(404);
+        appConfig[flag] = true;
+      }
+      expect((await get("/sessions/current/iso/sums", s.auth)).status).toBe(200);
     });
   });
 
@@ -579,6 +735,14 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       }
       expect((await get("/sessions/current/iso", s.auth)).status).toBe(429);
       expect((await stored(s.sessionId))?.oneshot?.isoDownloads).toBe(3);
+      // Each download of the image is audited, the refused fourth is not.
+      const downloads = await audits("endpoint.recovery.iso_downloaded", s.sessionId);
+      expect(downloads.map((row) => (row.details as { download: number }).download).sort()).toEqual(
+        [1, 2, 3],
+      );
+      expect(downloads[0]?.details).toMatchObject({
+        fileName: "restow-recovery_0.5.0_amd64.iso",
+      });
     });
 
     it("answers 404 for another kind and 409 after the switch", async () => {

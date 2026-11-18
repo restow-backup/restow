@@ -627,6 +627,8 @@
         "keyfile_regenerated": "Key file of an encrypted volume made anew during the recovery",
         "released": "Recovery ISO gave up its repository access",
         "booted": "Fresh machine reported back from the recovery environment",
+        "iso_downloaded": "Fresh machine downloaded the recovery ISO",
+        "match_code_mismatch": "Release refused: wrong match code",
         "finished": "Recovery finished",
         "report_refused": "Report of the recovery ISO to an ended session refused",
         "expired": "Recovery code or session ran out of time",

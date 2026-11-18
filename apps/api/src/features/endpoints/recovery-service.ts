@@ -45,6 +45,7 @@ import {
   baremetalSnapshot,
   baremetalSnapshots,
   hardwareSummaryOf,
+  oneshotEnabled,
   RUNNING_RECOVERY_STATES,
   sessionEnded,
   stateConflict,
@@ -236,7 +237,9 @@ export async function exchangeRecoveryCode(
     .innerJoin(tenants, eq(tenants.id, endpointRecoveries.tenantId))
     .where(eq(endpointRecoveries.codeHash, codeHash))
     .limit(1);
-  if (!found || (found.recovery.kind === "oneshot") !== (oneshot !== null)) {
+  // With the restore onto a fresh machine switched off, its exchange knows no code at all.
+  const oneshotOff = oneshot !== null && !oneshotEnabled();
+  if (oneshotOff || !found || (found.recovery.kind === "oneshot") !== (oneshot !== null)) {
     recordRecoveryFailure(context.failureKey, "unknown", now.getTime());
     throw new ProblemError(401, "Recovery code not valid", {
       type: ENDPOINT_PROBLEMS.recoveryCodeInvalid,

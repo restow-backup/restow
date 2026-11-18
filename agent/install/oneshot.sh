@@ -2,9 +2,15 @@
 # Restow: restore a whole machine onto THIS fresh machine, without an ISO
 # (preview; docs/BAREMETAL-ONESHOT.md in the Restow repository).
 #
-# Run it on the fresh machine as root, as shown in the Restow UI:
+# Run it on the fresh machine in a root shell (sudo -i first), as shown in
+# the Restow UI:
 #
-#   curl -fsSL 'https://<your instance>/install/oneshot.sh' | sh -s -- OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+#   curl -fsSL 'https://<your instance>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX' sh
+#
+# The code comes in the environment, which only root can read, never on a
+# command line, which every user of the machine can read (and sudo logs).
+# The script takes it out of its environment and hands it to the agent over
+# stdin.
 #
 # What it does: downloads restow-agent from your Restow instance, checks the
 # maintainer's signature over the release's SHA256SUMS and the SHA-256 of the
@@ -15,7 +21,7 @@
 # and restores the backup. Nothing is changed before the release; the script
 # installs nothing, creates no service and changes no package source.
 #
-# Options (after the code): --answers <file> (unattended), --lang de|en,
+# Options (sh -s -- <options>): --answers <file> (unattended), --lang de|en,
 # --keymap us|de|ch|at|fr.
 #
 # Environment: RESTOW_SHA256SUMS_SHA256 (the SHA-256 of a SHA256SUMS whose
@@ -192,21 +198,21 @@ work_dir() {
 }
 
 main() {
-  [ $# -ge 1 ] || die "usage: curl -fsSL '<instance>/install/oneshot.sh' | sh -s -- OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
-  CODE=$1
-  shift
+  CODE="${RESTOW_ONESHOT_CODE:-}"
+  unset RESTOW_ONESHOT_CODE
+  for _arg in "$@"; do
+    case "$_arg" in
+      [Oo][Ss]-*) die "the code does not belong on the command line, where every user of this machine can read it. Copy the command from Restow again: curl -fsSL '<instance>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='OS-...' sh" ;;
+    esac
+  done
+  [ -n "$CODE" ] || die "no code: run the command from Restow in a root shell (sudo -i first): curl -fsSL '<instance>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='OS-...' sh"
   case "$CODE" in
     [Oo][Ss]-*) ;;
-    *) die "the first argument must be the one-time code from Restow (OS-...)" ;;
+    *) die "RESTOW_ONESHOT_CODE must be the one-time code from Restow (OS-...)" ;;
   esac
   case "$CODE" in
     *[!0-9A-Za-z-]*) die "the code has characters that do not belong in it; copy the command from Restow again" ;;
   esac
-  for _arg in "$@"; do
-    case "$_arg" in
-      [Oo][Ss]-*) die "give the code once, as the first argument" ;;
-    esac
-  done
 
   [ "$(uname -s)" = "Linux" ] || die "a restore without an ISO runs on Linux only"
   case "$(uname -m)" in

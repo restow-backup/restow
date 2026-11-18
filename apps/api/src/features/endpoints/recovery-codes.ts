@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   canonicalOrigin,
   DEFAULT_ONESHOT_SESSION_HOURS,
@@ -41,6 +42,7 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { raiseTenantEvent } from "./alerts.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
+import { isSafeOrigin } from "./distribution.js";
 import { instanceTls } from "./instance-tls.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { recoveryIsoState } from "./recovery-iso.js";
@@ -544,6 +546,14 @@ export async function issueRecoveryCode(
       detail: "The public address of this installation is not configured.",
     });
   }
+  if (oneshot && !isSafeOrigin(origin)) {
+    // The command is pasted into a shell: the address goes into it between single quotes.
+    throw new ProblemError(503, "Instance address unusable", {
+      type: ENDPOINT_PROBLEMS.instanceUrlUnsafe,
+      detail:
+        "The public address of this installation cannot be written into a shell command. Set an address of scheme, host and port only (Settings, or RESTOW_PUBLIC_URL).",
+    });
+  }
   // Outside the transaction: the connection may take its five seconds.
   const spki = appConfig.publicTlsSpki ?? (await instanceTls.measure(origin, { timeoutMs: 5000 }));
   const code = generateRecoveryCode();
@@ -691,6 +701,13 @@ export async function extendRecoveryCode(
     const current = await loadRecovery(tx, endpointId, recoveryId, { forUpdate: true });
     if (!OPEN_RECOVERY_STATES.includes(current.status) || current.expiresAt <= now) {
       throw stateConflict(current.status, "Only an open code or session can be extended.");
+    }
+    if (current.kind === "oneshot" && current.status === "issued") {
+      // The 30 minutes to redeem it stay; its session is extended once it runs.
+      throw stateConflict(
+        current.status,
+        "A code for a fresh machine is redeemable for 30 minutes only; issue a new one. Its session can be extended once it runs.",
+      );
     }
     const ceiling = current.issuedAt.getTime() + MAX_RECOVERY_VALIDITY_HOURS * 60 * 60 * 1000;
     const wanted = Math.max(current.expiresAt.getTime(), now.getTime() + validityHours * 3600_000);
@@ -884,9 +901,35 @@ export function oneshotNotReadyReason(
   return checks.kexec === "failed" ? "kexec_failed" : "kexec_not_tried";
 }
 
-/** The command a oneshot code is shown with (docs/BAREMETAL-ONESHOT.md 6.1). */
+/**
+ * The command a oneshot code is shown with (docs/BAREMETAL-ONESHOT.md 6.1, 8.1), for a root shell.
+ * The code goes into the environment of `sh`, which only root reads, never onto a command line,
+ * which every user of the machine reads (and sudo logs). The origin must be safe in a shell.
+ */
 export function oneshotCommand(origin: string, shownCode: string): string {
-  return `curl -fsSL '${origin}/install/oneshot.sh' | sh -s -- ${shownCode}`;
+  if (!isSafeOrigin(origin) || !/^OS-[0-9A-Z-]+$/.test(shownCode)) {
+    throw new TypeError("unsafe origin or code for a shell command");
+  }
+  return `curl -fsSL '${origin}/install/oneshot.sh' | RESTOW_ONESHOT_CODE='${shownCode}' sh`;
+}
+
+/** Whether the restore onto a fresh machine is switched on (both flags). */
+export function oneshotEnabled(): boolean {
+  return appConfig.baremetalPreview && appConfig.baremetalOneshot;
+}
+
+/** The decisions of a release as they are kept: the match code is a check, no decision. */
+function decisionsOf(answers: ApproveOneshotInput): Omit<ApproveOneshotInput, "matchCode"> {
+  const { matchCode: _matchCode, ...decisions } = answers;
+  return decisions;
+}
+
+/** Whether the match code an admin typed is the session's (constant time). */
+export function sameMatchCode(typed: string, sessionSecretHash: string | null): boolean {
+  if (!sessionSecretHash) return false;
+  const want = Buffer.from(recoveryMatchCode(sessionSecretHash));
+  const got = Buffer.from(typed.replace(/\s/g, ""));
+  return got.length === want.length && timingSafeEqual(got, want);
 }
 
 /**
@@ -916,6 +959,12 @@ export async function approveRecovery(
       );
     }
     if (current.kind === "oneshot") {
+      if (!oneshotEnabled()) {
+        throw notAvailable(
+          "oneshot_off",
+          "Bare metal onto a fresh machine is not switched on in this installation (RESTOW_BAREMETAL_ONESHOT).",
+        );
+      }
       if (!answers) {
         throw new ProblemError(422, "Answers missing", {
           detail:
@@ -935,6 +984,10 @@ export async function approveRecovery(
           extensions: { reason },
         });
       }
+      if (!sameMatchCode(answers.matchCode, current.sessionSecretHash)) {
+        // Audited outside this transaction, which ends with the refusal.
+        return { ended: null, mismatch: true as const };
+      }
     } else if (answers) {
       throw new ProblemError(422, "No answers for this kind", {
         detail: "Only a session for a fresh machine takes answers on its release.",
@@ -942,15 +995,31 @@ export async function approveRecovery(
     }
     if (current.usedAt && now.getTime() - current.usedAt.getTime() > RECOVERY_APPROVAL_TIMEOUT_MS) {
       await failUnapproved(tx, current, endpointName(endpoint), now);
-      return { ended: "not_approved" as const };
+      return { ended: "not_approved" as const, mismatch: false as const };
     }
     if (current.expiresAt <= now) {
       // The code ran out while the session waited: it can no longer be released.
       await failUnapproved(tx, current, endpointName(endpoint), now, "expired");
-      return { ended: "expired" as const };
+      return { ended: "expired" as const, mismatch: false as const };
     }
-    return { ended: null };
+    return { ended: null, mismatch: false as const };
   });
+  if (result.mismatch) {
+    await withTenantTx(database, tenantId, (tx) =>
+      auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryMatchCodeMismatch,
+        endpointId,
+        details: { recoveryId },
+      }),
+    );
+    throw new ProblemError(422, "Wrong match code", {
+      type: ENDPOINT_PROBLEMS.recoveryMatchCodeMismatch,
+      detail:
+        "The match code is not the one the machine shows on its console. Compare it there: a machine that shows another number is not the one you mean to release.",
+    });
+  }
   if (result.ended) {
     forgetRecoverySession(recoveryId);
     throw sessionEnded(
@@ -980,7 +1049,7 @@ export async function approveRecovery(
             ? {
                 // Only this route writes `decided`; the machine's reports never touch it.
                 oneshot: sql`coalesce(${endpointRecoveries.oneshot}, '{}'::jsonb) || jsonb_build_object('decided', ${JSON.stringify(
-                  { ...answers, at: now.toISOString(), by: actor.userId },
+                  { ...decisionsOf(answers), at: now.toISOString(), by: actor.userId },
                 )}::jsonb)`,
               }
             : {}),

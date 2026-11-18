@@ -4,6 +4,7 @@ import {
   endpointPrefix,
   isoChecksum,
   listWithSizes,
+  MAX_RECOVERY_VALIDITY_HOURS,
   ONESHOT_BOOT_TIMEOUT_MS,
   ONESHOT_ISO_DOWNLOADS,
   REBUILD_SUMS_ASSET,
@@ -27,7 +28,7 @@ import { raiseTenantEvent } from "./alerts.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, recoveryActor } from "./audit.js";
 import { agentRoot } from "./distribution.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
-import { baremetalSnapshot } from "./recovery-codes.js";
+import { baremetalSnapshot, oneshotEnabled } from "./recovery-codes.js";
 import { recoveryIsoSelection } from "./recovery-iso.js";
 import { forgetRecoverySession, type RecoverySessionAccess } from "./recovery-session-cache.js";
 import { backendHolding, tenantStorage } from "./repository.js";
@@ -65,15 +66,26 @@ export function oneshotRamBytes(indexBytes: number): number {
   return Math.max(2 * GIB, 600 * MIB + 2 * Math.max(0, indexBytes) + 512 * MIB);
 }
 
-/** The fields the exchange sets on a oneshot code: its session's end, and the machine's report. */
+/**
+ * The fields the exchange sets on a oneshot code: its session's end, and the machine's report.
+ * The session ends `validityHours` after the issue, never before the code's own end (the redeem
+ * window) and never more than 48 hours after the issue (CHECK of 0102); a code redeemed at the
+ * last moment thus never yields a session that has ended already.
+ */
 export function oneshotClaim(
   row: EndpointRecovery,
   report: OneshotExchangeReport,
   agentVersion: string,
 ): { expiresAt: Date; oneshot: EndpointRecoveryOneshot } {
   const validityHours = row.oneshot?.validityHours ?? 12;
+  const issued = row.issuedAt.getTime();
+  const ceiling = issued + MAX_RECOVERY_VALIDITY_HOURS * 60 * 60 * 1000;
+  const end = Math.min(
+    ceiling,
+    Math.max(issued + validityHours * 60 * 60 * 1000, row.expiresAt.getTime()),
+  );
   return {
-    expiresAt: new Date(row.issuedAt.getTime() + validityHours * 60 * 60 * 1000),
+    expiresAt: new Date(end),
     oneshot: {
       ...(row.oneshot ?? { validityHours }),
       validityHours,
@@ -140,7 +152,8 @@ export async function withOneshotExtras<T extends { oneshot?: OneshotExchangeExt
 }
 
 function oneshotOnly(access: RecoverySessionAccess): void {
-  if (access.kind !== "oneshot") {
+  // Switched off, a oneshot session has no routes of its own.
+  if (access.kind !== "oneshot" || !oneshotEnabled()) {
     throw new ProblemError(404, "Not Found", { detail: "This session is no oneshot restore." });
   }
 }
@@ -253,6 +266,7 @@ async function offeredSums(): Promise<{ name: string; sums: Buffer; signature: B
 export async function oneshotIso(
   access: RecoverySessionAccess,
   file: OneshotIsoFile,
+  ip: string | null = null,
   now: Date = new Date(),
 ): Promise<OneshotIsoServed> {
   oneshotOnly(access);
@@ -291,8 +305,23 @@ export async function oneshotIso(
           sql`NOT (${endpointRecoveries.oneshot} ? 'booted')`,
         ),
       )
-      .returning({ id: endpointRecoveries.id });
-    return row !== undefined;
+      .returning({
+        id: endpointRecoveries.id,
+        downloads: sql<number>`(${endpointRecoveries.oneshot}->>'isoDownloads')::int`,
+      });
+    if (!row) return false;
+    await auditEndpoint(tx, {
+      tenantId: access.tenantId,
+      actor: recoveryActor(access.id, ip),
+      action: ENDPOINT_AUDIT_ACTIONS.recoveryIsoDownloaded,
+      endpointId: access.endpointId,
+      details: {
+        recoveryId: access.id,
+        fileName: selection.offered?.fileName ?? null,
+        download: Number(row.downloads),
+      },
+    });
+    return true;
   });
   if (!counted) {
     throw new ProblemError(429, "Too many downloads", {

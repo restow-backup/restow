@@ -157,6 +157,16 @@ export const ENDPOINT_PROBLEMS = {
    * `kexec_failed`, `agent_enrolled`).
    */
   oneshotNotReady: "urn:restow:problem:oneshot-not-ready",
+  /**
+   * 422: the match code given with the release of a oneshot session is not the one the machine
+   * shows on its console (docs/BAREMETAL-ONESHOT.md 5.2); refused and audited.
+   */
+  recoveryMatchCodeMismatch: "urn:restow:problem:recovery-match-code-mismatch",
+  /**
+   * 503: the public address of this installation cannot be written into a shell command (a quote,
+   * `$`, a backtick or another character outside scheme, host and port); no oneshot code is issued.
+   */
+  instanceUrlUnsafe: "urn:restow:problem:instance-url-unsafe",
   /** 409: the credentials were collected twice, or the window for the second time has passed. */
   recoveryCredentialsCollected: "urn:restow:problem:recovery-credentials-collected",
   /** 409: the session is in a state that does not allow this (`extensions.status`). */

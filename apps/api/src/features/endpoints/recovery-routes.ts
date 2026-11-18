@@ -234,7 +234,7 @@ for (const [path, file] of [
   ["/sessions/current/iso/signature", "signature"],
 ] as const satisfies readonly (readonly [string, OneshotIsoFile])[]) {
   recoveryRoutes.get(path, async (c) => {
-    const served = await oneshotIso(c.get("session"), file);
+    const served = await oneshotIso(c.get("session"), file, clientIp(c));
     const headers = {
       "content-type": "application/octet-stream",
       "content-disposition": `attachment; filename="${served.fileName}"`,

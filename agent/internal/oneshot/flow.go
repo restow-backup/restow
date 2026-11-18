@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strings"
@@ -36,7 +37,6 @@ const (
 
 // Paths the command reads on the fresh machine.
 const (
-	StateFile        = "/etc/restow-agent/state.json"
 	authorizedKeys   = "/root/.ssh/authorized_keys"
 	instanceDataPath = "/run/cloud-init/instance-data.json"
 	minRAMBytes      = 2 << 30
@@ -45,6 +45,11 @@ const (
 	// maxWaitFailures bounds the polls in a row without an answer.
 	maxWaitFailures = 12
 )
+
+// StateFiles are the state of an enrolled Restow agent (the agent's own,
+// agent/internal/paths, and the Proxmox VE node helper's, internal/pve):
+// either one says that this is no fresh machine.
+var StateFiles = []string{"/etc/restow-agent/state.json", "/etc/restow-pve/state.json"}
 
 // Env is the machine: files, programs, the disks and kexec.
 type Env interface {
@@ -62,17 +67,31 @@ type Env interface {
 	// ISOFile is a new, empty file for the recovery ISO (below
 	// /var/tmp/restow-oneshot).
 	ISOFile() (ISOFile, error)
-	// KexecLoad loads a kernel, an initrd written by fill and a command
-	// line with kexec_file_load; KexecUnload unloads it again.
-	KexecLoad(kernel io.Reader, fill func(io.Writer) error, cmdline string) error
+	// Memfd copies what fill writes into a new file in memory (memfd,
+	// close-on-exec): the kernel and the initrd never touch a disk.
+	Memfd(name string, fill func(io.Writer) error) (Blob, error)
+	// KexecFileLoad loads a kernel and an initrd from memfds with a command
+	// line (kexec_file_load); KexecUnload unloads it again.
+	KexecFileLoad(kernel, initrd Blob, cmdline string) error
 	KexecUnload() error
 	// KexecLoaded reads /sys/kernel/kexec_loaded.
 	KexecLoaded() bool
-	// Kexec shuts the machine down and starts the loaded kernel.
+	// Kexec shuts the machine down and starts the loaded kernel. It is the
+	// point of no return (docs/BAREMETAL-ONESHOT.md 5.3): it returns
+	// ErrCancelled only when ctx ended before anything was started.
 	Kexec(ctx context.Context) error
 	// Cleanup removes the work files (the ISO).
 	Cleanup()
 }
+
+// Blob is a file in memory made by Env.Memfd.
+type Blob interface {
+	Close() error
+}
+
+// ErrCancelled: the switch was cancelled (Ctrl+C, the session's end of the
+// terminal) before the point of no return; the machine is unchanged.
+var ErrCancelled = errors.New("cancelled before the switch")
 
 // ISOFile is the file the recovery ISO is downloaded to.
 type ISOFile interface {
@@ -278,7 +297,10 @@ func (c *Command) measure(ctx context.Context) (*machine, error) {
 	}
 	t.UptimeSeconds = ParseUptime(c.read("/proc/uptime"))
 	// The signs of a machine in use (8.4).
-	usage := Usage{AgentEnrolled: c.Env.Exists(StateFile), UptimeSeconds: t.UptimeSeconds, UsedBytes: c.Env.UsedBytes()}
+	usage := Usage{UptimeSeconds: t.UptimeSeconds, UsedBytes: c.Env.UsedBytes()}
+	for _, f := range StateFiles {
+		usage.AgentEnrolled = usage.AgentEnrolled || c.Env.Exists(f)
+	}
 	if homes, err := c.Env.ReadDir("/home"); err == nil {
 		usage.HomeUsers = len(homes)
 	}
@@ -541,15 +563,21 @@ func (c *Command) testLoad(ctx context.Context, lf *payload.LiveFiles) int {
 	u, m := c.UI, c.m
 	cmdline, err := payload.Cmdline(m.target.Consoles, c.keymap())
 	if err == nil {
-		err = c.Env.KexecLoad(sectionReader(lf.Kernel), func(w io.Writer) error {
-			_, err := io.Copy(w, sectionReader(lf.Initrd))
+		err = c.load(ctx, lf, cmdline, func(w io.Writer, h *hashes) error {
+			_, err := io.Copy(w, h.reader(lf, payload.InitrdPath))
 			return err
-		}, cmdline)
+		}, []string{payload.KernelPath, payload.InitrdPath})
 	}
 	if err == nil {
 		if uerr := c.Env.KexecUnload(); uerr != nil {
 			c.logf("kexec unload: %v", uerr)
 		}
+	}
+	if ctx.Err() != nil {
+		u.Say("oneshot.aborted")
+		return ExitEnded
+	}
+	if err == nil {
 		m.checks.Kexec = api.OneshotKexecOK
 	} else {
 		m.checks.Kexec = api.OneshotKexecFailed
@@ -565,6 +593,83 @@ func (c *Command) testLoad(ctx context.Context, lf *payload.LiveFiles) int {
 	}
 	u.Say("oneshot.kexec_ok")
 	return ExitOK
+}
+
+// hashes hashes the live files while they are copied into memory, so what
+// kexec_file_load gets is checked after it left the disk (the image lies
+// on the disk, where it could change after the check).
+type hashes struct {
+	h map[string]hash.Hash
+}
+
+// reader is the file at path of the ISO, hashed as it is read.
+func (h *hashes) reader(lf *payload.LiveFiles, path string) io.Reader {
+	var sr *io.SectionReader
+	switch path {
+	case payload.KernelPath:
+		sr = lf.Kernel
+	case payload.InitrdPath:
+		sr = lf.Initrd
+	default:
+		sr = lf.Squashfs
+	}
+	d := sha256.New()
+	h.h[path] = d
+	return io.TeeReader(sectionReader(sr), d)
+}
+
+// check compares the hashes of the files read with the hashes of the check.
+func (h *hashes) check(lf *payload.LiveFiles, paths []string) error {
+	for _, p := range paths {
+		d, ok := h.h[p]
+		if !ok {
+			return fmt.Errorf("%s was not read", p)
+		}
+		if got := hex.EncodeToString(d.Sum(nil)); got != lf.SHA256[p] {
+			return fmt.Errorf("%s changed on the disk since the check (SHA-256 %s, checked %s)", p, got, lf.SHA256[p])
+		}
+	}
+	return nil
+}
+
+// ctxWriter stops a long copy into memory once ctx ends.
+type ctxWriter struct {
+	ctx context.Context
+	w   io.Writer
+}
+
+func (c ctxWriter) Write(p []byte) (int, error) {
+	if c.ctx.Err() != nil {
+		return 0, ErrCancelled
+	}
+	return c.w.Write(p)
+}
+
+// load copies the kernel and the initrd fill writes into memfds, hashing
+// the live files on the way, compares the hashes with the check and only
+// then calls kexec_file_load. ctx ending stops it before the load.
+func (c *Command) load(ctx context.Context, lf *payload.LiveFiles, cmdline string, fill func(io.Writer, *hashes) error, paths []string) error {
+	h := &hashes{h: map[string]hash.Hash{}}
+	kernel, err := c.Env.Memfd("restow-kernel", func(w io.Writer) error {
+		_, err := io.Copy(ctxWriter{ctx, w}, h.reader(lf, payload.KernelPath))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	defer kernel.Close()
+	initrd, err := c.Env.Memfd("restow-initrd", func(w io.Writer) error { return fill(ctxWriter{ctx, w}, h) })
+	if err != nil {
+		return err
+	}
+	defer initrd.Close()
+	if err := h.check(lf, paths); err != nil {
+		return err
+	}
+	if ctx.Err() != nil {
+		return ErrCancelled
+	}
+	return c.Env.KexecFileLoad(kernel, initrd, cmdline)
 }
 
 func (c *Command) keymap() string {
@@ -728,17 +833,22 @@ func (c *Command) SessionData(confirmed []string, passphrase []byte) ([]byte, er
 }
 
 // switchOver loads the recovery environment and switches into it (8.6).
+// Up to the call of Env.Kexec a cancel (Ctrl+C, a hangup, SIGTERM) unloads
+// what was loaded and ends with the machine unchanged; Env.Kexec is the
+// point of no return (5.3).
 func (c *Command) switchOver(ctx context.Context, iso *download, confirmed []string, passphrase []byte) int {
 	u, m := c.UI, c.m
+	aborted := func() int {
+		_ = c.Env.KexecUnload()
+		u.Say("oneshot.aborted")
+		return ExitEnded
+	}
 	fail := func(err error) int {
+		if ctx.Err() != nil || errors.Is(err, ErrCancelled) {
+			return aborted()
+		}
 		u.Say("oneshot.load_failed", "reason", redact.Redact(err.Error()))
 		return ExitError
-	}
-	// The image lies on the disk: read the three files once more against
-	// the hashes of the check.
-	lf, err := iso.reopen()
-	if err != nil {
-		return fail(err)
 	}
 	data, err := c.SessionData(confirmed, passphrase)
 	if err != nil {
@@ -749,19 +859,31 @@ func (c *Command) switchOver(ctx context.Context, iso *download, confirmed []str
 	if err != nil {
 		return fail(err)
 	}
+	if ctx.Err() != nil {
+		return aborted()
+	}
 	c.progress(ctx, api.RecoveryPhaseKexec)
-	if err := c.Env.KexecLoad(sectionReader(lf.Kernel), func(w io.Writer) error {
-		_, err := payload.Assemble(w, sectionReader(lf.Initrd), sectionReader(lf.Squashfs), lf.Squashfs.Size(), data)
+	lf := iso.lf
+	err = c.load(ctx, lf, cmdline, func(w io.Writer, h *hashes) error {
+		_, err := payload.Assemble(w, h.reader(lf, payload.InitrdPath), h.reader(lf, payload.SquashfsPath), lf.Squashfs.Size(), data)
 		return err
-	}, cmdline); err != nil {
+	}, []string{payload.KernelPath, payload.InitrdPath, payload.SquashfsPath})
+	if err != nil {
 		return fail(err)
 	}
 	if !c.Env.KexecLoaded() {
 		_ = c.Env.KexecUnload()
 		return fail(errors.New("the kernel reports no loaded kexec image"))
 	}
+	if ctx.Err() != nil {
+		return aborted()
+	}
+	// The point of no return: from here the machine shuts down.
 	u.Say("oneshot.switching")
 	if err := c.Env.Kexec(ctx); err != nil {
+		if errors.Is(err, ErrCancelled) {
+			return aborted()
+		}
 		_ = c.Env.KexecUnload()
 		u.Say("oneshot.kexec_exec_failed", "reason", redact.Redact(err.Error()))
 		return ExitError
@@ -774,23 +896,4 @@ type download struct {
 	f    ISOFile
 	size int64
 	lf   *payload.LiveFiles
-}
-
-// reopen reads the ISO again and checks that the three live files still
-// have the hashes of the first check.
-func (d *download) reopen() (*payload.LiveFiles, error) {
-	img, err := payload.OpenISO(d.f, d.size)
-	if err != nil {
-		return nil, err
-	}
-	lf, err := img.LiveFiles()
-	if err != nil {
-		return nil, err
-	}
-	for p, h := range d.lf.SHA256 {
-		if lf.SHA256[p] != h {
-			return nil, fmt.Errorf("%s changed on the disk since the check", p)
-		}
-	}
-	return lf, nil
 }

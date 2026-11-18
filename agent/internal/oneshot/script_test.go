@@ -52,13 +52,13 @@ type scriptRun struct {
 	output   string
 }
 
-func runScript(t *testing.T, args []string, edit func(root string)) scriptRun {
-	return runScriptPinned(t, args, edit, "")
+func runScript(t *testing.T, code string, args []string, edit func(root string)) scriptRun {
+	return runScriptPinned(t, code, args, edit, "")
 }
 
 // runScriptPinned runs it with RESTOW_SHA256SUMS_SHA256 = pinned (default: the
 // hash of the list served).
-func runScriptPinned(t *testing.T, args []string, edit func(root string), pinned string) scriptRun {
+func runScriptPinned(t *testing.T, code string, args []string, edit func(root string), pinned string) scriptRun {
 	t.Helper()
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("oneshot.sh runs on x86_64 Linux")
@@ -80,7 +80,7 @@ func runScriptPinned(t *testing.T, args []string, edit func(root string), pinned
 			t.Fatal(err)
 		}
 	}
-	agent := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 0.5.1; exit 0; fi\nprintf '%s\\n' \"$@\" >\"$FAKE_OUT/argv\"\ncat >\"$FAKE_OUT/stdin\"\nexit 4\n"
+	agent := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 0.5.1; exit 0; fi\nprintf '%s\\n' \"$@\" >\"$FAKE_OUT/argv\"\nenv >\"$FAKE_OUT/env\"\ncat >\"$FAKE_OUT/stdin\"\nexit 4\n"
 	write(filepath.Join(root, "install/agent/0.5.1/linux-amd64/restow-agent"), agent, 0o644)
 	sums := sumHex([]byte(agent)) + "  linux-amd64/restow-agent\n" + strings.Repeat("ab", 32) + "  linux-amd64/restic\n"
 	write(filepath.Join(root, "install/agent/0.5.1/SHA256SUMS"), sums, 0o644)
@@ -110,21 +110,24 @@ cp "$f" "$out"
 	cmd := exec.Command("sh", append([]string{filepath.Join(dir, "oneshot.sh")}, args...)...)
 	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "FAKE_OUT=" + out, "FAKE_ROOT=" + root,
 		"RESTOW_ALLOW_INSECURE_HTTP=1", "RESTOW_ONESHOT_TEST_DIR=" + work, "RESTOW_SHA256SUMS_SHA256=" + pinned}
+	if code != "" {
+		cmd.Env = append(cmd.Env, "RESTOW_ONESHOT_CODE="+code)
+	}
 	b, err := cmd.CombinedOutput()
-	code := 0
+	exit := 0
 	if ee, ok := err.(*exec.ExitError); ok {
-		code = ee.ExitCode()
+		exit = ee.ExitCode()
 	} else if err != nil {
 		t.Fatal(err)
 	}
 	if entries, _ := os.ReadDir(work); len(entries) != 0 {
 		t.Errorf("the work folder is left behind: %v", entries)
 	}
-	return scriptRun{dir: dir, out: out, code: code, output: string(b)}
+	return scriptRun{dir: dir, out: out, code: exit, output: string(b)}
 }
 
 func TestOneshotScriptStartsTheCheckedAgentWithTheCodeOnStdin(t *testing.T) {
-	r := runScript(t, []string{"OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS", "--lang", "de"}, nil)
+	r := runScript(t, "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS", []string{"--lang", "de"}, nil)
 	if r.code != 4 {
 		t.Fatalf("exit %d (the agent's 4 passed on):\n%s", r.code, r.output)
 	}
@@ -136,6 +139,10 @@ func TestOneshotScriptStartsTheCheckedAgentWithTheCodeOnStdin(t *testing.T) {
 	if string(stdin) != "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS\n" {
 		t.Errorf("stdin %q", stdin)
 	}
+	// The agent does not inherit the code in its environment.
+	if env, _ := os.ReadFile(filepath.Join(r.out, "env")); strings.Contains(string(env), "OS-7K3QX") || len(env) == 0 {
+		t.Errorf("the agent's environment: %s", env)
+	}
 	log, _ := os.ReadFile(filepath.Join(r.out, "curl.log"))
 	if strings.Contains(string(log), "OS-") || strings.Contains(string(log), "restic") {
 		t.Errorf("downloads %s", log)
@@ -145,25 +152,27 @@ func TestOneshotScriptStartsTheCheckedAgentWithTheCodeOnStdin(t *testing.T) {
 func TestOneshotScriptRefusals(t *testing.T) {
 	code := "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
 	for name, tc := range map[string]struct {
+		code string
 		args []string
 		edit func(root string)
 		want string
 	}{
-		"no code":       {nil, nil, "usage"},
-		"recovery code": {[]string{"RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"}, nil, "one-time code from Restow"},
-		"shell in code": {[]string{"OS-1;reboot"}, nil, "do not belong"},
-		"code twice":    {[]string{code, code}, nil, "once"},
-		"changed agent": {[]string{code}, func(root string) {
+		"no code":       {"", nil, nil, "no code"},
+		"recovery code": {"RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS", nil, nil, "one-time code from Restow"},
+		"shell in code": {"OS-1;reboot", nil, nil, "do not belong"},
+		"code in argv":  {"", []string{code}, nil, "does not belong on the command line"},
+		"code in both":  {code, []string{"--lang", "de", code}, nil, "does not belong on the command line"},
+		"changed agent": {code, nil, func(root string) {
 			p := filepath.Join(root, "install/agent/0.5.1/linux-amd64/restow-agent")
 			b, _ := os.ReadFile(p)
 			_ = os.WriteFile(p, append(b, '#'), 0o644)
 		}, "checksum mismatch"},
-		"no agent line": {[]string{code}, func(root string) {
+		"no agent line": {code, nil, func(root string) {
 			_ = os.WriteFile(filepath.Join(root, "install/agent/0.5.1/SHA256SUMS"), []byte(strings.Repeat("ab", 32)+"  linux-amd64/restic\n"), 0o644)
 		}, "no entry"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r := runScript(t, tc.args, tc.edit)
+			r := runScript(t, tc.code, tc.args, tc.edit)
 			if r.code == 0 || r.code == 4 || !strings.Contains(r.output, tc.want) {
 				t.Fatalf("exit %d, want %q:\n%s", r.code, tc.want, r.output)
 			}
@@ -176,7 +185,7 @@ func TestOneshotScriptRefusals(t *testing.T) {
 
 func TestOneshotScriptRefusesAnotherSumsList(t *testing.T) {
 	// RESTOW_SHA256SUMS_SHA256 names a list the admin checked; the instance serves another.
-	r := runScriptPinned(t, []string{"OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"}, nil, strings.Repeat("0", 64))
+	r := runScriptPinned(t, "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS", nil, nil, strings.Repeat("0", 64))
 	if r.code == 0 || r.code == 4 || !strings.Contains(r.output, "RESTOW_SHA256SUMS_SHA256") {
 		t.Fatalf("exit %d:\n%s", r.code, r.output)
 	}

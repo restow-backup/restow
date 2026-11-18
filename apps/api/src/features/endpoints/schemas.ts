@@ -821,6 +821,11 @@ export const recoveryOneshotBootedSchema = z.object({ hardware: recoveryHardware
 /** The admin's answers when releasing a oneshot session (6.3). */
 export const approveOneshotSchema = z
   .object({
+    /** The six digits the machine shows on its console (5.2), with or without the space. */
+    matchCode: z
+      .string()
+      .trim()
+      .regex(/^\d{3} ?\d{3}$/, "six digits"),
     networkMode: z.enum(["takeover", "keep"]),
     confirmShrink: z.boolean().default(false),
     secureBootWarningsOnly: z.boolean().default(false),

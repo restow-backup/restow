@@ -49,6 +49,10 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   recoveryReleased: "endpoint.recovery.released",
   /** A oneshot restore reported back from its recovery environment (docs/BAREMETAL-ONESHOT.md 6.4). */
   recoveryBooted: "endpoint.recovery.booted",
+  /** A oneshot session fetched the recovery ISO through its session (docs/BAREMETAL-ONESHOT.md 6.4). */
+  recoveryIsoDownloaded: "endpoint.recovery.iso_downloaded",
+  /** A release of a oneshot session named another match code than the machine shows. */
+  recoveryMatchCodeMismatch: "endpoint.recovery.match_code_mismatch",
   recoveryFinished: RECOVERY_FINISHED_ACTION,
   /** The ISO wrote to a session that had ended (9.8): the first refused call, once per session. */
   recoveryReportRefused: "endpoint.recovery.report_refused",

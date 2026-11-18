@@ -62,6 +62,18 @@ private repository.
     load or a missing confirmation ends it with nothing changed. It never asks for the
     credentials. `scripts/recovery-e2e/oneshot-cases.mjs` defines the end-to-end cases O-E1 to
     O-E6 for the driver that follows.
+  - Hardening of O1 to O3: the command carries the code in the environment of `sh`
+    (`RESTOW_ONESHOT_CODE`, for a root shell) instead of its arguments, and the script refuses a
+    code in its arguments; a oneshot code is only issued for an instance address of scheme, host
+    and port. Until `systemctl kexec`, the point of no return, a cancel (Ctrl+C, hangup, SIGTERM)
+    unloads what was loaded and leaves the machine unchanged; the raw kexec reboot is used only
+    when systemctl is missing or failed otherwise. The kernel and the initrd are hashed while they
+    are copied into memory and compared before `kexec_file_load`. An enrolled Proxmox VE helper
+    stops the command like an enrolled agent. A oneshot code cannot be extended before its
+    exchange, and its session never ends before the code's own end. The release carries the
+    match code the machine shows (refused and audited when it differs); every ISO download of a
+    session is audited; with `RESTOW_BAREMETAL_ONESHOT` or `RESTOW_BAREMETAL_PREVIEW` off the
+    exchange knows no oneshot code and the session's routes and the release refuse.
 
 ## [0.5.0] - 2026-11-18
 

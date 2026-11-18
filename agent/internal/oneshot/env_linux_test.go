@@ -57,16 +57,38 @@ func TestKexecFileLoadRefusesBadDescriptors(t *testing.T) {
 	}
 }
 
-func TestKexecLoadRefusesAnOversizedKernel(t *testing.T) {
+func TestKexecFileLoadRefusesAnOversizedKernelAndOtherBlobs(t *testing.T) {
 	if !kexecSupported {
 		t.Skip("amd64 only")
 	}
+	defer func(n int64) { maxKernelBytes = n }(maxKernelBytes)
+	maxKernelBytes = 10
 	e := &LinuxEnv{}
-	err := e.KexecLoad(io.LimitReader(zeroReader{}, maxKernelBytes+1), func(io.Writer) error {
-		t.Error("the initrd was built for a kernel that is too large")
-		return nil
-	}, "x")
-	if err == nil || !strings.Contains(err.Error(), "too large") {
+	k, err := e.Memfd("k", func(w io.Writer) error { _, err := io.CopyN(w, zeroReader{}, 11); return err })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	i, _ := e.Memfd("i", func(io.Writer) error { return nil })
+	defer i.Close()
+	if err := e.KexecFileLoad(k, i, "x"); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("err %v", err)
+	}
+	if err := e.KexecFileLoad(nopBlob{}, i, "x"); err == nil || !strings.Contains(err.Error(), "not a memfd") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+type nopBlob struct{}
+
+func (nopBlob) Close() error { return nil }
+
+func TestKexecIsCancelledBeforeItStarts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// Nothing runs: neither systemctl nor the reboot call.
+	e := &LinuxEnv{Runner: cmdrun.ExecRunner{Dirs: []string{t.TempDir()}}}
+	if err := e.Kexec(ctx); err != ErrCancelled {
 		t.Fatalf("err %v", err)
 	}
 }

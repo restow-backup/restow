@@ -151,7 +151,8 @@ func TestOneshotRefusesBeforeTheExchange(t *testing.T) {
 		want string
 		code int
 	}{
-		"enrolled agent": {edit: func(e *fakeEnv) { e.files[StateFile] = "{}" }, want: "this is not a fresh machine", code: ExitRefused},
+		"enrolled agent":      {edit: func(e *fakeEnv) { e.files["/etc/restow-agent/state.json"] = "{}" }, want: "this is not a fresh machine", code: ExitRefused},
+		"enrolled pve helper": {edit: func(e *fakeEnv) { e.files["/etc/restow-pve/state.json"] = "{}" }, want: "this is not a fresh machine", code: ExitRefused},
 		"too little memory": {edit: func(e *fakeEnv) {
 			e.files["/proc/meminfo"] = "MemTotal: 1900000 kB\nMemAvailable: 1000000 kB\n"
 		}, want: "at least 2 GiB", code: ExitRefused},
@@ -458,4 +459,68 @@ func TestOneshotWaitsOutAShortBreakOfTheNetwork(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", res.code, res.out)
 	}
 	noSwitch(t, env, 1)
+}
+
+// Up to the point of no return a cancel (Ctrl+C, a hangup, SIGTERM) leaves
+// the machine as it was: what was loaded is unloaded, the exit is 4, the
+// switch never starts (docs/BAREMETAL-ONESHOT.md 5.3).
+func TestOneshotCancelBeforeThePointOfNoReturn(t *testing.T) {
+	for _, tc := range []struct {
+		step    string
+		loads   int
+		unloads int
+		checks  int
+	}{
+		{"test-memfd", 0, 0, 0},
+		{"test-load", 1, 1, 0},
+		{"final-memfd", 1, 2, 1},
+		{"final-load", 2, 2, 1},
+		{"loaded", 2, 2, 1},
+		{"kexec", 2, 2, 1},
+	} {
+		t.Run(tc.step, func(t *testing.T) {
+			env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+			env.cancelOn = tc.step
+			res := runCommand(t, env, inst, confirmInput, nil)
+			if res.code != ExitEnded || !strings.Contains(res.out, "Aborted. Nothing was changed") {
+				t.Fatalf("exit %d:\n%s", res.code, res.out)
+			}
+			if env.kexecs != 0 || env.loaded || len(env.loads) != tc.loads || env.unloads < tc.unloads || len(inst.checks) != tc.checks {
+				t.Errorf("kexec %d, loaded %v, loads %d, unloads %d, checks %d", env.kexecs, env.loaded, len(env.loads), env.unloads, len(inst.checks))
+			}
+			if strings.Contains(res.out, "connection breaks off") && tc.step != "kexec" {
+				t.Error("the switch was announced")
+			}
+		})
+	}
+}
+
+func TestOneshotChecksTheKernelAfterItLeftTheDisk(t *testing.T) {
+	env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+	env.afterTestLoad = func(m *memISO) {
+		i := bytes.Index(m.b, testKernel)
+		m.b[i+10] = 'X'
+	}
+	res := runCommand(t, env, inst, confirmInput, nil)
+	if res.code != ExitError || !strings.Contains(res.out, "/live/vmlinuz changed on the disk") {
+		t.Fatalf("exit %d:\n%s", res.code, res.out)
+	}
+	noSwitch(t, env, 1)
+}
+
+func TestOneshotTestLoadChecksWhatItLoads(t *testing.T) {
+	// The image is changed right after the check of the download: the test
+	// load already reads other bytes, refuses them and loads nothing.
+	env, inst := newEnv(), newInstance(t, newRelease(t, testISO(nil)))
+	env.hookISOFile = func(m *memISO) {
+		i := bytes.Index(m.b, testInitrd)
+		m.b[i] = 'X'
+	}
+	res := runCommand(t, env, inst, confirmInput, nil)
+	if res.code != ExitRefused || len(env.loads) != 0 || !strings.Contains(res.out, "/live/initrd.img changed on the disk") {
+		t.Fatalf("exit %d, loads %d:\n%s", res.code, len(env.loads), res.out)
+	}
+	if len(inst.checks) != 1 || inst.checks[0].Kexec != api.OneshotKexecFailed {
+		t.Errorf("checks %+v", inst.checks)
+	}
 }

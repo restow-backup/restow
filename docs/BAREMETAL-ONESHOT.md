@@ -43,9 +43,11 @@ Verbindungen; Community-Edition ohne Lizenzprüfung, kein Code unter `ee/`.
   das Rettungssystem des Anbieters. **Windows nicht** (es gibt kein Windows Bare Metal,
   BM 2.2), macOS nicht, arm64 nicht (kein arm64-ISO, BM Offene Frage 6).
 - **Bedienung:** Restore › Bare Metal › "Auf einen frischen Rechner (Link)". Restow stellt einen
-  **Einmalcode** aus, 30 Minuten einlösbar, und zeigt den Befehl
-  `curl -fsSL 'https://<instanz>/install/oneshot.sh' | sh -s -- OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`.
-  Kein Schlüssel, kein Token für etwas anderes, kein Code in einer URL.
+  **Einmalcode** aus, 30 Minuten einlösbar, und zeigt den Befehl für eine root-Shell (`sudo -i`
+  vorher)
+  `curl -fsSL 'https://<instanz>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX' sh`.
+  Kein Schlüssel, kein Token für etwas anderes, kein Code in einer URL oder auf einer
+  Kommandozeile.
 - **Vor dem Umschalten** (`restow-agent oneshot`, signiert geladen wie beim Installer `linux.sh`):
   root, Architektur, Arbeitsspeicher, kexec möglich (echte Probeladung, nicht geraten), Secure
   Boot und Lockdown, Firmwaremodus, Platten, Netz (Adressen v4/v6, Präfixe, Gateways auch
@@ -149,7 +151,7 @@ denn die Wiederherstellung selbst ist dieselbe.
 Admin (Browser)         Restow-Instanz                     frischer Rechner (root, SSH)
 1 "Auf einen frischen
   Rechner (Link)"  ---> Code OS-…, 30 min, Befehl
-                                                           2 curl …/install/oneshot.sh | sh -s -- OS-…
+                                                           2 curl …/oneshot.sh | RESTOW_ONESHOT_CODE=OS-… sh
                         GET /install/oneshot.sh <--------    lädt restow-agent, prüft Signatur
                                                              restow-agent oneshot:
                                                                Prüfungen, Hardware, Netz, cloud-init
@@ -326,6 +328,7 @@ vor dem Umschalten im Speicher hält (Abschnitt 15).
 | eine Wiederholung (Replay) der Anfragen | – | einen zweiten Tausch (einmal, idempotent nur mit demselben Hash und nur 15 Minuten, BM 9.3), eine Freigabe (Oberfläche, frische Anmeldung) | BM 9.3, 9.4 |
 | einen Admin, der den Befehl auf dem **falschen Rechner** einfügt (laufender Produktionsserver) | – | etwas löschen, ohne Warnung an der Konsole, Bestätigung `LÖSCHEN`/`ERASE` mit Plattenkennungen **und** Freigabe in der Oberfläche | 8.4 (Anzeichen eines benutzten Rechners: Agent eingerichtet, Laufzeit, Dienste, belegte Platten) |
 | Root auf dem frischen Rechner (bösartiges Abbild des Anbieters, Mitbenutzer mit root) | Sitzungsgeheimnis und LUKS-Passphrase lesen, den Ablauf fälschen | – | inhärent: der Rechner wird zum wiederhergestellten System; wer ihn kontrolliert, kontrolliert das Ergebnis (wie ein verändertes ISO, BM 16.2). Nur Abbilder des Anbieters nehmen; Hinweis in der Oberfläche |
+| den Admin, der den Befehl nach der Freigabe abbrechen will (Strg+C, die SSH-Verbindung bricht, SIGTERM) | – | einen halb geladenen Rechner hinterlassen | **Punkt ohne Rückkehr** ist der Aufruf von `systemctl kexec`. Bis dahin entlädt ein Abbruch, was geladen ist, und der Befehl endet mit 4, der Rechner unverändert (die freigegebene Sitzung endet nach 30 Minuten ohne `booted`). Danach fährt systemd den Rechner geordnet herunter; ein Abbruch wirkt nicht mehr. Das rohe `reboot(LINUX_REBOOT_CMD_KEXEC)` ohne geordnetes Herunterfahren nur, wenn `systemctl` fehlt oder aus einem anderen Grund als dem Abbruch scheitert |
 | Zugriff auf die Konsole des Anbieters | Fortschritt lesen | Geheimnisse lesen (nichts davon auf der Kommandozeile oder der Konsole), eingreifen (keine Eingabe nötig; Strg+C fragt nach) | 9.4 |
 | eine Datenbank-Kopie | Hashes und gemeldete Netzdaten sehen | einen Code einlösen | BM 9.1 |
 | eine kompromittierte Instanz | alles | – | inhärent |
@@ -369,7 +372,13 @@ vor dem Umschalten im Speicher hält (Abschnitt 15).
   CHECK 48 h aus 0102 hält). Ein nicht eingelöster Code endet nach 30 Minuten `expired`.
 - Antwort einmalig: `{ id, code, command, expiresAt, sessionValidityHours, instanceOrigin,
   spkiCheck, releaseKeyFingerprint, iso: { version, sha256 } }`; `command` ist
-  `curl -fsSL '<origin>/install/oneshot.sh' | sh -s -- <code>`.
+  `curl -fsSL '<origin>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='<code>' sh`. Eine Origin, die
+  nicht nur aus Schema, Host und Port besteht (ein Anführungszeichen, `$`, ein Backtick), wird
+  nicht in den Befehl geschrieben: Das Ausstellen endet mit 503 `instance-url-unsafe`.
+- Ein Code `oneshot` lässt sich vor dem Tausch nicht verlängern (409; die 30 Minuten bleiben).
+  Beim Tausch endet die Sitzung `validityHours` nach dem Ausstellen, nie vor dem Ende des Codes
+  selbst und nie später als 48 Stunden nach dem Ausstellen; eine laufende Sitzung lässt sich wie
+  bisher verlängern.
 
 ### 6.2 Skript und Eintausch
 
@@ -407,8 +416,12 @@ sobald er fertig ist.
   die Kästchen ohne Vorauswahl; ein Plan, der eine nicht erteilte Erlaubnis braucht, endet in
   `recover` vor dem ersten Schreiben mit dem Befund des Planers.
 - `POST /api/v1/endpoints/:id/recoveries/:rid/approve` bekommt für `oneshot` einen Body
-  `{ networkMode: "takeover" | "keep", confirmShrink: bool, secureBootWarningsOnly: bool,
-  remoteAccess: bool }` (alle `bool` mit Vorgabe `false`). Die Entscheidungen landen in
+  `{ matchCode, networkMode: "takeover" | "keep", confirmShrink: bool,
+  secureBootWarningsOnly: bool, remoteAccess: bool }` (alle `bool` mit Vorgabe `false`).
+  `matchCode` sind die sechs Ziffern, die der Rechner an seiner Konsole zeigt; der Server
+  vergleicht sie in konstanter Zeit mit der Prüfzahl der Sitzung und lehnt eine andere mit 422
+  `recovery-match-code-mismatch` ab (Audit `endpoint.recovery.match_code_mismatch`). Die Prüfzahl
+  wird nicht gespeichert. Die Entscheidungen landen in
   `oneshot.decided` und sind die Antworten auf die Fragen, die `recover` sonst an der Konsole
   stellt (BM 10.4 Punkt 5). Mit Vorplan (0.5.2) ist die Freigabe ohne `confirmShrink` bei einem
   Vorplan mit Schrumpfen 422.
@@ -503,14 +516,18 @@ Signaturprüfung mit `linux.sh` (eine gemeinsame Datei `agent/install/lib/verify
 entschieden in O3). Ablauf:
 
 1. root (`id -u` = 0), sonst Abbruch mit "als root ausführen". `uname -m` = `x86_64`, sonst
-   Abbruch. Code aus `$1`, Form geprüft, nie in einer Datei gespeichert.
+   Abbruch. Code aus der Umgebung (`RESTOW_ONESHOT_CODE`, nur für root lesbar), sofort aus der
+   Umgebung entfernt, Form geprüft, nie in einer Datei gespeichert. Ein Code in den Argumenten
+   (früher `sh -s -- OS-…`) wird mit einem Hinweis auf den richtigen Befehl abgelehnt: Argumente
+   liest jeder Benutzer des Rechners (`ps`), und `sudo` protokolliert sie. Der Befehl ist für eine
+   root-Shell gedacht (`sudo -i` vorher; mit `sudo` vor `sh` stünde der Code in dessen Argumenten).
 2. Arbeitsordner `/run/restow-oneshot` (tmpfs, 0700). `restow-agent`, `SHA256SUMS`,
    `SHA256SUMS.sig` laden, prüfen wie `linux.sh`, starten:
    `restow-agent oneshot --instance <url> --code-stdin` (Code über stdin, nicht in der
    Prozessliste), dazu `RESTOW_SHA256SUMS_SHA256` und `RESTOW_CA_FILE`, falls gesetzt.
 3. Das Skript installiert nichts, legt keinen Dienst an und ändert keine Paketquellen. Der Code
-   steht in der Shell-Historie des frischen Rechners; der Rechner wird gelöscht, der Code ist
-   einmalig und nach dem Tausch wertlos.
+   steht in der Shell-Historie von root auf dem frischen Rechner; der Rechner wird gelöscht, der
+   Code ist einmalig und nach dem Tausch wertlos.
 
 ### 8.2 Prüfungen vor allem anderen
 
@@ -1231,6 +1248,22 @@ Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
   Server gibt eine Sitzung mit `agent_enrolled` ohnehin nicht frei (O2); wer den Rechner wirklich
   löschen will, entfernt den Agenten zuerst (`restow-agent uninstall`), der Text an der Konsole
   sagt das.
+- **Nach der Sicherheitsprüfung von O1 bis O3:** Code über `RESTOW_ONESHOT_CODE` statt als
+  Argument (8.1, 6.1); Origin des Befehls nur aus Schema, Host und Port (6.1); kein Verlängern
+  eines Codes `oneshot` vor dem Tausch, Ende der Sitzung nie vor dem Ende des Codes (6.1); die
+  Freigabe trägt die Prüfzahl (6.3); jeder Download des ISO über die Sitzung steht im Audit
+  (`endpoint.recovery.iso_downloaded`, 6.4); bei abgeschaltetem `RESTOW_BAREMETAL_ONESHOT` oder
+  `RESTOW_BAREMETAL_PREVIEW` antwortet der Tausch wie bei einem unbekannten Code, und ISO-,
+  Prüf-, `booted`- und Freigabe-Aufrufe lehnen ab; der Punkt ohne Rückkehr ist `systemctl kexec`
+  (5.3). Kernel und initrd werden beim Kopieren in die `memfd`s gehasht und vor
+  `kexec_file_load` mit der Prüfung verglichen (statt das ISO vorher noch einmal zu lesen). Als
+  eingerichteter Agent zählt auch der Proxmox-VE-Helfer (`/etc/restow-pve/state.json`). Ein
+  Abgleich der Adresse, MACs und Plattenseriennummern mit den Rechnern des Mandanten auf dem
+  Server unterbleibt: Der Server speichert davon nichts, mit dem er vergleichen könnte.
+- **Für O8a:** Die Oberfläche zeigt "gebootet" nur aus `oneshot.booted` (dem Bericht von
+  `recover`), nie aus einer Phase des Fortschritts. **Für O4:** `recover` schaltet `sshd` mit den
+  Schlüsseln aus `oneshot.json` nur ein, wenn ihre Fingerabdrücke genau die sind, die der Admin in
+  `reported.sshKeys` gesehen und freigegeben hat; sonst kein Fernzugang.
 - **Unbeaufsichtigt (8.4):** `--answers` im Format `restow-oneshot-answers-v1` mit
   `confirmErase`, `passphrase`, `language`, `keymap`; ein Schlüssel `code` wird abgelehnt.
   Jede bestätigte Kennung muss eine Platte dieses Rechners sein.

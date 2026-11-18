@@ -31,9 +31,11 @@ const (
 	kexecFileUnload  = 0x1
 	rebootCmdKexec   = 0x45584543
 	kexecLoadedPath  = "/sys/kernel/kexec_loaded"
-	maxKernelBytes   = 256 << 20
 	outputLimitBytes = 8 << 20
 )
+
+// maxKernelBytes bounds the kernel (a variable for the tests).
+var maxKernelBytes int64 = 256 << 20
 
 // LinuxEnv is the machine the command runs on.
 type LinuxEnv struct {
@@ -216,26 +218,26 @@ func memfd(name string, fill func(io.Writer) error) (*os.File, error) {
 	return f, nil
 }
 
-// KexecLoad implements Env: kernel and initrd go into memfds (nothing on a
-// disk), then kexec_file_load. Under lockdown the kernel checks the
+// Memfd implements Env.
+func (e *LinuxEnv) Memfd(name string, fill func(io.Writer) error) (Blob, error) {
+	return memfd(name, fill)
+}
+
+// KexecFileLoad implements Env: under lockdown the kernel checks the
 // signature of the kernel itself.
-func (e *LinuxEnv) KexecLoad(kernel io.Reader, fill func(io.Writer) error, cmdline string) error {
-	k, err := memfd("restow-kernel", func(w io.Writer) error {
-		n, err := io.Copy(w, io.LimitReader(kernel, maxKernelBytes+1))
-		if err == nil && n > maxKernelBytes {
-			err = errors.New("the kernel is too large")
-		}
-		return err
-	})
+func (e *LinuxEnv) KexecFileLoad(kernel, initrd Blob, cmdline string) error {
+	k, ok1 := kernel.(*os.File)
+	i, ok2 := initrd.(*os.File)
+	if !ok1 || !ok2 {
+		return errors.New("kexec: not a memfd")
+	}
+	st, err := k.Stat()
 	if err != nil {
 		return err
 	}
-	defer k.Close()
-	i, err := memfd("restow-initrd", fill)
-	if err != nil {
-		return err
+	if st.Size() > maxKernelBytes {
+		return errors.New("the kernel is too large")
 	}
-	defer i.Close()
 	return KexecFileLoad(int(k.Fd()), int(i.Fd()), cmdline)
 }
 
@@ -273,14 +275,29 @@ func (e *LinuxEnv) KexecLoaded() bool {
 }
 
 // Kexec implements Env: systemctl kexec shuts the machine down in order
-// and starts the loaded kernel; without systemd, sync and the reboot call.
+// and starts the loaded kernel. Only when systemctl is missing, or failed
+// for another reason than the cancel, sync and the raw reboot call follow;
+// a cancel before systemctl ran returns ErrCancelled. systemctl itself runs
+// to its end once started (a shutdown that has begun is not interrupted).
 func (e *LinuxEnv) Kexec(ctx context.Context) error {
-	if _, err := e.Output(ctx, "systemctl", "kexec"); err == nil {
-		// systemd stops this process on the way down.
-		time.Sleep(2 * time.Minute)
-		return errors.New("systemctl kexec returned, but the machine did not switch")
-	} else if e.Log != nil {
-		e.Log("systemctl kexec: " + err.Error())
+	if ctx.Err() != nil {
+		return ErrCancelled
+	}
+	if _, err := e.Runner.Resolve("systemctl"); err == nil {
+		run, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		_, err := e.Output(run, "systemctl", "kexec")
+		cancel()
+		if err == nil {
+			// systemd stops this process on the way down.
+			time.Sleep(2 * time.Minute)
+			return errors.New("systemctl kexec returned, but the machine did not switch")
+		}
+		if e.Log != nil {
+			e.Log("systemctl kexec: " + err.Error())
+		}
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
 	}
 	syscall.Sync()
 	return syscall.Reboot(rebootCmdKexec)
