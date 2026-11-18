@@ -7,8 +7,11 @@ import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { connectionHealth, databaseSizeHistory, healthRangeSchema } from "./health.js";
 import {
+  type BackupDownload,
   downloadBackup,
+  downloadGlobals,
   listBackups,
+  listGlobals,
   listRuns,
   requestBackup,
   requestRestore,
@@ -57,17 +60,28 @@ import {
  *   GET    /connections/:id/health?from&to       its health history (D2: availability, response
  *                                                time, connections, events)
  *   GET    /connections/:id/runs                 its backup and restore runs (D3)
+ *   GET    /connections/:id/globals              its globals backups (roles; administrators)
+ *   GET    /connections/:id/globals/:backupId/download  one of them (administrators, audited)
  *   GET    /:id                                  one database
  *   GET    /:id/health?from&to                   its size day by day (D2)
  *   POST   /:id/backup                           "Jetzt sichern": a run of its connection (D3)
  *   GET    /:id/backups                          its backups (D3)
  *   POST   /:id/restore                          into a new database, here or elsewhere (D3)
- *   GET    /:id/backups/:backupId/download       the dump file from the repository (D3)
+ *   GET    /:id/backups/:backupId/download       the dump file from the repository (D3; the
+ *                                                database's own dumps, never the globals)
  *   GET    /:id/backups/:backupId/restore-guide  the restore guide as text (D3)
  */
 export const databasesRoutes = new Hono<TenantEnv>();
 
 const backupParamSchema = z.object({ id: z.string().uuid(), backupId: z.string().uuid() });
+
+/** A dump as an attachment; no length (the size an executor reported is not one we checked). */
+function sendDownload(c: Context<TenantEnv>, file: BackupDownload): Response {
+  c.header("content-type", "application/octet-stream");
+  c.header("content-disposition", `attachment; filename="${file.fileName}"`);
+  c.header("cache-control", "no-store");
+  return c.body(Readable.toWeb(file.stream) as ReadableStream);
+}
 
 const admin = requireTenant("tenant_admin");
 const reader = requireTenant("tenant_restore");
@@ -168,15 +182,18 @@ databasesRoutes.post("/:id/restore", admin, async (c) => {
 
 databasesRoutes.get("/:id/backups/:backupId/download", reader, async (c) => {
   const { id, backupId } = parseOrProblem(backupParamSchema, c.req.param());
-  const file = await downloadBackup(db, c.get("tenantId"), id, backupId, contextOf(c));
-  c.header("content-type", "application/octet-stream");
-  c.header("content-length", String(file.bytes));
-  c.header(
-    "content-disposition",
-    `attachment; filename="${file.fileName.replace(/[^\w.-]/g, "_")}"`,
-  );
-  c.header("cache-control", "no-store");
-  return c.body(Readable.toWeb(file.stream) as ReadableStream);
+  return sendDownload(c, await downloadBackup(db, c.get("tenantId"), id, backupId, contextOf(c)));
+});
+
+// The globals carry the roles' password hashes: administrators only (16, "D3").
+databasesRoutes.get("/connections/:id/globals", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await listGlobals(db, c.get("tenantId"), id));
+});
+
+databasesRoutes.get("/connections/:id/globals/:backupId/download", admin, async (c) => {
+  const { id, backupId } = parseOrProblem(backupParamSchema, c.req.param());
+  return sendDownload(c, await downloadGlobals(db, c.get("tenantId"), id, backupId, contextOf(c)));
 });
 
 databasesRoutes.get("/:id/backups/:backupId/restore-guide", reader, async (c) => {

@@ -344,6 +344,13 @@ export interface DbRun {
 
 export const fetchBackups = (id: string) =>
   apiFetch<{ backups: DbBackup[] }>(`${BASE}/${encodeURIComponent(id)}/backups`);
+/** The globals backups of a connection (roles with their password hashes): administrators. */
+export const fetchGlobals = (connectionId: string) =>
+  apiFetch<{ backups: DbBackup[] }>(
+    `${BASE}/connections/${encodeURIComponent(connectionId)}/globals`,
+  );
+export const globalsDownloadPath = (connectionId: string, backupId: string) =>
+  `${BASE}/connections/${encodeURIComponent(connectionId)}/globals/${encodeURIComponent(backupId)}/download`;
 export const fetchRuns = (connectionId: string) =>
   apiFetch<{ runs: DbRun[] }>(`${BASE}/connections/${encodeURIComponent(connectionId)}/runs`);
 export const requestBackup = (id: string) =>
@@ -378,6 +385,8 @@ export const databaseKeys = {
     ["tenant", tenantId, "databases", "detail", id, "backups"] as const,
   runs: (tenantId: TenantKey, id: string) =>
     ["tenant", tenantId, "databases", "connection", id, "runs"] as const,
+  globals: (tenantId: TenantKey, id: string) =>
+    ["tenant", tenantId, "databases", "connection", id, "globals"] as const,
   runners: (tenantId: TenantKey) => ["tenant", tenantId, "databases", "runners"] as const,
   probe: (tenantId: TenantKey, id: string) =>
     ["tenant", tenantId, "databases", "probe", id] as const,

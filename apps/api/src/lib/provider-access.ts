@@ -152,6 +152,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/v1/databases/health/:taskId/samples",
   // Backup and restore runs (D3, docs/DATABASES.md 16): the agent's own secret; the run's spec once.
   "GET /agent/v1/databases/runs/:runId",
+  "GET /agent/v1/databases/runs/:runId/dump",
   "POST /agent/v1/databases/runs/:runId/finish",
   // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
   // per address), the session routes authenticate with the session's own secret (HTTP Basic).
@@ -730,6 +731,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/databases/:id/backups": view(),
   "POST /api/v1/databases/:id/restore": configure(),
   "GET /api/v1/databases/:id/backups/:backupId/download": operate(),
+  // The globals hold the roles' password hashes: configuration work, like the credentials.
+  "GET /api/v1/databases/connections/:id/globals": configure(),
+  "GET /api/v1/databases/connections/:id/globals/:backupId/download": configure(),
   "GET /api/v1/databases/:id/backups/:backupId/restore-guide": view(),
   "GET /api/v1/file-shares": view(),
   "POST /api/v1/file-shares": configure(),

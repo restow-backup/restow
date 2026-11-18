@@ -1,4 +1,4 @@
-import { Download, FileText, History, Play, RotateCcw } from "lucide-react";
+import { Download, FileText, History, KeyRound, Play, RotateCcw } from "lucide-react";
 import * as React from "react";
 
 import { EmptyState, StatusBadge } from "@/components/kit";
@@ -25,9 +25,16 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { downloadFile } from "../../stats/download.js";
-import { backupDownloadPath, type DbBackup, type DbConnection, restoreGuidePath } from "../api.js";
+import {
+  backupDownloadPath,
+  type DbBackup,
+  type DbConnection,
+  globalsDownloadPath,
+  restoreGuidePath,
+} from "../api.js";
 import {
   type DbFormat,
+  useConnectionGlobals,
   useConnections,
   useDatabaseBackups,
   useRequestBackup,
@@ -35,15 +42,23 @@ import {
 } from "../hooks.js";
 import { problemKey } from "./add-connection-dialog.js";
 
-/** A new database's name: at most 63 bytes (docs/DATABASES.md 16 "D3" O3). */
+/** A new database's name: at most 63 bytes, no control characters (docs/DATABASES.md 16 "D3" O3). */
 export function restoreNameValid(name: string): boolean {
-  return name.length > 0 && name.trim() === name && new TextEncoder().encode(name).length <= 63;
+  return (
+    name.length > 0 &&
+    name.trim() === name &&
+    new TextEncoder().encode(name).length <= 63 &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused
+    !/[\u0000-\u001f\u007f]/.test(name)
+  );
 }
 
 /**
  * The backups of a database (docs/DATABASES.md 2.3, 7.1, D3): when, how large, SHA-256, with
  * "Jetzt sichern", "Wiederherstellen" (always into a new database), "Herunterladen" and the
- * restore guide. Administrators start runs; restore operators read and download.
+ * restore guide. Administrators start runs; restore operators read and download. The globals of
+ * the connection (roles with their password hashes) are listed and downloaded by administrators
+ * only.
  */
 export function DatabaseBackupsCard({
   databaseId,
@@ -62,23 +77,35 @@ export function DatabaseBackupsCard({
 }) {
   const { t } = format;
   const backups = useDatabaseBackups(databaseId);
+  const globals = useConnectionGlobals(connectionId, admin);
   const backup = useRequestBackup(databaseId);
   const [restoring, setRestoring] = React.useState<DbBackup | null>(null);
   const [downloadError, setDownloadError] = React.useState<unknown>(null);
   const supported = engine === "postgresql";
-  const download = async (row: DbBackup, guide: boolean) => {
+  const download = async (row: DbBackup, kind: "dump" | "guide" | "globals") => {
     setDownloadError(null);
     try {
       await downloadFile({
-        path: guide ? restoreGuidePath(databaseId, row.id) : backupDownloadPath(databaseId, row.id),
-        accept: guide ? "text/plain" : "application/octet-stream",
-        fallbackName: guide ? `${databaseName}-restore-guide.txt` : `${databaseName}.pgdump`,
+        path:
+          kind === "guide"
+            ? restoreGuidePath(databaseId, row.id)
+            : kind === "globals"
+              ? globalsDownloadPath(connectionId, row.id)
+              : backupDownloadPath(databaseId, row.id),
+        accept: kind === "guide" ? "text/plain" : "application/octet-stream",
+        fallbackName:
+          kind === "guide"
+            ? `${databaseName}-restore-guide.txt`
+            : kind === "globals"
+              ? "globals.sql"
+              : `${databaseName}.pgdump`,
       });
     } catch (error) {
       setDownloadError(error);
     }
   };
   const rows = backups.data?.backups ?? [];
+  const latestGlobals = admin ? (globals.data?.backups ?? []).slice(0, 3) : [];
   return (
     <Card data-slot="database-backups">
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
@@ -130,11 +157,11 @@ export function DatabaseBackupsCard({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge tone="neutral">{t("backups.unverified")}</StatusBadge>
-                  <Button size="sm" variant="outline" onClick={() => void download(row, false)}>
+                  <Button size="sm" variant="outline" onClick={() => void download(row, "dump")}>
                     <Download aria-hidden="true" />
                     {t("backups.download")}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => void download(row, true)}>
+                  <Button size="sm" variant="outline" onClick={() => void download(row, "guide")}>
                     <FileText aria-hidden="true" />
                     {t("backups.guide")}
                   </Button>
@@ -149,6 +176,26 @@ export function DatabaseBackupsCard({
             ))}
           </ul>
         )}
+        {latestGlobals.length > 0 ? (
+          <div className="space-y-2 border-t pt-3" data-slot="database-globals">
+            <div className="text-sm font-medium">{t("backups.globalsTitle")}</div>
+            <p className="text-xs text-muted-foreground">{t("backups.globalsDescription")}</p>
+            <ul className="divide-y">
+              {latestGlobals.map((row) => (
+                <li
+                  key={row.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                >
+                  <span>{format.dateTime(row.finishedAt)}</span>
+                  <Button size="sm" variant="outline" onClick={() => void download(row, "globals")}>
+                    <KeyRound aria-hidden="true" />
+                    {t("backups.globalsDownload")}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </CardContent>
       {restoring ? (
         <RestoreDialog
@@ -225,6 +272,11 @@ function RestoreDialog({
                 </SelectContent>
               </Select>
             </div>
+            {target !== connectionId ? (
+              <p className="text-xs text-muted-foreground" data-slot="restore-other-executor">
+                {t("backups.restoreOtherConnection")}
+              </p>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="restore-name">{t("backups.restoreName")}</Label>
               <Input

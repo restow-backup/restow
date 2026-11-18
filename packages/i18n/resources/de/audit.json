@@ -850,6 +850,7 @@
       "backup_requested": "Sicherung einer Datenbankverbindung angefordert",
       "restore_requested": "Wiederherstellung einer Datenbanksicherung angefordert",
       "backup_downloaded": "Datenbanksicherung heruntergeladen",
+      "globals_downloaded": "Rollen und globale Objekte einer Datenbankinstanz heruntergeladen",
       "restic_denied": "Unerlaubter Repository-Zugriff eines Datenbanklaufs abgewiesen"
     }
   },

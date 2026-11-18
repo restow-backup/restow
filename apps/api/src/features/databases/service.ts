@@ -36,13 +36,14 @@ import {
   databaseBackups,
   databaseConnections,
   databaseProbes,
+  databaseRuns,
   databases,
   type Endpoint,
   endpoints,
   endpointTasks,
   type ProtectedDatabase,
 } from "@restow/db";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, max, or, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
@@ -2031,6 +2032,26 @@ export async function updateConnection(
         .returning();
       if (!after) {
         throw notFound();
+      }
+      // Runs the old executor would take or is running end here (16, "D3"): their credentials and
+      // repository token were meant for it. The queued agent task finds nothing to fetch.
+      if (executorChanged) {
+        await tx
+          .update(databaseRuns)
+          .set({
+            status: "failed",
+            finishedAt: now,
+            errorCode: "db_run_failed",
+            errorMessage: "The connection moved to another executor.",
+            tokenHash: null,
+          })
+          .where(
+            and(
+              eq(databaseRuns.tenantId, tenantId),
+              inArray(databaseRuns.status, ["queued", "running"]),
+              or(eq(databaseRuns.connectionId, id), eq(databaseRuns.targetConnectionId, id)),
+            ),
+          );
       }
       const event = (action: string, details: Record<string, unknown>) =>
         audit(tx, {

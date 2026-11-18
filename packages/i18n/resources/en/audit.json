@@ -850,6 +850,7 @@
       "backup_requested": "Backup of a database connection requested",
       "restore_requested": "Restore of a database backup requested",
       "backup_downloaded": "Database backup downloaded",
+      "globals_downloaded": "Roles and global objects of a database instance downloaded",
       "restic_denied": "Forbidden repository access of a database run refused"
     }
   },

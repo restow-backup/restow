@@ -391,11 +391,15 @@
     "restoreName": "Name of the new database",
     "restoreNamePlaceholder": "{name}_restored_<time>",
     "restoreNameHint": "Leave empty for the suggestion. At most 63 bytes; the name must not be taken.",
-    "restoreNameInvalid": "The name is too long or starts or ends with a space.",
+    "restoreNameInvalid": "The name is too long, contains control characters or starts or ends with a blank.",
     "restoreStart": "Restore",
     "restoreQueued": "The restore into “{name}” is planned.",
     "restoreOwners": "Owners and privileges are not carried over. The restore guide describes how to set them up.",
     "cancel": "Cancel",
-    "close": "Close"
+    "close": "Close",
+    "restoreOtherConnection": "The executor of the target connection receives the content of this one backup through {appName}, not the source connection's repository.",
+    "globalsTitle": "Roles and global objects",
+    "globalsDescription": "The instance's roles, with their password hashes where the user could read them. Administrators only; every download is logged.",
+    "globalsDownload": "Download globals.sql"
   }
 }

@@ -17,6 +17,7 @@ import {
   fetchDatabase,
   fetchDatabaseSizes,
   fetchDatabases,
+  fetchGlobals,
   fetchProbe,
   fetchRunners,
   fetchRuns,
@@ -204,6 +205,17 @@ export function useDatabaseBackups(id: string) {
     queryKey: databaseKeys.backups(tenantId, id),
     queryFn: () => fetchBackups(id),
     enabled,
+    refetchInterval: IDLE_REFRESH_MS,
+  });
+}
+
+/** The globals backups of a connection; only asked for when `enabled` (administrators). */
+export function useConnectionGlobals(connectionId: string, allowed: boolean) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: databaseKeys.globals(tenantId, connectionId),
+    queryFn: () => fetchGlobals(connectionId),
+    enabled: enabled && allowed,
     refetchInterval: IDLE_REFRESH_MS,
   });
 }

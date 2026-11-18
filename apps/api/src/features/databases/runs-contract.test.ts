@@ -40,6 +40,15 @@ describe("the contract of a database run with the agent (docs/DATABASES.md 9) [D
         "user",
       ].sort(),
     );
+    // A restore reads its one dump from the server: no repository, no snapshot id.
+    expect(spec.kind).toBe("restore");
+    expect(spec.repository).toBeNull();
+    expect(Object.keys(spec.restore ?? {}).sort()).toEqual(["fileName", "sha256", "targetName"]);
+    const backup = fixture("db-run-spec-backup.json") as unknown as AgentRunSpec;
+    expect(backup.restore).toBeNull();
+    expect(Object.keys(backup.repository ?? {}).sort()).toEqual(
+      ["password", "repositoryPassword", "url", "username"].sort(),
+    );
     expect(fixture("task-db-backup.json")).toMatchObject({
       kind: "db_backup",
       params: { runId: spec.runId },

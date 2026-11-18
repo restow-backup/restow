@@ -15,14 +15,8 @@
     "instanceKey": "postgresql:7300000000000000042",
     "selection": { "mode": "all", "names": [], "exclude": ["scratch"] }
   },
-  "repository": {
-    "url": "rest:https://restow.example.test/agent/db/restic/8c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f/",
-    "username": "7b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e",
-    "password": "fixture-run-token",
-    "repositoryPassword": "fixture-repository-password"
-  },
+  "repository": null,
   "restore": {
-    "snapshotId": "4f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e",
     "fileName": "postgresql/app.pgdump",
     "sha256": "9d1f8e0c3b2a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6",
     "targetName": "app_restored_20261118_100000"

@@ -9,6 +9,7 @@ import {
   resticCacheBase,
   resticDump,
   resticInit,
+  resticSnapshots,
   sanitizeDbMessage,
   secretMatchesHash,
   withRepository,
@@ -57,18 +58,35 @@ export const DB_RUN_AUDIT = {
   backupRequested: "database_connection.backup_requested",
   restoreRequested: "database_connection.restore_requested",
   downloaded: "database_connection.backup_downloaded",
+  /** The instance's roles and their password hashes: administrators only, audited apart. */
+  globalsDownloaded: "database_connection.globals_downloaded",
 } as const;
 
 /** A new database's name: at most 63 bytes (O3). */
 export const DB_NAME_MAX_BYTES = 63;
 
+/** At most 63 bytes, no control character (NUL included), no outer blanks. */
 export function validRestoreName(name: string): boolean {
   return (
     name.trim() === name &&
     name.length > 0 &&
     Buffer.byteLength(name, "utf8") <= DB_NAME_MAX_BYTES &&
-    !name.includes("\0")
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused
+    !/[\u0000-\u001f\u007f]/.test(name)
   );
+}
+
+/** The dump's file in the repository (`postgresql/<name>.pgdump`, the globals' own). */
+export function dumpFileNameOf(kind: "database" | "globals", name: string): string {
+  return kind === "globals"
+    ? "postgresql/globals.sql"
+    : `postgresql/${name.replace(/[/\\]/g, "_")}.pgdump`;
+}
+
+/** The file's name for a download and the restore guide: only `[A-Za-z0-9._-]`. */
+export function downloadFileNameOf(fileName: string): string {
+  const base = (fileName.split("/").pop() ?? "").replace(/[^A-Za-z0-9._-]/g, "_");
+  return /^[._-]*$/.test(base) ? "backup.pgdump" : base;
 }
 
 /** `<name>_restored_<UTC time>`, cut to 63 bytes. */
@@ -331,7 +349,7 @@ export async function requestRestore(
     if (!validRestoreName(name)) {
       throw new ProblemError(422, "Invalid database name", {
         type: RUN_PROBLEMS.restoreName,
-        detail: `The new database's name has at most ${DB_NAME_MAX_BYTES} bytes.`,
+        detail: `The new database's name has at most ${DB_NAME_MAX_BYTES} bytes and no control characters.`,
         extensions: { field: "name" },
       });
     }
@@ -374,6 +392,10 @@ export async function requestRestore(
   });
 }
 
+/**
+ * A dump of the database (never the globals: they carry the roles' password hashes and are read
+ * through {@link downloadGlobals} by administrators only).
+ */
 async function backupOf(tx: DbExecutor, tenantId: string, databaseId: string, backupId: string) {
   const { database, connection } = await databaseAndConnection(tx, tenantId, databaseId);
   const [backup] = await tx
@@ -383,17 +405,60 @@ async function backupOf(tx: DbExecutor, tenantId: string, databaseId: string, ba
       and(
         eq(databaseBackups.id, backupId),
         eq(databaseBackups.connectionId, connection.id),
-        inArray(databaseBackups.kind, ["database", "globals"]),
+        eq(databaseBackups.kind, "database"),
+        eq(databaseBackups.databaseId, database.id),
       ),
     )
     .limit(1);
   if (backup?.status !== "active") {
     throw notFound("Backup");
   }
-  if (backup.kind === "database" && backup.databaseId !== database.id) {
+  return { database, connection, backup };
+}
+
+/** A globals backup of a connection (roles, tablespaces). */
+async function globalsOf(tx: DbExecutor, tenantId: string, connectionId: string, backupId: string) {
+  const [row] = await tx
+    .select({ connection: databaseConnections, backup: databaseBackups })
+    .from(databaseBackups)
+    .innerJoin(databaseConnections, eq(databaseConnections.id, databaseBackups.connectionId))
+    .where(
+      and(
+        eq(databaseBackups.tenantId, tenantId),
+        eq(databaseBackups.id, backupId),
+        eq(databaseBackups.connectionId, connectionId),
+        eq(databaseBackups.kind, "globals"),
+      ),
+    )
+    .limit(1);
+  if (row?.backup.status !== "active") {
     throw notFound("Backup");
   }
-  return { database, connection, backup };
+  return row;
+}
+
+/** The active globals backups of a connection, newest first (administrators). */
+export async function listGlobals(
+  db: DbExecutor,
+  tenantId: string,
+  connectionId: string,
+): Promise<{ backups: DatabaseBackupDto[] }> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(databaseBackups)
+      .where(
+        and(
+          eq(databaseBackups.tenantId, tenantId),
+          eq(databaseBackups.connectionId, connectionId),
+          eq(databaseBackups.kind, "globals"),
+          eq(databaseBackups.status, "active"),
+        ),
+      )
+      .orderBy(desc(databaseBackups.finishedAt))
+      .limit(100);
+    return { backups: rows.map(backupDto) };
+  });
 }
 
 /** The repository of a connection, read by the API (downloads) or initialized for an agent. */
@@ -462,38 +527,122 @@ async function repositoryAccess(
   return access;
 }
 
-/** "Herunterladen": the dump file, streamed from the repository (audited). */
+/** Downloads at once: in all and per tenant (each holds a restic process and a stream). */
+export const DB_DOWNLOAD_LIMITS = { global: 4, perTenant: 2 } as const;
+const downloadsRunning = { global: 0, tenants: new Map<string, number>() };
+
+/** Take a download slot or refuse with 429; the returned function gives it back (once). */
+export function takeDownloadSlot(tenantId: string): () => void {
+  const tenant = downloadsRunning.tenants.get(tenantId) ?? 0;
+  if (
+    downloadsRunning.global >= DB_DOWNLOAD_LIMITS.global ||
+    tenant >= DB_DOWNLOAD_LIMITS.perTenant
+  ) {
+    throw new ProblemError(429, "Too many downloads", {
+      type: "urn:restow:problem:rate-limited",
+      detail: "Other downloads of backups are running; try again when one of them ended.",
+      extensions: { retryAfterSeconds: 30 },
+    });
+  }
+  downloadsRunning.global++;
+  downloadsRunning.tenants.set(tenantId, tenant + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    downloadsRunning.global--;
+    const left = (downloadsRunning.tenants.get(tenantId) ?? 1) - 1;
+    if (left > 0) {
+      downloadsRunning.tenants.set(tenantId, left);
+    } else {
+      downloadsRunning.tenants.delete(tenantId);
+    }
+  };
+}
+
+export interface BackupDownload {
+  stream: Readable;
+  fileName: string;
+  done: Promise<void>;
+}
+
+async function streamDump(
+  db: DbExecutor,
+  tenantId: string,
+  connection: DatabaseConnection,
+  backup: DatabaseBackup,
+  audited: { action: string; actor: DatabaseContext["actor"]; details: Record<string, unknown> },
+): Promise<BackupDownload> {
+  const release = takeDownloadSlot(tenantId);
+  try {
+    const access = await repositoryAccess(db, connection, false);
+    const open = await openRepository(access);
+    const dump = resticDump(open.session, backup.snapshotId, `/${backup.fileName}`);
+    const done = dump.done.finally(() => {
+      open.close();
+      release();
+    });
+    done.catch(() => undefined);
+    await audit(db, {
+      tenantId,
+      actor: audited.actor.label,
+      actorUserId: audited.actor.userId,
+      ip: audited.actor.ip,
+      action: audited.action,
+      target: connection.id,
+      targetType: "database_connection",
+      details: audited.details,
+    });
+    // No length: the size an executor reported is not one the server checked.
+    return { stream: dump.stream, fileName: downloadFileNameOf(backup.fileName), done };
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
+/** "Herunterladen": the dump file of a database, streamed from the repository (audited). */
 export async function downloadBackup(
   db: DbExecutor,
   tenantId: string,
   databaseId: string,
   backupId: string,
   ctx: DatabaseContext,
-): Promise<{ stream: Readable; fileName: string; bytes: number; done: Promise<void> }> {
+): Promise<BackupDownload> {
   const { connection, backup } = await withTenantTx(db, tenantId, (tx) =>
     backupOf(tx, tenantId, databaseId, backupId),
   );
-  const access = await repositoryAccess(db, connection, false);
-  const open = await openRepository(access);
-  const dump = resticDump(open.session, backup.snapshotId, `/${backup.fileName}`);
-  const done = dump.done.finally(() => open.close());
-  done.catch(() => undefined);
-  await audit(db, {
-    tenantId,
-    actor: ctx.actor.label,
-    actorUserId: ctx.actor.userId,
-    ip: ctx.actor.ip,
+  return streamDump(db, tenantId, connection, backup, {
     action: DB_RUN_AUDIT.downloaded,
-    target: connection.id,
-    targetType: "database_connection",
+    actor: ctx.actor,
     details: { databaseId, backupId: backup.id, kind: backup.kind },
   });
-  return {
-    stream: dump.stream,
-    fileName: backup.fileName.split("/").pop() ?? "backup",
-    bytes: backup.bytes,
-    done,
-  };
+}
+
+/**
+ * The globals of a connection (roles with their password hashes where the user could read them,
+ * tablespaces): administrators only, audited with an action of their own (16, "D3").
+ */
+export async function downloadGlobals(
+  db: DbExecutor,
+  tenantId: string,
+  connectionId: string,
+  backupId: string,
+  ctx: DatabaseContext,
+): Promise<BackupDownload> {
+  const { connection, backup } = await withTenantTx(db, tenantId, (tx) =>
+    globalsOf(tx, tenantId, connectionId, backupId),
+  );
+  return streamDump(db, tenantId, connection, backup, {
+    action: DB_RUN_AUDIT.globalsDownloaded,
+    actor: ctx.actor,
+    details: { backupId: backup.id, kind: backup.kind },
+  });
+}
+
+/** A word for a shell, in single quotes: safe whatever it holds. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /** The restore guide (7.1): `pg_restore` commands as text, without a secret. */
@@ -506,27 +655,30 @@ export async function restoreGuide(
   const { database, connection, backup } = await withTenantTx(db, tenantId, (tx) =>
     backupOf(tx, tenantId, databaseId, backupId),
   );
-  const file = backup.fileName.split("/").pop() ?? "backup.pgdump";
-  const target = defaultRestoreName(database.name, backup.finishedAt);
+  // The same name as the download, quoted for the shell all the same.
+  const file = shellQuote(downloadFileNameOf(backup.fileName));
+  const target = shellQuote(defaultRestoreName(database.name, backup.finishedAt));
+  const oneLine = (value: string) => JSON.stringify(value);
   return [
-    `Restore guide for the database "${database.name}" of the connection "${connection.name}"`,
-    `Backup of ${backup.finishedAt.toISOString()} (PostgreSQL ${backup.serverVersion ?? "?"}, pg_dump ${backup.toolVersion ?? "?"})`,
-    `File: ${file} (custom format), ${backup.bytes} bytes, SHA-256 ${backup.sha256}`,
+    `Restore guide for the database ${oneLine(database.name)} of the connection ${oneLine(connection.name)}`,
+    `Backup of ${backup.finishedAt.toISOString()} (PostgreSQL ${oneLine(backup.serverVersion ?? "?")}, pg_dump ${oneLine(backup.toolVersion ?? "?")})`,
+    `File: ${file} (custom format), SHA-256 ${backup.sha256}`,
     "",
     "1. Check the file:",
     `     sha256sum ${file}`,
     "",
     "2. Create a new, empty database (never restore over an existing one):",
-    `     createdb --template=template0 '${target.replace(/'/g, "'\\''")}'`,
+    `     createdb --template=template0 ${target}`,
     "",
     "3. Restore into it, stopping at the first error:",
-    `     pg_restore --exit-on-error --no-owner --no-privileges --dbname='${target.replace(/'/g, "'\\''")}' ${file}`,
+    `     pg_restore --exit-on-error --no-owner --no-privileges --dbname=${target} ${file}`,
     "",
     "   Use pg_restore of the server's major version or newer. Connect as a user with CREATEDB;",
     "   the password goes into ~/.pgpass or PGPASSWORD, never onto the command line.",
     "",
     "4. Owners and privileges: Restow restores without them (--no-owner --no-privileges). The",
-    "   roles of the instance are in the globals backup of the same run (globals.sql):",
+    "   roles of the instance are in the globals backup of the same run (globals.sql), which an",
+    "   administrator downloads on the database page:",
     "     psql --dbname=postgres --file=globals.sql   # review it first: it creates roles",
     "   then restore again without --no-owner --no-privileges, or grant by hand.",
     "",
@@ -555,9 +707,18 @@ export interface AgentRunSpec {
     instanceKey: string | null;
     selection: { mode: "all" | "selected"; names: string[]; exclude: string[] };
   };
-  /** restic access: the connection's repository through the run's own REST credential. */
-  repository: { url: string; username: string; password: string; repositoryPassword: string };
-  restore: { snapshotId: string; fileName: string; sha256: string; targetName: string } | null;
+  /**
+   * restic access of a backup: the connection's repository through the run's own REST credential
+   * (append only). A restore gets none: it reads the one dump from the server
+   * (`GET /agent/v1/databases/runs/:runId/dump`), never the repository.
+   */
+  repository: {
+    url: string;
+    username: string;
+    password: string;
+    repositoryPassword: string;
+  } | null;
+  restore: { fileName: string; sha256: string; targetName: string } | null;
   maxDurationSeconds: number;
 }
 
@@ -580,10 +741,20 @@ async function credentialsOf(db: DbExecutor, connection: DatabaseConnection) {
   return { user: parsed.user ?? null, password: parsed.password ?? null };
 }
 
+/** Whether `agent` still executes `connection`, and the connection is on. */
+function executedBy(connection: DatabaseConnection, agent: { endpointId: string }): boolean {
+  return (
+    connection.enabled &&
+    connection.executorKind === "agent" &&
+    connection.executorEndpointId === agent.endpointId
+  );
+}
+
 /**
  * The run of an agent, with its credentials, once (4.3): a second fetch is refused. Only the
- * agent the run was given to, only while it waits; the token for the repository is made now and
- * only its hash is kept.
+ * agent the run was given to, only while it waits, and only while that agent still executes the
+ * connection it signs in to (a move to another executor fails the queued run instead); the token
+ * for the repository is made now (backups only) and only its hash is kept.
  */
 export async function agentFetchRun(
   db: DbExecutor,
@@ -594,14 +765,9 @@ export async function agentFetchRun(
   await assertNoRestoreMode();
   const token = randomBytes(32).toString("base64url");
   const claimed = await withTenantTx(db, agent.tenantId, async (tx) => {
-    const [run] = await tx
-      .update(databaseRuns)
-      .set({
-        fetchedAt: new Date(),
-        status: "running",
-        startedAt: new Date(),
-        tokenHash: hashSecret(token),
-      })
+    const [queued] = await tx
+      .select()
+      .from(databaseRuns)
       .where(
         and(
           eq(databaseRuns.tenantId, agent.tenantId),
@@ -611,6 +777,37 @@ export async function agentFetchRun(
           eq(databaseRuns.status, "queued"),
         ),
       )
+      .for("update")
+      .limit(1);
+    if (!queued) {
+      return null;
+    }
+    const [executed] = await tx
+      .select()
+      .from(databaseConnections)
+      .where(eq(databaseConnections.id, queued.targetConnectionId ?? queued.connectionId))
+      .limit(1);
+    if (!executed || !executedBy(executed, agent)) {
+      await tx
+        .update(databaseRuns)
+        .set({
+          status: "failed",
+          finishedAt: new Date(),
+          errorCode: "db_run_failed",
+          errorMessage: "The connection is no longer run by this agent, or it is switched off.",
+        })
+        .where(eq(databaseRuns.id, queued.id));
+      return "moved" as const;
+    }
+    const [run] = await tx
+      .update(databaseRuns)
+      .set({
+        fetchedAt: new Date(),
+        status: "running",
+        startedAt: new Date(),
+        tokenHash: queued.kind === "backup" ? hashSecret(token) : null,
+      })
+      .where(and(eq(databaseRuns.id, queued.id), eq(databaseRuns.status, "queued")))
       .returning();
     if (!run) {
       return null;
@@ -636,15 +833,18 @@ export async function agentFetchRun(
       : [];
     return source && target ? { run, source, target, backup: backup ?? null } : null;
   });
-  if (!claimed) {
+  if (!claimed || claimed === "moved") {
     throw runNotFound();
   }
   const { run, source, target, backup } = claimed;
-  if (run.kind === "restore" && backup?.status !== "active") {
+  if (
+    run.kind === "restore" &&
+    (backup?.status !== "active" || backup.kind !== "database" || backup.connectionId !== source.id)
+  ) {
     await finishAgentRun(db, run, "failed", "db_restore_failed", "The backup is not available.");
     throw runNotFound();
   }
-  const access = await repositoryAccess(db, source, run.kind === "backup");
+  const access = run.kind === "backup" ? await repositoryAccess(db, source, true) : null;
   const credentials = await credentialsOf(db, target);
   return {
     runId: run.id,
@@ -663,16 +863,17 @@ export async function agentFetchRun(
       instanceKey: target.instanceKey,
       selection: target.selection,
     },
-    repository: {
-      url: `rest:${instanceUrl.replace(/\/+$/, "")}/agent/db/restic/${source.id}/`,
-      username: run.id,
-      password: token,
-      repositoryPassword: access.repositoryPassword,
-    },
+    repository: access
+      ? {
+          url: `rest:${instanceUrl.replace(/\/+$/, "")}/agent/db/restic/${source.id}/`,
+          username: run.id,
+          password: token,
+          repositoryPassword: access.repositoryPassword,
+        }
+      : null,
     restore:
       run.kind === "restore" && backup
         ? {
-            snapshotId: backup.snapshotId,
             fileName: backup.fileName,
             sha256: backup.sha256,
             targetName: run.targetName ?? "",
@@ -701,7 +902,7 @@ async function finishAgentRun(
         ...(extra.notes ? { notes: extra.notes } : {}),
         ...(extra.targetOid !== undefined ? { targetOid: extra.targetOid } : {}),
       })
-      .where(eq(databaseRuns.id, run.id)),
+      .where(and(eq(databaseRuns.id, run.id), eq(databaseRuns.status, "running"))),
   );
 }
 
@@ -713,7 +914,8 @@ const backupReportSchema = z.object({
     .string()
     .regex(/^\d{1,10}$/)
     .nullable(),
-  snapshotId: z.string().regex(/^[0-9a-f]{8,64}$/),
+  /** The full id: restic would read a prefix as any snapshot that starts with it. */
+  snapshotId: z.string().regex(/^[0-9a-f]{64}$/),
   fileName: z.string().min(1).max(300),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   bytes: z.number().int().min(0),
@@ -735,7 +937,15 @@ export const agentRunFinishSchema = z.object({
         .max(1000),
     })
     .nullable(),
-  backups: z.array(backupReportSchema).max(1001),
+  backups: z
+    .array(backupReportSchema)
+    .max(1001)
+    .refine(
+      (backups) =>
+        new Set(backups.map((b) => `${b.kind}:${b.kind === "globals" ? "" : b.name}`)).size ===
+          backups.length && new Set(backups.map((b) => b.snapshotId)).size === backups.length,
+      "one backup per database and one of the globals per run, each its own snapshot",
+    ),
   notes: z
     .array(z.record(z.string().max(64), z.unknown()))
     .max(1100)
@@ -825,15 +1035,23 @@ export async function agentFinishRun(
       return;
     }
     if (run.kind === "backup") {
+      const instance = report.instance;
+      const verified = await verifyAgentBackups(
+        db,
+        run,
+        connection,
+        { ...report, instance },
+        notes,
+      );
       await withTenantTx(db, agent.tenantId, async (tx) => {
         const ids = await recordInstanceDatabasesTx(
           tx,
           connection,
           instanceKey,
-          report.instance?.databases ?? [],
+          instance.databases,
           new Date(),
         );
-        for (const backup of report.backups) {
+        for (const { backup, startedAt, finishedAt } of verified.backups) {
           await tx
             .insert(databaseBackups)
             .values({
@@ -851,14 +1069,37 @@ export async function agentFinishRun(
               bytes: backup.bytes,
               objects: backup.objects,
               toolVersion: backup.toolVersion,
-              serverVersion: report.instance?.serverVersion.slice(0, 256) ?? null,
-              startedAt: new Date(backup.startedAt),
-              finishedAt: new Date(backup.finishedAt),
+              serverVersion: instance.serverVersion.slice(0, 256),
+              startedAt,
+              finishedAt,
             })
             .onConflictDoNothing();
         }
       });
+      if (verified.refused > 0) {
+        const status = verified.backups.length > 0 ? "partial" : "failed";
+        await finishAgentRun(
+          db,
+          run,
+          status,
+          "db_snapshot_failed",
+          `${verified.refused} of ${report.backups.length} reported backups were not found in the repository as this run's.`,
+          { notes },
+        );
+        return;
+      }
     }
+  } else if (run.kind === "backup" && report.backups.length > 0) {
+    // Backups without the instance they came from are not recorded.
+    await finishAgentRun(
+      db,
+      run,
+      "failed",
+      "db_probe_failed",
+      "The agent's report names backups but no instance.",
+      { notes },
+    );
+    return;
   }
   await finishAgentRun(
     db,
@@ -868,6 +1109,142 @@ export async function agentFinishRun(
     clean(report.error?.message),
     { notes, ...(run.kind === "restore" ? { targetOid: report.targetOid } : {}) },
   );
+}
+
+/** How far a snapshot's time may lie before the run's start (the agent's clock). */
+const SNAPSHOT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+function clampDate(value: Date, min: Date, max: Date): Date {
+  const time = Number.isNaN(value.getTime()) ? max.getTime() : value.getTime();
+  return new Date(Math.min(Math.max(time, min.getTime()), max.getTime()));
+}
+
+/**
+ * The backups an agent reported, checked against the repository before anything is recorded
+ * (16, "D3"): the snapshot must exist under its full id, written by a run of Restow
+ * (`restow-db`) for this connection and this run (tags), for the file the report names, at a time
+ * within the run. A backup of a database the instance did not list is refused. The times recorded
+ * are the server's: the snapshot's own clamped to the run's start and now.
+ */
+async function verifyAgentBackups(
+  db: DbExecutor,
+  run: DatabaseRun,
+  connection: DatabaseConnection,
+  report: AgentRunFinish & { instance: NonNullable<AgentRunFinish["instance"]> },
+  notes: Record<string, unknown>[],
+): Promise<{
+  backups: { backup: AgentRunFinish["backups"][number]; startedAt: Date; finishedAt: Date }[];
+  refused: number;
+}> {
+  if (report.backups.length === 0) {
+    return { backups: [], refused: 0 };
+  }
+  const now = new Date();
+  const runStart = run.startedAt ?? run.createdAt;
+  let snapshots: Awaited<ReturnType<typeof resticSnapshots>>;
+  try {
+    const access = await repositoryAccess(db, connection, false);
+    snapshots = await withRepository(access, (session) =>
+      resticSnapshots(session, { noLock: true }),
+    );
+  } catch {
+    notes.push({ result: "unverified", code: "db_snapshot_failed" });
+    return { backups: [], refused: report.backups.length };
+  }
+  const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const listed = new Set(report.instance.databases.map((database) => database.name));
+  const backups: {
+    backup: AgentRunFinish["backups"][number];
+    startedAt: Date;
+    finishedAt: Date;
+  }[] = [];
+  let refused = 0;
+  for (const backup of report.backups) {
+    const snapshot = byId.get(backup.snapshotId);
+    const time = snapshot ? new Date(snapshot.time) : null;
+    const globals = backup.kind === "globals";
+    const ok =
+      snapshot !== undefined &&
+      time !== null &&
+      !Number.isNaN(time.getTime()) &&
+      snapshot.hostname === "restow-db" &&
+      snapshot.tags.includes(`restow-db-connection=${connection.id}`) &&
+      snapshot.tags.includes(`restow-db-run=${run.id}`) &&
+      snapshot.tags.includes("restow-db-globals") === globals &&
+      backup.fileName === dumpFileNameOf(backup.kind, backup.name) &&
+      snapshot.paths.length === 1 &&
+      snapshot.paths[0] === `/${backup.fileName}` &&
+      (globals || listed.has(backup.name)) &&
+      time.getTime() >= runStart.getTime() - SNAPSHOT_CLOCK_SKEW_MS &&
+      time.getTime() <= now.getTime() + SNAPSHOT_CLOCK_SKEW_MS;
+    if (!ok || time === null) {
+      refused++;
+      notes.push({
+        ...(globals ? { globals: true } : { database: backup.name.slice(0, 128) }),
+        result: "unverified",
+        code: "db_snapshot_failed",
+      });
+      continue;
+    }
+    const finishedAt = clampDate(time, runStart, now);
+    const startedAt = clampDate(new Date(backup.startedAt), runStart, finishedAt);
+    backups.push({ backup, startedAt, finishedAt });
+  }
+  return { backups, refused };
+}
+
+/**
+ * The dump a restore run plays back (`GET /agent/v1/databases/runs/:runId/dump`): the server reads
+ * the one file from the source's repository and streams it, so the agent of the target never gets
+ * the source repository's password. Only the run's agent, only while the run is running.
+ */
+export async function agentRunDump(
+  db: DbExecutor,
+  agent: { endpointId: string; tenantId: string },
+  runId: string,
+): Promise<BackupDownload> {
+  const found = await withTenantTx(db, agent.tenantId, async (tx) => {
+    const [run] = await tx
+      .select()
+      .from(databaseRuns)
+      .where(
+        and(
+          eq(databaseRuns.tenantId, agent.tenantId),
+          eq(databaseRuns.id, runId),
+          eq(databaseRuns.kind, "restore"),
+          eq(databaseRuns.executorKind, "agent"),
+          eq(databaseRuns.executorEndpointId, agent.endpointId),
+          eq(databaseRuns.status, "running"),
+        ),
+      )
+      .limit(1);
+    if (!run?.sourceBackupId) {
+      return null;
+    }
+    const [row] = await tx
+      .select({ connection: databaseConnections, backup: databaseBackups })
+      .from(databaseBackups)
+      .innerJoin(databaseConnections, eq(databaseConnections.id, databaseBackups.connectionId))
+      .where(
+        and(
+          eq(databaseBackups.id, run.sourceBackupId),
+          eq(databaseBackups.connectionId, run.connectionId),
+          eq(databaseBackups.kind, "database"),
+          eq(databaseBackups.status, "active"),
+        ),
+      )
+      .limit(1);
+    return row ? { run, ...row } : null;
+  });
+  if (!found) {
+    throw runNotFound();
+  }
+  const access = await repositoryAccess(db, found.connection, false);
+  const open = await openRepository(access);
+  const dump = resticDump(open.session, found.backup.snapshotId, `/${found.backup.fileName}`);
+  const done = dump.done.finally(() => open.close());
+  done.catch(() => undefined);
+  return { stream: dump.stream, fileName: downloadFileNameOf(found.backup.fileName), done };
 }
 
 /** The run credential of `/agent/db/restic/:connectionId` (append-only backup, read-only restore). */
@@ -891,6 +1268,7 @@ export async function resolveDatabaseRunCredential(
     .limit(1);
   if (
     !run?.tokenHash ||
+    run.kind !== "backup" ||
     !secretMatchesHash(credentials.token, run.tokenHash) ||
     run.connectionId !== connectionId
   ) {
@@ -906,7 +1284,7 @@ export async function resolveDatabaseRunCredential(
       tenantId: run.tenantId,
       runId: run.id,
       runKind: run.kind,
-      principal: run.status !== "running" ? "closing" : run.kind === "backup" ? "agent" : "reader",
+      principal: run.status !== "running" ? "closing" : "agent",
       prefix: databaseRepositoryPrefix(connectionId),
       storage,
     },

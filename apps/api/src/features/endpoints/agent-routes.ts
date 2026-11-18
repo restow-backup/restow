@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../../db.js";
@@ -10,7 +11,7 @@ import {
   agentHealthSamplesSchema,
   agentReportHealth,
 } from "../databases/health.js";
-import { agentFetchRun, agentFinishRun } from "../databases/runs.js";
+import { agentFetchRun, agentFinishRun, agentRunDump } from "../databases/runs.js";
 import { healthTaskParamSchema, probeParamSchema } from "../databases/schemas.js";
 import { agentFetchProbe, agentFinishProbe } from "../databases/service.js";
 import { type AgentEnv, authFailures, requireAgent } from "./agent-auth.js";
@@ -166,6 +167,15 @@ agentRoutes.get("/databases/runs/:runId", async (c) => {
   const instance = await instanceUrl(c);
   c.header("cache-control", "no-store");
   return c.json(await agentFetchRun(db, c.get("agent"), runId, instance.url));
+});
+
+// A restore run reads its one dump from the server, never the source's repository.
+agentRoutes.get("/databases/runs/:runId/dump", async (c) => {
+  const { runId } = parseOrProblem(runParamSchema, c.req.param());
+  const file = await agentRunDump(db, c.get("agent"), runId);
+  c.header("content-type", "application/octet-stream");
+  c.header("cache-control", "no-store");
+  return c.body(Readable.toWeb(file.stream) as ReadableStream);
 });
 
 agentRoutes.post("/databases/runs/:runId/finish", async (c) => {

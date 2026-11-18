@@ -1,13 +1,16 @@
 /**
  * Backup and restore runs through the API, stage D3, against Postgres (docs/DATABASES.md 4.3,
  * 4.4, 7.1, 16 "D3"): "Jetzt sichern" plans one run at a time; an agent fetches its run once
- * with the credentials and a token for the connection's repository (append-only for a backup,
- * read-only for a restore), and reports what it wrote; another instance records nothing; a
- * restore is checked before it is planned (name, target, backup); the download streams the dump
- * from the repository and the guide holds no secret.
+ * with the credentials and, for a backup, a token for the connection's repository (append-only),
+ * and reports what it wrote; the server records only backups it finds in the repository as this
+ * run's, under their full ids, dated by itself; another instance records nothing; a run of an
+ * executor the connection left is failed, never handed out; a restore is checked before it is
+ * planned and reads its one dump from the server; the download streams the dump from the
+ * repository, the globals only for administrators, and the guide holds no secret.
  *
  * Needs RESTOW_TEST_DATABASE_URL (a superuser) and restic on PATH; skipped otherwise.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   type RepositoryAccess,
@@ -17,6 +20,7 @@ import {
   withRepository,
 } from "@restow/core";
 import {
+  auditLog,
   databaseBackups,
   databaseConnections,
   databaseRuns,
@@ -63,6 +67,105 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
     isProviderAdmin: false,
   });
   const agent = () => ({ endpointId: agentId, tenantId: fixture.tenantId });
+
+  /** The connection's repository as the server opens it. */
+  const repositoryOf = async (): Promise<RepositoryAccess> => {
+    const [connection] = await fixture.db
+      .select()
+      .from(databaseConnections)
+      .where(eq(databaseConnections.id, connectionId));
+    const password = await secretStore.readSecret(shared.db, {
+      id: connection?.repositorySecretId as string,
+      tenantId: fixture.tenantId,
+    });
+    const { storage } = await repository.tenantStorage(shared.db, fixture.tenantId);
+    return {
+      storage,
+      prefix: `db/${connectionId}/`,
+      repositoryPassword: password as string,
+      repositoryKey: `db-${connectionId}`,
+      binary: resticBinary(),
+      cacheBase: resticCacheBase(),
+    };
+  };
+
+  /** A snapshot the way an agent writes it (restic on stdin), with its full id. */
+  const writeSnapshot = async (input: {
+    fileName: string;
+    content: Buffer;
+    tags: string[];
+    host?: string;
+  }): Promise<string> => {
+    const access = await repositoryOf();
+    const result = await withRepository(access, (session) =>
+      runRestic(session, [
+        "backup",
+        "--json",
+        "--host",
+        input.host ?? "restow-db",
+        "--stdin-from-command",
+        "--stdin-filename",
+        input.fileName,
+        ...input.tags.flatMap((tag) => ["--tag", tag]),
+        "--",
+        "printf",
+        input.content.toString("utf8"),
+      ]),
+    );
+    return result.stdout
+      .split("\n")
+      .map((line) => {
+        try {
+          return JSON.parse(line) as { message_type?: string; snapshot_id?: string };
+        } catch {
+          return null;
+        }
+      })
+      .find((message) => message?.message_type === "summary")?.snapshot_id as string;
+  };
+
+  const runTags = (runId: string) => [
+    "restow-db",
+    "restow-db-engine=postgresql",
+    `restow-db-connection=${connectionId}`,
+    `restow-db-run=${runId}`,
+  ];
+
+  const instance = {
+    systemIdentifier: "7300000000000000042",
+    serverVersion: "16.4",
+    databases: [
+      { name: "app", oid: "16384" },
+      { name: "shop", oid: "16390" },
+    ],
+  };
+
+  const reported = (input: {
+    snapshotId: string;
+    name?: string;
+    kind?: "database" | "globals";
+    startedAt?: string;
+    finishedAt?: string;
+  }) => {
+    const kind = input.kind ?? "database";
+    const name = kind === "globals" ? "" : (input.name ?? "app");
+    return {
+      kind,
+      name,
+      oid: kind === "globals" ? null : "16384",
+      snapshotId: input.snapshotId,
+      fileName: kind === "globals" ? "postgresql/globals.sql" : `postgresql/${name}.pgdump`,
+      sha256: "b".repeat(64),
+      bytes: 4096,
+      objects: { TABLE: 2 },
+      startedAt: input.startedAt ?? new Date().toISOString(),
+      finishedAt: input.finishedAt ?? new Date().toISOString(),
+      toolVersion: "16",
+    };
+  };
+
+  const runOf = async (id: string) =>
+    (await fixture.db.select().from(databaseRuns).where(eq(databaseRuns.id, id)))[0];
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
@@ -177,7 +280,7 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
       },
       restore: null,
     });
-    expect(spec.repository.repositoryPassword.length).toBeGreaterThan(20);
+    expect(spec.repository?.repositoryPassword.length).toBeGreaterThan(20);
     await expect(
       runs.agentFetchRun(shared.db, agent(), run.id, "https://restow.example.test"),
     ).rejects.toMatchObject({ status: 404 });
@@ -186,12 +289,12 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
       .from(databaseRuns)
       .where(eq(databaseRuns.id, run.id));
     expect(stored?.status).toBe("running");
-    expect(JSON.stringify(stored)).not.toContain(spec.repository.password);
+    expect(JSON.stringify(stored)).not.toContain(spec.repository?.password as string);
     expect(JSON.stringify(stored)).not.toContain(PASSWORD);
 
     // The run's token opens the connection's repository, append-only, and nothing else.
     const allowed = await runs.resolveDatabaseRunCredential(
-      { runId: run.id, token: spec.repository.password },
+      { runId: run.id, token: spec.repository?.password as string },
       connectionId,
     );
     expect(allowed).toMatchObject({
@@ -203,47 +306,45 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
     ).toEqual({ ok: false, reason: "invalid" });
     expect(
       await runs.resolveDatabaseRunCredential(
-        { runId: run.id, token: spec.repository.password },
+        { runId: run.id, token: spec.repository?.password as string },
         databaseId,
       ),
     ).toEqual({ ok: false, reason: "invalid" });
 
-    // The report: databases and backups recorded, the message cleaned.
+    // The report: databases and backups recorded, the message cleaned, the times the server's.
+    const genuine = await writeSnapshot({
+      fileName: "postgresql/app.pgdump",
+      content: Buffer.from("PGDMP app"),
+      tags: runTags(run.id),
+    });
+    expect(genuine).toMatch(/^[0-9a-f]{64}$/);
     await runs.agentFinishRun(shared.db, agent(), run.id, {
       status: "partial",
       error: { code: "db_dump_failed", message: `pg_dump: password ${PASSWORD} rejected` },
-      instance: {
-        systemIdentifier: "7300000000000000042",
-        serverVersion: "16.4",
-        databases: [
-          { name: "app", oid: "16384" },
-          { name: "shop", oid: "16390" },
-        ],
-      },
+      instance,
       backups: [
-        {
-          kind: "database",
-          name: "app",
-          oid: "16384",
-          snapshotId: "a".repeat(64),
-          fileName: "postgresql/app.pgdump",
-          sha256: "b".repeat(64),
-          bytes: 4096,
-          objects: { TABLE: 2 },
-          startedAt: "2026-11-18T10:00:00Z",
-          finishedAt: "2026-11-18T10:00:05Z",
-          toolVersion: "16",
-        },
+        // Dated far in the future and long before the run: the server clamps both.
+        reported({
+          snapshotId: genuine,
+          startedAt: "2000-01-01T00:00:00Z",
+          finishedAt: "2099-01-01T00:00:00Z",
+        }),
       ],
       notes: [{ database: "shop", result: "failed", message: `for user ${USER}` }],
       targetOid: null,
     });
-    const [done] = await fixture.db.select().from(databaseRuns).where(eq(databaseRuns.id, run.id));
+    const done = await runOf(run.id);
     expect(done).toMatchObject({ status: "partial", errorCode: "db_dump_failed" });
     expect(JSON.stringify(done)).not.toContain(PASSWORD);
     expect(JSON.stringify(done)).not.toContain(USER);
     const backups = await runs.listBackups(shared.db, fixture.tenantId, databaseId);
-    expect(backups.backups).toMatchObject([{ snapshotId: "a".repeat(64), bytes: 4096 }]);
+    expect(backups.backups).toMatchObject([{ snapshotId: genuine, bytes: 4096 }]);
+    const recordedAt = new Date(backups.backups[0]?.finishedAt as string);
+    expect(recordedAt.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(recordedAt.getTime()).toBeGreaterThanOrEqual(Number(done?.startedAt?.getTime()));
+    expect(new Date(backups.backups[0]?.startedAt as string).getTime()).toBeGreaterThanOrEqual(
+      Number(done?.startedAt?.getTime()),
+    );
     const shop = await fixture.db.select().from(databases).where(eq(databases.name, "shop"));
     expect(shop).toHaveLength(1);
     // The database now rates "unverified" (D6 brings the checks).
@@ -259,21 +360,7 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
       status: "succeeded",
       error: null,
       instance: { systemIdentifier: "7999999999999999999", serverVersion: "16.4", databases: [] },
-      backups: [
-        {
-          kind: "database",
-          name: "app",
-          oid: "16384",
-          snapshotId: "c".repeat(64),
-          fileName: "postgresql/app.pgdump",
-          sha256: "d".repeat(64),
-          bytes: 1,
-          objects: {},
-          startedAt: "2026-11-18T11:00:00Z",
-          finishedAt: "2026-11-18T11:00:01Z",
-          toolVersion: "16",
-        },
-      ],
+      backups: [reported({ snapshotId: "c".repeat(64) })],
       notes: [],
       targetOid: null,
     });
@@ -286,11 +373,203 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
     expect(recorded).toEqual([]);
   });
 
-  it("checks a restore before planning it and hands the agent read-only access [DB-008]", async () => {
+  it("records only backups it finds in the repository as this run's [DB-007]", async () => {
+    const run = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+    await runs.agentFetchRun(shared.db, agent(), run.id, "https://restow.example.test");
+    const app = await writeSnapshot({
+      fileName: "postgresql/app.pgdump",
+      content: Buffer.from("PGDMP app 2"),
+      tags: runTags(run.id),
+    });
+    // A snapshot of another run, one of another host, a globals one tagged as a database and
+    // an id nobody wrote: none of them is this run's backup.
+    const other = await writeSnapshot({
+      fileName: "postgresql/shop.pgdump",
+      content: Buffer.from("PGDMP shop"),
+      tags: runTags("00000000-0000-4000-8000-000000000001"),
+    });
+    const foreignHost = await writeSnapshot({
+      fileName: "postgresql/globals.sql",
+      content: Buffer.from("CREATE ROLE x;"),
+      tags: [...runTags(run.id), "restow-db-globals"],
+      host: "elsewhere",
+    });
+    await runs.agentFinishRun(shared.db, agent(), run.id, {
+      status: "succeeded",
+      error: null,
+      instance,
+      backups: [
+        reported({ snapshotId: app }),
+        reported({ snapshotId: other, name: "shop" }),
+        reported({ snapshotId: foreignHost, kind: "globals" }),
+      ],
+      notes: [],
+      targetOid: null,
+    });
+    expect(await runOf(run.id)).toMatchObject({
+      status: "partial",
+      errorCode: "db_snapshot_failed",
+    });
+    const recorded = await fixture.db
+      .select()
+      .from(databaseBackups)
+      .where(eq(databaseBackups.runId, run.id));
+    expect(recorded.map((row) => row.snapshotId)).toEqual([app]);
+
+    // Nothing of a run whose every backup is made up.
+    const fake = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+    await runs.agentFetchRun(shared.db, agent(), fake.id, "https://restow.example.test");
+    await runs.agentFinishRun(shared.db, agent(), fake.id, {
+      status: "succeeded",
+      error: null,
+      instance,
+      backups: [reported({ snapshotId: "e".repeat(64) })],
+      notes: [],
+      targetOid: null,
+    });
+    expect(await runOf(fake.id)).toMatchObject({
+      status: "failed",
+      errorCode: "db_snapshot_failed",
+    });
+  });
+
+  it("refuses a snapshot id prefix and a second backup of one database [DB-007]", async () => {
+    const run = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+    await runs.agentFetchRun(shared.db, agent(), run.id, "https://restow.example.test");
+    const genuine = await writeSnapshot({
+      fileName: "postgresql/app.pgdump",
+      content: Buffer.from("PGDMP app 3"),
+      tags: runTags(run.id),
+    });
+    // restic would forget every snapshot starting with a prefix: only full ids are taken.
+    await runs.agentFinishRun(shared.db, agent(), run.id, {
+      status: "succeeded",
+      error: null,
+      instance,
+      backups: [reported({ snapshotId: genuine.slice(0, 8) })],
+      notes: [],
+      targetOid: null,
+    });
+    expect(await runOf(run.id)).toMatchObject({ status: "failed", errorCode: "db_probe_failed" });
+    const twice = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+    await runs.agentFetchRun(shared.db, agent(), twice.id, "https://restow.example.test");
+    const second = await writeSnapshot({
+      fileName: "postgresql/app.pgdump",
+      content: Buffer.from("PGDMP app 4"),
+      tags: runTags(twice.id),
+    });
+    await runs.agentFinishRun(shared.db, agent(), twice.id, {
+      status: "succeeded",
+      error: null,
+      instance,
+      backups: [reported({ snapshotId: second }), reported({ snapshotId: genuine })],
+      notes: [],
+      targetOid: null,
+    });
+    expect(await runOf(twice.id)).toMatchObject({ status: "failed", errorCode: "db_probe_failed" });
+    const recorded = await fixture.db
+      .select()
+      .from(databaseBackups)
+      .where(eq(databaseBackups.runId, twice.id));
+    expect(recorded).toEqual([]);
+  });
+
+  it("never hands a run to an agent the connection left, nor while it is off [DB-002]", async () => {
+    const [other] = await fixture.db
+      .insert(endpoints)
+      .values({
+        tenantId: fixture.tenantId,
+        hostname: "db-bridge-2",
+        os: "linux",
+        arch: "amd64",
+        profile: "server",
+        secretHash: "y",
+        config: {} as never,
+        lastSeenAt: new Date(),
+        settings: { agent: { capabilities: ["db_runner_v1"] } },
+      })
+      .returning();
+    const otherId = other?.id as string;
+    try {
+      // Moved through the API: the queued run fails at once.
+      const queued = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+      await service.updateConnection(
+        shared.db,
+        fixture.tenantId,
+        connectionId,
+        { executor: { kind: "agent", endpointId: otherId }, password: PASSWORD },
+        ctx(),
+      );
+      expect(await runOf(queued.id)).toMatchObject({
+        status: "failed",
+        errorCode: "db_run_failed",
+      });
+      await expect(
+        runs.agentFetchRun(shared.db, agent(), queued.id, "https://restow.example.test"),
+      ).rejects.toMatchObject({ status: 404 });
+      // A running run of the old agent ends as well; its repository token no longer opens.
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: agentId })
+        .where(eq(databaseConnections.id, connectionId));
+      const running = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+      const spec = await runs.agentFetchRun(
+        shared.db,
+        agent(),
+        running.id,
+        "https://restow.example.test",
+      );
+      await service.updateConnection(
+        shared.db,
+        fixture.tenantId,
+        connectionId,
+        { executor: { kind: "agent", endpointId: otherId }, password: PASSWORD },
+        ctx(),
+      );
+      expect(await runOf(running.id)).toMatchObject({ status: "failed" });
+      expect(
+        await runs.resolveDatabaseRunCredential(
+          { runId: running.id, token: spec.repository?.password as string },
+          connectionId,
+        ),
+      ).toEqual({ ok: false, reason: "invalid" });
+      // Changed behind the API's back (or switched off): the fetch checks it again.
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: agentId })
+        .where(eq(databaseConnections.id, connectionId));
+      const late = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: otherId })
+        .where(eq(databaseConnections.id, connectionId));
+      await expect(
+        runs.agentFetchRun(shared.db, agent(), late.id, "https://restow.example.test"),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(await runOf(late.id)).toMatchObject({ status: "failed", errorCode: "db_run_failed" });
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: agentId, enabled: false })
+        .where(eq(databaseConnections.id, connectionId));
+      const off = await runs.requestBackup(shared.db, fixture.tenantId, databaseId, ctx());
+      await expect(
+        runs.agentFetchRun(shared.db, agent(), off.id, "https://restow.example.test"),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(await runOf(off.id)).toMatchObject({ status: "failed" });
+    } finally {
+      await fixture.db
+        .update(databaseConnections)
+        .set({ executorEndpointId: agentId, enabled: true })
+        .where(eq(databaseConnections.id, connectionId));
+    }
+  });
+
+  it("checks a restore before planning it and hands the agent only its one dump [DB-008]", async () => {
     const [backup] = await fixture.db
       .select()
       .from(databaseBackups)
-      .where(eq(databaseBackups.databaseId, databaseId));
+      .where(eq(databaseBackups.databaseId, databaseId))
+      .limit(1);
     const too = "x".repeat(64);
     await expect(
       runs.requestRestore(
@@ -298,6 +577,15 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
         fixture.tenantId,
         databaseId,
         { backupId: backup?.id as string, name: too },
+        ctx(),
+      ),
+    ).rejects.toMatchObject({ status: 422, type: runs.RUN_PROBLEMS.restoreName });
+    await expect(
+      runs.requestRestore(
+        shared.db,
+        fixture.tenantId,
+        databaseId,
+        { backupId: backup?.id as string, name: "bad\nname" },
         ctx(),
       ),
     ).rejects.toMatchObject({ status: 422, type: runs.RUN_PROBLEMS.restoreName });
@@ -321,56 +609,35 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
       run.id,
       "https://restow.example.test",
     );
-    expect(spec.restore).toMatchObject({ snapshotId: "a".repeat(64), targetName: run.targetName });
-    const access = await runs.resolveDatabaseRunCredential(
-      { runId: run.id, token: spec.repository.password },
-      connectionId,
-    );
-    expect(access).toMatchObject({ ok: true, access: { principal: "reader" } });
+    // No repository and no snapshot id: the agent reads the one dump from the server.
+    expect(spec.repository).toBeNull();
+    expect(spec.restore).toEqual({
+      fileName: backup?.fileName,
+      sha256: backup?.sha256,
+      targetName: run.targetName,
+    });
+    const stored = await runOf(run.id);
+    expect(stored?.tokenHash).toBeNull();
+    await expect(
+      runs.agentRunDump(shared.db, { ...agent(), endpointId: fixture.tenantId }, run.id),
+    ).rejects.toMatchObject({ status: 404 });
+    const dump = await runs.agentRunDump(shared.db, agent(), run.id);
+    const chunks: Buffer[] = [];
+    for await (const chunk of dump.stream) {
+      chunks.push(chunk as Buffer);
+    }
+    await dump.done;
+    expect(Buffer.concat(chunks).toString("utf8")).toMatch(/^PGDMP app/);
   });
 
   it("streams a backup from the repository and guides a restore without a secret", async () => {
     // A real snapshot in the connection's repository (created by the first test's fetch).
-    const [connection] = await fixture.db
-      .select()
-      .from(databaseConnections)
-      .where(eq(databaseConnections.id, connectionId));
-    const password = await secretStore.readSecret(shared.db, {
-      id: connection?.repositorySecretId as string,
-      tenantId: fixture.tenantId,
-    });
-    const { storage } = await repository.tenantStorage(shared.db, fixture.tenantId);
-    const access: RepositoryAccess = {
-      storage,
-      prefix: `db/${connectionId}/`,
-      repositoryPassword: password as string,
-      repositoryKey: `db-${connectionId}`,
-      binary: resticBinary(),
-      cacheBase: resticCacheBase(),
-    };
     const content = Buffer.from("PGDMP fake archive for the download test");
-    const result = await withRepository(access, (session) =>
-      runRestic(session, [
-        "backup",
-        "--json",
-        "--stdin-from-command",
-        "--stdin-filename",
-        "postgresql/app.pgdump",
-        "--",
-        "printf",
-        content.toString("utf8"),
-      ]),
-    );
-    const snapshotId = result.stdout
-      .split("\n")
-      .map((line) => {
-        try {
-          return JSON.parse(line) as { message_type?: string; snapshot_id?: string };
-        } catch {
-          return null;
-        }
-      })
-      .find((message) => message?.message_type === "summary")?.snapshot_id as string;
+    const snapshotId = await writeSnapshot({
+      fileName: "postgresql/app.pgdump",
+      content,
+      tags: ["restow-db"],
+    });
     const [row] = await fixture.db
       .insert(databaseBackups)
       .values({
@@ -412,7 +679,128 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
     );
     expect(guide).toContain("pg_restore --exit-on-error --no-owner --no-privileges");
     expect(guide).toContain("createdb --template=template0");
+    expect(guide).toContain("sha256sum 'app.pgdump'");
     expect(guide).not.toContain(PASSWORD);
     expect(guide).not.toContain(USER);
+
+    // The globals are not served by the database's download, only to administrators.
+    const roles = Buffer.from("CREATE ROLE app PASSWORD 'SCRAM-SHA-256$4096:hash';");
+    const globalsSnapshot = await writeSnapshot({
+      fileName: "postgresql/globals.sql",
+      content: roles,
+      tags: ["restow-db", "restow-db-globals"],
+    });
+    const [globals] = await fixture.db
+      .insert(databaseBackups)
+      .values({
+        tenantId: fixture.tenantId,
+        connectionId,
+        databaseId: null,
+        kind: "globals",
+        databaseName: "",
+        snapshotId: globalsSnapshot,
+        fileName: "postgresql/globals.sql",
+        sha256: createHash("sha256").update(roles).digest("hex"),
+        bytes: roles.length,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      })
+      .returning();
+    await expect(
+      runs.downloadBackup(shared.db, fixture.tenantId, databaseId, globals?.id as string, ctx()),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      runs.restoreGuide(shared.db, fixture.tenantId, databaseId, globals?.id as string),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(
+      (await runs.listGlobals(shared.db, fixture.tenantId, connectionId)).backups.map((b) => b.id),
+    ).toContain(globals?.id);
+    const sql = await runs.downloadGlobals(
+      shared.db,
+      fixture.tenantId,
+      connectionId,
+      globals?.id as string,
+      ctx(),
+    );
+    const parts: Buffer[] = [];
+    for await (const chunk of sql.stream) {
+      parts.push(chunk as Buffer);
+    }
+    await sql.done;
+    expect(Buffer.concat(parts).equals(roles)).toBe(true);
+    expect(sql.fileName).toBe("globals.sql");
+    const audited = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, runs.DB_RUN_AUDIT.globalsDownloaded));
+    expect(audited).toHaveLength(1);
+  });
+
+  it("quotes the file and the names in the guide, whatever the database is called", async () => {
+    const evil = "x'; rm -rf ~ #$(id)";
+    const [database] = await fixture.db
+      .insert(databases)
+      .values({
+        tenantId: fixture.tenantId,
+        connectionId,
+        name: evil,
+        identity: "16999",
+        instanceKey: "postgresql:7300000000000000042",
+      })
+      .returning();
+    const [row] = await fixture.db
+      .insert(databaseBackups)
+      .values({
+        tenantId: fixture.tenantId,
+        connectionId,
+        databaseId: database?.id as string,
+        kind: "database",
+        databaseName: evil,
+        snapshotId: "f".repeat(64),
+        fileName: runs.dumpFileNameOf("database", evil),
+        sha256: "0".repeat(64),
+        bytes: 1,
+        startedAt: new Date(),
+        finishedAt: new Date("2026-11-18T12:00:00Z"),
+      })
+      .returning();
+    const guide = await runs.restoreGuide(
+      shared.db,
+      fixture.tenantId,
+      database?.id as string,
+      row?.id as string,
+    );
+    const file = runs.downloadFileNameOf(row?.fileName as string);
+    expect(file).toMatch(/^[A-Za-z0-9._-]+$/);
+    expect(guide).toContain(`sha256sum '${file}'`);
+    expect(guide).toContain(
+      `--dbname='x'\\''; rm -rf ~ #$(id)_restored_20261118_120000' '${file}'`,
+    );
+    // The shell reads each command's words back exactly: nothing of the name runs.
+    const createdb = guide.split("\n").find((line) => line.includes("createdb ")) as string;
+    const words = execFileSync("bash", [
+      "-c",
+      createdb.trim().replace(/^createdb /, "printf '%s\\n' "),
+    ]).toString("utf8");
+    expect(words).toBe(`--template=template0\n${evil}_restored_20261118_120000\n`);
+  });
+
+  it("limits downloads at once, per tenant and in all", () => {
+    const first = runs.takeDownloadSlot("tenant-a");
+    const second = runs.takeDownloadSlot("tenant-a");
+    expect(() => runs.takeDownloadSlot("tenant-a")).toThrow(
+      expect.objectContaining({ status: 429 }),
+    );
+    const third = runs.takeDownloadSlot("tenant-b");
+    const fourth = runs.takeDownloadSlot("tenant-c");
+    expect(() => runs.takeDownloadSlot("tenant-d")).toThrow(
+      expect.objectContaining({ status: 429 }),
+    );
+    first();
+    first();
+    const again = runs.takeDownloadSlot("tenant-a");
+    for (const release of [second, third, fourth, again]) {
+      release();
+    }
   });
 });

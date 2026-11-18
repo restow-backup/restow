@@ -76,6 +76,14 @@ const run = {
   finishedAt: null,
 };
 
+const globals = {
+  ...backup,
+  id: "globals-1",
+  kind: "globals",
+  databaseName: "",
+  fileName: "postgresql/globals.sql",
+};
+
 function routes(posted: { path: string; body: unknown }[]) {
   const database = {
     ...databaseFixture({
@@ -89,6 +97,10 @@ function routes(posted: { path: string; body: unknown }[]) {
   return {
     "GET /databases/db-1": () => json(database),
     "GET /databases/db-1/backups": () => json({ backups: [backup] }),
+    "GET /databases/connections/conn-1/globals": () => {
+      posted.push({ path: "globals", body: null });
+      return json({ backups: [globals] });
+    },
     "GET /databases/db-1/health": () => json({ from: "x", to: "y", days: [] }),
     "GET /databases/connections": () =>
       json({
@@ -117,8 +129,14 @@ describe("the backups of a database [DB-008]", () => {
     expect(text()).toContain("80 kB");
     await click(buttonByText(document, "Back up now") as HTMLElement);
     await flush(5);
-    expect(posted.map((entry) => entry.path)).toEqual(["backup"]);
+    expect(posted.map((entry) => entry.path).filter((path) => path !== "globals")).toEqual([
+      "backup",
+    ]);
     expect(text()).toContain("The backup is planned");
+
+    // The roles of the instance, with their password hashes: listed for administrators.
+    expect(slot("database-globals")).not.toBeNull();
+    expect(buttonByText(document, "Download globals.sql")).not.toBeNull();
 
     await click(buttonByText(slot("database-backups") as ParentNode, "Restore") as HTMLElement);
     await flush(5);
@@ -128,15 +146,21 @@ describe("the backups of a database [DB-008]", () => {
     );
     await click(restore[restore.length - 1] as HTMLElement);
     await flush(5);
-    expect(posted.at(-1)).toEqual({ path: "restore", body: { backupId: "backup-1" } });
+    expect(posted.filter((entry) => entry.path === "restore")).toEqual([
+      { path: "restore", body: { backupId: "backup-1" } },
+    ]);
     expect(text()).toContain("The restore into “app_copy” is planned");
   });
 
   it("lets a restore operator read and download without the actions", async () => {
+    const asked: { path: string; body: unknown }[] = [];
     rendered = await render(<DatabasePage databaseId="db-1" />, {
-      routes: routes([]),
+      routes: routes(asked),
       session: sessionWithRole("tenant_restore"),
     });
+    // Never the globals: not shown, not even asked for.
+    expect(slot("database-globals")).toBeNull();
+    expect(asked.map((entry) => entry.path)).not.toContain("globals");
     expect(buttonByText(document, "Download")).not.toBeNull();
     expect(buttonByText(document, "Restore guide")).not.toBeNull();
     expect(buttonByText(document, "Back up now")).toBeNull();
@@ -148,5 +172,7 @@ describe("the backups of a database [DB-008]", () => {
     expect(restoreNameValid("a".repeat(64))).toBe(false);
     expect(restoreNameValid("ä".repeat(32))).toBe(false);
     expect(restoreNameValid(" app")).toBe(false);
+    expect(restoreNameValid("a\nb")).toBe(false);
+    expect(restoreNameValid("a\\'b")).toBe(true);
   });
 });
