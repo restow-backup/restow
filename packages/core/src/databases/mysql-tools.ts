@@ -326,10 +326,13 @@ const HEAD_MAX = 64 * 1024;
 /** How much of a line is enough to tell it is no DDL header (an `INSERT` passes at once). */
 const DECIDE_BYTES = 16;
 
-const QUOTED = "`(?:[^`]|``)*`";
+/** A quoted name: backticks, or double quotes as the dump programs write under ANSI_QUOTES. */
+const QUOTED = '(?:`(?:[^`]|``)*`|"(?:[^"]|"")*")';
+/** The routines' kinds, MariaDB's packages included (sql_mode ORACLE). */
+const ROUTINE_KINDS = "PROCEDURE|FUNCTION|AGGREGATE FUNCTION|PACKAGE BODY|PACKAGE";
 const DEFINER = `DEFINER=${QUOTED}(?:@${QUOTED})?`;
-const ROUTINE = new RegExp(`^CREATE (?:${DEFINER} )?(PROCEDURE|FUNCTION|AGGREGATE FUNCTION) `);
-const ROUTINE_DEFINER = new RegExp(`^CREATE ${DEFINER} (PROCEDURE |FUNCTION |AGGREGATE FUNCTION )`);
+const ROUTINE = new RegExp(`^CREATE (?:${DEFINER} )?(${ROUTINE_KINDS}) `);
+const ROUTINE_DEFINER = new RegExp(`^CREATE ${DEFINER} ((?:${ROUTINE_KINDS}) )`);
 const TRIGGER = new RegExp(
   `^/\\*!50003 CREATE\\*/ (?:/\\*!50017 ${DEFINER}\\s?\\*/ )?/\\*!50003 TRIGGER `,
 );
@@ -346,6 +349,9 @@ const VIEW_START = /^\/\*!50001 CREATE ALGORITHM=/;
 const VIEW_DEFINER = new RegExp(`^/\\*!50013 ${DEFINER} SQL SECURITY (DEFINER|INVOKER) \\*/\\s*$`);
 const VIEW_BODY = /^\/\*!50001 VIEW /;
 const EVENT_NAME_AT = "/*!50106 EVENT ";
+
+/** A character of an unquoted name or keyword (bytes over 0x7f read as latin1). */
+const WORD_CHAR = /[A-Za-z0-9_$\u0080-\u00ff]/;
 
 /** The end of the quoted word that starts at `start` (`…`, '…', "…"), or -1 when it is cut. */
 function quotedEnd(line: string, start: number): number {
@@ -389,9 +395,10 @@ export function mysqlDisableEvent(line: string, from: number): string | null {
       }
       continue;
     }
-    if (/[A-Za-z_]/.test(c)) {
+    if (WORD_CHAR.test(c)) {
+      // A word as MySQL reads an unquoted name: it may begin with a digit (`1DO` is no DO).
       let j = i;
-      while (j < line.length && /[A-Za-z0-9_$]/.test(line[j] as string)) {
+      while (j < line.length && WORD_CHAR.test(line[j] as string)) {
         j++;
       }
       if (j === line.length) {
@@ -552,32 +559,12 @@ export class MysqlDumpScanner {
 
   /**
    * The beginning of a line too long to hold (restore): a header form must be complete and
-   * rewritten within it, or the restore stops; any other line passes as it is.
+   * rewritten within it ({@link look} refuses any other), or the restore stops; any other line
+   * passes as it is.
    */
   private lookPrefix(prefix: string): string | null {
-    const header =
-      (this.viewLine > 0 && prefix.startsWith("/*!50013 ")) ||
-      (this.atStart &&
-        this.viewLine === 0 &&
-        ((prefix.startsWith("CREATE ") && !prefix.startsWith("CREATE TABLE ")) ||
-          prefix.startsWith("/*!50003 CREATE*/") ||
-          prefix.startsWith("/*!50106 CREATE*/")));
     const rewritten = this.look(prefix, true);
-    if (this.failure !== null) {
-      return null;
-    }
-    if (!header) {
-      return rewritten;
-    }
-    const checked =
-      /^CREATE (PROCEDURE|FUNCTION|AGGREGATE FUNCTION) /.test(rewritten) ||
-      rewritten.startsWith("/*!50003 CREATE*/ /*!50003 TRIGGER ") ||
-      rewritten.startsWith("/*!50106 CREATE*/ /*!50106 EVENT ");
-    if (!checked) {
-      this.failure = "a statement header of the backup is longer than Restow checks";
-      return null;
-    }
-    return rewritten;
+    return this.failure === null ? rewritten : null;
   }
 
   private noteTail(piece: Buffer): void {
@@ -618,6 +605,10 @@ export class MysqlDumpScanner {
       if (this.viewLine <= 3 && VIEW_BODY.test(line)) {
         this.bump("VIEW");
         this.viewLine = 0;
+        return line;
+      }
+      if (rewrite && this.viewLine <= 3 && line.startsWith("/*!50013 ")) {
+        return this.unchecked(line);
       }
       return line;
     }
@@ -626,6 +617,10 @@ export class MysqlDumpScanner {
     }
     if (line.startsWith("CREATE TABLE ")) {
       this.bump("TABLE");
+      return line;
+    }
+    if (line.startsWith("CREATE SEQUENCE ")) {
+      this.bump("SEQUENCE");
       return line;
     }
     if (VIEW_START.test(line)) {
@@ -672,6 +667,22 @@ export class MysqlDumpScanner {
       this.eventsDisabled++;
       return disabled;
     }
+    // Fail closed: a statement that begins like a header but in no form the dump programs write
+    // may carry a definer the filter cannot see.
+    if (
+      rewrite &&
+      (line.startsWith("CREATE ") ||
+        line.startsWith("/*!50003 CREATE*/") ||
+        line.startsWith("/*!50106 CREATE*/") ||
+        line.startsWith("/*!50013 "))
+    ) {
+      return this.unchecked(line);
+    }
+    return line;
+  }
+
+  private unchecked(line: string): string {
+    this.failure = "a statement header of the backup is in no form Restow checks";
     return line;
   }
 

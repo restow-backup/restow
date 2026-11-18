@@ -213,6 +213,20 @@ describe.each(SERVERS)(
         await app(`CREATE DEFINER=${owner} VIEW cheap AS SELECT id FROM orders`);
         await app(`CREATE DEFINER=${owner} PROCEDURE cleanup() BEGIN DELETE FROM legacy; END`);
         await app(`CREATE DEFINER=${owner} FUNCTION one() RETURNS INT DETERMINISTIC RETURN 1`);
+        // The dump programs write what was created under ANSI_QUOTES with double quotes, and
+        // MariaDB's sequences and packages (sql_mode ORACLE) in forms of their own.
+        await app("SET SESSION sql_mode = 'ANSI_QUOTES'");
+        await app(`CREATE DEFINER=${owner} FUNCTION "two"() RETURNS INT DETERMINISTIC RETURN 2`);
+        await app("SET SESSION sql_mode = DEFAULT");
+        if (engine === "mariadb") {
+          await app("CREATE SEQUENCE ticket_seq START WITH 5");
+          await app("SET SESSION sql_mode = ORACLE");
+          await app(`CREATE DEFINER=${owner} PACKAGE pk AS FUNCTION f RETURN INT; END`);
+          await app(
+            `CREATE DEFINER=${owner} PACKAGE BODY pk AS FUNCTION f RETURN INT AS BEGIN RETURN 3; END; END`,
+          );
+          await app("SET SESSION sql_mode = DEFAULT");
+        }
         await app(
           `CREATE DEFINER=${owner} TRIGGER stamp BEFORE INSERT ON orders FOR EACH ROW SET NEW.item = NEW.item`,
         );
@@ -322,9 +336,10 @@ describe.each(SERVERS)(
           TABLE: 2,
           VIEW: 1,
           PROCEDURE: 1,
-          FUNCTION: 1,
+          FUNCTION: 2,
           TRIGGER: 1,
           EVENT: 1,
+          ...(engine === "mariadb" ? { SEQUENCE: 1, PACKAGE: 1, "PACKAGE BODY": 1 } : {}),
         });
         expect(users?.fileName).toBe(`${engine}/users.sql`);
         const [full] = await db
@@ -360,11 +375,17 @@ describe.each(SERVERS)(
           name: copy,
         });
         expect(same).toMatchObject({ status: "succeeded" });
-        // The procedure, the function and the view (SQL SECURITY DEFINER), the trigger and the
-        // event run with the rights of the user who restored.
+        // The procedure, the functions, MariaDB's package and its body and the view (SQL
+        // SECURITY DEFINER), the trigger and the event run with the rights of the user who
+        // restored.
         expect(same.notes).toEqual([
-          expect.objectContaining({ result: "restored", eventsDisabled: 1, definerRights: 5 }),
+          expect.objectContaining({
+            result: "restored",
+            eventsDisabled: 1,
+            definerRights: engine === "mariadb" ? 8 : 6,
+          }),
         ]);
+        expect(await sql(`SELECT ${mysqlQuoteIdent(copy)}.two()`)).toEqual([["2"]]);
         // Restored before the event's time: had it come in enabled, it would fire in the copy.
         expect(Date.now()).toBeLessThan(fireAt);
         const c = mysqlQuoteIdent(copy);
@@ -391,6 +412,7 @@ describe.each(SERVERS)(
           "cheap",
           "legacy",
           "orders",
+          ...(engine === "mariadb" ? ["ticket_seq"] : []),
         ]);
         const [charset] = await sql(
           `SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '${copy}'`,
@@ -423,7 +445,8 @@ describe.each(SERVERS)(
           name: elsewhere,
         });
         expect(other).toMatchObject({ status: "succeeded" });
-        expect(other.notes[0]?.definersRemoved).toBeGreaterThanOrEqual(4);
+        // View, procedure, two functions, trigger, event, and MariaDB's package and body.
+        expect(other.notes[0]?.definersRemoved).toBe(engine === "mariadb" ? 8 : 6);
         expect(await sql(`SELECT COUNT(*) FROM ${mysqlQuoteIdent(elsewhere)}.orders`)).toEqual([
           ["2"],
         ]);

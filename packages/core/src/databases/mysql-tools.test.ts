@@ -8,6 +8,7 @@ import {
   MysqlDumpScanner,
   mysqlClientFailureCode,
   mysqlDefinerFilter,
+  mysqlDisableEvent,
   mysqlDumpArgs,
   mysqlOptionFile,
   mysqlRestoreArgs,
@@ -130,20 +131,106 @@ describe("the DEFINER filter of a restore [DB-008]", () => {
       // An INSERT that ends a line with ;; and a header-looking value in the next statement.
       "INSERT INTO `t` VALUES ('a;;');",
       "INSERT INTO `t` VALUES ('/*!50003 CREATE*/ /*!50017 DEFINER=`a`@`b`*/ /*!50003 TRIGGER');",
-      // A definer that is not quoted the way the dump programs quote it: unchanged.
-      "CREATE DEFINER=root@localhost PROCEDURE `p`()",
-      "BEGIN END;",
       // A header in the middle of a statement that has not ended.
       "CREATE TABLE `x` (",
       "CREATE DEFINER=`a`@`b` PROCEDURE `q`()",
-      ");",
-      // A view definer line outside a view statement.
       "/*!50013 DEFINER=`a`@`b` SQL SECURITY DEFINER */",
+      ");",
       "",
     ].join("\n");
     const { out, scanner } = scan(tricky, true);
     expect(out).toBe(tricky);
     expect(scanner.definersRemoved).toBe(0);
+    expect(scanner.failure).toBeNull();
+  });
+
+  it("stops at a statement that begins like a header in no form the dump programs write", () => {
+    for (const line of [
+      // A definer not quoted the way the dump programs quote it.
+      "CREATE DEFINER=root@localhost PROCEDURE `p`()",
+      "CREATE ALGORITHM=UNDEFINED DEFINER=`a`@`b` SQL SECURITY DEFINER VIEW `v` AS SELECT 1;",
+      "CREATE DEFINER=`a`@`b` TRIGGER `t` BEFORE INSERT ON `x` FOR EACH ROW SET @a = 1;",
+      "CREATE USER `x`@`%`;",
+      "/*!50003 CREATE*/ /*!50017 DEFINER=a@b*/ /*!50003 TRIGGER `t` BEFORE INSERT ON `x` FOR EACH ROW SET @a = 1 */;;",
+      "/*!50106 CREATE*/ /*!50117 DEFINER=a@b*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY DO SELECT 1 */ ;;",
+      // A view definer line outside a view statement.
+      "/*!50013 DEFINER=`a`@`b` SQL SECURITY DEFINER */",
+    ]) {
+      const { out, scanner } = scan(`SELECT 1;\n${line}\nINSERT INTO \`t\` VALUES (1);\n`, true);
+      expect(scanner.failure, line).toMatch(/header/);
+      expect(out).toBe("SELECT 1;\n");
+    }
+    // A view whose definer line is in no known form.
+    const view = scan(
+      "/*!50001 CREATE ALGORITHM=UNDEFINED */\n/*!50013 DEFINER=a@b SQL SECURITY DEFINER */\n/*!50001 VIEW `v` AS select 1 */;\n",
+      true,
+    );
+    expect(view.scanner.failure).toMatch(/header/);
+    // A backup only counts: nothing is refused there.
+    expect(
+      scan("CREATE DEFINER=root@localhost PROCEDURE `p`()\nBEGIN END;\n", false).scanner.failure,
+    ).toBeNull();
+  });
+
+  it("takes every form mysqldump and mariadb-dump write, ANSI_QUOTES and packages included", () => {
+    // As mariadb-dump 11.8 and mysqldump 8.4 write them (sql_mode ANSI_QUOTES and ORACLE).
+    const dump = [
+      "CREATE SEQUENCE `s1` start with 5 minvalue 1 maxvalue 9223372036854775806 increment by 1 cache 1000 nocycle ENGINE=InnoDB;",
+      "CREATE TABLE `t` (",
+      "  `id` int(11) DEFAULT NULL",
+      ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+      "/*!50001 CREATE VIEW `v` AS SELECT",
+      " 1 AS `id` */;",
+      "DELIMITER ;;",
+      '/*!50003 CREATE*/ /*!50017 DEFINER="root"@"localhost"*/ /*!50003 TRIGGER tr BEFORE INSERT ON t FOR EACH ROW SET NEW.id = NEW.id ',
+      "*/;;",
+      "DELIMITER ;",
+      "DELIMITER ;;",
+      "/*!50106 CREATE*/ /*!50117 DEFINER=`root`@`localhost`*/ /*!50106 EVENT `ev` ON SCHEDULE EVERY 1 DAY STARTS '2026-11-18 18:28:17' ON COMPLETION NOT PRESERVE ENABLE DO DELETE FROM t ",
+      "*/ ;;",
+      "DELIMITER ;",
+      "DELIMITER ;;",
+      'CREATE DEFINER="root"@"localhost" FUNCTION "fa"() RETURNS int(11)',
+      "RETURN 2 ;;",
+      "DELIMITER ;",
+      "DELIMITER ;;",
+      'CREATE DEFINER="root"@"localhost" PROCEDURE "pr"()',
+      "AS BEGIN NULL; END ;;",
+      "DELIMITER ;",
+      "DELIMITER ;;",
+      'CREATE DEFINER="root"@"localhost" PACKAGE "pk" AS FUNCTION f RETURN INT; END',
+      ";;",
+      "DELIMITER ;",
+      "DELIMITER ;;",
+      'CREATE DEFINER="ro""ot"@"localhost" PACKAGE BODY "pk" AS FUNCTION f RETURN INT AS BEGIN RETURN 1; END; END',
+      ";;",
+      "DELIMITER ;",
+      "/*!50001 CREATE ALGORITHM=UNDEFINED */",
+      "/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */",
+      "/*!50001 VIEW `v` AS select `t`.`id` AS `id` from `t` */;",
+      "",
+    ].join("\n");
+    for (const chunk of [0, 5]) {
+      const { out, scanner } = scan(dump, true, chunk);
+      expect(scanner.failure).toBeNull();
+      expect(scanner.counts).toEqual({
+        SEQUENCE: 1,
+        TABLE: 1,
+        TRIGGER: 1,
+        EVENT: 1,
+        FUNCTION: 1,
+        PROCEDURE: 1,
+        PACKAGE: 1,
+        "PACKAGE BODY": 1,
+        VIEW: 1,
+      });
+      expect(scanner.definersRemoved).toBe(7);
+      expect(out).not.toContain("DEFINER=");
+      expect(out).toContain('\nCREATE PACKAGE "pk" AS FUNCTION f RETURN INT; END\n');
+      expect(out).toContain('\nCREATE PACKAGE BODY "pk" AS FUNCTION');
+      expect(out).toContain("/*!50003 CREATE*/ /*!50003 TRIGGER tr BEFORE INSERT");
+      expect(out).toContain("NOT PRESERVE DISABLE DO DELETE FROM t ");
+    }
   });
 
   it("passes a long data line as it is and rewrites a long header within its beginning", () => {
@@ -218,6 +305,16 @@ describe("the DEFINER filter of a restore [DB-008]", () => {
     expect(
       check("ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE DISABLE ON SLAVE DO SELECT 1").line,
     ).toContain("DISABLE ON SLAVE DO SELECT 1");
+    // A name that begins with a digit is no DO (MySQL's rules for unquoted names).
+    expect(check("ON SCHEDULE EVERY 1 DAY COMMENT 'c' ENABLE DO SELECT 1DO, 2ENABLE").line).toBe(
+      "/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY COMMENT 'c' DISABLE DO SELECT 1DO, 2ENABLE */ ;;",
+    );
+    expect(mysqlDisableEvent("ON SCHEDULE AT 1DO ENABLE DO x", 0)).toBe(
+      "ON SCHEDULE AT 1DO DISABLE DO x",
+    );
+    expect(mysqlDisableEvent("ON SCHEDULE EVERY 1 DAY 9ENABLE DO x", 0)).toBe(
+      "ON SCHEDULE EVERY 1 DAY 9ENABLE DISABLE DO x",
+    );
     // A quote that does not end on the line: the header cannot be checked.
     const cut = check("ON SCHEDULE EVERY 1 DAY COMMENT 'open");
     expect(cut.scanner.failure).toMatch(/event/);
