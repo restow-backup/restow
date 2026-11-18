@@ -23,12 +23,17 @@ const (
 	scanDecideBytes = 16
 )
 
-const scanQuoted = "`(?:[^`]|``)*`"
+// scanQuoted is a quoted name: backticks, or double quotes as the dump
+// programs write under ANSI_QUOTES.
+const scanQuoted = "(?:`(?:[^`]|``)*`|\"(?:[^\"]|\"\")*\")"
+
+// scanRoutineKinds are the routines' kinds, MariaDB's packages included.
+const scanRoutineKinds = "PROCEDURE|FUNCTION|AGGREGATE FUNCTION|PACKAGE BODY|PACKAGE"
 
 var (
 	scanDefiner        = "DEFINER=" + scanQuoted + "(?:@" + scanQuoted + ")?"
-	scanRoutine        = regexp.MustCompile("^CREATE (?:" + scanDefiner + " )?(PROCEDURE|FUNCTION|AGGREGATE FUNCTION) ")
-	scanRoutineDefiner = regexp.MustCompile("^CREATE " + scanDefiner + " (PROCEDURE |FUNCTION |AGGREGATE FUNCTION )")
+	scanRoutine        = regexp.MustCompile("^CREATE (?:" + scanDefiner + " )?(" + scanRoutineKinds + ") ")
+	scanRoutineDefiner = regexp.MustCompile("^CREATE " + scanDefiner + " ((?:" + scanRoutineKinds + ") )")
 	scanTrigger        = regexp.MustCompile(`^/\*!50003 CREATE\*/ (?:/\*!50017 ` + scanDefiner + `\s?\*/ )?/\*!50003 TRIGGER `)
 	scanTriggerDefiner = regexp.MustCompile(`^(/\*!50003 CREATE\*/ )/\*!50017 ` + scanDefiner + `\s?\*/ (/\*!50003 TRIGGER )`)
 	scanEvent          = regexp.MustCompile(`^/\*!50106 CREATE\*/ (?:/\*!50117 ` + scanDefiner + `\s?\*/ )?/\*!50106 EVENT `)
@@ -36,14 +41,15 @@ var (
 	scanViewStart      = regexp.MustCompile(`^/\*!50001 CREATE ALGORITHM=`)
 	scanViewDefiner    = regexp.MustCompile(`^/\*!50013 ` + scanDefiner + ` SQL SECURITY (DEFINER|INVOKER) \*/\s*$`)
 	scanViewBody       = regexp.MustCompile(`^/\*!50001 VIEW `)
-	scanRoutineClean   = regexp.MustCompile(`^CREATE (PROCEDURE|FUNCTION|AGGREGATE FUNCTION) `)
 )
 
 const scanEventNameAt = "/*!50106 EVENT "
 
-func isWordStart(c byte) bool { return c == '_' || (c|0x20 >= 'a' && c|0x20 <= 'z') }
-
-func isWordByte(c byte) bool { return isWordStart(c) || c == '$' || (c >= '0' && c <= '9') }
+// isWordByte is a byte of an unquoted name or keyword; a name may begin with
+// a digit (1DO is no DO).
+func isWordByte(c byte) bool {
+	return c == '_' || c == '$' || (c >= '0' && c <= '9') || (c|0x20 >= 'a' && c|0x20 <= 'z') || c >= 0x80
+}
 
 // quotedEnd is the end of the quoted word that starts at start, or -1 when it
 // is cut.
@@ -82,7 +88,7 @@ func MysqlDisableEvent(line string, from int) (string, bool) {
 			if i < 0 {
 				return "", false
 			}
-		case isWordStart(c):
+		case isWordByte(c):
 			j := i
 			for j < len(line) && isWordByte(line[j]) {
 				j++
@@ -224,27 +230,11 @@ func (s *MysqlDumpScanner) End() []byte {
 }
 
 // lookPrefix handles the beginning of a line too long to hold (restore): a
-// header form must be complete and rewritten within it, or the restore stops.
+// header form must be complete and rewritten within it (look refuses any
+// other), or the restore stops.
 func (s *MysqlDumpScanner) lookPrefix(prefix string) (string, bool) {
-	header := (s.viewLine > 0 && strings.HasPrefix(prefix, "/*!50013 ")) ||
-		(s.atStart && s.viewLine == 0 &&
-			((strings.HasPrefix(prefix, "CREATE ") && !strings.HasPrefix(prefix, "CREATE TABLE ")) ||
-				strings.HasPrefix(prefix, "/*!50003 CREATE*/") ||
-				strings.HasPrefix(prefix, "/*!50106 CREATE*/")))
 	rewritten := s.look(prefix, true)
-	if s.Failure != "" {
-		return "", false
-	}
-	if !header {
-		return rewritten, true
-	}
-	if scanRoutineClean.MatchString(rewritten) ||
-		strings.HasPrefix(rewritten, "/*!50003 CREATE*/ /*!50003 TRIGGER ") ||
-		strings.HasPrefix(rewritten, "/*!50106 CREATE*/ /*!50106 EVENT ") {
-		return rewritten, true
-	}
-	s.Failure = "a statement header of the backup is longer than Restow checks"
-	return "", false
+	return rewritten, s.Failure == ""
 }
 
 func (s *MysqlDumpScanner) noteTail(piece []byte) {
@@ -290,6 +280,10 @@ func (s *MysqlDumpScanner) look(line string, rewrite bool) string {
 		if s.viewLine <= 3 && scanViewBody.MatchString(line) {
 			s.Counts["VIEW"]++
 			s.viewLine = 0
+			return line
+		}
+		if rewrite && s.viewLine <= 3 && strings.HasPrefix(line, "/*!50013 ") {
+			return s.unchecked(line)
 		}
 		return line
 	}
@@ -299,6 +293,8 @@ func (s *MysqlDumpScanner) look(line string, rewrite bool) string {
 	switch {
 	case strings.HasPrefix(line, "CREATE TABLE "):
 		s.Counts["TABLE"]++
+	case strings.HasPrefix(line, "CREATE SEQUENCE "):
+		s.Counts["SEQUENCE"]++
 	case scanViewStart.MatchString(line):
 		s.viewLine = 1
 	case scanRoutine.MatchString(line):
@@ -336,7 +332,17 @@ func (s *MysqlDumpScanner) look(line string, rewrite bool) string {
 		}
 		s.EventsDisabled++
 		return disabled
+	case rewrite && (strings.HasPrefix(line, "CREATE ") || strings.HasPrefix(line, "/*!50003 CREATE*/") ||
+		strings.HasPrefix(line, "/*!50106 CREATE*/") || strings.HasPrefix(line, "/*!50013 ")):
+		// Fail closed: a statement that begins like a header but in no form the
+		// dump programs write may carry a definer the filter cannot see.
+		return s.unchecked(line)
 	}
+	return line
+}
+
+func (s *MysqlDumpScanner) unchecked(line string) string {
+	s.Failure = "a statement header of the backup is in no form Restow checks"
 	return line
 }
 

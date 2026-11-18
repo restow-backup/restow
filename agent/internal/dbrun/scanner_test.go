@@ -101,15 +101,13 @@ func TestDefinerFilterTouchesOnlyHeaderForms(t *testing.T) {
 	tricky := strings.Join([]string{
 		"INSERT INTO `t` VALUES ('a;;');",
 		"INSERT INTO `t` VALUES ('/*!50003 CREATE*/ /*!50017 DEFINER=`a`@`b`*/ /*!50003 TRIGGER');",
-		"CREATE DEFINER=root@localhost PROCEDURE `p`()",
-		"BEGIN END;",
 		"CREATE TABLE `x` (",
 		"CREATE DEFINER=`a`@`b` PROCEDURE `q`()",
-		");",
 		"/*!50013 DEFINER=`a`@`b` SQL SECURITY DEFINER */",
+		");",
 		"",
 	}, "\n")
-	if got, s := scanAll(tricky, true, 3); got != tricky || s.DefinersRemoved != 0 {
+	if got, s := scanAll(tricky, true, 3); got != tricky || s.DefinersRemoved != 0 || s.Failure != "" {
 		t.Fatalf("a look-alike was rewritten: %q", got)
 	}
 	blob := "INSERT INTO `t` VALUES (0x" + strings.Repeat("ab", 200000) + ");"
@@ -207,6 +205,83 @@ func TestDefinerFilterStopsAtAHeaderItCannotCheck(t *testing.T) {
 }
 
 // claim: DB-008
+func TestDefinerFilterStopsAtAnUnknownHeaderForm(t *testing.T) {
+	for _, line := range []string{
+		"CREATE DEFINER=root@localhost PROCEDURE `p`()",
+		"CREATE ALGORITHM=UNDEFINED DEFINER=`a`@`b` SQL SECURITY DEFINER VIEW `v` AS SELECT 1;",
+		"CREATE DEFINER=`a`@`b` TRIGGER `t` BEFORE INSERT ON `x` FOR EACH ROW SET @a = 1;",
+		"CREATE USER `x`@`%`;",
+		"/*!50003 CREATE*/ /*!50017 DEFINER=a@b*/ /*!50003 TRIGGER `t` BEFORE INSERT ON `x` FOR EACH ROW SET @a = 1 */;;",
+		"/*!50106 CREATE*/ /*!50117 DEFINER=a@b*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY DO SELECT 1 */ ;;",
+		"/*!50013 DEFINER=`a`@`b` SQL SECURITY DEFINER */",
+	} {
+		out, s := scanAll("SELECT 1;\n"+line+"\nINSERT INTO `t` VALUES (1);\n", true, 0)
+		if !strings.Contains(s.Failure, "header") || out != "SELECT 1;\n" {
+			t.Fatalf("%q passed: %q", line, out)
+		}
+	}
+	if _, s := scanAll("/*!50001 CREATE ALGORITHM=UNDEFINED */\n/*!50013 DEFINER=a@b SQL SECURITY DEFINER */\n/*!50001 VIEW `v` AS select 1 */;\n", true, 0); s.Failure == "" {
+		t.Fatal("a view's unknown definer line passed")
+	}
+	if _, s := scanAll("CREATE DEFINER=root@localhost PROCEDURE `p`()\nBEGIN END;\n", false, 0); s.Failure != "" {
+		t.Fatal("a backup refused a line")
+	}
+}
+
+// claim: DB-008
+func TestDefinerFilterTakesEveryFormTheDumpProgramsWrite(t *testing.T) {
+	// As mariadb-dump 11.8 and mysqldump 8.4 write them (ANSI_QUOTES, ORACLE).
+	dump := strings.Join([]string{
+		"CREATE SEQUENCE `s1` start with 5 minvalue 1 maxvalue 9223372036854775806 increment by 1 cache 1000 nocycle ENGINE=InnoDB;",
+		"CREATE TABLE `t` (",
+		"  `id` int(11) DEFAULT NULL",
+		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+		"/*!50001 CREATE VIEW `v` AS SELECT",
+		" 1 AS `id` */;",
+		"DELIMITER ;;",
+		`/*!50003 CREATE*/ /*!50017 DEFINER="root"@"localhost"*/ /*!50003 TRIGGER tr BEFORE INSERT ON t FOR EACH ROW SET NEW.id = NEW.id `,
+		"*/;;",
+		"DELIMITER ;",
+		"DELIMITER ;;",
+		"/*!50106 CREATE*/ /*!50117 DEFINER=`root`@`localhost`*/ /*!50106 EVENT `ev` ON SCHEDULE EVERY 1 DAY STARTS '2026-11-18 18:28:17' ON COMPLETION NOT PRESERVE ENABLE DO DELETE FROM t ",
+		"*/ ;;",
+		"DELIMITER ;",
+		"DELIMITER ;;",
+		`CREATE DEFINER="root"@"localhost" FUNCTION "fa"() RETURNS int(11)`,
+		"RETURN 2 ;;",
+		"DELIMITER ;",
+		"DELIMITER ;;",
+		`CREATE DEFINER="root"@"localhost" PROCEDURE "pr"()`,
+		"AS BEGIN NULL; END ;;",
+		"DELIMITER ;",
+		"DELIMITER ;;",
+		`CREATE DEFINER="root"@"localhost" PACKAGE "pk" AS FUNCTION f RETURN INT; END`,
+		";;",
+		"DELIMITER ;",
+		"DELIMITER ;;",
+		`CREATE DEFINER="ro""ot"@"localhost" PACKAGE BODY "pk" AS FUNCTION f RETURN INT AS BEGIN RETURN 1; END; END`,
+		";;",
+		"DELIMITER ;",
+		"/*!50001 CREATE ALGORITHM=UNDEFINED */",
+		"/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */",
+		"/*!50001 VIEW `v` AS select `t`.`id` AS `id` from `t` */;",
+		"",
+	}, "\n")
+	want := map[string]int{"SEQUENCE": 1, "TABLE": 1, "TRIGGER": 1, "EVENT": 1, "FUNCTION": 1, "PROCEDURE": 1, "PACKAGE": 1, "PACKAGE BODY": 1, "VIEW": 1}
+	for _, chunk := range []int{0, 5} {
+		out, s := scanAll(dump, true, chunk)
+		if s.Failure != "" || !reflect.DeepEqual(s.Counts, want) || s.DefinersRemoved != 7 || strings.Contains(out, "DEFINER=") {
+			t.Fatalf("chunk %d: %q %v %d", chunk, s.Failure, s.Counts, s.DefinersRemoved)
+		}
+		for _, part := range []string{"\nCREATE PACKAGE \"pk\" AS FUNCTION f RETURN INT; END\n", "\nCREATE PACKAGE BODY \"pk\" AS", "/*!50003 CREATE*/ /*!50003 TRIGGER tr BEFORE", "NOT PRESERVE DISABLE DO DELETE FROM t "} {
+			if !strings.Contains(out, part) {
+				t.Fatalf("missing %q", part)
+			}
+		}
+	}
+}
+
+// claim: DB-008
 func TestDefinerFilterNeverCreatesAnEventEnabled(t *testing.T) {
 	event := func(rest string) string {
 		return "/*!50106 CREATE*/ /*!50117 DEFINER=`a`@`%`*/ /*!50106 EVENT `e` " + rest + " */ ;;"
@@ -228,6 +303,16 @@ func TestDefinerFilterNeverCreatesAnEventEnabled(t *testing.T) {
 		got, s := line(rest)
 		if got != "/*!50106 CREATE*/ /*!50106 EVENT `e` "+want+" */ ;;" || s.EventsDisabled != 1 {
 			t.Fatalf("%q became %q", rest, got)
+		}
+	}
+	// A name that begins with a digit is no DO (MySQL's rules for unquoted names).
+	for in, want := range map[string]string{
+		"ON SCHEDULE AT 1DO ENABLE DO x":          "ON SCHEDULE AT 1DO DISABLE DO x",
+		"ON SCHEDULE EVERY 1 DAY 9ENABLE DO x":    "ON SCHEDULE EVERY 1 DAY 9ENABLE DISABLE DO x",
+		"ENABLE DO SELECT 1DO, 2ENABLE FROM dual": "DISABLE DO SELECT 1DO, 2ENABLE FROM dual",
+	} {
+		if got, ok := MysqlDisableEvent(in, 0); !ok || got != want {
+			t.Fatalf("%q became %q", in, got)
 		}
 	}
 	if got, s := line("ON SCHEDULE EVERY 1 DAY COMMENT 'open"); !strings.Contains(s.Failure, "event") || strings.Contains(got, "EVENT") {

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -137,7 +138,23 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 		"CREATE DEFINER="+definer+" PROCEDURE add_order(IN n INT) BEGIN INSERT INTO orders (id, item) VALUES (n, 'x'); INSERT INTO audit VALUES (n); END",
 		"CREATE DEFINER="+definer+" TRIGGER orders_ai AFTER INSERT ON orders FOR EACH ROW INSERT INTO audit VALUES (NEW.id)",
 		"CREATE DEFINER="+definer+" EVENT fire ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 30 SECOND ON COMPLETION PRESERVE ENABLE DO INSERT INTO audit VALUES (42)",
+		// The dump programs write what was created under ANSI_QUOTES with
+		// double quotes, and MariaDB's sequences and packages in forms of their own.
+		"SET SESSION sql_mode = 'ANSI_QUOTES'",
+		"CREATE DEFINER="+definer+" FUNCTION \"two\"() RETURNS INT DETERMINISTIC RETURN 2",
+		"SET SESSION sql_mode = DEFAULT",
 	)
+	routines := 5 // view, procedure, function, trigger, event
+	if engine == "mariadb" {
+		env.exec(t,
+			"USE "+q(source),
+			"CREATE SEQUENCE ticket_seq START WITH 5",
+			"SET SESSION sql_mode = ORACLE",
+			"CREATE DEFINER="+definer+" PACKAGE pk AS FUNCTION f RETURN INT; END",
+			"CREATE DEFINER="+definer+" PACKAGE BODY pk AS FUNCTION f RETURN INT AS BEGIN RETURN 3; END; END",
+		)
+		routines += 2
+	}
 
 	repo := t.TempDir()
 	self, _ := os.Executable()
@@ -164,10 +181,12 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	if dump.Name != source || dump.FileName != engine+"/"+source+".sql" || dump.OID != nil || len(dump.SHA256) != 64 {
 		t.Fatalf("dump %+v", dump)
 	}
-	for kind, n := range map[string]int{"TABLE": 2, "VIEW": 1, "PROCEDURE": 1, "TRIGGER": 1, "EVENT": 1} {
-		if dump.Objects[kind] != n {
-			t.Fatalf("objects %v", dump.Objects)
-		}
+	objects := map[string]int{"TABLE": 2, "VIEW": 1, "PROCEDURE": 1, "FUNCTION": 1, "TRIGGER": 1, "EVENT": 1}
+	if engine == "mariadb" {
+		objects["SEQUENCE"], objects["PACKAGE"], objects["PACKAGE BODY"] = 1, 1, 1
+	}
+	if !reflect.DeepEqual(dump.Objects, objects) {
+		t.Fatalf("objects %v", dump.Objects)
 	}
 	if dump.EngineOptions == nil || dump.EngineOptions.CharacterSet != "utf8mb4" || dump.EngineOptions.Collation != "utf8mb4_unicode_ci" {
 		t.Fatalf("engine options %+v", dump.EngineOptions)
@@ -228,9 +247,10 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	if done.Status != "succeeded" || done.Error != nil {
 		t.Fatalf("restore: %+v %+v", done, done.Error)
 	}
-	// The view, the procedure (SQL SECURITY DEFINER), the trigger and the
-	// event run with the rights of the user who restored.
-	if n := done.Notes[len(done.Notes)-1]; n["definersRemoved"] != 4 || n["eventsDisabled"] != 1 || n["definerRights"] != 4 {
+	// The view, the procedure, the function, MariaDB's package and body (SQL
+	// SECURITY DEFINER), the trigger and the event run with the rights of the
+	// user who restored.
+	if n := done.Notes[len(done.Notes)-1]; n["definersRemoved"] != routines || n["eventsDisabled"] != 1 || n["definerRights"] != routines {
 		t.Fatalf("notes %v", done.Notes)
 	}
 	// Restored before the event's time: had it come in enabled, it would fire.
