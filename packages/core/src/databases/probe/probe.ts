@@ -634,6 +634,91 @@ function connectedAddressOf(conn: DbConn): string | null {
   return remote && isIP(remote) !== 0 ? dbCanonicalAddress(remote) : null;
 }
 
+/** Where a pinned PostgreSQL connection goes (a stored connection, ../relay.ts). */
+export interface DbPinnedTarget {
+  host: string;
+  port: number;
+  allowUnencrypted: boolean;
+  /** The confirmed certificate; null only for a connection without TLS. */
+  pinnedFingerprintSha256: string | null;
+}
+
+/** A pinned PostgreSQL connection, after TLS and the certificate check, before any sign-in. */
+export type DbPinnedConnection =
+  | { ok: true; conn: DbConn; connectedAddress: string | null; tls: DbTlsFacts }
+  | { ok: false; code: DbErrorCode; message: string };
+
+/**
+ * Open a PostgreSQL connection the way the probe does (4.2, 16 "D3" O1): the address judged
+ * before connecting (private only with the installation flag or the approval's addresses), the
+ * name resolved through the guarded lookup, Restow's own database refused by the address
+ * reached, TLS negotiated and the confirmed certificate compared. Nothing of the sign-in has been
+ * sent when it returns; the caller signs in itself (`pgSignIn`) or hands the socket to a relay
+ * (`DbConn.detach`). The scope bounds the connect; the caller closes it.
+ */
+export async function openPinnedPostgres(
+  target: DbPinnedTarget,
+  options: DbServerProbeOptions,
+  scope: DbProbeScope,
+): Promise<DbPinnedConnection> {
+  const stepTimeoutMs = options.stepTimeoutMs ?? 5000;
+  const host = target.host;
+  const approved = options.approvedAddresses ?? [];
+  const allowAddress = (address: string) =>
+    isAddressAllowed(address, options.allowPrivateNetworks) ||
+    dbApprovedAddress({ addresses: [...approved] }, address);
+  const name = normalizeHost(host);
+  const refused = options.connect
+    ? false
+    : isIP(name) !== 0
+      ? !allowAddress(name)
+      : isLocalHostname(name) && !options.allowPrivateNetworks && approved.length === 0;
+  const fail = (failure: ProbeFailure): DbPinnedConnection => ({
+    ok: false,
+    code: failure.code,
+    message: failure.message,
+  });
+  if (refused) {
+    return fail(failureOf(new BlockedAddressError(host), host));
+  }
+  let conn: DbConn | null = null;
+  try {
+    conn = await DbConn.open({
+      host,
+      port: target.port,
+      timeoutMs: stepTimeoutMs,
+      scope,
+      lookup: options.lookup ?? guardedLookupWith(allowAddress),
+      ...(options.connect ? { connect: options.connect } : {}),
+    });
+    assertNotRestow(conn, options);
+    conn.write(PG_SSL_REQUEST);
+    const answer = (await conn.read(1)).readUInt8(0);
+    if (answer !== 0x53 && answer !== 0x4e) {
+      throw new ProbeFailure("db_engine_changed", "The address does not answer as PostgreSQL.");
+    }
+    const spec = {
+      allowUnencrypted: target.allowUnencrypted,
+      pinnedFingerprintSha256: target.pinnedFingerprintSha256,
+    } as DbProbeSpec;
+    if (answer === 0x53) {
+      await conn.startTls(isIP(host) === 0 ? host : null);
+    } else if (!plaintextAllowed(conn, spec)) {
+      throw tlsMissing();
+    }
+    assertPinned(conn, spec);
+    return {
+      ok: true,
+      conn,
+      connectedAddress: connectedAddressOf(conn),
+      tls: { offered: answer === 0x53, ...conn.tls },
+    };
+  } catch (error) {
+    conn?.close();
+    return fail(failureOf(error, host));
+  }
+}
+
 /** The engines a probe may report for a URL scheme (a `mysql://` URL may reach MariaDB). */
 export function dbEngineMatchesHint(hint: DbEngine | null, engine: DbEngine): boolean {
   if (hint === null || hint === engine) {

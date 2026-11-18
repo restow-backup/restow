@@ -75,6 +75,11 @@ export class DbProbeScope {
     socket.once("close", () => this.sockets.delete(socket));
   }
 
+  /** Hand a socket on (a relay, ../relay.ts): the scope no longer destroys it. */
+  release(socket: Socket): void {
+    this.sockets.delete(socket);
+  }
+
   /** Count bytes received; false once the probe's read budget is spent. */
   consume(bytes: number): boolean {
     this.received += bytes;
@@ -156,6 +161,8 @@ function probeTimeout(): DbConnError {
 
 export class DbConn {
   private socket: Socket;
+  /** The plain socket under TLS, released together with it by {@link detach}. */
+  private plain: Socket | null = null;
   private chunks: Buffer[] = [];
   private buffered = 0;
   private ended = false;
@@ -438,6 +445,7 @@ export class DbConn {
         );
       });
     });
+    this.plain = plain;
     this.socket = secure;
     this.chunks = [];
     this.buffered = 0;
@@ -458,5 +466,27 @@ export class DbConn {
 
   close(): void {
     this.socket.destroy();
+  }
+
+  /**
+   * Give up the socket (TLS or plain) for a relay (../relay.ts): its listeners are removed and
+   * the probe's scope no longer tracks it. Refused while bytes the probe has not read are
+   * waiting, so nothing is lost or reordered.
+   */
+  detach(): Socket {
+    if (this.buffered > 0 || this.failure || this.ended) {
+      throw new DbConnError("closed", "the connection cannot be handed on");
+    }
+    const socket = this.socket;
+    socket.removeAllListeners("data");
+    socket.removeAllListeners("end");
+    socket.removeAllListeners("close");
+    socket.removeAllListeners("error");
+    socket.pause();
+    this.options.scope?.release(socket);
+    if (this.plain) {
+      this.options.scope?.release(this.plain);
+    }
+    return socket;
   }
 }
