@@ -126,7 +126,7 @@ describe("rights matrix (docs/DATABASES.md 3.2)", () => {
       "CREATE ROUTINE, ALTER ROUTINE, CREATE VIEW, REPLICATION SLAVE",
     );
     // SHOW VIEW, TRIGGER and EVENT once, SHOW_ROUTINE on MySQL 8.4.
-    expect(backupUser?.grantSql.match(/SHOW VIEW/g)).toHaveLength(1);
+    expect(backupUser?.grantSql?.match(/SHOW VIEW/g)).toHaveLength(1);
     expect(backupUser?.grantSql).toContain("RELOAD, SHOW_ROUTINE, CREATE,");
 
     const maria = evaluateDbRights(
