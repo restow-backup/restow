@@ -1108,7 +1108,15 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   muss die Form darin vollständig sein und wird darin umgeschrieben, sonst bricht der Restore
   mit `db_restore_unchecked` ab (der Client wird beendet, bevor er Gehaltenes ausführt, und das
   Schema des Laufs gelöscht); dasselbe gilt für einen Ereigniskopf, in dem `DO` nicht zu finden
-  ist. Der Lauf meldet `definersRemoved`, `eventsDisabled` und `definerRights`: wie viele Objekte
+  ist. **Unbekannte Formen:** beginnt eine Anweisung mit `CREATE ` (außer `CREATE TABLE` und
+  `CREATE SEQUENCE`), `/*!50003 CREATE*/`, `/*!50106 CREATE*/` oder `/*!50013 ` und passt auf keine
+  Form der Dump-Programme, bricht der Restore ebenso mit `db_restore_unchecked` ab. Bekannt sind
+  auch die Formen mit doppelten Anführungszeichen, die beide Programme für Objekte schreiben, die
+  unter `ANSI_QUOTES` angelegt wurden (`DEFINER="root"@"localhost"`), und MariaDBs Pakete
+  (`PACKAGE`, `PACKAGE BODY`, sql_mode `ORACLE`); geprüft an Dumps von mysqldump 8.4 und
+  mariadb-dump 11.8 und 10.6. Wörter im Kopf eines Ereignisses liest der Filter wie MySQL
+  unquotierte Namen, auch mit einer Ziffer am Anfang (`1DO` ist kein `DO`). Der Lauf meldet
+  `definersRemoved`, `eventsDisabled` und `definerRights`: wie viele Objekte
   mit den Rechten ihres Definers laufen (Routinen und Sichten mit `SQL SECURITY DEFINER`,
   Trigger, Ereignisse), nach dem Restore also mit denen des einspielenden Benutzers. Restow
   empfiehlt deshalb für Restores einen eigenen Benutzer mit genau den Rechten der Prüfung und
