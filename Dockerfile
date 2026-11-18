@@ -55,6 +55,8 @@
 
 # Go toolchain of the agent build: the image agent/tools.env names (GO_IMAGE).
 ARG GO_IMAGE=golang:1.27
+# The architecture being built (BuildKit sets it): picks the MySQL archive (stage mysql-tools).
+ARG TARGETARCH
 # The recovery lab (stage lab): its Debian image, pinned by digest, and its snapshot.debian.org
 # time (ARG LAB_SNAPSHOT below); scripts/docker/lab-sources.sh reads both from here.
 ARG LAB_DEBIAN_IMAGE=debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308
@@ -278,6 +280,56 @@ LABEL org.opencontainers.image.title="Restow demo seed" \
 ########################################
 # runtime-base — lean image shared by both builds' runtime targets
 ########################################
+# mysql-tools — the MySQL 8.4 client programs (docs/DATABASES.md 16 "D4" M2)
+########################################
+# mysqldump, mysql and mysqlbinlog of MySQL 8.4 LTS for the database runs of the Restow server,
+# unmodified from Oracle's generic Linux archives: pinned by SHA-256 (ADD --checksum), and the
+# archive's signature checked against Oracle's signing key kept in the repository
+# (scripts/docker/mysql-A8D3785C.asc, MySQL Release Engineering, fingerprint BCA4 3417 C3B4 85DD
+# 128E C6D4 B7B3 B788 A8D3 785C; exactly one key, its subkey only for encryption). Only the three
+# programs, the OpenSSL libraries they load from ../lib/private and Oracle's license file go into
+# /opt/mysql of the image. Oracle publishes a minimal archive (without debug symbols and tests)
+# only for x86_64; arm64 takes the full archive of the same release, of which the same files are
+# kept. Only the stage of the target architecture is built, so each build fetches one archive.
+# A signature from the pinned key counts after the key's expiry too (EXPKEYSIG): the archive is
+# pinned by its SHA-256 as well, and an old release must stay buildable.
+FROM base AS mysql-tools-amd64
+ADD --checksum=sha256:5dfbb764f731df40ef9e4f5d69aed32bdac8ba1af20bd96b7d40a942d83d4ed2 \
+    https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-linux-glibc2.28-x86_64-minimal.tar.xz /tmp/mysql.tar.xz
+ADD --checksum=sha256:61fb92ad2e55a1e2fbeaa92167171653027362c7da263aada2029b789fb4f3ec \
+    https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-linux-glibc2.28-x86_64-minimal.tar.xz.asc /tmp/mysql.tar.xz.asc
+
+FROM base AS mysql-tools-arm64
+ADD --checksum=sha256:6531bb50f64c986a2abdab6b647cbd553e8740b3e5d3867f5415e33568879fc9 \
+    https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-linux-glibc2.28-aarch64.tar.xz /tmp/mysql.tar.xz
+ADD --checksum=sha256:c5891e342dd4361df0cc9010aef17f760943dca2869f9185285c9123e84c2ddc \
+    https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-linux-glibc2.28-aarch64.tar.xz.asc /tmp/mysql.tar.xz.asc
+
+FROM mysql-tools-${TARGETARCH} AS mysql-tools
+ARG MYSQL_FINGERPRINT=BCA43417C3B485DD128EC6D4B7B3B788A8D3785C
+COPY scripts/docker/mysql-A8D3785C.asc /tmp/mysql-key.asc
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends gpg gpgv xz-utils; \
+    gpg --show-keys --with-colons /tmp/mysql-key.asc > /tmp/key.colons; \
+    test "$(grep -c '^pub:' /tmp/key.colons)" = 1; \
+    test "$(awk -F: '$1 == "sub" && $12 ~ /[sS]/' /tmp/key.colons | wc -l)" = 0; \
+    test "$(awk -F: '$1 == "fpr" { print $10; exit }' /tmp/key.colons)" = "$MYSQL_FINGERPRINT"; \
+    gpg --dearmor < /tmp/mysql-key.asc > /tmp/mysql-key.gpg; \
+    gpgv --keyring /tmp/mysql-key.gpg --status-fd 1 /tmp/mysql.tar.xz.asc /tmp/mysql.tar.xz > /tmp/verify.status; \
+    grep -Eq "^\[GNUPG:\] (GOODSIG|EXPKEYSIG) " /tmp/verify.status; \
+    test "$(awk '$2 == "VALIDSIG" { print $NF }' /tmp/verify.status)" = "$MYSQL_FINGERPRINT"; \
+    mkdir -p /tmp/mysql /rootfs/opt/mysql/bin /rootfs/opt/mysql/lib/private; \
+    tar -xJf /tmp/mysql.tar.xz -C /tmp/mysql --strip-components=1 --wildcards \
+      '*/bin/mysql' '*/bin/mysqldump' '*/bin/mysqlbinlog' \
+      '*/lib/private/libssl.so.3' '*/lib/private/libcrypto.so.3' '*/LICENSE' '*/README'; \
+    cp /tmp/mysql/bin/mysql /tmp/mysql/bin/mysqldump /tmp/mysql/bin/mysqlbinlog /rootfs/opt/mysql/bin/; \
+    cp /tmp/mysql/lib/private/libssl.so.3 /tmp/mysql/lib/private/libcrypto.so.3 /rootfs/opt/mysql/lib/private/; \
+    cp /tmp/mysql/LICENSE /tmp/mysql/README /rootfs/opt/mysql/; \
+    chown -R root:root /rootfs/opt/mysql; \
+    chmod -R go-w /rootfs/opt/mysql
+
+########################################
 # Everything of the application image except the /prod tree, its labels and the
 # build's ENV, which the two final stages below add.
 FROM base AS runtime-base
@@ -314,6 +366,43 @@ RUN set -eu; \
     rm -rf /var/lib/apt/lists/*; \
     pg_dump --version; \
     test -x "/usr/lib/postgresql/${PG_CLIENT_MAJOR}/bin/pg_restore"
+# The MariaDB client programs (mariadb-dump, mariadb) of MariaDB 11.8 LTS for the database runs
+# of the Restow server (docs/DATABASES.md 16 "D4" M2): from Debian when the base brings 11.8,
+# else from MariaDB's archive (deb.mariadb.org/11.8), whose signing key is kept in the repository
+# (scripts/docker/mariadb-C74CD1D8.asc, MariaDB Signing Key, fingerprint 177F 4010 FE56 CA33 3630
+# 0305 F165 6F24 C74C D1D8) and checked like the PGDG key: exactly one key, the pinned one, its
+# subkey only for encryption. Only the client package, no server. libncurses6 is what the MySQL
+# client of /opt/mysql needs besides its own OpenSSL.
+ARG MARIADB_SERIES=11.8
+ARG MARIADB_FINGERPRINT=177F4010FE56CA3336300305F1656F24C74CD1D8
+COPY scripts/docker/mariadb-C74CD1D8.asc /tmp/mariadb-key.asc
+RUN set -eu; \
+    apt-get update; \
+    candidate="$(apt-cache policy mariadb-client | awk '$1 == "Candidate:" { print $2 }')"; \
+    case "$candidate" in \
+      "1:${MARIADB_SERIES}."*) rm /tmp/mariadb-key.asc ;; \
+      *) \
+        apt-get install -y --no-install-recommends gpg; \
+        gpg --show-keys --with-colons /tmp/mariadb-key.asc > /tmp/mariadb.colons; \
+        test "$(grep -c '^pub:' /tmp/mariadb.colons)" = 1; \
+        test "$(awk -F: '$1 == "sub" && $12 ~ /[sS]/' /tmp/mariadb.colons | wc -l)" = 0; \
+        test "$(awk -F: '$1 == "fpr" { print $10; exit }' /tmp/mariadb.colons)" = "$MARIADB_FINGERPRINT"; \
+        rm -f /tmp/mariadb.colons; \
+        apt-get purge -y --auto-remove gpg; \
+        mv /tmp/mariadb-key.asc /etc/apt/keyrings/mariadb.asc; \
+        codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"; \
+        echo "deb [signed-by=/etc/apt/keyrings/mariadb.asc] https://deb.mariadb.org/${MARIADB_SERIES}/debian ${codename} main" > /etc/apt/sources.list.d/mariadb.list; \
+        apt-get update ;; \
+    esac; \
+    apt-get install -y --no-install-recommends mariadb-client libncurses6; \
+    rm -rf /var/lib/apt/lists/*; \
+    mariadb-dump --version | grep -q "from ${MARIADB_SERIES}\.[0-9]*-MariaDB"; \
+    mariadb --version
+COPY --from=mysql-tools /rootfs/ /
+RUN set -eu; \
+    /opt/mysql/bin/mysqldump --version | grep -q "Ver 8\.4\."; \
+    /opt/mysql/bin/mysql --version; \
+    /opt/mysql/bin/mysqlbinlog --version
 ENV NODE_ENV=production \
     ROLE=api
 WORKDIR /prod

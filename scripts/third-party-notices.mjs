@@ -115,6 +115,22 @@ function components() {
         "https://www.postgresql.org. pg_dump, pg_dumpall and pg_restore of the newest major version, with libpq, installed unmodified from the PGDG archive (apt.postgresql.org, package postgresql-client-18) into the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 11).",
     },
     {
+      name: "MySQL client programs",
+      version: "8.4.13",
+      license: "GPL-2.0-only WITH Universal-FOSS-exception-1.0",
+      file: "licenses/mysql-LICENSE",
+      description:
+        "https://dev.mysql.com. mysqldump, mysql and mysqlbinlog of MySQL 8.4 LTS with the OpenSSL libraries they load, unmodified from Oracle's generic Linux archive (pinned by SHA-256 and checked against Oracle's signing key, scripts/docker/mysql-A8D3785C.asc) in /opt/mysql of the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 16 \"D4\"). The license file is Oracle's Licensing Information User Manual of that release, also in the image at /opt/mysql/LICENSE. The source code of the release is available from https://downloads.mysql.com/archives/community/ and https://github.com/mysql/mysql-server (tag mysql-8.4.13).",
+    },
+    {
+      name: "MariaDB client programs",
+      version: "11.8",
+      license: "GPL-2.0-only",
+      file: "licenses/mariadb-client-LICENSE",
+      description:
+        "https://mariadb.org. mariadb-dump and mariadb of MariaDB 11.8 LTS, installed unmodified from Debian when the base image brings 11.8, else from MariaDB's archive (deb.mariadb.org, signing key scripts/docker/mariadb-C74CD1D8.asc), package mariadb-client, into the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 16 \"D4\"). The package's own copyright file is in the image at /usr/share/doc/mariadb-client/copyright. The source code is available as the source package of the same archive and from https://github.com/MariaDB/server.",
+    },
+    {
       name: "shadcn/ui",
       version: "",
       license: "MIT",
