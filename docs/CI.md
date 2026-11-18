@@ -332,8 +332,10 @@ image).
      multi-arch manifest per image, the demo images with the same tags), the cosign
      signatures of all seven images (the recovery lab with one platform), an SBOM per image
      and architecture, the Debian sources of the recovery lab image
-     (`restow-lab_<version>_sources.tar` and `.txt`, `scripts/docker/lab-sources.sh`), and
-     publishes the draft release.
+     (`restow-lab_<version>_sources.tar` and `.txt`, `scripts/docker/lab-sources.sh`), the
+     source code of the MySQL and MariaDB client programs in the application images
+     (`restow-db-clients_<version>_sources.tar` and `.txt`, `scripts/docker/db-client-sources.sh`,
+     GPL-2.0), and publishes the draft release.
 4. Docker tags (`scripts/ci/release-lib.mjs`): `0.x.y` gets
    `:<version>` and `:beta`; from 1.0.0 a stable release gets `:<version>`, `:MAJOR.MINOR`,
    `:MAJOR` and `:latest`; a pre-release (`-rc.N`) gets only `:<version>`. A 0.x release is

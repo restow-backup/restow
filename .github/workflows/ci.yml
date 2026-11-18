@@ -390,7 +390,8 @@ jobs:
             # MySQL 8.4 in /opt/mysql (only its three programs) and MariaDB 11.8 (16 "D4" M2).
             docker run --rm --entrypoint sh "$image" -c '
               set -eu
-              /opt/mysql/bin/mysqldump --version | grep -q "Ver 8\.4\."
+              grep -Eqx "8\.4\.[0-9]+" /opt/mysql/VERSION
+              /opt/mysql/bin/mysqldump --version | grep -q "Ver $(cat /opt/mysql/VERSION) "
               /opt/mysql/bin/mysql --version
               /opt/mysql/bin/mysqlbinlog --version
               test "$(ls /opt/mysql/bin | tr "\n" " ")" = "mysql mysqlbinlog mysqldump "

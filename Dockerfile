@@ -288,9 +288,12 @@ LABEL org.opencontainers.image.title="Restow demo seed" \
 # (scripts/docker/mysql-A8D3785C.asc, MySQL Release Engineering, fingerprint BCA4 3417 C3B4 85DD
 # 128E C6D4 B7B3 B788 A8D3 785C; exactly one key, its subkey only for encryption). Only the three
 # programs, the OpenSSL libraries they load from ../lib/private and Oracle's license file go into
-# /opt/mysql of the image. Oracle publishes a minimal archive (without debug symbols and tests)
-# only for x86_64; arm64 takes the full archive of the same release, of which the same files are
-# kept. Only the stage of the target architecture is built, so each build fetches one archive.
+# /opt/mysql of the image, with /opt/mysql/VERSION, the release taken from the archive's folder
+# name (scripts/docker/db-client-sources.sh attaches its source code to the release). Oracle
+# publishes a minimal archive (without debug symbols and tests) only for x86_64; arm64 takes the
+# full archive of the same release, of which the same files are kept and stripped of their
+# symbols (strip --strip-unneeded; the dynamic symbols stay), so both images carry about the same
+# size. Only the stage of the target architecture is built, so each build fetches one archive.
 # A signature from the pinned key counts after the key's expiry too (EXPKEYSIG): the archive is
 # pinned by its SHA-256 as well, and an old release must stay buildable.
 FROM base AS mysql-tools-amd64
@@ -306,11 +309,12 @@ ADD --checksum=sha256:c5891e342dd4361df0cc9010aef17f760943dca2869f9185285c9123e8
     https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13-linux-glibc2.28-aarch64.tar.xz.asc /tmp/mysql.tar.xz.asc
 
 FROM mysql-tools-${TARGETARCH} AS mysql-tools
+ARG TARGETARCH
 ARG MYSQL_FINGERPRINT=BCA43417C3B485DD128EC6D4B7B3B788A8D3785C
 COPY scripts/docker/mysql-A8D3785C.asc /tmp/mysql-key.asc
 RUN set -eu; \
     apt-get update; \
-    apt-get install -y --no-install-recommends gpg gpgv xz-utils; \
+    apt-get install -y --no-install-recommends gpg gpgv xz-utils binutils; \
     gpg --show-keys --with-colons /tmp/mysql-key.asc > /tmp/key.colons; \
     test "$(grep -c '^pub:' /tmp/key.colons)" = 1; \
     test "$(awk -F: '$1 == "sub" && $12 ~ /[sS]/' /tmp/key.colons | wc -l)" = 0; \
@@ -320,12 +324,21 @@ RUN set -eu; \
     grep -Eq "^\[GNUPG:\] (GOODSIG|EXPKEYSIG) " /tmp/verify.status; \
     test "$(awk '$2 == "VALIDSIG" { print $NF }' /tmp/verify.status)" = "$MYSQL_FINGERPRINT"; \
     mkdir -p /tmp/mysql /rootfs/opt/mysql/bin /rootfs/opt/mysql/lib/private; \
-    tar -xJf /tmp/mysql.tar.xz -C /tmp/mysql --strip-components=1 --wildcards \
+    tar -xJf /tmp/mysql.tar.xz -C /tmp/mysql --wildcards \
       '*/bin/mysql' '*/bin/mysqldump' '*/bin/mysqlbinlog' \
       '*/lib/private/libssl.so.3' '*/lib/private/libcrypto.so.3' '*/LICENSE' '*/README'; \
-    cp /tmp/mysql/bin/mysql /tmp/mysql/bin/mysqldump /tmp/mysql/bin/mysqlbinlog /rootfs/opt/mysql/bin/; \
-    cp /tmp/mysql/lib/private/libssl.so.3 /tmp/mysql/lib/private/libcrypto.so.3 /rootfs/opt/mysql/lib/private/; \
-    cp /tmp/mysql/LICENSE /tmp/mysql/README /rootfs/opt/mysql/; \
+    set -- /tmp/mysql/mysql-*; \
+    test "$#" = 1; \
+    dir="$1"; \
+    version="$(basename "$dir" | sed -n 's/^mysql-\([0-9]*\.[0-9]*\.[0-9]*\)-linux-.*/\1/p')"; \
+    test -n "$version"; \
+    cp "$dir/bin/mysql" "$dir/bin/mysqldump" "$dir/bin/mysqlbinlog" /rootfs/opt/mysql/bin/; \
+    cp "$dir/lib/private/libssl.so.3" "$dir/lib/private/libcrypto.so.3" /rootfs/opt/mysql/lib/private/; \
+    cp "$dir/LICENSE" "$dir/README" /rootfs/opt/mysql/; \
+    printf '%s\n' "$version" > /rootfs/opt/mysql/VERSION; \
+    if [ "$TARGETARCH" = arm64 ]; then \
+      strip --strip-unneeded /rootfs/opt/mysql/bin/* /rootfs/opt/mysql/lib/private/*; \
+    fi; \
     chown -R root:root /rootfs/opt/mysql; \
     chmod -R go-w /rootfs/opt/mysql
 
@@ -400,7 +413,8 @@ RUN set -eu; \
     mariadb --version
 COPY --from=mysql-tools /rootfs/ /
 RUN set -eu; \
-    /opt/mysql/bin/mysqldump --version | grep -q "Ver 8\.4\."; \
+    grep -Eqx '8\.4\.[0-9]+' /opt/mysql/VERSION; \
+    /opt/mysql/bin/mysqldump --version | grep -q "Ver $(cat /opt/mysql/VERSION) "; \
     /opt/mysql/bin/mysql --version; \
     /opt/mysql/bin/mysqlbinlog --version
 ENV NODE_ENV=production \

@@ -1037,6 +1037,18 @@ jobs:
           set -euo pipefail
           sh scripts/docker/lab-sources.sh --image "$LAB_AMD64" --version "$VERSION" --out assets
 
+      - name: The source code of the MySQL and MariaDB client programs in the application images (GPL-2.0)
+        env:
+          APP_AMD64: ${{ steps.tag.outputs.app_amd64 }}
+          APP_ARM64: ${{ steps.tag.outputs.app_arm64 }}
+          COMMUNITY_APP_AMD64: ${{ steps.tag.outputs.community_app_amd64 }}
+          COMMUNITY_APP_ARM64: ${{ steps.tag.outputs.community_app_arm64 }}
+        run: |
+          set -euo pipefail
+          sh scripts/docker/db-client-sources.sh --version "$VERSION" --out assets \
+            --image "$APP_AMD64" --image "$APP_ARM64" \
+            --image "$COMMUNITY_APP_AMD64" --image "$COMMUNITY_APP_ARM64"
+
       - name: The agent binaries (taken from the image that was smoke-tested)
         env:
           APP_AMD64: ${{ steps.tag.outputs.app_amd64 }}
@@ -1150,6 +1162,8 @@ jobs:
             echo "\`\`\`"
             echo
             echo "restow-recovery_${VERSION}_FIRMWARE-LICENSES.txt holds the licences of the non-free firmware in the image; restow-recovery_${VERSION}_sources.txt and restow-recovery_${VERSION}_sources.tar (in parts when large) are the source code of every package in it."
+            echo
+            echo "restow-db-clients_${VERSION}_sources.tar and restow-db-clients_${VERSION}_sources.txt are the source code of the MySQL and MariaDB client programs in the application images (GPL-2.0), of exactly the versions in them; restow-lab_${VERSION}_sources.tar and restow-lab_${VERSION}_sources.txt those of the Debian packages in the recovery lab image."
             echo
             echo "docker-compose.yml and env.example are the release stack (deploy/release/), docker-compose.worker.yml the stack of a worker node on another host (install.sh --join); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md

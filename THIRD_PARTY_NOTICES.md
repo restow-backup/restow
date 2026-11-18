@@ -35,7 +35,7 @@ https://go.dev/LICENSE. Linked into restow-agent, the endpoint agent that is bui
 
 ### MariaDB client programs 11.8
 
-https://mariadb.org. mariadb-dump and mariadb of MariaDB 11.8 LTS, installed unmodified from Debian when the base image brings 11.8, else from MariaDB's archive (deb.mariadb.org, signing key scripts/docker/mariadb-C74CD1D8.asc), package mariadb-client, into the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 16 "D4"). The package's own copyright file is in the image at /usr/share/doc/mariadb-client/copyright. The source code is available as the source package of the same archive and from https://github.com/MariaDB/server.
+https://mariadb.org. mariadb-dump and mariadb of MariaDB 11.8 LTS, installed unmodified from Debian when the base image brings 11.8, else from MariaDB's archive (deb.mariadb.org, signing key scripts/docker/mariadb-C74CD1D8.asc), package mariadb-client, into the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 16 "D4"). The package's own copyright file is in the image at /usr/share/doc/mariadb-client/copyright. The source code of exactly the installed version is attached to every Restow release (restow-db-clients_<version>_sources.tar): Debian's source package, or MariaDB's source archive of that release with its signature; it is also available from https://github.com/MariaDB/server.
 
 - License: GPL-2.0-only
 - Copyright: `Copyright (C) 1989, 1991 Free Software Foundation, Inc.,`
@@ -43,7 +43,7 @@ https://mariadb.org. mariadb-dump and mariadb of MariaDB 11.8 LTS, installed unm
 
 ### MySQL client programs 8.4.13
 
-https://dev.mysql.com. mysqldump, mysql and mysqlbinlog of MySQL 8.4 LTS with the OpenSSL libraries they load, unmodified from Oracle's generic Linux archive (pinned by SHA-256 and checked against Oracle's signing key, scripts/docker/mysql-A8D3785C.asc) in /opt/mysql of the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 16 "D4"). The license file is Oracle's Licensing Information User Manual of that release, also in the image at /opt/mysql/LICENSE. The source code of the release is available from https://downloads.mysql.com/archives/community/ and https://github.com/mysql/mysql-server (tag mysql-8.4.13).
+https://dev.mysql.com. mysqldump, mysql and mysqlbinlog of MySQL 8.4 LTS with the OpenSSL libraries they load, from Oracle's generic Linux archive (pinned by SHA-256 and checked against Oracle's signing key, scripts/docker/mysql-A8D3785C.asc; unmodified, on arm64 stripped of their symbols) in /opt/mysql of the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 16 "D4"). The license file is Oracle's Licensing Information User Manual of that release, also in the image at /opt/mysql/LICENSE. The source code of exactly this release, with Oracle's signature, is attached to every Restow release (restow-db-clients_<version>_sources.tar); it is also available from https://downloads.mysql.com/archives/community/ and https://github.com/mysql/mysql-server (tag mysql-8.4.13).
 
 - License: GPL-2.0-only WITH Universal-FOSS-exception-1.0
 - Copyright:

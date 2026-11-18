@@ -1149,11 +1149,20 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   vor dem Anmeldepaket geprüft.
 - **arm64:** Oracle bietet für MySQL 8.4 kein "minimal"-Archiv für aarch64 an; der Bau für arm64
   lädt das volle Archiv derselben Version (etwa 820 MB, festgelegt und signiert wie amd64) und
-  übernimmt dieselben Dateien, deren Programme dort Symbole enthalten (zusammen etwa 49 MB statt
-  24 MB). Lokal ist nur amd64 gebaut.
-- **Quelltext der GPL-Programme:** Die Clients von MySQL und MariaDB stehen unter der GPL 2.0; die
-  Drittanbieter-Hinweise nennen Lizenz und Bezugsquellen des Quelltexts. Ob die Veröffentlichung
-  zusätzlich den Quelltext selbst oder ein schriftliches Angebot mitliefern muss, ist zu klären.
+  übernimmt dieselben Dateien. Deren Symbole entfernt der Bau (`strip --strip-unneeded`, die
+  dynamischen Symbole bleiben): die fünf Dateien von 8.4.13 schrumpfen von 57,5 MB auf 35,1 MB.
+  Die Programme von amd64 bleiben unverändert wie im Archiv. Lokal ist nur amd64 gebaut.
+- **Quelltext der GPL-Programme:** Die Clients von MySQL und MariaDB stehen unter der GPL 2.0.
+  Jedes Release trägt ihren Quelltext als Anhang (`restow-db-clients_<v>_sources.tar` mit
+  `restow-db-clients_<v>_sources.txt`: Name, Version, Bezugsquelle), genau in den Versionen der
+  Images: `scripts/docker/db-client-sources.sh` liest `/opt/mysql/VERSION` (vom Bau aus dem
+  Ordnernamen des Archivs geschrieben) und die Pakete der Quelle `mariadb` aus dem dpkg-Status
+  aller vier Anwendungs-Images, ohne sie zu starten. MySQL kommt als Quellarchiv von Oracle mit
+  Signatur (geprüft gegen denselben Schlüssel wie die Programme), MariaDB aus Debian als
+  Debian-Quellpaket (`apt-get source`, von apt gegen die Signatur des Archivs geprüft), aus
+  MariaDBs Archiv als Quellarchiv des Release mit Signatur (deb.mariadb.org führt keine
+  Quellpakete). Für die Datenbank-Werkzeuge der Agenten (D7) gilt dasselbe, sobald sie
+  ausgeliefert werden.
 - **Objekte im Körper:** Sichten, Routinen und Trigger, deren Körper das Quellschema mit Namen
   nennen, zeigen nach einem Restore weiter auf das Quellschema (der Dump schreibt Namen so, wie
   sie definiert wurden).

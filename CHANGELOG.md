@@ -157,7 +157,9 @@ private repository.
   - The application images carry MySQL 8.4's `mysqldump`, `mysql` and `mysqlbinlog` in
     `/opt/mysql` (Oracle's archive, pinned by SHA-256 and checked against Oracle's key) and the
     MariaDB 11.8 client from MariaDB's archive (key pinned in the repository), about 120 MB per
-    image. Migration 0110 (`database_backups.engine_options`).
+    image; on arm64 the MySQL programs are stripped of their symbols. Every release carries the
+    source code of exactly these client versions (GPL-2.0) as `restow-db-clients_<v>_sources.tar`
+    and `.txt`. Migration 0110 (`database_backups.engine_options`).
 - Monthly billing close (Service Provider; integration API contract 1.11.0, additive): every
   tenant's billed quantities (protected mailboxes, stored data, servers, clients, VMs,
   containers, file shares) are sampled once a day, counted exactly like `GET /provider/billing`,
