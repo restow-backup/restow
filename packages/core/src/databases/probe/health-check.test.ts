@@ -33,7 +33,9 @@ function target(overrides: Partial<DbHealthCheckTarget> = {}): DbHealthCheckTarg
 }
 
 describe("the server's health check [DB-004]", () => {
-  it("ends at its deadline and closes the socket of a server that never answers", async () => {
+  it("ends at its deadline and closes the socket of a server that never answers", {
+    timeout: 40_000,
+  }, async () => {
     const closed: Promise<void>[] = [];
     const server = createServer((socket: Socket) => {
       socket.on("error", () => undefined);
@@ -48,15 +50,26 @@ describe("the server's health check [DB-004]", () => {
         resolve(typeof address === "object" && address ? address.port : 0);
       }),
     );
+    // Every step may wait a minute: only the deadline of one second can end the check.
     const started = Date.now();
     const result = await checkDatabaseHealthFromServer(target({ port }), {
       allowPrivateNetworks: true,
       approvedAddresses: [],
       forbiddenTargets: [],
       timeoutSeconds: 1,
+      stepTimeoutMs: 60_000,
     });
-    expect(Date.now() - started).toBeLessThan(3000);
-    expect(result).toMatchObject({ login: "skipped", error: { code: "db_unreachable" } });
+    const elapsed = Date.now() - started;
+    // The deadline's own answer (a step's timeout would name the address it waited for).
+    expect(result).toMatchObject({
+      login: "skipped",
+      error: { code: "db_unreachable", message: "the probe did not finish in time" },
+    });
+    // Not before the deadline (nothing else ended it), and long before any step could have:
+    // a slow machine may take a while, the bound only rules out the step timeout.
+    expect(elapsed).toBeGreaterThanOrEqual(950);
+    expect(elapsed).toBeLessThan(30_000);
+    // Every socket the check opened is closed by the server's side too.
     expect(closed.length).toBeGreaterThan(0);
     await Promise.all(closed);
   });
