@@ -20,19 +20,53 @@ import { DB_MAX_VALUE_BYTES } from "./postgres.js";
 export const MYSQL_MAX_READ = 1024 * 1024;
 const MYSQL_MAX_COLUMNS = 64;
 
-const CLIENT_LONG_PASSWORD = 0x1;
-const CLIENT_LONG_FLAG = 0x4;
-const CLIENT_CONNECT_WITH_DB = 0x8;
-const CLIENT_PROTOCOL_41 = 0x200;
-const CLIENT_SSL = 0x800;
-const CLIENT_TRANSACTIONS = 0x2000;
-const CLIENT_SECURE_CONNECTION = 0x8000;
-const CLIENT_PLUGIN_AUTH = 0x80000;
-const CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA = 0x200000;
+export const CLIENT_LONG_PASSWORD = 0x1;
+export const CLIENT_LONG_FLAG = 0x4;
+export const CLIENT_CONNECT_WITH_DB = 0x8;
+export const CLIENT_COMPRESS = 0x20;
+export const CLIENT_PROTOCOL_41 = 0x200;
+export const CLIENT_SSL = 0x800;
+export const CLIENT_TRANSACTIONS = 0x2000;
+export const CLIENT_SECURE_CONNECTION = 0x8000;
+export const CLIENT_PLUGIN_AUTH = 0x80000;
+export const CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA = 0x200000;
+export const CLIENT_ZSTD_COMPRESSION = 0x4000000;
 
 /** utf8mb4_general_ci: known to MySQL 5.5 and later and to every MariaDB. */
-const CHARSET_UTF8MB4 = 45;
+export const CHARSET_UTF8MB4 = 45;
 const MAX_PACKET = 16 * 1024 * 1024;
+
+/** The capabilities Restow's client asks for (and sends in the SSLRequest of the relay). */
+export const MYSQL_CLIENT_CAPABILITIES =
+  CLIENT_LONG_PASSWORD |
+  CLIENT_LONG_FLAG |
+  CLIENT_PROTOCOL_41 |
+  CLIENT_TRANSACTIONS |
+  CLIENT_SECURE_CONNECTION |
+  CLIENT_PLUGIN_AUTH |
+  CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA;
+
+/** The SSLRequest after `greeting` (sequence 1): the 32 fixed bytes of a login with CLIENT_SSL. */
+export function mysqlSslRequestPacket(greeting: MysqlGreeting): Buffer {
+  const capabilities =
+    (MYSQL_CLIENT_CAPABILITIES | CLIENT_SSL) & (greeting.capabilities | CLIENT_SSL);
+  const payload = Buffer.alloc(32);
+  payload.writeUInt32LE(capabilities >>> 0, 0);
+  payload.writeUInt32LE(MAX_PACKET, 4);
+  payload.writeUInt8(CHARSET_UTF8MB4, 8);
+  const header = Buffer.alloc(4);
+  header.writeUIntLE(payload.length, 0, 3);
+  header.writeUInt8(1, 3);
+  return Buffer.concat([header, payload]);
+}
+
+/** `xor` of the password (with its NUL) and the scramble, encrypted with the server's RSA key. */
+export function mysqlRsaPassword(passwordWithNul: Buffer, scramble: Buffer, pem: string): Buffer {
+  return publicEncrypt(
+    { key: pem, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha1" },
+    xor(passwordWithNul, scramble),
+  );
+}
 
 export class MysqlServerError extends Error {
   constructor(
@@ -274,6 +308,13 @@ export interface MysqlSession {
 
 /** Read the greeting of a fresh connection. */
 export async function mysqlReadGreeting(conn: DbConn): Promise<MysqlGreeting> {
+  return (await mysqlReadGreetingPacket(conn)).greeting;
+}
+
+/** The greeting with its payload as sent (the relay hands it on to the program). */
+export async function mysqlReadGreetingPacket(
+  conn: DbConn,
+): Promise<{ greeting: MysqlGreeting; payload: Buffer }> {
   const packets = new Packets(conn);
   const payload = await packets.read();
   if (payload.readUInt8(0) === 0xff) {
@@ -283,7 +324,7 @@ export async function mysqlReadGreeting(conn: DbConn): Promise<MysqlGreeting> {
   if (!greeting) {
     throw new MysqlServerError(0, "the server's greeting is not MySQL protocol 10");
   }
-  return greeting;
+  return { greeting, payload: Buffer.from(payload) };
 }
 
 export function mysqlOffersTls(greeting: MysqlGreeting): boolean {
@@ -302,10 +343,12 @@ export async function mysqlSignIn(
     password: string | null;
     database: string | null;
     startTls: (() => Promise<void>) | null;
+    /** The SSLRequest went out and TLS is up already (a pinned connection, ../relay.ts). */
+    tlsEstablished?: boolean;
   },
 ): Promise<MysqlSession> {
   const packets = new Packets(conn);
-  packets.sequence = 1;
+  packets.sequence = options.tlsEstablished ? 2 : 1;
   let capabilities =
     CLIENT_LONG_PASSWORD |
     CLIENT_LONG_FLAG |
@@ -317,7 +360,7 @@ export async function mysqlSignIn(
   if (options.database) {
     capabilities |= CLIENT_CONNECT_WITH_DB;
   }
-  const tls = options.startTls !== null;
+  const tls = options.startTls !== null || options.tlsEstablished === true;
   if (tls) {
     capabilities |= CLIENT_SSL;
   }
@@ -382,14 +425,11 @@ export async function mysqlSignIn(
           throw errorOf(keyPacket);
         }
         const pem = keyPacket.subarray(1, 16 * 1024).toString("latin1");
-        const plain = xor(
-          Buffer.concat([Buffer.from(password, "utf8"), Buffer.from([0])]),
-          scramble,
-        );
         packets.write(
-          publicEncrypt(
-            { key: pem, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha1" },
-            plain,
+          mysqlRsaPassword(
+            Buffer.concat([Buffer.from(password, "utf8"), Buffer.from([0])]),
+            scramble,
+            pem,
           ),
         );
         continue;
@@ -414,6 +454,8 @@ export const DB_MAX_GRANT_TOTAL_BYTES = 1024 * 1024;
 export interface MysqlQueryLimits {
   maxValueBytes: number;
   truncated: boolean;
+  /** At most this many rows (default {@link DB_MAX_DATABASES}); more is an error. */
+  maxRows?: number;
 }
 
 /** One text query; every value as text (null for NULL). */
@@ -443,7 +485,8 @@ export async function mysqlQuery(
   await packets.read();
   const rows: (string | null)[][] = [];
   // The probe's queries return at most DB_MAX_DATABASES rows; a server that sends more is cut off.
-  for (let index = 0; index <= DB_MAX_DATABASES + 1; index++) {
+  const maxRows = limits.maxRows ?? DB_MAX_DATABASES;
+  for (let index = 0; index <= maxRows + 1; index++) {
     const payload = await packets.read();
     const head = payload.readUInt8(0);
     if (head === 0xfe && payload.length < 9) {
@@ -473,7 +516,7 @@ export async function mysqlQuery(
         offset = next + value;
       }
     }
-    if (rows.length <= DB_MAX_DATABASES) {
+    if (rows.length <= maxRows) {
       rows.push(row);
     }
   }

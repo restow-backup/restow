@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import type { Writable } from "node:stream";
+import { MysqlDumpScanner } from "./mysql-tools.js";
 import { pgConninfoValue } from "./relay.js";
 
 /**
@@ -248,6 +249,13 @@ export interface DbStreamSpec {
   /** `pg_restore` for the table of contents (`--list` from stdin); null: none counted. */
   listTool: string | null;
   statsPath: string;
+  /** MySQL and MariaDB: count the objects from the dump's statement headers (16 "D4" M4). */
+  countMysql?: boolean;
+  /**
+   * Instead of a program: pass this file (0600 in the run's private directory, written by the
+   * executor, e.g. MySQL's users and grants); `tool` and `args` are not used.
+   */
+  inputFile?: string;
 }
 
 const STDERR_KEEP = 4096;
@@ -263,7 +271,13 @@ export async function runDbStream(spec: DbStreamSpec, out: Writable): Promise<nu
   const hash = createHash("sha256");
   let bytes = 0;
   let stderr = "";
-  const child = spawn(spec.tool, spec.args, { env: spec.env, stdio: ["ignore", "pipe", "pipe"] });
+  const scanner = spec.countMysql ? new MysqlDumpScanner() : null;
+  const child = spec.inputFile
+    ? spawn("/bin/cat", ["--", spec.inputFile], {
+        env: { PATH: "/usr/bin:/bin" },
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+    : spawn(spec.tool, spec.args, { env: spec.env, stdio: ["ignore", "pipe", "pipe"] });
   child.stderr.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_KEEP);
   });
@@ -302,6 +316,7 @@ export async function runDbStream(spec: DbStreamSpec, out: Writable): Promise<nu
     child.stdout.on("data", (chunk: Buffer) => {
       hash.update(chunk);
       bytes += chunk.length;
+      scanner?.push(chunk);
       const listIn = listerOpen && lister ? (lister as ReturnType<typeof spawn>).stdin : null;
       if (listIn) {
         // The table of contents is at the start; a lister that falls behind is not fed further,
@@ -334,7 +349,7 @@ export async function runDbStream(spec: DbStreamSpec, out: Writable): Promise<nu
     ok,
     bytes,
     sha256: hash.digest("hex"),
-    objects: countPgListEntries(listing),
+    objects: scanner ? { ...scanner.counts } : countPgListEntries(listing),
     exitCode,
     stderr: stderr.trim(),
     toolVersion: null,

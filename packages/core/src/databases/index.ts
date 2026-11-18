@@ -3,6 +3,7 @@ export * from "./facts.js";
 export * from "./health.js";
 export * from "./identity.js";
 export * from "./model.js";
+export * from "./mysql-tools.js";
 export * from "./network.js";
 export * from "./own-database.js";
 export * from "./pg-tools.js";

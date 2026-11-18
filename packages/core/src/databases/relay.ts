@@ -6,10 +6,26 @@ import { join } from "node:path";
 import type { DbTlsFacts } from "./facts.js";
 import type { DbErrorCode } from "./model.js";
 import { DbProbeScope } from "./probe/conn.js";
+import {
+  CLIENT_COMPRESS,
+  CLIENT_CONNECT_WITH_DB,
+  CLIENT_PLUGIN_AUTH,
+  CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA,
+  CLIENT_SECURE_CONNECTION,
+  CLIENT_SSL,
+  CLIENT_ZSTD_COMPRESSION,
+  isMysqlLoginError,
+  type MysqlGreeting,
+  mysqlQuery,
+  mysqlQuit,
+  mysqlRsaPassword,
+  mysqlSignIn,
+} from "./probe/mysql.js";
 import { isPgLoginError, pgQuery, pgSignIn, pgTerminate } from "./probe/postgres.js";
 import {
   type DbPinnedTarget,
   type DbServerProbeOptions,
+  openPinnedMysql,
   openPinnedPostgres,
 } from "./probe/probe.js";
 import { sanitizeDbMessage } from "./sanitize.js";
@@ -70,8 +86,16 @@ export interface PgRelay {
   readonly port: number;
   readonly connectedAddress: string | null;
   readonly tls: DbTlsFacts;
+  /** The socket's file inside {@link socketDir} (`.s.PGSQL.<port>`, MySQL `mysqld.sock`). */
+  readonly socketPath: string;
   /** Settles when the relay has ended and its directory is gone. */
-  readonly ended: Promise<{ reason: PgRelayEnd; bytesToServer: number; bytesToClient: number }>;
+  readonly ended: Promise<{
+    reason: PgRelayEnd;
+    bytesToServer: number;
+    bytesToClient: number;
+    /** Why the sign-in filter stopped the relay (MySQL: a sign-in Restow does not hand on). */
+    failure: { code: DbErrorCode; message: string } | null;
+  }>;
   /** End the relay now. */
   close(): void;
 }
@@ -141,23 +165,79 @@ export async function sweepStaleTempDirs(options: {
 
 /** Open the relay; a refused or failed pinned connect is answered with its code, nothing opened. */
 export async function openPgRelay(options: PgRelayOptions): Promise<PgRelayOpen> {
-  const started = Date.now();
-  const scope = new DbProbeScope(started + (options.connectTimeoutMs ?? 30_000));
+  const scope = new DbProbeScope(Date.now() + (options.connectTimeoutMs ?? 30_000));
   let upstream: Socket;
-  let connectedAddress: string | null;
-  let tls: DbTlsFacts;
+  let meta: RelayMeta;
   try {
     const pinned = await openPinnedPostgres(options.target, options.network, scope);
     if (!pinned.ok) {
       return pinned;
     }
     upstream = pinned.conn.detach();
-    connectedAddress = pinned.connectedAddress;
-    tls = pinned.tls;
+    meta = { connectedAddress: pinned.connectedAddress, tls: pinned.tls };
   } finally {
     // The relayed socket was released from the scope; anything else it opened is closed.
     scope.close();
   }
+  return relayOver(upstream, meta, options, `.s.PGSQL.${PG_RELAY_PORT}`, () => {
+    // Until the sign-in is through, the server's messages are read one by one: the relay ends
+    // TLS, so the program cannot bind SCRAM to it and refuses SCRAM-SHA-256-PLUS on its plain
+    // socket; the relay offers it the plain mechanism instead (the certificate is pinned here).
+    const filter = new PgSignInFilter();
+    return {
+      first: null,
+      fromClient: (chunk) => ({ toServer: chunk, toClient: EMPTY, failure: null, done: false }),
+      fromServer: (chunk) => {
+        const step = filter.push(chunk);
+        return {
+          toClient: step.out,
+          toServer: EMPTY,
+          failure: step.error
+            ? { code: "db_probe_failed", message: "the server's sign-in could not be read" }
+            : null,
+          done: step.done,
+        };
+      },
+    };
+  });
+}
+
+const EMPTY = Buffer.alloc(0);
+
+interface RelayMeta {
+  connectedAddress: string | null;
+  tls: DbTlsFacts;
+}
+
+/** One step of a sign-in filter: what goes on either way, and whether it is through. */
+export interface RelayStep {
+  toServer: Buffer;
+  toClient: Buffer;
+  failure: { code: DbErrorCode; message: string } | null;
+  done: boolean;
+}
+
+/** How the relay treats the sign-in of an engine, until it is through. */
+interface SignInStage {
+  /** Bytes for the program right after it connected (MySQL: the server's greeting). */
+  first: Buffer | null;
+  fromClient(chunk: Buffer): RelayStep;
+  fromServer(chunk: Buffer): RelayStep;
+}
+
+/**
+ * The relay over a pinned, detached `upstream` (both engines): the socket in its private
+ * directory, one client, the sign-in through `stage`, then the bytes either way with back
+ * pressure; the timers and the end as described at the top of this file.
+ */
+async function relayOver(
+  upstream: Socket,
+  meta: RelayMeta,
+  options: Pick<PgRelayOptions, "acceptTimeoutMs" | "idleTimeoutMs" | "maxDurationMs" | "baseDir">,
+  socketName: string,
+  stage: () => SignInStage,
+): Promise<PgRelayOpen> {
+  const started = Date.now();
   let socketDir: string;
   try {
     socketDir = await privateTempDir("restow-pg-relay-", options.baseDir);
@@ -169,11 +249,12 @@ export async function openPgRelay(options: PgRelayOptions): Promise<PgRelayOpen>
       message: `no directory for the relay: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  const socketPath = join(socketDir, `.s.PGSQL.${PG_RELAY_PORT}`);
+  const socketPath = join(socketDir, socketName);
   const server: Server = createServer({ pauseOnConnect: true });
   server.maxConnections = 1;
   let client: Socket | null = null;
   let reason: PgRelayEnd | null = null;
+  let failure: { code: DbErrorCode; message: string } | null = null;
   let bytesToServer = 0;
   let bytesToClient = 0;
   let resolveEnded: (value: Awaited<PgRelay["ended"]>) => void = () => undefined;
@@ -194,7 +275,7 @@ export async function openPgRelay(options: PgRelayOptions): Promise<PgRelayOpen>
     server.close();
     void rm(socketDir, { recursive: true, force: true })
       .catch(() => undefined)
-      .then(() => resolveEnded({ reason: why, bytesToServer, bytesToClient }));
+      .then(() => resolveEnded({ reason: why, bytesToServer, bytesToClient, failure }));
   };
   upstream.once("error", () => finish("error"));
   upstream.once("close", () => finish(client ? "server_closed" : "closed"));
@@ -219,27 +300,39 @@ export async function openPgRelay(options: PgRelayOptions): Promise<PgRelayOpen>
     });
     socket.once("error", () => finish("error"));
     socket.once("close", () => finish("client_closed"));
-    // `pipe` waits for the other side to drain: no unbounded buffering.
-    socket.pipe(upstream, { end: false });
-    // Until the sign-in is through, the server's messages are read one by one: the relay ends
-    // TLS, so the program cannot bind SCRAM to it and refuses SCRAM-SHA-256-PLUS on its plain
-    // socket; the relay offers it the plain mechanism instead (the certificate is pinned here).
-    const signIn = new PgSignInFilter();
-    const onSignIn = (chunk: Buffer) => {
-      const step = signIn.push(chunk);
-      if (step.error) {
+    const signIn = stage();
+    let through = false;
+    const apply = (step: RelayStep) => {
+      if (reason !== null) {
+        return;
+      }
+      if (step.failure) {
+        failure = step.failure;
         finish("error");
         return;
       }
-      if (step.out.length > 0) {
-        socket.write(step.out);
+      if (step.toServer.length > 0) {
+        upstream.write(step.toServer);
       }
-      if (step.done) {
-        upstream.off("data", onSignIn);
+      if (step.toClient.length > 0) {
+        socket.write(step.toClient);
+      }
+      if (step.done && !through) {
+        through = true;
+        socket.off("data", onClient);
+        upstream.off("data", onServer);
+        // `pipe` waits for the other side to drain: no unbounded buffering.
+        socket.pipe(upstream, { end: false });
         upstream.pipe(socket, { end: false });
       }
     };
-    upstream.on("data", onSignIn);
+    const onClient = (chunk: Buffer) => apply(signIn.fromClient(chunk));
+    const onServer = (chunk: Buffer) => apply(signIn.fromServer(chunk));
+    socket.on("data", onClient);
+    upstream.on("data", onServer);
+    if (signIn.first) {
+      socket.write(signIn.first);
+    }
     socket.resume();
     upstream.resume();
   });
@@ -275,13 +368,314 @@ export async function openPgRelay(options: PgRelayOptions): Promise<PgRelayOpen>
     ok: true,
     relay: {
       socketDir,
+      socketPath,
       port: PG_RELAY_PORT,
-      connectedAddress,
-      tls,
+      connectedAddress: meta.connectedAddress,
+      tls: meta.tls,
       ended,
       close: () => finish("closed"),
     },
   };
+}
+
+/** The MySQL relay's socket file in its directory. */
+export const MYSQL_RELAY_SOCKET = "mysqld.sock";
+
+/**
+ * The relay of MySQL and MariaDB (16 "D4" M1): the pinned connection of {@link openPinnedMysql}
+ * (SSLRequest and TLS already done when offered), the original greeting handed to the program
+ * without the TLS and compression flags, the sign-in through {@link MysqlSignInFilter}.
+ */
+export async function openMysqlRelay(
+  options: PgRelayOptions & { engine: "mysql" | "mariadb" },
+): Promise<PgRelayOpen> {
+  const scope = new DbProbeScope(Date.now() + (options.connectTimeoutMs ?? 30_000));
+  let upstream: Socket;
+  let meta: RelayMeta;
+  let filter: MysqlSignInFilter;
+  try {
+    const pinned = await openPinnedMysql(options.target, options.engine, options.network, scope);
+    if (!pinned.ok) {
+      return pinned;
+    }
+    upstream = pinned.conn.detach();
+    meta = { connectedAddress: pinned.connectedAddress, tls: pinned.tls };
+    filter = new MysqlSignInFilter({
+      greetingPayload: pinned.greetingPayload,
+      greeting: pinned.greeting,
+      upstreamTls: pinned.tls.used,
+    });
+  } finally {
+    scope.close();
+  }
+  return relayOver(upstream, meta, options, MYSQL_RELAY_SOCKET, () => ({
+    first: filter.greetingForClient(),
+    fromClient: (chunk) => filter.fromClient(chunk),
+    fromServer: (chunk) => filter.fromServer(chunk),
+  }));
+}
+
+/** Sign-in plugins that never send the password readable: allowed without TLS upstream. */
+const MYSQL_PLAIN_SAFE_PLUGINS = new Set([
+  "mysql_native_password",
+  "caching_sha2_password",
+  "client_ed25519",
+  "parsec",
+]);
+
+/**
+ * The sign-in of a MySQL program through the relay (16 "D4" M1). The relay sent the SSLRequest
+ * itself (sequence 1), so until the server's OK or error every packet gets a new sequence number
+ * on either side, and the program's login packet the TLS flag (and never compression). Without
+ * TLS upstream the full `caching_sha2_password` step is done by the relay: the program sends its
+ * password over the local socket as on any secure transport, the relay asks the server for its
+ * RSA key and sends the password encrypted with it; any other plugin that would send the
+ * password readable ends the relay with `db_auth_unsupported` before the program is asked.
+ * A packet during the sign-in has at most {@link SIGN_IN_MESSAGE_MAX} bytes.
+ */
+export class MysqlSignInFilter {
+  private readonly greetingPayload: Buffer;
+  private readonly upstreamTls: boolean;
+  private scramble: Buffer;
+  private plugin: string;
+  private clientPending: Buffer = EMPTY;
+  private serverPending: Buffer = EMPTY;
+  /** The next sequence number towards the server. */
+  private serverSeq: number;
+  /** The sequence number of the last packet the program has seen or sent. */
+  private clientSeq = 0;
+  private loginSeen = false;
+  private finished = false;
+  /** RSA step: waiting for the program's password, then for the server's key. */
+  private rsa: "none" | "await_password" | "await_key" = "none";
+  private rsaPassword: Buffer = EMPTY;
+
+  constructor(options: { greetingPayload: Buffer; greeting: MysqlGreeting; upstreamTls: boolean }) {
+    this.greetingPayload = options.greetingPayload;
+    this.upstreamTls = options.upstreamTls;
+    this.scramble = options.greeting.scramble;
+    this.plugin = options.greeting.authPlugin || "mysql_native_password";
+    this.serverSeq = options.upstreamTls ? 2 : 1;
+  }
+
+  /** The server's greeting for the program: sequence 0, without TLS and compression. */
+  greetingForClient(): Buffer {
+    const payload = Buffer.from(this.greetingPayload);
+    const versionEnd = payload.indexOf(0, 1);
+    const lower = versionEnd + 1 + 4 + 8 + 1;
+    if (versionEnd > 0 && payload.length >= lower + 2) {
+      const caps = payload.readUInt16LE(lower) & ~(CLIENT_SSL | CLIENT_COMPRESS);
+      payload.writeUInt16LE(caps & 0xffff, lower);
+      const upper = lower + 2 + 1 + 2;
+      if (payload.length >= upper + 2) {
+        const high = payload.readUInt16LE(upper) & ~(CLIENT_ZSTD_COMPRESSION >>> 16);
+        payload.writeUInt16LE(high & 0xffff, upper);
+      }
+    }
+    return packet(0, payload);
+  }
+
+  private fail(message: string, code: DbErrorCode = "db_auth_unsupported"): RelayStep {
+    return { toServer: EMPTY, toClient: EMPTY, failure: { code, message }, done: false };
+  }
+
+  fromClient(chunk: Buffer): RelayStep {
+    if (this.finished) {
+      return { toServer: chunk, toClient: EMPTY, failure: null, done: true };
+    }
+    this.clientPending = Buffer.concat([this.clientPending, chunk]);
+    const toServer: Buffer[] = [];
+    for (;;) {
+      const next = takePacket(this.clientPending);
+      if (next === "too_large") {
+        return this.fail("the program sent a packet too large for a sign-in", "db_probe_failed");
+      }
+      if (!next) {
+        break;
+      }
+      this.clientPending = next.rest;
+      this.clientSeq = next.sequence;
+      let payload = next.payload;
+      if (!this.loginSeen) {
+        this.loginSeen = true;
+        if (payload.length <= 32) {
+          // An SSLRequest on the local socket, or a packet that is no login.
+          return this.fail(
+            "the program asked for TLS on the relay's local socket",
+            "db_probe_failed",
+          );
+        }
+        payload = Buffer.from(payload);
+        let caps = payload.readUInt32LE(0);
+        caps &= ~(CLIENT_COMPRESS | CLIENT_ZSTD_COMPRESSION);
+        if (this.upstreamTls) {
+          caps |= CLIENT_SSL;
+        } else {
+          caps &= ~CLIENT_SSL;
+        }
+        payload.writeUInt32LE(caps >>> 0, 0);
+        const plugin = loginPlugin(payload);
+        if (plugin) {
+          this.plugin = plugin;
+        }
+        if (!this.upstreamTls && !MYSQL_PLAIN_SAFE_PLUGINS.has(this.plugin)) {
+          return this.fail(
+            `the sign-in method ${this.plugin} sends the password readable; the connection has no TLS`,
+          );
+        }
+      } else if (this.rsa === "await_password") {
+        // The program's password for the full caching_sha2 step, never sent on readable.
+        this.rsaPassword = Buffer.from(payload);
+        this.rsa = "await_key";
+        toServer.push(packet(this.serverSeq, Buffer.from([0x02])));
+        this.serverSeq = (this.serverSeq + 1) & 0xff;
+        continue;
+      }
+      toServer.push(packet(this.serverSeq, payload));
+      this.serverSeq = (this.serverSeq + 1) & 0xff;
+    }
+    return { toServer: Buffer.concat(toServer), toClient: EMPTY, failure: null, done: false };
+  }
+
+  fromServer(chunk: Buffer): RelayStep {
+    if (this.finished) {
+      return { toServer: EMPTY, toClient: chunk, failure: null, done: true };
+    }
+    this.serverPending = Buffer.concat([this.serverPending, chunk]);
+    const toClient: Buffer[] = [];
+    const toServer: Buffer[] = [];
+    for (;;) {
+      const next = takePacket(this.serverPending);
+      if (next === "too_large") {
+        return this.fail("the server sent a packet too large for a sign-in", "db_probe_failed");
+      }
+      if (!next) {
+        break;
+      }
+      this.serverPending = next.rest;
+      this.serverSeq = (next.sequence + 1) & 0xff;
+      const payload = next.payload;
+      const head = payload.length > 0 ? (payload[0] as number) : -1;
+      if (this.rsa === "await_key") {
+        if (head !== 0x01) {
+          return this.fail("the server did not send its RSA key", "db_login_failed");
+        }
+        try {
+          const pem = payload.subarray(1, 16 * 1024).toString("latin1");
+          toServer.push(
+            packet(this.serverSeq, mysqlRsaPassword(this.rsaPassword, this.scramble, pem)),
+          );
+          this.serverSeq = (this.serverSeq + 1) & 0xff;
+        } catch {
+          return this.fail("the server's RSA key could not be used", "db_login_failed");
+        } finally {
+          this.rsaPassword.fill(0);
+          this.rsaPassword = EMPTY;
+        }
+        this.rsa = "none";
+        continue;
+      }
+      if (head === 0xfe && payload.length > 1) {
+        // Auth switch: the plugin and the data the program signs next.
+        const end = payload.indexOf(0, 1);
+        this.plugin = payload.subarray(1, end < 0 ? payload.length : end).toString("latin1");
+        const data = end < 0 ? EMPTY : payload.subarray(end + 1);
+        this.scramble = Buffer.from(data.length > 20 ? data.subarray(0, 20) : data);
+        if (!this.upstreamTls && !MYSQL_PLAIN_SAFE_PLUGINS.has(this.plugin)) {
+          return this.fail(
+            `the server asks for the sign-in method ${this.plugin}, which sends the password readable; the connection has no TLS`,
+          );
+        }
+      } else if (
+        head === 0x01 &&
+        payload.length >= 2 &&
+        this.plugin === "caching_sha2_password" &&
+        payload[1] === 0x04 &&
+        !this.upstreamTls
+      ) {
+        this.rsa = "await_password";
+      }
+      this.clientSeq = (this.clientSeq + 1) & 0xff;
+      toClient.push(packet(this.clientSeq, payload));
+      if (head === 0x00 || head === 0xff) {
+        this.finished = true;
+        toClient.push(this.serverPending);
+        this.serverPending = EMPTY;
+        break;
+      }
+    }
+    return {
+      toServer: Buffer.concat(toServer),
+      toClient: Buffer.concat(toClient),
+      failure: null,
+      done: this.finished,
+    };
+  }
+}
+
+function packet(sequence: number, payload: Buffer): Buffer {
+  const header = Buffer.alloc(4);
+  header.writeUIntLE(payload.length, 0, 3);
+  header.writeUInt8(sequence & 0xff, 3);
+  return Buffer.concat([header, payload]);
+}
+
+function takePacket(
+  data: Buffer,
+): { sequence: number; payload: Buffer; rest: Buffer } | "too_large" | null {
+  if (data.length < 4) {
+    return null;
+  }
+  const length = data.readUIntLE(0, 3);
+  if (length > SIGN_IN_MESSAGE_MAX) {
+    return "too_large";
+  }
+  if (data.length < 4 + length) {
+    return null;
+  }
+  return {
+    sequence: data.readUInt8(3),
+    payload: data.subarray(4, 4 + length),
+    rest: data.subarray(4 + length),
+  };
+}
+
+/** The plugin a login packet (HandshakeResponse41) names, or null. */
+function loginPlugin(payload: Buffer): string | null {
+  const caps = payload.readUInt32LE(0);
+  let offset = 32;
+  const userEnd = payload.indexOf(0, offset);
+  if (userEnd < 0) {
+    return null;
+  }
+  offset = userEnd + 1;
+  if (caps & CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA) {
+    const first = payload[offset];
+    if (first === undefined) return null;
+    if (first < 0xfb) {
+      offset += 1 + first;
+    } else if (first === 0xfc && offset + 3 <= payload.length) {
+      offset += 3 + payload.readUInt16LE(offset + 1);
+    } else {
+      return null;
+    }
+  } else if (caps & CLIENT_SECURE_CONNECTION) {
+    offset += 1 + (payload[offset] ?? 0);
+  } else {
+    const end = payload.indexOf(0, offset);
+    if (end < 0) return null;
+    offset = end + 1;
+  }
+  if (caps & CLIENT_CONNECT_WITH_DB) {
+    const end = payload.indexOf(0, offset);
+    if (end < 0) return null;
+    offset = end + 1;
+  }
+  if (!(caps & CLIENT_PLUGIN_AUTH) || offset >= payload.length) {
+    return null;
+  }
+  const end = payload.indexOf(0, offset);
+  return payload.subarray(offset, end < 0 ? payload.length : end).toString("latin1");
 }
 
 /** The largest server message the relay reads during the sign-in. */
@@ -385,6 +779,62 @@ export function pgQuoteLiteral(value: string): string {
     throw new Error("a NUL byte cannot be part of an SQL literal");
   }
   return `E'${value.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
+}
+
+/** Limits of the executor's own MySQL statements: larger than a probe's (users, grants). */
+export const MYSQL_RUN_LIMITS = { maxValueBytes: 1024 * 1024, maxRows: 100_000 } as const;
+
+/**
+ * Sign in over a pinned MySQL or MariaDB connection for the executor's own statements (the list
+ * of schemas, `CREATE DATABASE`, the users): the same checks as the relay, the sign-in by Restow's
+ * client, values up to 1 MiB and up to 100000 rows.
+ */
+export async function openMysqlAdminSession(
+  target: DbPinnedTarget,
+  engine: "mysql" | "mariadb",
+  network: DbServerProbeOptions,
+  credentials: { user: string; password: string | null },
+  database: string | null,
+  timeoutMs = 60_000,
+): Promise<
+  | { ok: true; session: PgAdminSession; greeting: MysqlGreeting }
+  | { ok: false; code: DbErrorCode; message: string }
+> {
+  const scope = new DbProbeScope(Date.now() + timeoutMs);
+  const pinned = await openPinnedMysql(target, engine, network, scope);
+  if (!pinned.ok) {
+    scope.close();
+    return pinned;
+  }
+  try {
+    const session = await mysqlSignIn(pinned.conn, pinned.greeting, {
+      user: credentials.user,
+      password: credentials.password,
+      database,
+      startTls: null,
+      tlsEstablished: pinned.tls.used,
+    });
+    return {
+      ok: true,
+      greeting: pinned.greeting,
+      session: {
+        connectedAddress: pinned.connectedAddress,
+        query: (sql) => mysqlQuery(session, sql, { ...MYSQL_RUN_LIMITS, truncated: false }),
+        close: () => {
+          mysqlQuit(session);
+          scope.close();
+        },
+      },
+    };
+  } catch (error) {
+    scope.close();
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      code: isMysqlLoginError(error) ? "db_login_failed" : "db_unreachable",
+      message: sanitizeDbMessage(message, credentials),
+    };
+  }
 }
 
 export interface PgAdminSession {

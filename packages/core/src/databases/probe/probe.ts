@@ -22,8 +22,10 @@ import {
   mysqlOffersTls,
   mysqlQuit,
   mysqlReadGreeting,
+  mysqlReadGreetingPacket,
   mysqlShortVersion,
   mysqlSignIn,
+  mysqlSslRequestPacket,
   parseMysqlGreeting,
   splitMysqlPacket,
 } from "./mysql.js";
@@ -678,6 +680,89 @@ export async function openPinnedPostgres(
   options: DbServerProbeOptions,
   scope: DbProbeScope,
 ): Promise<DbPinnedConnection> {
+  return openPinned(target, options, scope, async (conn, spec) => {
+    conn.write(PG_SSL_REQUEST);
+    const answer = (await conn.read(1)).readUInt8(0);
+    if (answer !== 0x53 && answer !== 0x4e) {
+      throw new ProbeFailure("db_engine_changed", "The address does not answer as PostgreSQL.");
+    }
+    if (answer === 0x53) {
+      await conn.startTls(isIP(target.host) === 0 ? target.host : null);
+    } else if (!plaintextAllowed(conn, spec)) {
+      throw tlsMissing();
+    }
+    assertPinned(conn, spec);
+    return { tls: { offered: answer === 0x53, ...conn.tls } };
+  });
+}
+
+/** A pinned MySQL or MariaDB connection: TLS up (when offered) and checked, nothing signed in. */
+export type DbPinnedMysqlConnection =
+  | {
+      ok: true;
+      conn: DbConn;
+      connectedAddress: string | null;
+      tls: DbTlsFacts;
+      greeting: MysqlGreeting;
+      /** The greeting as the server sent it (the relay hands it on). */
+      greetingPayload: Buffer;
+    }
+  | { ok: false; code: DbErrorCode; message: string };
+
+/**
+ * Open a MySQL or MariaDB connection like {@link openPinnedPostgres} (16 "D4" M1): the same
+ * address rules, then the greeting, the SSLRequest and TLS when the server offers it (sequence 1),
+ * the confirmed certificate compared before anything of the sign-in is sent. `engine` is the
+ * family the connection was saved with: the other one answering is `db_engine_changed`.
+ */
+export async function openPinnedMysql(
+  target: DbPinnedTarget,
+  engine: "mysql" | "mariadb",
+  options: DbServerProbeOptions,
+  scope: DbProbeScope,
+): Promise<DbPinnedMysqlConnection> {
+  return openPinned(target, options, scope, async (conn, spec) => {
+    let read: { greeting: MysqlGreeting; payload: Buffer };
+    try {
+      read = await mysqlReadGreetingPacket(conn);
+    } catch (error) {
+      if (error instanceof MysqlServerError && error.errno !== 0) {
+        throw new ProbeFailure("db_unreachable", error.message);
+      }
+      throw new ProbeFailure("db_engine_changed", "The address does not answer as MySQL.");
+    }
+    if (read.greeting.mariadb !== (engine === "mariadb")) {
+      throw new ProbeFailure(
+        "db_engine_changed",
+        `The address answers as ${read.greeting.mariadb ? "MariaDB" : "MySQL"} now.`,
+      );
+    }
+    const offered = mysqlOffersTls(read.greeting);
+    if (offered) {
+      conn.write(mysqlSslRequestPacket(read.greeting));
+      await conn.startTls(isIP(target.host) === 0 ? target.host : null);
+    } else if (!plaintextAllowed(conn, spec)) {
+      throw tlsMissing();
+    }
+    assertPinned(conn, spec);
+    return {
+      tls: { offered, ...conn.tls },
+      greeting: read.greeting,
+      greetingPayload: read.payload,
+    };
+  });
+}
+
+/** The address rules, the connect and Restow's own database; then `handshake` of the engine. */
+async function openPinned<T extends { tls: DbTlsFacts }>(
+  target: DbPinnedTarget,
+  options: DbServerProbeOptions,
+  scope: DbProbeScope,
+  handshake: (conn: DbConn, spec: DbProbeSpec) => Promise<T>,
+): Promise<
+  | ({ ok: true; conn: DbConn; connectedAddress: string | null } & T)
+  | { ok: false; code: DbErrorCode; message: string }
+> {
   const stepTimeoutMs = options.stepTimeoutMs ?? 5000;
   const host = target.host;
   const approved = options.approvedAddresses ?? [];
@@ -695,8 +780,8 @@ export async function openPinnedPostgres(
       : isIP(name) !== 0
         ? !allowAddress(name)
         : isLocalHostname(name) && !options.allowPrivateNetworks && approved.length === 0;
-  const fail = (failure: ProbeFailure): DbPinnedConnection => ({
-    ok: false,
+  const fail = (failure: ProbeFailure) => ({
+    ok: false as const,
     code: failure.code,
     message: failure.message,
   });
@@ -721,27 +806,12 @@ export async function openPinnedPostgres(
         "The run reached another address than its first connection.",
       );
     }
-    conn.write(PG_SSL_REQUEST);
-    const answer = (await conn.read(1)).readUInt8(0);
-    if (answer !== 0x53 && answer !== 0x4e) {
-      throw new ProbeFailure("db_engine_changed", "The address does not answer as PostgreSQL.");
-    }
     const spec = {
       allowUnencrypted: target.allowUnencrypted,
       pinnedFingerprintSha256: target.pinnedFingerprintSha256,
     } as DbProbeSpec;
-    if (answer === 0x53) {
-      await conn.startTls(isIP(host) === 0 ? host : null);
-    } else if (!plaintextAllowed(conn, spec)) {
-      throw tlsMissing();
-    }
-    assertPinned(conn, spec);
-    return {
-      ok: true,
-      conn,
-      connectedAddress: connectedAddressOf(conn),
-      tls: { offered: answer === 0x53, ...conn.tls },
-    };
+    const extra = await handshake(conn, spec);
+    return { ok: true as const, conn, connectedAddress: connectedAddressOf(conn), ...extra };
   } catch (error) {
     conn?.close();
     return fail(failureOf(error, host));
