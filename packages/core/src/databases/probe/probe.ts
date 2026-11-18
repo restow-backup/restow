@@ -706,6 +706,18 @@ export type DbPinnedMysqlConnection =
       greeting: MysqlGreeting;
       /** The greeting as the server sent it (the relay hands it on). */
       greetingPayload: Buffer;
+      /**
+       * With `deferTls` and a server that offers TLS: send `sslRequest` (sequence 1, the
+       * capabilities of the login that follows) and negotiate TLS, then compare the confirmed
+       * certificate. Null otherwise (TLS done already, or none).
+       */
+      startTls:
+        | ((
+            sslRequest: Buffer,
+          ) => Promise<
+            { ok: true; tls: DbTlsFacts } | { ok: false; code: DbErrorCode; message: string }
+          >)
+        | null;
     }
   | { ok: false; code: DbErrorCode; message: string };
 
@@ -720,6 +732,7 @@ export async function openPinnedMysql(
   engine: "mysql" | "mariadb",
   options: DbServerProbeOptions,
   scope: DbProbeScope,
+  how: { deferTls?: boolean } = {},
 ): Promise<DbPinnedMysqlConnection> {
   return openPinned(target, options, scope, async (conn, spec) => {
     let read: { greeting: MysqlGreeting; payload: Buffer };
@@ -738,17 +751,49 @@ export async function openPinnedMysql(
       );
     }
     const offered = mysqlOffersTls(read.greeting);
-    if (offered) {
-      conn.write(mysqlSslRequestPacket(read.greeting));
-      await conn.startTls(isIP(target.host) === 0 ? target.host : null);
-    } else if (!plaintextAllowed(conn, spec)) {
-      throw tlsMissing();
+    const servername = isIP(target.host) === 0 ? target.host : null;
+    if (!offered) {
+      if (!plaintextAllowed(conn, spec)) {
+        throw tlsMissing();
+      }
+      assertPinned(conn, spec);
+      return {
+        tls: { offered, ...conn.tls },
+        greeting: read.greeting,
+        greetingPayload: read.payload,
+        startTls: null,
+      };
     }
+    if (how.deferTls) {
+      // The server takes the capabilities of the SSLRequest for the whole session (MariaDB, and
+      // MySQL alike): the relay sends it with those of the program's login, once it has it.
+      const pinnedConn = conn;
+      return {
+        tls: { offered, ...conn.tls },
+        greeting: read.greeting,
+        greetingPayload: read.payload,
+        startTls: async (sslRequest: Buffer) => {
+          try {
+            pinnedConn.write(sslRequest);
+            await pinnedConn.startTls(servername);
+            // Before the login packet: a server with another certificate learns nothing.
+            assertPinned(pinnedConn, spec);
+            return { ok: true as const, tls: { offered: true, ...pinnedConn.tls } };
+          } catch (error) {
+            const failure = failureOf(error, target.host);
+            return { ok: false as const, code: failure.code, message: failure.message };
+          }
+        },
+      };
+    }
+    conn.write(mysqlSslRequestPacket(read.greeting));
+    await conn.startTls(servername);
     assertPinned(conn, spec);
     return {
       tls: { offered, ...conn.tls },
       greeting: read.greeting,
       greetingPayload: read.payload,
+      startTls: null,
     };
   });
 }

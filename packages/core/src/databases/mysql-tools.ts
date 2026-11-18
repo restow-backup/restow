@@ -102,6 +102,18 @@ export function mysqlRestoreArgs(optionFile: string, database: string): string[]
   ];
 }
 
+/**
+ * The dump's file in the repository: PostgreSQL `postgresql/<name>.pgdump` and
+ * `postgresql/globals.sql`, MySQL and MariaDB `<engine>/<name>.sql` and `<engine>/users.sql`.
+ */
+export function dbDumpFileName(engine: string, kind: "database" | "globals", name: string): string {
+  const safe = name.replace(/[/\\]/g, "_");
+  if (engine === "postgresql") {
+    return kind === "globals" ? "postgresql/globals.sql" : `postgresql/${safe}.pgdump`;
+  }
+  return kind === "globals" ? `${engine}/users.sql` : `${engine}/${safe}.sql`;
+}
+
 /** An identifier in backticks. */
 export function mysqlQuoteIdent(name: string): string {
   if (name.includes("\0")) {

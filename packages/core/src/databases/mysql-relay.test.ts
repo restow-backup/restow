@@ -137,6 +137,7 @@ interface Fake {
   connections: number;
   received: Buffer[];
   login: { seq: number; caps: number } | null;
+  sslCaps: number | null;
   done: Promise<void>;
 }
 
@@ -153,6 +154,7 @@ function fakeMysql(options: {
     connections: 0,
     received: [],
     login: null,
+    sslCaps: null,
     done: new Promise((resolve) => {
       finished = resolve;
     }),
@@ -181,6 +183,7 @@ function fakeMysql(options: {
         raw.on("data", onData);
       });
       fake.received.push(request);
+      fake.sslCaps = request.readUInt32LE(4);
       const secure = new TLSSocket(raw, { isServer: true, key, cert });
       secure.on("error", () => undefined);
       socket = secure;
@@ -292,7 +295,8 @@ describe("the MySQL relay [DB-003]", () => {
     });
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    expect(opened.relay.tls.used).toBe(true);
+    // TLS waits for the program's login: the server keeps the SSLRequest's capabilities.
+    expect(opened.relay.tls.used).toBe(false);
     expect(opened.relay.socketPath).toBe(join(opened.relay.socketDir, MYSQL_RELAY_SOCKET));
     const { socket, packets, hello, caps } = await program(opened.relay.socketPath);
     expect(hello.seq).toBe(0);
@@ -300,7 +304,10 @@ describe("the MySQL relay [DB-003]", () => {
     // The relay sent the SSLRequest (sequence 1): the login is the server's sequence 2, with TLS.
     const ok = await packets.next();
     expect(ok).toEqual({ seq: 2, payload: Buffer.from([0, 0, 0, 2, 0, 0, 0]) });
+    expect(opened.relay.tls.used).toBe(true);
     expect(fake.login?.seq).toBe(2);
+    // The SSLRequest carried the program's own capabilities (with TLS).
+    expect(fake.sslCaps).toBe(fake.login?.caps);
     expect((fake.login?.caps ?? 0) & CLIENT_SSL).toBe(CLIENT_SSL);
     expect((fake.login?.caps ?? 0) & CLIENT_COMPRESS).toBe(0);
     socket.write(packet(0, Buffer.from([0x0e])));
@@ -378,18 +385,21 @@ describe("the MySQL relay [DB-003]", () => {
       maxDurationMs: 30_000,
     });
     if (!first.ok) throw new Error(first.message);
+    const firstProgram = await program(first.relay.socketPath);
+    await firstProgram.packets.next();
+    const other = (first.relay.tls.fingerprintSha256 ?? "").replace(/^../, "00");
     first.relay.close();
     await first.relay.ended;
-    const other = (first.relay.tls.fingerprintSha256 ?? "").replace(/^../, "00");
     const pinned = await fakeMysql({ tls: true, scenario: "ok" });
-    expect(
-      await openMysqlRelay({
-        target: target(pinned.port, { allowUnencrypted: false, pinnedFingerprintSha256: other }),
-        engine: "mysql",
-        network: loopback,
-        maxDurationMs: 30_000,
-      }),
-    ).toMatchObject({ ok: false, code: "db_tls_changed" });
+    const refused = await openMysqlRelay({
+      target: target(pinned.port, { allowUnencrypted: false, pinnedFingerprintSha256: other }),
+      engine: "mysql",
+      network: loopback,
+      maxDurationMs: 30_000,
+    });
+    if (!refused.ok) throw new Error(refused.message);
+    await program(refused.relay.socketPath);
+    expect((await refused.relay.ended).failure?.code).toBe("db_tls_changed");
     // Nothing of a login reached the server with the other certificate.
     expect(pinned.login).toBeNull();
     const maria = await fakeMysql({ mariadb: true, scenario: "ok" });
