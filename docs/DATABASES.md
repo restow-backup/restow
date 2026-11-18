@@ -1,6 +1,6 @@
 # Datenbanken (Entwurf für 0.6.0)
 
-Stand: Stufen D1 und D2 umgesetzt (Abschnitt 16), D3 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
+Stand: Stufen D1 und D2 umgesetzt, D3 entschieden (Abschnitt 16), D4 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
 Sicherung, 0.6.x für Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores
 (November 2026):
 
@@ -549,7 +549,9 @@ pflegt. Stand dieses Entwurfs: PostgreSQL 14 bis 18, MySQL 8.0 und 8.4 LTS, Mari
 11.4 und 11.8, SQL Server wie 0.5.0, SQLite 3 **[CI]**. Ältere laufen mit dem Hinweis
 `db_version_untested`.
 
-- **Worker-Image** und Paket `restow-agent-dbtools`: `pg_dump`, `pg_dumpall`, `pg_restore`,
+- **Worker-Image** (ab D3, PostgreSQL aus dem Paketarchiv von postgresql.org mit festgelegtem
+  Schlüssel) und Paket `restow-agent-dbtools` (erst mit D7; bis dahin nimmt der Agent nur die
+  Programme, die auf dem Rechner schon liegen, Abschnitt 16 "D3"): `pg_dump`, `pg_dumpall`, `pg_restore`,
   `pg_basebackup`, `pg_receivewal` der neuesten Hauptversion (sie können ältere Server
   sichern), `mariadb-dump` und `mysqldump` (MySQL 8.4, für MySQL-Server), `mysqlbinlog` bzw.
   `mariadb-binlog`. Größe des Images vorher messen; Lizenzen in die Drittanbieter-Hinweise.
@@ -819,6 +821,42 @@ E10 (alle Editionen) entschieden.
 - **Point-in-Time:** Rückstand und zurückgehaltenes WAL misst der Healthcheck mit P1/P2.
 - **Datenbanken:** Der Healthcheck legt keine Datenbankzeilen an und markiert keine als gelöscht;
   das bleibt beim Test und ab D3 bei den Läufen.
+
+### D3 (Entscheidungen, November 2026)
+
+Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
+
+- **O1 Netzschutz der Programme: Relais im Ausführer.** `pg_dump`, `pg_dumpall` und `pg_restore`
+  (libpq) lösen Namen selbst auf und können keinen Fingerabdruck festhalten. Darum baut der
+  Ausführer (Worker in TypeScript, Agent in Go) die Verbindung mit dem gehärteten Client aus D1
+  auf: alle Prüfungen der Adresse (privat nur mit Freigabe, nie Restows eigene Datenbank,
+  geprüfte Namensauflösung), TLS-Aushandlung und Vergleich des bestätigten Fingerabdrucks, bevor
+  etwas von der Anmeldung gesendet ist. Danach reicht er die Bytes an das Programm über einen
+  eigenen Unix-Socket in einem Verzeichnis mit 0700 durch; das Programm verbindet sich dort mit
+  `sslmode=disable` (der lokale Weg verlässt den Ausführer nicht). Das Kennwort bekommt es über
+  eine `PGPASSFILE` mit 0600 in einem Verzeichnis im Arbeitsspeicher. Das Relais ist begrenzt:
+  eine Frist, kein unbegrenztes Puffern (Gegendruck), es schließt, sobald eine Seite schließt,
+  nimmt genau eine Verbindung an und löscht den Socket danach.
+- **O2 Programme.** Das Worker-Image bringt `pg_dump`, `pg_dumpall` und `pg_restore` der
+  neuesten Hauptversion aus dem Paketarchiv von postgresql.org mit (festgelegter Schlüssel). Der
+  Agent nimmt in D3 nur Programme, die auf dem Rechner liegen (die neueste Hauptversion, die
+  mindestens so neu ist wie der Server), sonst `db_tool_missing` bzw. `db_tool_too_old` mit
+  Anleitung; das Paket `restow-agent-dbtools` kommt mit D7.
+- **O3 Restore immer in eine neue Datenbank:** `CREATE DATABASE <neu> TEMPLATE template0`, dann
+  `pg_restore --exit-on-error --no-owner --no-privileges`. Rollen, Besitzer und Rechte stellt der
+  Administrator nach der Anleitung des Downloads selbst her. Scheitert das Einspielen mittendrin,
+  löscht Restow nur die Datenbank, die dieser Lauf angelegt hat, erkannt an Name und OID, die
+  der Lauf festhält (nie über ein Muster). Abgelehnt wird, wenn `CREATEDB` fehlt
+  (`db_permission_missing`) oder der Name schon vergeben ist (`db_restore_name_taken`). Der Name
+  hat höchstens 63 Bytes, Vorgabe `<name>_restored_<UTC-Zeit>`.
+- **Weiter:** eine Migration `0109` mit `database_runs` (Lauf: Sicherung oder Restore, Status,
+  Ausführer, Zeiten, Fehler, einmaliges Zugangsdatenpaket) und `database_backups`, Aufgaben
+  `db_backup` und `db_restore`; je Verbindung ein Repository `db/<verbindung>` mit eigenem
+  restic-Kennwort; der Agent schreibt über eine eigene REST-Route nur anhängend; die Aufbewahrung
+  entscheidet der Server (wie bei den Rechnern); im Worker ein Einstieg `db-stream` mit fester
+  Argumentliste; der Download liest den Dump aus dem Repository, die Restore-Anleitung ist Text
+  ohne Geheimnis. Keine neuen Alarme in D3 (die der Bewertung kommen mit D6); nach der ersten
+  Sicherung ist eine Datenbank "ungeprüft".
 
 ### Nahtstellen für D3 bis D7
 
