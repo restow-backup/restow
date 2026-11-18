@@ -7,6 +7,7 @@ import {
   dbDumpFileName,
   type MysqlFamily,
   mariadbUsersArgs,
+  mysqlClientFailureCode,
   mysqlDefinerFilter,
   mysqlDumpArgs,
   mysqlQuoteIdent,
@@ -149,6 +150,9 @@ async function mysqlUsersSql(session: PgAdminSession): Promise<string | null> {
   } catch {
     return null;
   }
+  // MySQL writes the hashes of caching_sha2_password as raw bytes; as hex they survive the text
+  // (8.0.17 and later; an older server keeps its printable hashes).
+  await session.query("SET SESSION print_identified_with_as_hex = ON").catch(() => undefined);
   const lines = [
     '-- Users and grants of the instance, written by Restow (docs/DATABASES.md 16 "D4").',
     "-- Review before running: it creates accounts with their password hashes.",
@@ -604,7 +608,7 @@ async function restoreInto(
             throw new DatabaseRunFailure(ended.failure.code, ended.failure.message);
           }
           throw new DatabaseRunFailure(
-            "db_restore_failed",
+            mysqlClientFailureCode(stderr),
             sanitizeDbMessage(stderr.trim() || "the client failed", prepared.credentials),
           );
         }

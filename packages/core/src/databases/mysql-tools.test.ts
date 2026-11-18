@@ -6,6 +6,7 @@ import {
   chooseMysqlTools,
   defaultMysqlRestoreName,
   MysqlDumpScanner,
+  mysqlClientFailureCode,
   mysqlDumpArgs,
   mysqlOptionFile,
   mysqlRestoreArgs,
@@ -270,5 +271,20 @@ describe("the MySQL programs [DB-002]", () => {
     const name = defaultMysqlRestoreName("x".repeat(80), new Date("2026-11-18T10:00:00Z"));
     expect([...name]).toHaveLength(64);
     expect(name.endsWith("_restored_20261118_100000")).toBe(true);
+  });
+
+  it("tell a missing right from another failure of the client", () => {
+    expect(
+      mysqlClientFailureCode(
+        "ERROR 1419 (HY000) at line 81: You do not have the SUPER privilege and binary logging is enabled",
+      ),
+    ).toBe("db_permission_missing");
+    expect(mysqlClientFailureCode("ERROR 1227 (42000) at line 9: Access denied")).toBe(
+      "db_permission_missing",
+    );
+    expect(mysqlClientFailureCode("ERROR 1064 (42000) at line 3: You have an error")).toBe(
+      "db_restore_failed",
+    );
+    expect(mysqlClientFailureCode("")).toBe("db_restore_failed");
   });
 });

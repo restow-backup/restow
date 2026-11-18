@@ -135,6 +135,24 @@ export function validMysqlSchemaName(name: string): boolean {
   );
 }
 
+/**
+ * The errors of the client (`ERROR <n> (<state>) at line …`) that mean the restoring user lacks a
+ * right: 1044 (schema), 1142 (table), 1227 (an administrative right such as setting a definer),
+ * 1370 (routine) and 1419 (a routine or trigger while the binary log is on, without SUPER or
+ * log_bin_trust_function_creators).
+ */
+const MYSQL_PERMISSION_ERRORS = new Set([1044, 1142, 1227, 1370, 1419]);
+
+/** The run's error code for what the client wrote to stderr when it stopped. */
+export function mysqlClientFailureCode(
+  stderr: string,
+): "db_permission_missing" | "db_restore_failed" {
+  const match = /\bERROR (\d{4}) \(/.exec(stderr);
+  return match && MYSQL_PERMISSION_ERRORS.has(Number(match[1]))
+    ? "db_permission_missing"
+    : "db_restore_failed";
+}
+
 /** `<name>_restored_<UTC time>`, cut to 64 characters. */
 export function defaultMysqlRestoreName(name: string, now: Date): string {
   const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "_");

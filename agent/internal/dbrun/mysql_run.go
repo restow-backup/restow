@@ -134,6 +134,9 @@ func mysqlUsersSQL(ms *dbprobe.MysqlSession) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	// MySQL writes the hashes of caching_sha2_password as raw bytes; as hex they
+	// survive the text (8.0.17 and later; an older server keeps printable ones).
+	_, _ = ms.Query("SET SESSION print_identified_with_as_hex = ON")
 	var b strings.Builder
 	b.WriteString("-- Users and grants of the instance, written by Restow (docs/DATABASES.md 16 \"D4\").\n-- Review before running: it creates accounts with their password hashes.\n\n")
 	for i := range accounts {
@@ -530,7 +533,7 @@ func restoreMysqlInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSp
 		if msg == "" {
 			msg = waitErr.Error()
 		}
-		return 0, failf("db_restore_failed", "%s", msg)
+		return 0, failf(MysqlClientFailureCode(msg), "%s", msg)
 	}
 	return filter.s.DefinersRemoved, nil
 }

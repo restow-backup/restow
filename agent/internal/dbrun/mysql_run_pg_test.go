@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/dbprobe"
@@ -88,6 +89,7 @@ func (e *myEnv) exec(t *testing.T, statements ...string) [][]*string {
 	return rows
 }
 
+// claim: DB-007
 func TestAgentMysqlRuns(t *testing.T) {
 	for _, c := range []struct{ variable, engine string }{
 		{"RESTOW_TEST_MYSQL_URL", "mysql"},
@@ -99,7 +101,6 @@ func TestAgentMysqlRuns(t *testing.T) {
 	}
 }
 
-// claim: DB-007
 func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	env := myTarget(t, variable, engine)
 	if env.fingerprint == "" {
@@ -188,6 +189,9 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	if strings.Contains(usersText.String(), restorerPass) {
 		t.Fatal("a readable password in the users dump")
 	}
+	if !utf8.ValidString(usersText.String()) || engine == "mysql" && !strings.Contains(usersText.String(), " AS 0x") {
+		t.Fatal("the users dump holds a hash that is not text")
+	}
 	deps.ReadDump = readOf(dump)
 
 	// Restore under a new name as a user who may not set definers.
@@ -197,6 +201,20 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	restore.Kind, restore.Repository = "restore", nil
 	restore.Connection.User, restore.Connection.Password = &restorer, &restorerPass
 	restore.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: dump.SHA256, TargetName: target, EngineOptions: *dump.EngineOptions}
+	// With the binary log on, a user without SUPER may create triggers and
+	// routines only while log_bin_trust_function_creators is on: refused as a
+	// missing right first, and only the run's own schema is dropped.
+	flags := env.exec(t, "SELECT @@log_bin, @@log_bin_trust_function_creators")
+	if *flags[0][0] == "1" && *flags[0][1] == "0" {
+		if r := Restore(context.Background(), &restore, deps); r.Error == nil || r.Error.Code != "db_permission_missing" {
+			t.Fatalf("binary log: %+v", r.Error)
+		}
+		if rows := env.exec(t, "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '"+target+"'"); len(rows) != 0 {
+			t.Fatal("the refused run's schema was not dropped")
+		}
+		env.exec(t, "SET GLOBAL log_bin_trust_function_creators = 1")
+		defer env.exec(t, "SET GLOBAL log_bin_trust_function_creators = 0")
+	}
 	done := Restore(context.Background(), &restore, deps)
 	if done.Status != "succeeded" || done.Error != nil {
 		t.Fatalf("restore: %+v %+v", done, done.Error)

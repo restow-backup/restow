@@ -26,6 +26,7 @@ import {
   openMysqlAdminSession,
   type PgAdminSession,
   probeDatabaseFromServer,
+  resticDump,
   resticSnapshots,
   withRepository,
 } from "@restow/core";
@@ -327,6 +328,18 @@ describe.each(SERVERS)(
           expect(snapshot.tags).toContain(`restow-db-run=${backup.id}`);
           expect(snapshot.tags).toContain(`restow-db-engine=${engine}`);
         }
+        // The users and grants as text: MySQL's binary password hashes as hex.
+        const usersText = await withRepository(access, async (session) => {
+          const read = resticDump(session, users?.snapshotId as string, `/${users?.fileName}`);
+          const chunks: Buffer[] = [];
+          read.stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+          await read.done;
+          return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+        });
+        expect(usersText).toContain(OWNER);
+        if (engine === "mysql") {
+          expect(usersText).toContain(" AS 0x");
+        }
 
         // Same connection, new name: data byte for byte, the event switched off, the marker gone.
         const copy = `${SOURCE}_copy`;
@@ -360,6 +373,23 @@ describe.each(SERVERS)(
 
         // Another connection whose user may not set definers: the filter makes it the owner.
         const elsewhere = `${SOURCE}_other`;
+        // With the binary log on, a user without SUPER may create triggers and routines only
+        // while log_bin_trust_function_creators is on: refused as a missing right first, and
+        // only the run's own schema is dropped.
+        const [[logBin, trusted]] = (await sql(
+          "SELECT @@log_bin, @@log_bin_trust_function_creators",
+        )) as [[string, string]];
+        if (logBin === "1" && trusted === "0") {
+          const refused = await run({
+            kind: "restore",
+            backupId: dump?.id as string,
+            target: otherConnectionId,
+            name: elsewhere,
+          });
+          expect(refused).toMatchObject({ status: "failed", errorCode: "db_permission_missing" });
+          expect((await sql("SHOW DATABASES")).map((row) => row[0])).not.toContain(elsewhere);
+          await sql("SET GLOBAL log_bin_trust_function_creators = 1");
+        }
         const other = await run({
           kind: "restore",
           backupId: dump?.id as string,
@@ -371,6 +401,9 @@ describe.each(SERVERS)(
         expect(await sql(`SELECT COUNT(*) FROM ${mysqlQuoteIdent(elsewhere)}.orders`)).toEqual([
           ["2"],
         ]);
+        if (logBin === "1" && trusted === "0") {
+          await sql("SET GLOBAL log_bin_trust_function_creators = 0");
+        }
 
         // A name taken: refused, the existing schema untouched.
         const taken = await run({

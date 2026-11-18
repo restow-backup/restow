@@ -224,6 +224,22 @@ func MysqlRestoreArgs(optionFile, database string) []string {
 	return []string{"--defaults-file=" + optionFile, "--database=" + database, "--default-character-set=utf8mb4", "--max-allowed-packet=1073741824", "--binary-mode", "--batch"}
 }
 
+var mysqlClientError = regexp.MustCompile(`\bERROR (\d{4}) \(`)
+
+// MysqlClientFailureCode is the run's code for what the client wrote to stderr
+// when it stopped (core mysqlClientFailureCode): a missing right for 1044,
+// 1142, 1227, 1370 and 1419 (a routine or trigger while the binary log is on,
+// without SUPER or log_bin_trust_function_creators).
+func MysqlClientFailureCode(stderr string) string {
+	if m := mysqlClientError.FindStringSubmatch(stderr); m != nil {
+		switch m[1] {
+		case "1044", "1142", "1227", "1370", "1419":
+			return "db_permission_missing"
+		}
+	}
+	return "db_restore_failed"
+}
+
 // MysqlQuoteIdent is an identifier in backticks.
 func MysqlQuoteIdent(name string) string { return "`" + strings.ReplaceAll(name, "`", "``") + "`" }
 

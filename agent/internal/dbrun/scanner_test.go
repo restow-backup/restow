@@ -162,3 +162,16 @@ func TestMysqlProgramsGetFixedArguments(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestMysqlClientFailureCodes(t *testing.T) {
+	for text, want := range map[string]string{
+		"ERROR 1419 (HY000) at line 81: You do not have the SUPER privilege and binary logging is enabled": "db_permission_missing",
+		"ERROR 1227 (42000) at line 9: Access denied":                                                      "db_permission_missing",
+		"ERROR 1064 (42000) at line 3: You have an error":                                                  "db_restore_failed",
+		"": "db_restore_failed",
+	} {
+		if got := MysqlClientFailureCode(text); got != want {
+			t.Errorf("%q: %s, want %s", text, got, want)
+		}
+	}
+}
