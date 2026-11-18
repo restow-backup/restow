@@ -1221,7 +1221,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Zugangsdaten einer Datenbank liegen nur verschlüsselt auf dem Server und erscheinen in keiner API-Antwort und keinem Fehlertext; Fehlertexte der Clients werden vor dem Speichern um URL, Benutzer und Kennwort bereinigt.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.2 "Zugangsdaten", Abschnitt 10, Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go, packages/core/src/databases/relay.test.ts, apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts, agent/internal/dbrun/relay_test.go, agent/internal/dbrun/trust_test.go
+- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go, packages/core/src/databases/relay.test.ts, apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts, agent/internal/dbrun/relay_test.go, agent/internal/dbrun/trust_test.go, agent/internal/dbrun/platform_test.go
 - Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log, gespeicherte Prüfungen und Healthchecks; MySQL als Simulator)
 - Stand: belegt
 - Hinweis: "keine Kommandozeile" gilt mit den Dump-Programmen ab Stufe D3 und wird dort belegt.
@@ -1271,7 +1271,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Eine Wiederherstellung legt immer eine neue Datenbank an (auf derselben oder einer anderen Verbindung), nie über eine vorhandene; ohne `CREATEDB` wird sie abgelehnt, und scheitert sie, löscht Restow nur die Datenbank, die dieser Lauf angelegt hat (an Name und OID erkannt).
 - Fundstelle: docs/DATABASES.md (Abschnitt 7.1, Abschnitt 16 "D3" O3)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts, apps/web/src/features/databases/database-page.dom.test.tsx, packages/core/src/databases/relay.test.ts, agent/internal/dbrun/trust_test.go
+- Tests: apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts, apps/web/src/features/databases/database-page.dom.test.tsx, packages/core/src/databases/relay.test.ts, agent/internal/dbrun/trust_test.go, agent/internal/dbprobe/pinned_test.go, agent/internal/api/dump_internal_test.go
 - Belegt gegen: beides (PostgreSQL 16 echt mit TLS, pg_restore 16, restic 0.19.1 echt, Job test in ci.yml; ein Name mit `\'` und eine Rolle mit `standard_conforming_strings = off`)
 - Stand: belegt
 ## Prüfungen gegen echte Systeme, die es gibt, die aber in der Pipeline nicht laufen

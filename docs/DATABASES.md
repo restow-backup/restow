@@ -882,7 +882,16 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   Homebrew und `PATH`, startet aber nur solche, deren Datei und jeder Ordner darüber root gehören
   (Windows: nur SYSTEM, Administratoren und TrustedInstaller dürfen sie ändern) und für Gruppe und
   andere nicht beschreibbar sind, auch nicht für `--version`; übersprungene nennt
-  `db_tool_missing` mit Grund. Einen eigens konfigurierten Pfad gibt es in D3 nicht.
+  `db_tool_missing` mit Grund. Gestartet wird immer der geprüfte, aufgelöste Pfad, nie der Name
+  über einen Link, und vor jedem Start wird er erneut geprüft. Einen eigens konfigurierten Pfad
+  gibt es in D3 nicht.
+- **Agent unter Windows** (E7): Sicherung und Wiederherstellung von PostgreSQL (und später MySQL)
+  durch einen Agenten unter Windows kommen später. Ein solcher Agent bleibt als Ausführer für
+  Test und Healthchecks wählbar; der Worker plant für ihn keine Sicherung, "Jetzt sichern" und
+  ein Restore auf eine solche Verbindung werden mit `database-platform-unsupported` abgelehnt, die
+  Verbindung trägt den Hinweis `db_platform_unsupported`, und die Seite bietet die Aktionen nicht
+  an. Der Agent selbst lehnt einen Lauf unter Windows mit `db_platform_unsupported` ab, bevor er
+  irgendetwas öffnet (Socket-Ordner und Kennwortdatei sind dort nicht über Unix-Rechte geschützt).
 - **Sicherung:** Planung im Worker (eine Minute, Zeitplan der Verbindung, mindestens 15 Minuten,
   `db_run_overlap`), Läufe des Servers in der Queue `db` (`DB_CONCURRENCY`, Vorgabe 2), Läufe eines
   Agenten als Aufgabe `db_backup`. Je Lauf: Instanz über die festgehaltene Verbindung prüfen
@@ -923,6 +932,10 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   `GET /agent/v1/databases/runs/:runId/dump`, die der Server aus dem Repository der Quelle
   streamt. Bei einem Restore auf eine andere Verbindung erhält der Agent des Ziels damit den
   Inhalt dieser einen Sicherung, nie die übrigen Sicherungen der Quelle; der Dialog sagt das.
+  Der Abruf zählt gegen die gleichzeitigen Downloads (429, der Agent fragt bis zu zehnmal im
+  Abstand von 30 Sekunden erneut, bevor Daten flossen). Restows eigene Sitzungen melden sich mit
+  `client_encoding=UTF8` an, damit ein `E'…'`-Literal nie auf eine reine Client-Kodierung mit
+  Mehrbytezeichen (SJIS, BIG5, GBK) trifft.
 - **Download und Anleitung:** `GET …/:id/backups/:backupId/download` liest den Dump der Datenbank
   aus dem Repository (auditiert, Wiederherstellungsbediener dürfen ihn), ohne Länge (die Größe
   meldete der Ausführer), höchstens zwei Downloads je Mandant und vier insgesamt zugleich (sonst
