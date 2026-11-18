@@ -1044,6 +1044,11 @@ export const RECOVERY_STATUSES = [
 export type RecoveryStatus = (typeof RECOVERY_STATUSES)[number];
 
 export const RECOVERY_PHASES = [
+  // A restore onto a fresh machine (docs/BAREMETAL-ONESHOT.md 6.5): the command, before the switch.
+  "registered",
+  "downloading",
+  "kexec",
+  "booted",
   "connected",
   "waiting_approval",
   "planning",
@@ -1068,7 +1073,8 @@ export interface RecoveryHardwareSummary {
 /** A recovery code and the session it became; never the code or a hash. */
 export interface Recovery {
   id: string;
-  kind: "code";
+  /** `oneshot`: a restore onto a fresh machine without an ISO (docs/BAREMETAL-ONESHOT.md). */
+  kind: "code" | "oneshot";
   status: RecoveryStatus;
   issuedAt: string;
   expiresAt: string;
@@ -1089,6 +1095,68 @@ export interface Recovery {
   cancelRequestedAt: string | null;
   phase: RecoveryPhase | null;
   hardwareSummary: RecoveryHardwareSummary | null;
+  /** Kind `oneshot`: when the recovery environment reported back after the switch. */
+  bootedAt?: string | null;
+}
+
+/** An address of an interface of the fresh machine, as its command measured it. */
+export interface OneshotAddress {
+  address: string;
+  prefix: number;
+  dynamic: boolean;
+}
+
+/** What the command on the fresh machine reported (shown as reported by the machine). */
+export interface OneshotReported {
+  target: {
+    hostname: string;
+    interfaces: {
+      name: string;
+      mac: string;
+      driver: string;
+      mtu: number;
+      dhcp4: boolean;
+      slaac: boolean;
+      addresses: OneshotAddress[];
+    }[];
+    routes: { family: "inet" | "inet6"; gateway: string; dev: string; onlink: boolean }[];
+    dns: string[];
+    searchDomains: string[];
+    cloud: { name: string; platform: string; instanceId: string; region: string } | null;
+    vendor: string;
+    product: string;
+    consoles: string[];
+    uptimeSeconds: number;
+    rescue: boolean;
+  };
+  checks: {
+    mode: "kexec" | "direct";
+    kexec: "ok" | "failed" | "not_tried";
+    kexecError: string;
+    kexecLoadDisabled: boolean;
+    lockdown: string;
+    secureBoot: boolean | null;
+    memTotalBytes: number;
+    memAvailableBytes: number;
+    inUse: string[];
+    warnings: string[];
+  };
+  sshKeys: { type: string; fingerprint: string; comment: string }[];
+  agentVersion: string;
+}
+
+/** The admin's decisions of a release. */
+export interface OneshotDecisions {
+  networkMode: "takeover" | "keep";
+  confirmShrink: boolean;
+  secureBootWarningsOnly: boolean;
+  remoteAccess: boolean;
+  oldAddresses?: string[];
+}
+
+/** The release of a oneshot session: the decisions and the match code the machine shows. */
+export interface ApproveOneshotInput extends OneshotDecisions {
+  matchCode: string;
 }
 
 /** What the ISO reported: shown as reported by the ISO. */
@@ -1124,6 +1192,14 @@ export interface RecoveryDetail extends Recovery {
   verification: RecoveryVerification | null;
   warnings: { code: string; message: string }[];
   log: { items: { id: string; at: string; lines: string[] }[]; next: string | null };
+  /** Kind `oneshot`: what the machine reported apart from what the admin decided. */
+  oneshot?: {
+    validityHours: number;
+    reported: Partial<OneshotReported> | null;
+    decided: (OneshotDecisions & { at: string; by: string | null }) | null;
+    booted: { at: string } | null;
+    isoDownloads: number;
+  } | null;
 }
 
 export type RecoveryCheckResult = "ok" | "warning" | "failed";
@@ -1191,9 +1267,15 @@ export interface IssuedRecoveryCode {
   snapshotId: string;
   requireApproval: boolean;
   iso: { version: string | null; url: string | null; sha256: string | null; verified: boolean };
+  /** Kind `oneshot`: the command for a root shell on the fresh machine (carries the code). */
+  kind?: "code" | "oneshot";
+  command?: string | null;
+  sessionValidityHours?: number | null;
 }
 
 export interface IssueRecoveryCodeInput {
+  /** `oneshot`: a code for the command on a fresh machine (docs/BAREMETAL-ONESHOT.md 6.1). */
+  kind?: "code" | "oneshot";
   snapshotId?: string;
   validityHours?: number;
   requireApproval?: boolean;
@@ -1490,6 +1572,8 @@ export function resumeMachineUpdates(endpointId: string): Promise<AgentUpdates> 
 export interface EndpointCapabilities {
   /** Whole machine backups and bare metal recovery (preview, RESTOW_BAREMETAL_PREVIEW). */
   baremetalPreview: boolean;
+  /** Bare metal onto a fresh machine without an ISO (RESTOW_BAREMETAL_ONESHOT, 0.5.1). */
+  baremetalOneshot?: boolean;
 }
 
 export function fetchEndpointCapabilities(): Promise<EndpointCapabilities> {
@@ -1678,10 +1762,14 @@ export function extendRecoveryCode(
   });
 }
 
-export function approveRecovery(endpointId: string, recoveryId: string): Promise<Recovery> {
+export function approveRecovery(
+  endpointId: string,
+  recoveryId: string,
+  answers?: ApproveOneshotInput,
+): Promise<Recovery> {
   return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/approve`, {
     method: "POST",
-    body: {},
+    body: answers ?? {},
   });
 }
 
