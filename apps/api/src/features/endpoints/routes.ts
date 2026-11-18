@@ -269,7 +269,11 @@ endpointsRoutes.get("/", restorer, async (c) => {
 
 // Static paths first, so "tokens" is never read as an endpoint id.
 endpointsRoutes.get("/capabilities", restorer, (c) =>
-  c.json({ baremetalPreview: appConfig.baremetalPreview }),
+  c.json({
+    baremetalPreview: appConfig.baremetalPreview,
+    // Bare metal onto a fresh machine without an ISO (docs/BAREMETAL-ONESHOT.md, 0.5.1).
+    baremetalOneshot: appConfig.baremetalPreview && appConfig.baremetalOneshot,
+  }),
 );
 
 endpointsRoutes.get("/tokens", admin, async (c) => {

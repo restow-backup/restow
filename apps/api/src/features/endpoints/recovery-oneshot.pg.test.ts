@@ -588,6 +588,21 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       await expect(approve(target.id, sessionId, ANSWERS)).rejects.toMatchObject({ status: 422 });
     });
 
+    it("keeps the old public addresses the admin names, and only addresses", async () => {
+      const { approveOneshotSchema } = await import("./schemas.js");
+      const base = { ...ANSWERS, matchCode: "123456" };
+      expect(
+        approveOneshotSchema.safeParse({ ...base, oldAddresses: ["203.0.113.9", "2001:db8::9"] })
+          .success,
+      ).toBe(true);
+      for (const bad of [["example.org"], ["203.0.113.9; reboot"], Array(5).fill("203.0.113.9")]) {
+        expect(approveOneshotSchema.safeParse({ ...base, oldAddresses: bad }).success).toBe(false);
+      }
+      const s = await session({ checks: { ...CHECKS_NOT_TRIED, kexec: "ok" } });
+      await approve(s.endpointId, s.sessionId, withCode(s, { oldAddresses: ["203.0.113.9"] }));
+      expect((await stored(s.sessionId))?.oneshot?.decided?.oldAddresses).toEqual(["203.0.113.9"]);
+    });
+
     it("needs the match code the machine shows, refuses and audits another one", async () => {
       const s = await session({ checks: { ...CHECKS_NOT_TRIED, kexec: "ok" } });
       const wrong = String((Number(s.matchCode) + 1) % 1_000_000).padStart(6, "0");

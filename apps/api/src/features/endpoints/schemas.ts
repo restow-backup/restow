@@ -830,6 +830,17 @@ export const approveOneshotSchema = z
     confirmShrink: z.boolean().default(false),
     secureBootWarningsOnly: z.boolean().default(false),
     remoteAccess: z.boolean().default(false),
+    /** The public addresses of the old server, when the backup cannot know them (10.6). */
+    oldAddresses: z
+      .array(
+        z
+          .string()
+          .trim()
+          .max(64)
+          .refine((value) => isIP(value) !== 0, "not an IP address"),
+      )
+      .max(4)
+      .default([]),
   })
   .strict();
 

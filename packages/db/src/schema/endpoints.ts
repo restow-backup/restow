@@ -806,6 +806,11 @@ export type EndpointRecoveryOneshot = {
     confirmShrink: boolean;
     secureBootWarningsOnly: boolean;
     remoteAccess: boolean;
+    /**
+     * The public addresses of the old server the admin named (a backup with DHCP does not know
+     * them, docs/BAREMETAL-ONESHOT.md 10.6, decision 22.9); the search of 0.5.2 uses them.
+     */
+    oldAddresses?: string[];
     at: string;
     by: string | null;
   };
