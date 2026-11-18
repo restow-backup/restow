@@ -34,12 +34,14 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  applyRetentionPolicy,
   choosePgTools,
   type DbErrorCode,
   type DbPinnedTarget,
   type DbServerProbeOptions,
   type DbStreamSpec,
   type DbStreamStats,
+  DEFAULT_ENDPOINT_RETENTION,
   openPgAdminSession,
   openPgRelay,
   type PgAdminSession,
@@ -56,7 +58,9 @@ import {
   resticBinary,
   resticCacheBase,
   resticDump,
+  resticForget,
   resticInit,
+  resticPrune,
   runRestic,
   type StorageBackend,
   sanitizeDbMessage,
@@ -76,7 +80,7 @@ import {
   recordInstanceDatabasesTx,
   secrets,
 } from "@restow/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   PgSecretReader,
   type TenantKeyringCache,
@@ -179,11 +183,12 @@ export interface DatabaseRunsSummary {
   planned: number;
   enqueued: number;
   expired: number;
+  forgotten: number;
 }
 
 /** One pass: plan due backups, send queued server runs to `db`, expire stuck runs. */
 export async function databaseRunsPass(deps: DatabaseRunDeps): Promise<DatabaseRunsSummary> {
-  const summary: DatabaseRunsSummary = { planned: 0, enqueued: 0, expired: 0 };
+  const summary: DatabaseRunsSummary = { planned: 0, enqueued: 0, expired: 0, forgotten: 0 };
   if (await deps.restoreModeActive()) {
     return summary;
   }
@@ -241,6 +246,7 @@ export async function databaseRunsPass(deps: DatabaseRunDeps): Promise<DatabaseR
       RETURNING id`),
   );
   summary.expired = expired.length;
+  summary.forgotten = await retentionPass(deps);
   return summary;
 }
 
@@ -1033,6 +1039,118 @@ async function dropCreated(
   } finally {
     session.close();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Retention (4.4, 9): decided by the server, per database
+// ---------------------------------------------------------------------------
+
+/** Retention runs at most this often per connection. */
+const RETENTION_EVERY_MS = 24 * 60 * MINUTE_MS;
+
+/**
+ * Keep a connection's repository to its retention (4.4, 5.1: per database, group
+ * `db:<connection>:<database>`; the instance's globals are a group of their own): the server
+ * decides from the backups runs reported, dated by when they finished, never restic's own rules,
+ * so an agent cannot push genuine backups out. Snapshots no run reported are never forgotten.
+ * The forgotten ones turn `pruned`, then restic prunes. Waits while a run of the connection is
+ * active. D3 keeps the default of the machines (30 daily, 12 weekly, 12 monthly).
+ */
+export async function databaseRetention(
+  deps: DatabaseRunDeps,
+  connection: DatabaseConnection,
+): Promise<{ forgotten: number }> {
+  const [active] = await withTenantTx(deps.db, connection.tenantId, (tx) =>
+    tx
+      .select({ id: databaseRuns.id })
+      .from(databaseRuns)
+      .where(
+        and(
+          eq(databaseRuns.connectionId, connection.id),
+          inArray(databaseRuns.status, ["queued", "running"]),
+        ),
+      )
+      .limit(1),
+  );
+  if (active || !connection.repositorySecretId) {
+    return { forgotten: 0 };
+  }
+  const rows = await withTenantTx(deps.db, connection.tenantId, (tx) =>
+    tx
+      .select()
+      .from(databaseBackups)
+      .where(
+        and(eq(databaseBackups.connectionId, connection.id), eq(databaseBackups.status, "active")),
+      ),
+  );
+  const groups = new Map<string, { id: string; time: Date }[]>();
+  for (const row of rows) {
+    const group = `db:${connection.id}:${row.kind === "globals" ? "globals" : (row.databaseId ?? row.databaseName)}`;
+    groups.set(group, [...(groups.get(group) ?? []), { id: row.snapshotId, time: row.finishedAt }]);
+  }
+  const remove: string[] = [];
+  for (const snapshots of groups.values()) {
+    remove.push(
+      ...applyRetentionPolicy(snapshots, DEFAULT_ENDPOINT_RETENTION, connection.schedule.timeZone)
+        .remove,
+    );
+  }
+  if (remove.length === 0) {
+    return { forgotten: 0 };
+  }
+  const access = await ensureDatabaseRepository(deps, connection);
+  await withRepository(access, async (session) => {
+    await resticForget(session, remove);
+    await resticPrune(session, { storage: access.storage });
+  });
+  await withTenantTx(deps.db, connection.tenantId, (tx) =>
+    tx
+      .update(databaseBackups)
+      .set({ status: "pruned", prunedAt: deps.now() })
+      .where(
+        and(
+          eq(databaseBackups.connectionId, connection.id),
+          inArray(databaseBackups.snapshotId, remove),
+        ),
+      ),
+  );
+  return { forgotten: remove.length };
+}
+
+const retentionDone = new Map<string, number>();
+
+async function retentionPass(deps: DatabaseRunDeps): Promise<number> {
+  const now = deps.now().getTime();
+  const candidates = rowsOf<{ id: string; tenant_id: string }>(
+    await deps.providerDb.execute(sql`
+      SELECT DISTINCT c.id, c.tenant_id
+        FROM database_connections c
+        JOIN database_backups b ON b.connection_id = c.id AND b.status = 'active'
+       LIMIT 500`),
+  );
+  let forgotten = 0;
+  for (const row of candidates) {
+    if (now - (retentionDone.get(row.id) ?? 0) < RETENTION_EVERY_MS) {
+      continue;
+    }
+    retentionDone.set(row.id, now);
+    const [connection] = await withTenantTx(deps.db, row.tenant_id, (tx) =>
+      tx.select().from(databaseConnections).where(eq(databaseConnections.id, row.id)).limit(1),
+    );
+    if (!connection) {
+      continue;
+    }
+    try {
+      forgotten += (await databaseRetention(deps, connection)).forgotten;
+    } catch (error) {
+      deps.logger.error("database retention failed", {
+        tenantId: row.tenant_id,
+        connectionId: row.id,
+        errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error),
+      });
+    }
+  }
+  return forgotten;
 }
 
 /** The latest backups of a connection (tests, the API). */

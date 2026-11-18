@@ -38,6 +38,7 @@ import { TenantCache } from "../handlers/framework.js";
 import { dropTestDatabase } from "../testing/database.js";
 import {
   type DatabaseRunDeps,
+  databaseRetention,
   databaseRunsPass,
   defaultRestoreName,
   ensureDatabaseRepository,
@@ -456,4 +457,57 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     ).length;
     expect(after).toBe(before);
   }, 120_000);
+
+  it("forgets what the retention no longer keeps, per database, and only what runs reported [DB-007]", async () => {
+    const connection = {
+      id: connectionId,
+      tenantId,
+      executorKind: "server" as const,
+      executorEndpointId: null,
+    };
+    for (let index = 0; index < 2; index++) {
+      now = new Date(now.getTime() + 60 * 1000);
+      const run = await insertDatabaseRun(
+        db,
+        connection,
+        { kind: "backup", trigger: "manual" },
+        now,
+      );
+      await runDatabaseJob(deps(), { tenantId, runId: run?.id as string });
+      expect((await runOf(run?.id as string))?.status).toBe("succeeded");
+    }
+    const [full] = await db
+      .select()
+      .from(databaseConnections)
+      .where(eq(databaseConnections.id, connectionId));
+    const access = await ensureDatabaseRepository(deps(), full as NonNullable<typeof full>);
+    const before = (await withRepository(access, (session) => resticSnapshots(session))).length;
+    const active = await db
+      .select()
+      .from(databaseBackups)
+      .where(eq(databaseBackups.connectionId, connectionId));
+    const outcome = await databaseRetention(deps(), full as NonNullable<typeof full>);
+    // The policy of the machines per group (the database and the globals): some of today's go,
+    // the newest of each group stays.
+    const after = await db
+      .select()
+      .from(databaseBackups)
+      .where(eq(databaseBackups.connectionId, connectionId));
+    const kept = after.filter((row) => row.status === "active");
+    const wasActive = active.filter((row) => row.status === "active");
+    expect(outcome.forgotten).toBeGreaterThan(0);
+    expect(outcome.forgotten).toBe(wasActive.length - kept.length);
+    for (const kind of ["database", "globals"] as const) {
+      const newest = wasActive
+        .filter((row) => row.kind === kind)
+        .sort((x, y) => y.finishedAt.getTime() - x.finishedAt.getTime())[0];
+      expect(kept.map((row) => row.id)).toContain(newest?.id);
+    }
+    expect(after.filter((row) => row.status === "pruned").every((row) => row.prunedAt)).toBe(true);
+    const snapshots = await withRepository(access, (session) => resticSnapshots(session));
+    expect(snapshots.length).toBe(before - outcome.forgotten);
+    expect(snapshots.map((snapshot) => snapshot.id).sort()).toEqual(
+      expect.arrayContaining(kept.map((row) => row.snapshotId)),
+    );
+  }, 240_000);
 });
