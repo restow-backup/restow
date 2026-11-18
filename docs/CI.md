@@ -48,6 +48,29 @@ not weaken a test: park it and report the deviation.
 The self-test is `scripts/ci/check-claims.test.mjs` (the job **Unit and Postgres tests** runs
 it with the other `scripts/ci/*.test.mjs`, also against the real register).
 
+## Postgres suites
+
+The job **Unit and Postgres tests** runs every Postgres suite against the service container
+`postgres:16-alpine` (`RESTOW_TEST_DATABASE_URL`). That server offers no TLS, so the suite that
+proves the server probe's encrypted path (`packages/core/src/databases/probe/postgres.pg.test.ts`:
+TLS before the sign-in, SCRAM, the facts, the rights matrix, the health check with the pinned
+certificate) needs a second one: the step "Start a PostgreSQL with TLS" runs
+`scripts/ci/start-postgres-tls.sh`, which
+
+- makes a throwaway self-signed certificate (two days, nothing secret leaves the job);
+- starts the same image with `ssl = on` on port 5432 of the container's own address (the suite
+  recognises the engine from the host alone, so no other port), copying the key into place for
+  the `postgres` user first;
+- waits until it answers over TCP, fails when `SHOW ssl` is not `on`, and writes
+  `RESTOW_TEST_DATABASE_TLS_URL` to `$GITHUB_ENV`.
+
+The suite skips itself without `RESTOW_TEST_DATABASE_TLS_URL`; the Postgres guard
+(`pnpm test:pg-guard`, `scripts/ci/assert-pg-suites.mjs`) then fails the job: it asks for the
+variable as soon as a Postgres test file reads it, besides `RESTOW_TEST_DATABASE_URL` for all of
+them, and fails on every skipped Postgres test. Locally, point the variable at any PostgreSQL 16
+with `ssl = on` on port 5432 (for example the one `RESTOW_TEST_DATABASE_URL` names, if it has a
+certificate), or run the script with Docker.
+
 ## Dependency licenses and Dependabot
 
 The job **Dependency licenses** of `ci.yml` installs the workspace and runs

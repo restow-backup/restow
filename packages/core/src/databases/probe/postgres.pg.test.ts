@@ -3,8 +3,12 @@
  * recognised from the address alone, the session is encrypted whenever the server offers TLS, the
  * sign-in speaks SCRAM-SHA-256, and the rights matrix follows the roles the user really has.
  *
- * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a role that may create roles;
- * skipped otherwise. The roles it creates are dropped at the end.
+ * Runs when RESTOW_TEST_DATABASE_TLS_URL points at a PostgreSQL server that offers TLS
+ * (`ssl = on`), as a role that may create roles; skipped otherwise. The CI starts such a server
+ * next to its plain one (scripts/ci/start-postgres-tls.sh, docs/CI.md), and the Postgres guard
+ * fails the job when the variable is missing there. The server must listen on the default port
+ * 5432 (the engine is recognised from the host alone). The roles it creates are dropped at the
+ * end.
  */
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,7 +21,7 @@ import { checkDatabaseHealthFromServer } from "./health-check.js";
 import { PG_SSL_REQUEST, pgQuery, pgSignIn, pgTerminate } from "./postgres.js";
 import { probeDatabaseFromServer } from "./probe.js";
 
-const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
+const adminUrl = process.env.RESTOW_TEST_DATABASE_TLS_URL;
 const suffix = randomBytes(4).toString("hex");
 const ROLE = `restow_d1_probe_${suffix}`;
 const PASSWORD = `pw-${randomBytes(12).toString("hex")}`;
@@ -71,7 +75,7 @@ function spec(overrides: Partial<DbProbeSpec> = {}): DbProbeSpec {
 
 const loopback = { allowPrivateNetworks: true };
 
-describe.skipIf(!adminUrl)("probe against a real PostgreSQL 16", () => {
+describe.skipIf(!adminUrl)("probe against a real PostgreSQL 16 with TLS", () => {
   let systemIdentifier = "";
 
   beforeAll(async () => {
@@ -101,7 +105,7 @@ describe.skipIf(!adminUrl)("probe against a real PostgreSQL 16", () => {
     expect(result.postgresql?.databases.some((database) => database.name === "postgres")).toBe(
       true,
     );
-    // The test server runs with ssl = on: Restow used it and kept the certificate's fingerprint.
+    // The server offers TLS (ssl = on): Restow used it and kept the certificate's fingerprint.
     expect(result.tls).toMatchObject({ offered: true, used: true });
     expect(result.tls.fingerprintSha256).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
     const identity = dbInstanceIdentityOf(result);

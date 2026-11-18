@@ -7,14 +7,18 @@
  * skip themselves otherwise. A skipped suite still reports green, so this guard
  * fails the job when
  *   - RESTOW_TEST_DATABASE_URL is not set,
+ *   - RESTOW_TEST_DATABASE_TLS_URL is not set while a Postgres test file reads it (the server
+ *     probe's suite needs a PostgreSQL with TLS; the CI starts a second server for it,
+ *     scripts/ci/start-postgres-tls.sh),
  *   - a workspace holding Postgres tests wrote no Vitest JSON report,
  *   - a Postgres test file is missing from its workspace's report or has no tests, or
  *   - any test in a Postgres test file did not pass (skipped, todo, pending, failed).
  *
  * Postgres test files are found from the source rather than from a list, so a
  * new suite is covered without touching this script: a test file named
- * `*.pg.test.*`, or one that reads RESTOW_TEST_DATABASE_URL itself or through
- * a relative import (a shared fixture module, for example).
+ * `*.pg.test.*`, or one that reads RESTOW_TEST_DATABASE_URL (or
+ * RESTOW_TEST_DATABASE_TLS_URL) itself or through a relative import (a shared
+ * fixture module, for example).
  *
  * The reports are written by `pnpm test:ci` (Vitest's JSON reporter, one
  * `test-results/vitest.json` per workspace). The self-test lives next to this
@@ -27,6 +31,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const DATABASE_ENV = "RESTOW_TEST_DATABASE_URL";
+/** A PostgreSQL that offers TLS, for the suites that prove the encrypted path. */
+export const DATABASE_TLS_ENV = "RESTOW_TEST_DATABASE_TLS_URL";
 export const REPORT_FILE = join("test-results", "vitest.json");
 
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
@@ -108,7 +114,10 @@ class ImportGraph {
           imports.push(imported);
         }
       }
-      module = { readsEnv: source.includes(DATABASE_ENV), imports };
+      module = {
+        readsEnv: source.includes(DATABASE_ENV) || source.includes(DATABASE_TLS_ENV),
+        imports,
+      };
       this.#modules.set(file, module);
     }
     return module;
@@ -153,7 +162,7 @@ export function findPostgresTestFiles(root) {
         continue;
       }
       if (POSTGRES_TEST_FILE.test(file) || graph.readsDatabaseEnv(file)) {
-        found.push({ workspace, file });
+        found.push({ workspace, file, tls: readFileSync(file, "utf8").includes(DATABASE_TLS_ENV) });
       }
     }
   }
@@ -190,6 +199,12 @@ export function checkPostgresSuites({ root, env = process.env }) {
   }
 
   const files = findPostgresTestFiles(root);
+  const needTls = files.filter((entry) => entry.tls).map((entry) => relative(root, entry.file));
+  if (needTls.length > 0 && !env[DATABASE_TLS_ENV]) {
+    problems.push(
+      `${DATABASE_TLS_ENV} is not set: ${needTls.join(", ")} skip(s) without a PostgreSQL that offers TLS (scripts/ci/start-postgres-tls.sh).`,
+    );
+  }
   if (files.length === 0) {
     problems.push("no Postgres test files were found; the discovery rules no longer match.");
   }

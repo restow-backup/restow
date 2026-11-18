@@ -35,7 +35,10 @@ Postgres-16-Server zeigt (eine Rolle mit `CREATEDB`, z. B.
 `postgres://restow@localhost:5432/postgres`). Jede Suite legt ihre eigene Datenbank
 `restow_*_test` neu an (eine vorhandene wird vorher gelöscht) und migriert sie. Ohne die
 Variable werden sie übersprungen und als "skipped" gemeldet; CI stellt dafür einen
-Postgres-Service bereit und setzt die Variable.
+Postgres-Service bereit und setzt die Variable. Die Suite der Prüfung des Servers gegen echtes PostgreSQL
+(`packages/core/src/databases/probe/postgres.pg.test.ts`) braucht einen Server mit TLS und liest
+dafür `RESTOW_TEST_DATABASE_TLS_URL` (Port 5432); CI startet ihn mit
+`scripts/ci/start-postgres-tls.sh` (docs/CI.md "Postgres suites").
 
 - apps/api: `features/usage/usage.pg.test.ts`,
   `features/provider-team/provider-team.pg.test.ts` (Mitglieder: Einladung, Rollen,

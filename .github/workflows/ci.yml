@@ -160,6 +160,14 @@ jobs:
           chmod +x "$RUNNER_TEMP/planner/restow-agent"
           echo "RESTOW_PLANNER_BIN=$RUNNER_TEMP/planner/restow-agent" >> "$GITHUB_ENV"
 
+      - name: Start a PostgreSQL with TLS (the server probe's suite)
+        # The service above offers no TLS. packages/core databases/probe/postgres.pg.test.ts
+        # proves the encrypted sign-in, the certificate pinning and the facts against a real
+        # PostgreSQL 16 with ssl = on: a second container with a throwaway self-signed
+        # certificate, on port 5432 of its own address. Sets RESTOW_TEST_DATABASE_TLS_URL;
+        # the guard below fails the job when the suite skipped itself (docs/CI.md).
+        run: sh scripts/ci/start-postgres-tls.sh
+
       - name: Self-test the CI and release tooling
         # The Postgres suite guard, the edge header checker, the ee/ import guard,
         # the former-name guard, the claims guard (which also runs against the real
@@ -180,8 +188,9 @@ jobs:
         run: pnpm test:ci
 
       - name: Assert no Postgres suite was skipped
-        # A suite without RESTOW_TEST_DATABASE_URL skips itself and still looks
-        # green; this fails the job unless every Postgres test ran and passed.
+        # A suite without RESTOW_TEST_DATABASE_URL (or, for the TLS suite,
+        # RESTOW_TEST_DATABASE_TLS_URL) skips itself and still looks green; this
+        # fails the job unless every Postgres test ran and passed.
         run: pnpm test:pg-guard
 
   i18n:

@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   checkPostgresSuites,
   DATABASE_ENV,
+  DATABASE_TLS_ENV,
   findPostgresTestFiles,
   REPORT_FILE,
 } from "./assert-pg-suites.mjs";
@@ -99,6 +100,29 @@ describe("assert-pg-suites", () => {
     const { problems } = checkPostgresSuites({ root, env: {} });
     assert.equal(problems.length, 1);
     assert.match(problems[0], new RegExp(`${DATABASE_ENV} is not set`));
+  });
+
+  it("fails without the TLS variable when a suite reads it, and finds such a suite", () => {
+    write(
+      "apps/api/src/probe.tls.test.ts",
+      `const url = process.env.${DATABASE_TLS_ENV};\ndescribe.skipIf(!url)("probe", () => {});\n`,
+    );
+    writeReport({ "apps/api/src/probe.tls.test.ts": [assertion("probe signs in over TLS")] });
+    const found = findPostgresTestFiles(root).map(({ file }) => file.slice(root.length + 1));
+    assert.ok(found.includes("apps/api/src/probe.tls.test.ts"));
+    const without = checkPostgresSuites({ root, env: ENV }).problems;
+    assert.equal(without.length, 1);
+    assert.match(
+      without[0],
+      new RegExp(`${DATABASE_TLS_ENV} is not set: apps/api/src/probe.tls.test.ts`),
+    );
+    const withTls = { ...ENV, [DATABASE_TLS_ENV]: "postgres://ci@172.17.0.2:5432/postgres" };
+    assert.deepEqual(checkPostgresSuites({ root, env: withTls }).problems, []);
+  });
+
+  it("does not ask for the TLS variable when no suite reads it", () => {
+    writeReport();
+    assert.deepEqual(checkPostgresSuites({ root, env: ENV }).problems, []);
   });
 
   it("fails when a Postgres suite or section was skipped", () => {

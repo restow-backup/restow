@@ -1213,7 +1213,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.1 "Adresse und Erkennung der Engine", Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, agent/internal/dbprobe/probe_test.go, agent/internal/dbprobe/postgres_test.go
-- Belegt gegen: beides (PostgreSQL 16 echt für die Prüfung des Restow-Servers, Job test in ci.yml; MySQL, MariaDB und SQL Server als Simulator nach der Protokollbeschreibung, echte Server wären MySQL 8.0/8.4, MariaDB 10.6 bis 11.8 und SQL Server 2019/2022. Der Agent prüft gegen dieselben Simulatoren; sein Test gegen echtes PostgreSQL läuft nur mit RESTOW_TEST_DATABASE_URL, die der Job agent nicht setzt.)
+- Belegt gegen: beides (PostgreSQL 16 echt mit TLS für die Prüfung des Restow-Servers, Job test in ci.yml mit einem zweiten Server mit `ssl = on`, scripts/ci/start-postgres-tls.sh; MySQL, MariaDB und SQL Server als Simulator nach der Protokollbeschreibung, echte Server wären MySQL 8.0/8.4, MariaDB 10.6 bis 11.8 und SQL Server 2019/2022. Der Agent prüft gegen dieselben Simulatoren; sein Test gegen echtes PostgreSQL läuft nur mit RESTOW_TEST_DATABASE_URL, die der Job agent nicht setzt.)
 - Stand: belegt
 - Hinweis: Die Versionsmatrix gegen echte Server je Version ist Stufe D7 (docs/DATABASES.md 13).
 
