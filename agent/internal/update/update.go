@@ -182,7 +182,9 @@ func install(ctx context.Context, o Options, version string, isUpdate bool) (Res
 		if binDir, err = paths.EnsureBinDir(); err != nil {
 			return Result{}, fmt.Errorf("the install folder is not safe: %w", err)
 		}
-	} else if _, err := paths.TrustedDir(binDir, false); err != nil {
+	} else if binDir, err = paths.TrustedDir(binDir, false); err != nil {
+		// The checked folder is the resolved one: everything below is written there, never
+		// through a link that could be pointed elsewhere after the check.
 		return Result{}, fmt.Errorf("the install folder is not safe: %w", err)
 	}
 	CleanupStaged(binDir)
