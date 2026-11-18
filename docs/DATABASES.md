@@ -1,6 +1,6 @@
 # Datenbanken (Entwurf für 0.6.0)
 
-Stand: Stufen D1 bis D3 umgesetzt (Abschnitt 16), D4 entschieden und in Arbeit, D5 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
+Stand: Stufen D1 bis D4 umgesetzt (Abschnitt 16), D5 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
 Sicherung, 0.6.x für Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores
 (November 2026):
 
@@ -1037,6 +1037,97 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
 - **CI:** echte Server MySQL 8.4 und 8.0, MariaDB 11.8 und 10.6 mit TLS als Container (wie
   `start-postgres-tls.sh`), mit einem Wächter wie für PostgreSQL, damit die Suiten in der CI nicht
   still übersprungen werden.
+
+### D4 (umgesetzt)
+
+- **Relais** (M1): `openMysqlRelay` in packages/core `databases/relay.ts` (Worker) und
+  `OpenMysqlRelay` in agent `internal/dbrun` (Agent), auf demselben Kern wie das Relais von D3
+  (Socket 0700/0600 in `/dev/shm`, ein Client, Fristen). Die Verbindung öffnet
+  `openPinnedMysql` bzw. `dbprobe.OpenPinnedMysql` (Adressregeln, erste Adresse des Laufs, Engine
+  aus der Begrüßung, `db_engine_changed`, `db_tls_missing`). Die SSLRequest baut das Relais aus den
+  ersten 32 Bytes des Anmeldepakets des Programms: MySQL und MariaDB behalten die Fähigkeiten der
+  SSLRequest für die ganze Sitzung, eine eigene SSLRequest mit anderen Schaltern (etwa ohne
+  `CLIENT_DEPRECATE_EOF`) brächte das Programm aus dem Tritt. Erst danach beginnt TLS mit dem
+  bestätigten Fingerabdruck; ein anderes Zertifikat beendet das Relais mit `db_tls_changed`, bevor
+  das Anmeldepaket gesendet ist. Eine SSLRequest des Programms selbst, Kompression und
+  `mysql_clear_password` lehnt das Relais ab; ohne TLS nach oben verschlüsselt es den Klartext der
+  vollen Anmeldung von `caching_sha2_password` mit dem RSA-Schlüssel des Servers (RSA-OAEP).
+- **Programme** (M2): MariaDB 11.8 aus dem Archiv von MariaDB (`deb.mariadb.org/11.8`, Schlüssel
+  `scripts/docker/mariadb-C74CD1D8.asc`, Fingerabdruck beim Bau geprüft), weil das Basis-Image
+  (`node:22-slim`, Debian bookworm) 10.11 bringt; der Bau nimmt Debians Paket, sobald die Basis
+  11.8 hat. MySQL 8.4.13 aus Oracles Archiven nach `/opt/mysql` (nur `mysqldump`, `mysql`,
+  `mysqlbinlog`, die OpenSSL-Bibliotheken unter `lib/private`, Oracles Lizenzdatei), Archiv über
+  SHA-256 festgelegt, Signatur mit `gpgv` gegen `scripts/docker/mysql-A8D3785C.asc` geprüft
+  (genau ein Schlüssel, dessen Unterschlüssel nur verschlüsselt; eine Signatur gilt auch nach
+  Ablauf des Schlüssels, `EXPKEYSIG`, damit alte Stände baubar bleiben). Gemessen (amd64,
+  unkomprimiert): MariaDB-Schicht 87 MB (davon etwa 47 MB Perl, eine Abhängigkeit von
+  `mariadb-client`), MySQL 33 MB, zusammen etwa 120 MB je Anwendungs-Image. Die CI prüft im Image
+  die Versionen und dass in `/opt/mysql/bin` nur die drei Programme liegen. Die Wahl nach Familie
+  und Version (`chooseMysqlTools`, `ChooseMysqlTools`) sucht in `/opt/mysql/bin` und `/usr/bin`
+  (Agent zusätzlich Homebrew, `/usr/local/mysql/bin` und `PATH`), nur vertrauenswürdige Dateien
+  wie D3.
+- **Anmeldung der Programme:** Benutzer, Kennwort, Socket und `protocol=SOCKET` stehen in einer
+  Optionsdatei (0600, im privaten Ordner des Laufs), die das Programm als erstes Argument
+  bekommt; `HOME` ist derselbe Ordner. Feste Argumentlisten: `mysqlDumpArgs`,
+  `mariadbUsersArgs`, `mysqlRestoreArgs` (packages/core `databases/mysql-tools.ts`, gleich im
+  Agenten).
+- **Sicherung** (M3, M4): je ausgewähltes Schema `<engine>/<name>.sql` mit
+  `--single-transaction --quick --routines --events --triggers --hex-blob
+  --default-character-set=utf8mb4 --no-tablespaces --skip-add-locks`, bei MySQL zusätzlich
+  `--set-gtid-purged=OFF --column-statistics=0`; die Schemas `mysql`, `sys`,
+  `information_schema` und `performance_schema` nie. Zeichensatz und Sortierung des Schemas stehen
+  an der Sicherung (`database_backups.engine_options`, Migration 0110). Nicht transaktionale
+  Tabellen meldet der Lauf als `db_nontransactional_tables` (höchstens 20 Namen und die Zahl der
+  übrigen). Benutzer und Rechte einmal je Instanz als `<engine>/users.sql`: MariaDB mit
+  `mariadb-dump --system=users`, MySQL aus `SHOW CREATE USER` und `SHOW GRANTS` über Restows
+  eigenen Client (Werte bis 1 MiB, bis 100 000 Zeilen); fehlt das Recht dazu, ist das ein Hinweis
+  (`db_permission_missing`), kein Fehler der Sicherung. Instanzen: MySQL an `server_uuid`,
+  MariaDB an `server_id` und `datadir`; Schemas haben keine OID.
+- **Restore** (M3): wie entschieden, mit der Markierungstabelle `__restow_run_<12 Zeichen der
+  Lauf-ID>`. Fehler beim Anlegen: 1007 ist `db_restore_name_taken`, 1044 und 1227
+  `db_permission_missing`; bricht der Client ab, ist ein Fehler 1044, 1142, 1227, 1370 oder 1419
+  (Routine oder Trigger bei eingeschaltetem Binärlog ohne `SUPER` und ohne
+  `log_bin_trust_function_creators`) ebenfalls `db_permission_missing`. Der Lauf meldet
+  `definersRemoved` und `eventsDisabled`.
+- **Rechte-Matrix** (3.2): Sicherung auf MySQL ab 8.0.20 zusätzlich `SHOW_ROUTINE`, das auch ein
+  globales `SELECT` oder `CREATE ROUTINE`, `ALTER ROUTINE` oder `EXECUTE` am Ort der Routine
+  ersetzt; Prüfung und Restore zusätzlich `CREATE VIEW`, `SHOW VIEW`, `TRIGGER`, `EVENT`.
+- **Download, Anleitung, Seite:** wie D3; die Anleitung nennt `CREATE DATABASE` mit Zeichensatz
+  und Sortierung, den Client mit `--database`, die Definer und das Abschalten der Ereignisse. Die
+  Seite schlägt den Namen nach den Regeln von M3 vor und bietet `users.sql` wie `globals.sql`
+  nur Administratoren an.
+- **CI:** `scripts/ci/start-mysql-tls.sh` startet MySQL 8.4 und 8.0, MariaDB 11.8 und 10.6 mit
+  einem Wegwerf-Zertifikat, `scripts/ci/install-mysql-tools.sh` legt dasselbe MySQL-Archiv wie
+  das Image nach `/opt/mysql` und den MariaDB-Client der Distribution auf den Runner; der Wächter
+  `scripts/ci/assert-pg-suites.mjs` verlangt die vier Variablen, sobald eine Suite sie liest.
+
+### Abweichungen und Grenzen von D4
+
+- **`--defaults-file` statt `--defaults-extra-file`:** Restow übergibt die Optionsdatei mit
+  `--defaults-file`, damit das Programm keine andere liest (`/etc/my.cnf`, `~/.my.cnf` des
+  Dienstkontos könnten `host`, `ssl-*` oder `init-command` setzen). Entschieden war
+  `--defaults-extra-file`; Zweck (Kennwort nie in Argumenten oder Umgebung) und Ort (erstes
+  Argument, 0600, RAM-Ordner) sind dieselben.
+- **TLS erst mit der Anmeldung:** Die Entscheidung beschreibt eine eigene SSLRequest des Relais
+  vor der Begrüßung an das Programm. Umgesetzt wird sie aus dem Anmeldepaket des Programms
+  gebaut (siehe oben); die Begrüßung an das Programm ist die ursprüngliche, das Zertifikat wird
+  vor dem Anmeldepaket geprüft.
+- **arm64:** Oracle bietet für MySQL 8.4 kein "minimal"-Archiv für aarch64 an; der Bau für arm64
+  lädt das volle Archiv derselben Version (etwa 820 MB, festgelegt und signiert wie amd64) und
+  übernimmt dieselben Dateien, deren Programme dort Symbole enthalten (zusammen etwa 49 MB statt
+  24 MB). Lokal ist nur amd64 gebaut.
+- **Quelltext der GPL-Programme:** Die Clients von MySQL und MariaDB stehen unter der GPL 2.0; die
+  Drittanbieter-Hinweise nennen Lizenz und Bezugsquellen des Quelltexts. Ob die Veröffentlichung
+  zusätzlich den Quelltext selbst oder ein schriftliches Angebot mitliefern muss, ist zu klären.
+- **Objekte im Körper:** Sichten, Routinen und Trigger, deren Körper das Quellschema mit Namen
+  nennen, zeigen nach einem Restore weiter auf das Quellschema (der Dump schreibt Namen so, wie
+  sie definiert wurden).
+- **Test des Agenten gegen echte Server:** `mysql_run_pg_test.go` läuft nur mit den vier
+  Variablen, die der Job agent nicht setzt (wie D3); lokal bestanden gegen MySQL 8.4 und 8.0,
+  MariaDB 11.8, 10.11 und 10.6.
+- **Benutzer und Rechte:** werden gesichert, nie eingespielt; für MySQL nur, wenn der Benutzer
+  `mysql.user` lesen darf (sonst der Hinweis `db_permission_missing`), mit den Kennwort-Hashes als
+  Hex (`print_identified_with_as_hex`, MySQL ab 8.0.17), damit die Datei Text bleibt.
 
 ### Nahtstellen für D3 bis D7
 

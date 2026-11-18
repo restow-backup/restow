@@ -127,6 +127,32 @@ private repository.
   - Retention per database decided by the server from the runs' reports (30 daily, 12 weekly,
     12 monthly). The application images carry `postgresql-client-18` from the PGDG archive (key
     pinned in the repository). Migration 0109 (`database_runs`, `database_backups`).
+- Backups and restores of MySQL and MariaDB schemas (docs/DATABASES.md, stage D4 of 0.6.0), by the
+  Restow server or an agent (not under Windows), like PostgreSQL:
+  - One restic snapshot per selected schema (`mysqldump` or `mariadb-dump` with
+    `--single-transaction --quick`, routines, events and triggers, `<engine>/<schema>.sql`) and the
+    instance's users and grants once (`<engine>/users.sql`, for administrators only, never
+    restored automatically). Tables of a non-transactional engine (MyISAM, Aria, MEMORY) are
+    reported as a notice; the objects are counted from the statement headers only.
+  - The programs reach the server only through a relay that signs them in: Restow's hardened
+    client opens the connection (address rules, TLS and the confirmed certificate), the program
+    gets the server's own greeting over a Unix socket of its own, and TLS starts with the
+    program's login; without TLS (an agent's "connect unencrypted") the relay does the RSA step
+    of `caching_sha2_password` itself and refuses any method that would send the password in
+    clear. User and password go to the program in an option file (0600, in memory), never on a
+    command line or in its environment.
+  - Restore always into a new schema with the source's character set and collation, stopping at
+    the first error; the DEFINER clauses of the dump programs' view, routine, trigger and event
+    headers are removed on the way (never in data), the new schema's events are switched off,
+    and when the run fails only a schema carrying its marker table is dropped. A restoring user
+    who lacks a right (also a trigger or routine while the binary log is on) gets
+    `db_permission_missing`.
+  - The rights matrix asks for `SHOW_ROUTINE` on MySQL 8.0.20 and later and, for check and
+    restore, for `CREATE VIEW`, `SHOW VIEW`, `TRIGGER` and `EVENT`.
+  - The application images carry MySQL 8.4's `mysqldump`, `mysql` and `mysqlbinlog` in
+    `/opt/mysql` (Oracle's archive, pinned by SHA-256 and checked against Oracle's key) and the
+    MariaDB 11.8 client from MariaDB's archive (key pinned in the repository), about 120 MB per
+    image. Migration 0110 (`database_backups.engine_options`).
 - Monthly billing close (Service Provider; integration API contract 1.11.0, additive): every
   tenant's billed quantities (protected mailboxes, stored data, servers, clients, VMs,
   containers, file shares) are sampled once a day, counted exactly like `GET /provider/billing`,
