@@ -22,7 +22,8 @@
  *     `database.unreachable` once per episode, the first good check after it
  *     `database.reachable` (@restow/core `advanceDbHealthState`), in the same transaction. At
  *     most one of them per connection and evaluation, samples closer than half the interval are
- *     ignored, and a flapping connection gets at most one pair in 30 minutes.
+ *     ignored, and a flapping connection gets at most one pair in 30 minutes. At most 500
+ *     connections a pass, the tenants taking turns, the oldest pending sample first.
  *   - **Housekeeping** once a day: raw samples older than 14 days fold into hours, hours older than
  *     400 days go; `db_health` tasks of agents older than a day go. In bounded batches (at most
  *     {@link MAX_COMPACT_BATCHES_PER_PASS} a pass); what is left goes on in the next pass.
@@ -111,6 +112,8 @@ export interface DatabaseHealthDeps {
   readonly checkBudgetMs?: number;
   /** Tests: the checks of a pass (default 200). */
   readonly maxChecksPerPass?: number;
+  /** Tests: the connections evaluated in a pass (default 500). */
+  readonly maxEvaluationsPerPass?: number;
   /** Restore mode is on: no checks with credentials (10). */
   readonly restoreModeActive: () => Promise<boolean>;
   /** The sealed user and password of a connection, opened for one check. */
@@ -452,19 +455,36 @@ async function runServerChecks(
   return { checked, failed, waiting: 0, deferred: Math.max(0, due.length - next), overBudget };
 }
 
-/** The connections with samples the state has not taken in yet. */
+/**
+ * The connections with samples the state has not taken in yet, at most
+ * {@link MAX_EVALUATIONS_PER_PASS}: the tenants take turns (as for the checks), and within a
+ * tenant the connection whose oldest pending sample is oldest comes first. A connection left out
+ * keeps its old pending sample while the ones taken get newer ones, so it comes first in the
+ * next pass: none waits for long, however many connections report every minute.
+ */
 async function connectionsToEvaluate(
   deps: DatabaseHealthDeps,
 ): Promise<{ id: string; tenant_id: string }[]> {
   const result = await deps.providerDb.execute(sql`
-    SELECT c.id, c.tenant_id
-      FROM database_connections c
-     WHERE EXISTS (
-       SELECT 1 FROM database_health_samples s
-        WHERE s.connection_id = c.id AND s.resolution = 'raw'
-          AND s.at > coalesce((c.health ->> 'evaluatedUntil')::timestamptz,
-                              (c.health ->> 'lastAt')::timestamptz, '-infinity'::timestamptz))
-     LIMIT ${MAX_EVALUATIONS_PER_PASS}`);
+    WITH pending AS (
+      SELECT c.id, c.tenant_id, p.oldest
+        FROM database_connections c
+        CROSS JOIN LATERAL (
+          SELECT min(s.at) AS oldest FROM database_health_samples s
+           WHERE s.connection_id = c.id AND s.resolution = 'raw'
+             AND s.at > coalesce((c.health ->> 'evaluatedUntil')::timestamptz,
+                                 (c.health ->> 'lastAt')::timestamptz, '-infinity'::timestamptz)
+        ) p
+       WHERE p.oldest IS NOT NULL
+    ), ranked AS (
+      SELECT id, tenant_id, oldest,
+             row_number() OVER (PARTITION BY tenant_id ORDER BY oldest, id) AS turn
+        FROM pending
+    )
+    SELECT id, tenant_id
+      FROM ranked
+     ORDER BY turn, oldest, id
+     LIMIT ${deps.maxEvaluationsPerPass ?? MAX_EVALUATIONS_PER_PASS}`);
   return rowsOf<{ id: string; tenant_id: string }>(result);
 }
 

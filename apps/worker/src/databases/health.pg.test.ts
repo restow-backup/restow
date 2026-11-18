@@ -631,4 +631,73 @@ describe.skipIf(!adminUrl)("database health checks against Postgres [DB-005]", (
       fabrikam,
     ]);
   });
+
+  it("evaluates every connection within a few passes, the tenants taking turns [DB-005]", async () => {
+    // Nothing else pending, and no checks of the server's connection in between (restore mode
+    // stops the checks, the evaluation goes on).
+    restoreMode = true;
+    await databaseHealthPass(deps(), { compact: false });
+    const [provider] = await q<{ provider_id: string }>(
+      "SELECT provider_id FROM tenants WHERE id = $1",
+      [tenantId],
+    );
+    const [other] = await q<{ id: string }>(
+      "INSERT INTO tenants (provider_id, name, slug, status) VALUES ($1, 'Northwind', 'northwind', 'active') RETURNING id",
+      [provider?.provider_id],
+    );
+    const northwind = other?.id as string;
+    const schedule = JSON.stringify({ kind: "interval", intervalMinutes: 60, timeZone: "UTC" });
+    const add = async (tenant: string, name: string) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO database_connections
+           (tenant_id, name, engine, host, port, executor_kind, executor_endpoint_id, schedule)
+         SELECT $1, $2, 'mysql', 'busy.lan', 3306, 'agent', executor_endpoint_id, $3::jsonb
+           FROM database_connections WHERE id = $4 RETURNING id`,
+        [tenant, name, schedule, agentConnectionId],
+      );
+      return { id: row?.id as string, tenant };
+    };
+    // Contoso: six connections; Northwind, saved last: one.
+    const busy = [];
+    for (let index = 1; index <= 6; index++) {
+      busy.push(await add(tenantId, `Busy ${index}`));
+    }
+    const quiet = await add(northwind, "Quiet");
+    const all = [...busy, quiet];
+    const evaluated = new Set<string>();
+    const evaluatedNow = async () => {
+      const rows = await q<{ id: string }>(
+        "SELECT id FROM database_connections WHERE id = ANY($1::uuid[]) AND health ->> 'evaluatedUntil' IS NOT NULL",
+        [all.map((connection) => connection.id)],
+      );
+      for (const row of rows) evaluated.add(row.id);
+    };
+    // Three a pass: Northwind's one and two of Contoso's, the ones waiting longest first.
+    for (let pass = 0; pass < 3; pass++) {
+      // Every connection reports every minute, more than a pass evaluates.
+      now = new Date(now.getTime() + MINUTE);
+      for (const connection of all) {
+        await q(
+          `INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks)
+           VALUES ($1, $2, $3, 'agent', 1)`,
+          [connection.tenant, connection.id, now],
+        );
+      }
+      const summary = await databaseHealthPass(
+        { ...deps(), maxEvaluationsPerPass: 3 },
+        { compact: false },
+      );
+      expect(summary.evaluated).toBe(3);
+      await evaluatedNow();
+      if (pass === 0) {
+        // The other tenant's turn comes in the first pass, before Contoso's second connection.
+        expect([...evaluated]).toContain(quiet.id);
+      }
+    }
+    restoreMode = false;
+    expect(evaluated.size).toBe(all.length);
+    await q("DELETE FROM database_connections WHERE id = ANY($1::uuid[])", [
+      all.map((connection) => connection.id),
+    ]);
+  });
 });

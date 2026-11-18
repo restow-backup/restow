@@ -776,7 +776,10 @@ E10 (alle Editionen) entschieden.
   `database.unreachable` wartet, solange der letzte Alarm dieser Art jünger als 30 Minuten ist.
   Dauert die Störung danach noch an, kommt der Alarm dann (mit dem Beginn der Episode);
   `database.reachable` folgt nur einer gemeldeten Episode. Eine flatternde Datenbank löst so
-  höchstens ein Paar je 30 Minuten aus.
+  höchstens ein Paar je 30 Minuten aus. Je Durchlauf werden höchstens 500 Verbindungen bewertet,
+  die Mandanten reihum und je Mandant die mit der ältesten offenen Prüfung zuerst; eine
+  zurückgestellte kommt so im nächsten Durchlauf dran, auch wenn mehr Verbindungen jede Minute
+  melden.
 - **Anzeige:** Liste mit Erreichbarkeit (erreichbar, langsam ab 2 Sekunden, nicht erreichbar,
   unbekannt ohne Prüfung seit drei Intervallen) und dem Band der letzten 24 Stunden;
   Verbindungsseite mit Stand, Band, Verfügbarkeit 24 Stunden/7 Tage/30 Tage, Antwortzeit,
