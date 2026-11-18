@@ -952,12 +952,8 @@ func (c *Command) SessionData(confirmed []string, passphrase []byte) ([]byte, er
 	}
 	d.CAPEM = string(c.Opts.CAPEM)
 	d.Session.ID, d.Session.Secret = c.session.ID, c.session.Secret
-	network, err := json.Marshal(struct {
-		Interfaces    []api.OneshotInterface `json:"interfaces"`
-		Routes        []api.OneshotRoute     `json:"routes"`
-		DNS           []string               `json:"dns"`
-		SearchDomains []string               `json:"searchDomains"`
-	}{m.target.Interfaces, m.target.Routes, m.target.DNS, m.target.SearchDomains})
+	network, err := json.Marshal(recovery.OneshotNetwork{Interfaces: m.target.Interfaces, Routes: m.target.Routes,
+		DNS: m.target.DNS, SearchDomains: m.target.SearchDomains, Cloud: m.target.Cloud})
 	if err != nil {
 		return nil, err
 	}

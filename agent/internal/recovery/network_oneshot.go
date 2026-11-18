@@ -19,6 +19,9 @@ type OneshotNetwork struct {
 	Routes        []api.OneshotRoute     `json:"routes"`
 	DNS           []string               `json:"dns"`
 	SearchDomains []string               `json:"searchDomains"`
+	// Cloud is cloud-init's view of the fresh machine (its datasource
+	// decides who brings the network up in the restored system, 11.2).
+	Cloud *api.OneshotCloud `json:"cloud,omitempty"`
 }
 
 // NetworkFile is one systemd-networkd file of the recovery environment.

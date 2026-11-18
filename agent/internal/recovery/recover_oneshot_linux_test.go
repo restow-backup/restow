@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,11 @@ func newOneshotRun(t *testing.T, edit func(f *fakeRecovery, d *OneshotData)) *on
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo, snap := snapshotOf(t, bin, raw)
+	repo, snap := snapshotOfFiles(t, bin, raw, func(files map[string]string) {
+		// An Ubuntu-like system: netplan from cloud-init, cloud-init itself.
+		files["etc/netplan/50-cloud-init.yaml"] = "network:\n  version: 2\n  ethernets:\n    enp1s0:\n      dhcp4: true\n      match:\n        macaddress: 52:54:00:12:34:56\n"
+		files["etc/cloud/cloud.cfg"] = "datasource_list: [ NoCloud, None ]\n"
+	})
 	f := newFakeRecovery(t, "", testCode)
 	f.snapshotID, f.layoutSHA = snap, sha256Hex(string(raw))
 	secret, sha, _ := NewSessionSecret()
@@ -140,6 +145,40 @@ func TestOneshotRecoverRestoresAndRestarts(t *testing.T) {
 	}
 	if strings.Contains(o.out.String(), testPassphrase) {
 		t.Error("the passphrase is on the console")
+	}
+	// The network of the fresh machine in the restored system (10.4, 11.2).
+	read := func(p string) string { b, _ := os.ReadFile(filepath.Join(o.env.target, p)); return string(b) }
+	np := read("etc/netplan/60-restow.yaml")
+	for _, want := range []string{"203.0.113.7/32", `via: "172.31.1.1"`, "on-link: true", `via: "fe80::1"`, "185.12.64.1"} {
+		if !strings.Contains(np, want) {
+			t.Errorf("netplan lacks %q:\n%s", want, np)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(o.env.target, "etc/netplan/50-cloud-init.yaml")); err == nil {
+		t.Error("the old netplan file stays")
+	}
+	if !strings.Contains(read("etc/restow/network-before-restore/etc/netplan/50-cloud-init.yaml"), "52:54:00:12:34:56") ||
+		!strings.Contains(read("etc/restow/network-before-restore/README"), o.f.sessionID) {
+		t.Error("the old configuration was not kept")
+	}
+	if ci := read("etc/cloud/cloud.cfg.d/99-restow-restored.cfg"); !strings.Contains(ci, "network: {config: disabled}") || !strings.Contains(ci, "ssh_deletekeys: false") {
+		t.Errorf("cloud-init drop-in:\n%s", ci)
+	}
+}
+
+func TestOneshotRecoverKeepsTheOldNetwork(t *testing.T) {
+	o := newOneshotRun(t, func(f *fakeRecovery, d *OneshotData) { f.oneshot.Decided.NetworkMode = "keep" })
+	o.f.mu.Lock()
+	defer o.f.mu.Unlock()
+	if o.f.finish == nil || o.f.finish.Status != api.RecoverySucceeded {
+		t.Fatalf("finish %+v\n%s", o.f.finish, o.out.String())
+	}
+	if _, err := os.Stat(filepath.Join(o.env.target, "etc/netplan/60-restow.yaml")); err == nil {
+		t.Error("a network file of the fresh machine although the old network is kept")
+	}
+	b, _ := os.ReadFile(filepath.Join(o.env.target, "etc/netplan/50-cloud-init.yaml"))
+	if !strings.Contains(string(b), "dhcp4: true") {
+		t.Errorf("the old netplan file changed:\n%s", b)
 	}
 }
 

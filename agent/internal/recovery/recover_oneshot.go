@@ -98,6 +98,7 @@ func (r *Recover) oneshotSession(ctx context.Context, target *baremetal.Target) 
 		return &problemError{code: ProblemAccessExpired, err: fmt.Errorf("the session is %s without the decisions of its release", st.Status)}
 	}
 	dec := st.Oneshot.Decided
+	r.decided = dec
 	r.Answers.ApplyDecided(dec)
 	r.logf("oneshot: released with network %s, shrink %v, Secure Boot findings as warnings %v, remote access %v",
 		dec.NetworkMode, dec.ConfirmShrink, dec.SecureBootWarningsOnly, dec.RemoteAccess)
@@ -134,6 +135,31 @@ func (r *Recover) oneshotRemote(ctx context.Context, approved []string) {
 	}
 	r.logf("remote access: %v", err)
 	r.UI.Raw(redact.Redact(err.Error()))
+}
+
+// networkTakeover is the takeover of the fresh machine's network for the
+// executor (10.4): with networkMode takeover the network the command
+// measured; with keep only the bindings to the old hardware go and
+// cloud-init is limited (11.2). Nil outside a oneshot restore.
+func (r *Recover) networkTakeover(m *baremetal.Manifest) (*NetworkTakeover, error) {
+	if r.Oneshot == nil || r.decided == nil || m == nil || m.Linux == nil {
+		return nil, nil
+	}
+	n, err := ParseOneshotNetwork(r.Oneshot.Network)
+	if err != nil {
+		return nil, err
+	}
+	nt := &NetworkTakeover{Net: TakeoverNetOf(n), Takeover: r.decided.NetworkMode == "takeover", SessionID: r.session.ID, Now: r.Env.Now()}
+	for _, ni := range m.Linux.Network {
+		if !ni.Physical {
+			continue
+		}
+		nt.OldNames = append(nt.OldNames, ni.Name)
+		if ni.MAC != nil {
+			nt.OldMACs = append(nt.OldMACs, *ni.MAC)
+		}
+	}
+	return nt, nil
 }
 
 // oneshotEnd is the end of a oneshot restore that did not succeed (9.3):

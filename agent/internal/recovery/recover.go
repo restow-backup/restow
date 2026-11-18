@@ -114,6 +114,8 @@ type Recover struct {
 	// writing: the execution started; a oneshot restore that fails from
 	// here does not restart into the old system (9.3).
 	writing bool
+	// decided are the decisions of a oneshot release.
+	decided *api.OneshotDecided
 	// snap is the snapshot that will be restored, as the operator is shown
 	// it before the plan and again before the erase.
 	snap snapshotNote
@@ -454,6 +456,11 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		Log: r.Log.Add, Now: r.Env.Now, TargetDevices: mappedDevices(plan, target), Probe: r.probe() != nil}
 	if r.probe() != nil {
 		x.OnRelease = r.probeReleased
+	}
+	if nt, err := r.networkTakeover(m); err != nil {
+		r.logf("network takeover: %v", err)
+	} else {
+		x.Network = nt
 	}
 	r.Env.Executor(x, target)
 	// From here Ctrl+C asks whether to cancel the execution; one that came
