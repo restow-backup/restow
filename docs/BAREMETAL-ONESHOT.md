@@ -1288,6 +1288,38 @@ Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
   im selben Prozess mit `--oneshot <datei> --i-know-this-is-not-the-iso`; danach sind die Daten
   gelöscht. Im Direktmodus ändert `recover` das Netz nicht und schaltet keinen Fernzugang ein
   (das Rettungssystem hat beides), und nach einem Fehler startet es nicht neu.
+- **O5, Netz übernehmen (10.4, 10.5, 11):** `agent/internal/baremetal/netwrite.go` (reine
+  Funktionen), angewandt von `recover` direkt nach der Freigabe der Lesezugänge, vor den
+  Anpassungen der Phase `post` (eine weggenommene Datei überspringt die MAC-Anpassung). Stapel:
+  netplan, sobald `/etc/netplan` eine Datei hat; sonst die eine aktivierte Unit
+  (`NetworkManager`, `systemd-networkd`, `networking`) unter `/etc/systemd/system/*.wants`; mehrere
+  ohne eindeutige Konfiguration → Fehler, kein Raten. Weggenommen (gesichert unter
+  `/etc/restow/network-before-restore/<pfad>` mit Rechten, Ordner 0700, dazu `README`): netplan-
+  Dateien mit `ethernets`/`addresses`/`match`, networkd-Dateien mit `Address`/`DHCP`/`Gateway`,
+  NetworkManager-Verbindungen vom Typ Ethernet und `ifcfg-*` außer `lo`, ifupdown-Dateien mit
+  Schnittstellen außer `lo` (`/etc/network/interfaces` wird zu `lo` plus `source`), dazu udev-
+  `*-persistent-net.rules` und `.link`-Dateien mit einer alten MAC. Bei ifupdown bekommt die
+  Schnittstelle den Namen, den sie auf dem frischen Rechner hatte, über eine `.link`-Datei auf
+  dessen MAC; ein on-link-Gateway ist dort `post-up ip route add default via … onlink`. Die
+  Prüfung (10.5) liest networkd-, NetworkManager- und `.link`-Dateien als INI und zählt jede
+  statische Adresse in genau einer geschriebenen Datei; `netplan generate` im `chroot` läuft
+  nicht (Abweichung; nur CI und echte Rechner zeigen, ob netplan die Datei annimmt). Befunde stehen
+  unter dem Prüfpunkt `mount_points` (Punkt 9), die Prüfung behält zehn Punkte; ein Fehler der
+  Übernahme ist ein Befund dort, kein Abbruch mitten in der Phase `post`.
+- **O5, cloud-init (11.2):** Die Datenquelle des frischen Rechners kommt aus `cloud_name` von
+  cloud-init (in den Sitzungsdaten unter `network.cloud`) und einer festen Zuordnung zu den
+  Namen der Datenquellen (`hetzner` → `Hetzner`, `aws` → `Ec2`, …); ein unbekannter Anbieter
+  zählt als "Datenquelle fehlt". `99-restow-restored.cfg` entsteht in jedem Fall, wo cloud-init
+  aktiv ist, mit `network: {config: disabled}`, außer wenn cloud-init das Netz selbst übernimmt.
+  "Alte Konfiguration behalten" nimmt neben der MAC-Anpassung auch die Bindungen an alte MACs weg
+  und schaltet das Netz von cloud-init ab (sonst schriebe cloud-init auf der neuen Instanz ein
+  eigenes Netz über das behaltene).
+- **O5, UEFI → BIOS (14, aus O7):** Neue Tatsache `grubBios` (liest `recover` nur für
+  UEFI-Systeme aus dem Snapshot: `/usr/lib/grub/i386-pc/modinfo.sh` oder `boot.img`). Mit GRUB,
+  einer Platte mit ESP **und** BIOS-Boot-Partition und `grubBios` gibt es statt
+  `firmware_mode_mismatch` die Warnung `firmware_mode_switched` und `grub-install
+  --target=i386-pc` auf diese Platte. Die Prüfung der Stufe 1 im Worker liefert `grubBios` nicht
+  und zeigt für BIOS-Ziele eines UEFI-Systems weiter den Befund.
 - **Für O8a:** Die Oberfläche zeigt "gebootet" nur aus `oneshot.booted` (dem Bericht von
   `recover`), nie aus einer Phase des Fortschritts. **Für O4:** `recover` schaltet `sshd` mit den
   Schlüsseln aus `oneshot.json` nur ein, wenn ihre Fingerabdrücke genau die sind, die der Admin in

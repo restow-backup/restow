@@ -85,6 +85,17 @@ private repository.
     after it keeps it in the recovery environment. The direct mode for a provider's rescue system
     (`--direct`: the script also checks restic) restores from the rescue system itself, after
     checking that every program is there and no disk of the machine is in use.
+  - O5: taking over the network. With the release's choice "take over the network of this
+    machine", recover finds the network stack of the restored system (netplan, NetworkManager,
+    systemd-networkd or ifupdown; more than one without a clear one is a finding, no guessing),
+    puts its old configuration and every binding to the old MACs aside under
+    `/etc/restow/network-before-restore` (with paths and modes, nothing deleted) and writes the
+    measured network in the stack's own format, on-link gateways included; resolv.conf where it
+    is a plain file. cloud-init of the restored system is limited to the network
+    (`99-restow-restored.cfg`); it brings the network up itself when it knows the new provider's
+    datasource. The written files are checked and the result stands in the verification. A UEFI
+    system with GRUB on a hybrid GPT disk (ESP and BIOS boot partition) now restores onto a BIOS
+    machine when the backup has GRUB's BIOS modules (warning `firmware_mode_switched`).
 
 ## [0.5.0] - 2026-11-18
 
