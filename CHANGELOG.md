@@ -103,6 +103,18 @@ private repository.
     takeover is all or nothing (checked, written, read back and verified before anything old is
     put aside, rolled back on any error) and keeps the files of each restore in a folder of its
     own; oneshot.sh accepts `--direct` only in that exact form.
+  - O8a: the minimal interface. In the bare metal wizard, beside the recovery ISO, "Onto a fresh
+    machine (link)" appears only when the capabilities say both switches are on
+    (`baremetalOneshot`). Its dialog issues the command once with a copy button, the redeem
+    countdown, the root shell hint (`sudo -i`), the tip to move the public address at the same
+    provider and the variant for a rescue system (`--direct`). The release shows what the machine
+    reported (addresses, gateways, disks with their identity, RAM, the switch-over test, signs of
+    use, warnings, SSH key fingerprints) beside the address the server saw, and asks for the
+    network choice, old public addresses (for backups that used DHCP; new optional field
+    `oldAddresses` of the release), shrinking, Secure Boot findings as warnings, remote access
+    (off) and the six-digit match number, required. The session's steps count as started only
+    from the recovery environment's report; after a success a checklist of what remains outside
+    the machine. The restart after the success can only be stopped at the machine's console.
 
 ## [0.5.0] - 2026-11-18
 
