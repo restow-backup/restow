@@ -22,6 +22,10 @@ done
 # Remote access is switched on by the recovery program only.
 systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true
 systemctl mask ssh.socket >/dev/null 2>&1 || true
+# On a serial console (restow.console=ttyS0|ttyS1 with console= on the same port) the
+# recovery program owns the port: systemd's getty generator would put a login prompt on
+# it that takes the keystrokes. There is no password login, so the prompt has no use.
+systemctl mask serial-getty@ttyS0.service serial-getty@ttyS1.service >/dev/null
 # The address comes from systemd-networkd; the recovery program starts on tty1.
 systemctl enable systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
 systemctl enable restow-recover.service

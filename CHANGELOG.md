@@ -8,7 +8,7 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [0.5.0] - 2026-11-17
+## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until
 you have verified restores against your own data.
@@ -846,7 +846,9 @@ Breaking Changes and Upgrade Notes before you update.
   file kept before it is replaced on a file system without hard links (the ESP) is now a copy.
   An unattended run whose code was redeemed and whose session ended without success no longer
   restarts with the used code every few seconds (exit code 4, `RestartPreventExitStatus=4`); a
-  boot probe then powers the machine off so the lab has the result at once.
+  boot probe then powers the machine off so the lab has the result at once. On a serial console
+  (the menu entries with `restow.console=ttyS0`) no login prompt of systemd competes with the
+  recovery program for the keystrokes any more.
   The result is honest: the server no longer takes the recovery ISO's word for a successful
   bare metal recovery. A finish that reports `succeeded` is stored as such only when the
   `restow-verify-v1` report it carries bears that out: it parses, none of its checks failed, all
@@ -929,8 +931,10 @@ Breaking Changes and Upgrade Notes before you update.
   adds `snapshots`, `hardware`, `hardwareByLayout` and `activeRecovery`; the machine list and page
   add `recovery`; `GET /api/v1/endpoints/capabilities` says whether bare metal is on.
 - Recovery end-to-end tests in QEMU/KVM: E1 (Debian 12, BIOS, RAID1) and E2 (Ubuntu 24.04, UEFI
-  Secure Boot, LUKS2 and LVM) on every pull request that touches the restore, E1b and E3 to E10
+  Secure Boot, LUKS2 and LVM) on every pull request that touches the restore, E1b and E6 to E10
   every night and before each release (`scripts/recovery-e2e`, `.github/workflows/recovery-nightly.yml`).
+  E3, E4, E5 and E6b (AlmaLinux, Fedora, openSUSE, Arch Linux) are described in docs/BAREMETAL.md
+  but not run yet: their machines come from cloud images, which the test driver cannot build yet.
 - The boot probe of bare metal (M5, docs/BAREMETAL.md 12.3, 12.4): a machine is "green" only when
   the recovery lab restored its newest whole machine backup onto other hardware and the restored
   system started, at most 8 days ago, for the same layout and boot chain. The lab is an optional
@@ -2811,6 +2815,11 @@ Breaking Changes and Upgrade Notes before you update.
   renamed aside and dropped only when it is still the stale one, so two passes that both find it
   stale never both write the partial file, and a pass checks that the lock is still its own before
   every write and stops without writing once it is not.
+- `pnpm audit` (CI and release smoke) leaves out GHSA-fc5q-39xc-vjpf (picomatch, regular
+  expression denial of service with crafted glob patterns), for which no fixed version exists.
+  picomatch reaches the dependency tree only through the test runner; no Restow code and no
+  production package calls it, and the production images no longer contain it (the build stops if
+  it is left). The CI fails as soon as a fix is published (docs/CI.md "Audit exceptions").
 
 ### Upgrade Notes
 
@@ -2946,15 +2955,26 @@ docs/UPDATING.md ("Rollback") says how to keep that version from deleting.
 
 Before the tag, on the release branch at the commit of this release: lint, typecheck and build of
 every workspace package; the test suites with Postgres, restic 0.19.1 and the restore planner
-(API 4,778 tests, web 5,101, worker 933, core 3,626, database 267, i18n 289, ee/api 299,
-scheduler 90, with nothing failed); the script tests (262) and the install script's test (790).
-The CI on that commit built the recovery ISO twice (ubuntu-24.04 and ubuntu-22.04 with another
-time zone and umask) with the same SHA-256, and ran the bare metal end-to-end cases in QEMU/KVM:
-E1 (Debian 12, BIOS, mdadm RAID1 onto one disk, degraded) and E2 (Ubuntu 24.04, UEFI Secure Boot,
-LUKS2 and LVM, NVMe, smaller disk, other MAC) restore and start; the boot probe P1 rates E1's
-source green on other hardware, and P2 rates a machine that starts into the emergency target red
-(`boot_failed: emergency_mode`). Not run: the real hardware checklist of docs/BAREMETAL.md 21.4
-(see Known Issues).
+(API 4,780 tests, web 5,103, worker 933, core 3,651, database 267, i18n 289, ee/api 299,
+ee/web 218, ee/licensing 115, ee/worker 17, scheduler 90, cli 34, demo seed 216, with nothing
+failed; 225 Postgres test files with 2,474 tests, none skipped); the script tests (315, one
+skipped locally for want of `ssh-keygen`, which the CI has) and the install script's test (790);
+`pnpm audit --audit-level high` with the one documented exception (see Security).
+The CI built the recovery ISO twice (ubuntu-24.04 and ubuntu-22.04 with another time zone and
+umask) with the same SHA-256 and ran the bare metal end-to-end cases in QEMU/KVM on the commit
+of this release: E1 (Debian 12,
+BIOS, mdadm RAID1 onto one disk, degraded) and E2 (Ubuntu 24.04, UEFI Secure Boot, LUKS2 and LVM,
+NVMe, smaller disk, other MAC) restore and start, and the boot probe rates E1's source green on
+other hardware (P1) and a machine that starts into the emergency target red (P2,
+`boot_failed: emergency_mode`). The nightly run on 1c8eff7b (after it, only the login prompt
+on the serial console was masked in the recovery ISO) restored and started E1b (Ubuntu
+22.04, BIOS, GPT, RAID1 with a missing disk), E6 (Debian 13, LVM thin, systemd-boot, 4Kn disk,
+once with empty NVRAM variables), E7 (LUKS1 with encrypted `/boot`), E8 (cancel and resume after
+a hard power loss), E9 (system disk plus an adopted data RAID5 with LVM, the old system disk still
+attached), E10 (plain dm-crypt swap, disks in another order), and P3 (an NVMe source probed on
+AHCI with a size limit) green. Not run: E3, E4, E5 and E6b (cloud images, see Added) and the
+real hardware checklist of docs/BAREMETAL.md 21.4 (see Known Issues). The release workflow runs
+all of these again on the tag.
 
 ## [0.4.12] - 2026-11-04
 
