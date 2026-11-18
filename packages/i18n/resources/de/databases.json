@@ -292,7 +292,7 @@
     "restore-name": "Der Name der neuen Datenbank ist zu lang (höchstens 63 Bytes).",
     "backup-gone": "Diese Sicherung ist nicht mehr verfügbar.",
     "restore-target": "Wählen Sie eine Verbindung derselben Engine.",
-    "platform-unsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den Restow-Server als Ausführer."
+    "platform-unsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den {appName}-Server als Ausführer."
   },
   "health": {
     "title": "Healthchecks",
@@ -403,6 +403,6 @@
     "globalsTitle": "Rollen und globale Objekte",
     "globalsDescription": "Die Rollen der Instanz, mit ihren Kennwort-Hashes, soweit der Benutzer sie lesen durfte. Nur für Administratoren; jeder Download wird protokolliert.",
     "globalsDownload": "globals.sql herunterladen",
-    "platformUnsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den Restow-Server als Ausführer."
+    "platformUnsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den {appName}-Server als Ausführer."
   }
 }

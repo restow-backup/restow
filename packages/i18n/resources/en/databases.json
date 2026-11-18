@@ -292,7 +292,7 @@
     "restore-name": "The new database's name is too long (at most 63 bytes).",
     "backup-gone": "This backup is no longer available.",
     "restore-target": "Choose a connection of the same engine.",
-    "platform-unsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the Restow server, as the executor."
+    "platform-unsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the {appName} server, as the executor."
   },
   "health": {
     "title": "Health checks",
@@ -403,6 +403,6 @@
     "globalsTitle": "Roles and global objects",
     "globalsDescription": "The instance's roles, with their password hashes where the user could read them. Administrators only; every download is logged.",
     "globalsDownload": "Download globals.sql",
-    "platformUnsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the Restow server, as the executor."
+    "platformUnsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the {appName} server, as the executor."
   }
 }
