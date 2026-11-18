@@ -259,6 +259,7 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	if err := r.keyboard(ctx); err != nil {
 		return nil, err
 	}
+	r.noteEarlierWrite()
 	if err := r.network(ctx); err != nil {
 		return nil, err
 	}
@@ -509,6 +510,11 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		return r.fail(ctx, plan, nil, code, err)
 	}
 	x.Guard = guard
+	if err := r.markWriting(); err != nil {
+		zeroRepo()
+		secrets.Zero()
+		return r.fail(ctx, plan, nil, ProblemStepFailed, fmt.Errorf("record the start of the writing: %w", err))
+	}
 	r.writing = true
 	rep, execErr := x.Run(ctx)
 	// No step follows: the disks are let go before the shell, the restart

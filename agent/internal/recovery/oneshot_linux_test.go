@@ -77,3 +77,34 @@ func TestLiveMediumOfAOneshotStart(t *testing.T) {
 		t.Errorf("an ISO start: %q", got)
 	}
 }
+
+func TestWritingMarkBesideTheSessionData(t *testing.T) {
+	dir := t.TempDir()
+	e := &LinuxEnv{OneshotFile: filepath.Join(dir, "oneshot.json")}
+	if e.WritingStarted() {
+		t.Fatal("marked before")
+	}
+	if err := e.MarkWriting(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Lstat(filepath.Join(dir, "writing"))
+	if err != nil || st.Mode().Perm() != 0o600 || !e.WritingStarted() {
+		t.Fatalf("%v %v", st, err)
+	}
+	// Marking again (a restart) is no error.
+	if err := e.MarkWriting(); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(e.OneshotFile, []byte("{}"), 0o600)
+	if err := e.ForgetOneshot(); err != nil || e.WritingStarted() {
+		t.Fatalf("forget: %v", err)
+	}
+	// A link in its place is refused, and does not count.
+	_ = os.Symlink("/etc/passwd", filepath.Join(dir, "writing"))
+	if e.WritingStarted() || e.MarkWriting() == nil {
+		t.Error("a link counts as the mark")
+	}
+	if (&LinuxEnv{}).MarkWriting() == nil {
+		t.Error("a mark without session data")
+	}
+}

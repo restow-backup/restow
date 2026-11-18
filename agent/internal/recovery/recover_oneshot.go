@@ -27,6 +27,12 @@ type OneshotEnv interface {
 	EnableRemoteKeys(ctx context.Context, keys []string) ([]api.RecoverySSHHostKey, error)
 	// ForgetOneshot removes the session data (after the finish).
 	ForgetOneshot() error
+	// MarkWriting records, next to the session data, that the execution
+	// starts writing to the disks; WritingStarted reads it after a restart
+	// of recover (a crash, the OOM killer), so a failure then does not
+	// restart the machine into half-written disks (9.3).
+	MarkWriting() error
+	WritingStarted() bool
 }
 
 func (r *Recover) oneshotEnv() (OneshotEnv, error) {
@@ -160,6 +166,33 @@ func (r *Recover) networkTakeover(m *baremetal.Manifest) (*NetworkTakeover, erro
 		}
 	}
 	return nt, nil
+}
+
+// markWriting persists that the disks are about to be written. Without
+// the mark nothing is written: a restart of recover after a crash could
+// otherwise restart the machine into half-written disks.
+func (r *Recover) markWriting() error {
+	if r.Oneshot == nil {
+		return nil
+	}
+	e, err := r.oneshotEnv()
+	if err != nil {
+		return err
+	}
+	return e.MarkWriting()
+}
+
+// noteEarlierWrite: recover started again (systemd restarted it after a
+// crash) after an earlier run had begun to write.
+func (r *Recover) noteEarlierWrite() {
+	if r.Oneshot == nil {
+		return
+	}
+	if e, err := r.oneshotEnv(); err == nil && e.WritingStarted() {
+		r.writing = true
+		r.UI.Say("oneshot.restarted_after_write")
+		r.logf("oneshot: an earlier run of recover began to write the disks; no automatic restart")
+	}
 }
 
 // oneshotEnd is the end of a oneshot restore that did not succeed (9.3):

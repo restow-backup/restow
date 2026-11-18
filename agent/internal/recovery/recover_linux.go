@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -232,11 +233,54 @@ func (e *LinuxEnv) EnableRemoteKeys(ctx context.Context, keys []string) ([]api.R
 	return e.remote.EnableKeys(ctx, keys)
 }
 
-// ForgetOneshot implements OneshotEnv: the session data and its folder go.
+func (e *LinuxEnv) writingMark() string { return filepath.Join(filepath.Dir(e.OneshotFile), "writing") }
+
+// MarkWriting implements OneshotEnv: a new file of root's (0600) next to
+// the session data, never through a link; one there already counts.
+func (e *LinuxEnv) MarkWriting() error {
+	if e.OneshotFile == "" {
+		return errors.New("no session data")
+	}
+	f, err := os.OpenFile(e.writingMark(), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		if e.WritingStarted() {
+			return nil
+		}
+		return fmt.Errorf("%s is no plain file", e.writingMark())
+	}
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(f, "%s\n", time.Now().UTC().Format(time.RFC3339))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		// On the disk before the first write.
+		if d, derr := os.Open(filepath.Dir(e.writingMark())); derr == nil {
+			_ = d.Sync()
+			d.Close()
+		}
+	}
+	return err
+}
+
+// WritingStarted implements OneshotEnv.
+func (e *LinuxEnv) WritingStarted() bool {
+	if e.OneshotFile == "" {
+		return false
+	}
+	st, err := os.Lstat(e.writingMark())
+	return err == nil && st.Mode().IsRegular()
+}
+
+// ForgetOneshot implements OneshotEnv: the session data, the mark of the
+// writing and their folder go.
 func (e *LinuxEnv) ForgetOneshot() error {
 	if e.OneshotFile == "" {
 		return nil
 	}
+	_ = os.Remove(e.writingMark())
 	if err := os.Remove(e.OneshotFile); err != nil && !os.IsNotExist(err) {
 		return err
 	}

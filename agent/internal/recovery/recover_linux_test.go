@@ -55,6 +55,10 @@ type testEnv struct {
 	wipeErr error
 	// netFiles are the networkd files of a oneshot restore.
 	netFiles []NetworkFile
+	// wrote is the mark of the writing (a restart of recover finds it);
+	// markErr fails setting it.
+	wrote   bool
+	markErr error
 }
 
 func (e *testEnv) note(s string) { e.mu.Lock(); e.actions = append(e.actions, s); e.mu.Unlock() }
@@ -186,6 +190,17 @@ func (e *testEnv) EnableRemoteKeys(ctx context.Context, keys []string) ([]api.Re
 	return []api.RecoverySSHHostKey{{Type: "ssh-ed25519", Fingerprint: "SHA256:" + strings.Repeat("A", 43)}}, nil
 }
 func (e *testEnv) ForgetOneshot() error { e.note("forget oneshot"); return nil }
+func (e *testEnv) MarkWriting() error {
+	e.note("mark writing")
+	if e.markErr != nil {
+		return e.markErr
+	}
+	e.mu.Lock()
+	e.wrote = true
+	e.mu.Unlock()
+	return nil
+}
+func (e *testEnv) WritingStarted() bool { e.mu.Lock(); defer e.mu.Unlock(); return e.wrote }
 
 // chownless lets the flow run without root: owners are not changed.
 type chownless struct{ *DirRootfs }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ type oneshotRun struct {
 	err error
 }
 
-func newOneshotRun(t *testing.T, edit func(f *fakeRecovery, d *OneshotData)) *oneshotRun {
+func newOneshotRun(t *testing.T, edit func(f *fakeRecovery, d *OneshotData), envEdit ...func(*testEnv)) *oneshotRun {
 	t.Helper()
 	bin := os.Getenv("RESTIC_BINARY")
 	if bin == "" {
@@ -74,6 +75,9 @@ func newOneshotRun(t *testing.T, edit func(f *fakeRecovery, d *OneshotData)) *on
 	exe := newFakeExec()
 	run := &oneshotRun{f: f, exe: exe, env: &testEnv{t: t, hw: hardwareFor(m), repo: repo, resticB: bin, target: t.TempDir(), exec: exe,
 		iso: &fakeIsolator{exec: exe, reply: initramfsListing}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}}
+	for _, e := range envEdit {
+		e(run.env)
+	}
 	r := &Recover{UI: &UI{In: strings.NewReader(""), Out: &run.out, Lang: LangEN}, Env: run.env, Answers: loaded.Answers(), Oneshot: loaded,
 		Version: "0.5.1", Log: &LogBuffer{}, Poll: 20 * time.Millisecond, Countdown: 10 * time.Millisecond, RebootWait: 10 * time.Millisecond}
 	run.res, run.err = r.Run(context.Background())
@@ -236,4 +240,37 @@ func TestOneshotRecoverEndsWithoutRestartAfterTheFirstWrite(t *testing.T) {
 	if !strings.Contains(o.out.String(), T(LangEN, "oneshot.failed_written")) {
 		t.Errorf("console:\n%s", o.out.String())
 	}
+}
+
+// The start of the writing is recorded before the first write; a recover
+// that systemd starts again after a crash finds it and never restarts the
+// machine into half-written disks (9.3).
+func TestOneshotRecoverRemembersThatItBeganToWrite(t *testing.T) {
+	t.Run("recorded before the first write", func(t *testing.T) {
+		o := newOneshotRun(t, nil)
+		acts := o.actions()
+		if i, j := strings.Index(acts, "mark writing"), strings.Index(acts, "reboot"); i < 0 || j < i {
+			t.Errorf("actions %s", acts)
+		}
+	})
+	t.Run("a restart after a crash does not reboot", func(t *testing.T) {
+		o := newOneshotRun(t, func(f *fakeRecovery, d *OneshotData) { f.bootedProblem = ProblemSessionEnded },
+			func(e *testEnv) { e.wrote = true })
+		if strings.Contains(o.actions(), "reboot") {
+			t.Errorf("rebooted into half-written disks: %s", o.actions())
+		}
+		if !strings.Contains(o.out.String(), T(LangEN, "oneshot.restarted_after_write")) {
+			t.Errorf("console:\n%s", o.out.String())
+		}
+	})
+	t.Run("no mark, no write", func(t *testing.T) {
+		o := newOneshotRun(t, nil, func(e *testEnv) { e.markErr = errors.New("read-only /run") })
+		if strings.Contains(o.exe.lines(), "luksFormat") || strings.Contains(o.exe.lines(), "sfdisk") {
+			t.Fatalf("a disk was written without the mark:\n%s", o.exe.lines())
+		}
+		// Nothing was written: the machine starts its own system again.
+		if !strings.Contains(o.actions(), "reboot") {
+			t.Errorf("actions %s", o.actions())
+		}
+	})
 }

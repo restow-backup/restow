@@ -111,6 +111,7 @@ func (e *LinuxEnv) WriteSessionData(data []byte) (string, error) {
 // RemoveSessionData implements Env.
 func (e *LinuxEnv) RemoveSessionData(path string) {
 	_ = os.Remove(path)
+	_ = os.Remove(filepath.Join(filepath.Dir(path), "writing"))
 	_ = os.Remove(filepath.Dir(path))
 }
 
