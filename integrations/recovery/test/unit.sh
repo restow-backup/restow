@@ -434,6 +434,8 @@ for rules in 64-md-raid-assembly.rules 64-btrfs.rules; do
 done
 grep -q 'systemd-gpt-auto-generator' "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "gpt-auto masked"
 grep -q 'enable restow-recover.service' "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "the unit enabled"
+grep -qx 'systemctl mask serial-getty@ttyS0.service serial-getty@ttyS1.service >/dev/null' \
+  "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "no login prompt on the serial consoles"
 grep -q 'ssh_host_' "$WORK/config/hooks/live/9900-restow-clean.hook.chroot" && ok || fail "host keys removed"
 
 # --- the source bundle (sources.sh) -------------------------------------------------------------
