@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,6 +90,53 @@ export async function privateTempDir(prefix: string, base = ramTempBase()): Prom
   const dir = await mkdtemp(join(base, prefix));
   await chmod(dir, 0o700);
   return dir;
+}
+
+/** The prefixes of the run's private directories (the relay's socket, the password file). */
+export const DB_RUN_TEMP_PREFIXES = ["restow-db-", "restow-pg-relay-"] as const;
+
+/**
+ * Remove what a crashed run left in `base`: only directories with one of `prefixes`, owned by this
+ * process's user and not changed for `maxAgeMs` (longer than any run may last). Returns how many
+ * went; an entry that cannot be read or removed is skipped.
+ */
+export async function sweepStaleTempDirs(options: {
+  maxAgeMs: number;
+  base?: string;
+  prefixes?: readonly string[];
+  now?: Date;
+}): Promise<number> {
+  const base = options.base ?? ramTempBase();
+  const prefixes = options.prefixes ?? DB_RUN_TEMP_PREFIXES;
+  const now = (options.now ?? new Date()).getTime();
+  const uid = process.getuid?.() ?? null;
+  let names: string[];
+  try {
+    names = await readdir(base);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    if (!prefixes.some((prefix) => name.startsWith(prefix))) {
+      continue;
+    }
+    const path = join(base, name);
+    try {
+      const stat = await lstat(path);
+      if (!stat.isDirectory() || (uid !== null && stat.uid !== uid)) {
+        continue;
+      }
+      if (now - stat.mtimeMs < options.maxAgeMs) {
+        continue;
+      }
+      await rm(path, { recursive: true, force: true });
+      removed++;
+    } catch {
+      // Someone else's or gone meanwhile.
+    }
+  }
+  return removed;
 }
 
 /** Open the relay; a refused or failed pinned connect is answered with its code, nothing opened. */
@@ -329,12 +376,20 @@ export function pgQuoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** A string literal for SQL. */
+/**
+ * A string literal for SQL in the escape form (`E'…'`): backslash and quote are escaped, so the
+ * literal means the same whatever `standard_conforming_strings` the server or the role sets.
+ */
 export function pgQuoteLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+  if (value.includes("\0")) {
+    throw new Error("a NUL byte cannot be part of an SQL literal");
+  }
+  return `E'${value.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
 }
 
 export interface PgAdminSession {
+  /** The address the session reached; later connections of the run go to the same one. */
+  readonly connectedAddress: string | null;
   query(sql: string): Promise<(string | null)[][]>;
   close(): void;
 }
@@ -364,6 +419,7 @@ export async function openPgAdminSession(
     return {
       ok: true,
       session: {
+        connectedAddress: pinned.connectedAddress,
         query: (sql) => pgQuery(session, sql),
         close: () => {
           pgTerminate(session);

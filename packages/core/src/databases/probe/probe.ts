@@ -641,6 +641,23 @@ export interface DbPinnedTarget {
   allowUnencrypted: boolean;
   /** The confirmed certificate; null only for a connection without TLS. */
   pinnedFingerprintSha256: string | null;
+  /**
+   * The address a run's first connection reached (its instance check): later connections of the
+   * run go there and nowhere else, judged by the same rules. Unset: the guarded lookup decides.
+   */
+  address?: string | null;
+}
+
+/** A lookup that answers only `address` (judged by the caller before). */
+function fixedLookup(address: string): LookupFunction {
+  const family = isIP(address) === 6 ? 6 : 4;
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, [{ address, family }]);
+      return;
+    }
+    callback(null, address, family);
+  };
 }
 
 /** A pinned PostgreSQL connection, after TLS and the certificate check, before any sign-in. */
@@ -668,11 +685,16 @@ export async function openPinnedPostgres(
     isAddressAllowed(address, options.allowPrivateNetworks) ||
     dbApprovedAddress({ addresses: [...approved] }, address);
   const name = normalizeHost(host);
+  const fixed = target.address ? dbCanonicalAddress(target.address) : null;
   const refused = options.connect
     ? false
-    : isIP(name) !== 0
-      ? !allowAddress(name)
-      : isLocalHostname(name) && !options.allowPrivateNetworks && approved.length === 0;
+    : fixed !== null
+      ? isIP(fixed) === 0 ||
+        !allowAddress(fixed) ||
+        (isIP(name) !== 0 && dbCanonicalAddress(name) !== fixed)
+      : isIP(name) !== 0
+        ? !allowAddress(name)
+        : isLocalHostname(name) && !options.allowPrivateNetworks && approved.length === 0;
   const fail = (failure: ProbeFailure): DbPinnedConnection => ({
     ok: false,
     code: failure.code,
@@ -688,10 +710,17 @@ export async function openPinnedPostgres(
       port: target.port,
       timeoutMs: stepTimeoutMs,
       scope,
-      lookup: options.lookup ?? guardedLookupWith(allowAddress),
+      lookup:
+        fixed !== null ? fixedLookup(fixed) : (options.lookup ?? guardedLookupWith(allowAddress)),
       ...(options.connect ? { connect: options.connect } : {}),
     });
     assertNotRestow(conn, options);
+    if (fixed !== null && connectedAddressOf(conn) !== fixed) {
+      throw new ProbeFailure(
+        "db_instance_changed",
+        "The run reached another address than its first connection.",
+      );
+    }
     conn.write(PG_SSL_REQUEST);
     const answer = (await conn.read(1)).readUInt8(0);
     if (answer !== 0x53 && answer !== 0x4e) {

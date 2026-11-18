@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { connect, createServer, type Server, type Socket } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -17,7 +18,9 @@ import {
   PgSignInFilter,
   pgConninfoValue,
   pgPassFileLine,
+  pgQuoteLiteral,
   privateTempDir,
+  sweepStaleTempDirs,
   writePgPassFile,
 } from "./relay.js";
 
@@ -232,6 +235,50 @@ describe("the pinning relay [DB-003]", () => {
     expect(fake.received).toBe(0);
   });
 
+  it("goes only to the address of the run's first connection, whatever the name resolves to", async () => {
+    const fake = await fakePg();
+    // The name resolves to the fake, but the run's first connection reached another address:
+    // the relay goes there (nothing listens) and never to what the lookup answers now.
+    const lookup = ((_host: string, options: { all?: boolean }, callback: Function) =>
+      options.all
+        ? callback(null, [{ address: "127.0.0.1", family: 4 }])
+        : callback(null, "127.0.0.1", 4)) as never;
+    const moved = await openPgRelay({
+      target: { ...plainTarget(fake.port), host: "db.example.test", address: "127.0.0.2" },
+      network: { ...loopback, lookup },
+      connectTimeoutMs: 2000,
+      maxDurationMs: 30_000,
+    });
+    expect(moved.ok).toBe(false);
+    expect(fake.connections).toBe(0);
+    // The fixed address is judged like any other: not approved, not connected.
+    const refused = await openPgRelay({
+      target: { ...plainTarget(fake.port), host: "db.example.test", address: "127.0.0.1" },
+      network: { allowPrivateNetworks: false, approvedAddresses: [], forbiddenTargets: [] },
+      maxDurationMs: 30_000,
+    });
+    expect(refused).toMatchObject({ ok: false, code: "db_private_network" });
+    // An IP address as the host must be the fixed one.
+    const other = await openPgRelay({
+      target: { ...plainTarget(fake.port), address: "127.0.0.3" },
+      network: loopback,
+      maxDurationMs: 30_000,
+    });
+    expect(other.ok).toBe(false);
+    expect(fake.connections).toBe(0);
+    const same = await openPgRelay({
+      target: { ...plainTarget(fake.port), host: "db.example.test", address: "127.0.0.1" },
+      network: loopback,
+      maxDurationMs: 30_000,
+    });
+    expect(same.ok).toBe(true);
+    if (same.ok) {
+      expect(same.relay.connectedAddress).toBe("127.0.0.1");
+      same.relay.close();
+      await same.relay.ended;
+    }
+  });
+
   it("refuses a server without TLS unless the connection allows it", async () => {
     const fake = await fakePg();
     const opened = await openPgRelay({
@@ -240,6 +287,40 @@ describe("the pinning relay [DB-003]", () => {
       maxDurationMs: 30_000,
     });
     expect(opened).toMatchObject({ ok: false, code: "db_tls_missing" });
+  });
+});
+
+describe("SQL literals [DB-008]", () => {
+  it("mean the same with and without standard_conforming_strings", () => {
+    expect(pgQuoteLiteral("plain")).toBe("E'plain'");
+    // A backslash before the quote must not escape it: both are doubled in the escape form.
+    expect(pgQuoteLiteral("a\\'b")).toBe("E'a\\\\''b'");
+    expect(() => pgQuoteLiteral("a\0b")).toThrow();
+  });
+});
+
+describe("leftovers of crashed runs [DB-003]", () => {
+  it("are removed when older than a run may last, only directories with the run's prefixes", async () => {
+    const base = await mkdtemp(join(tmpdir(), "sweep-"));
+    try {
+      const old = new Date(Date.now() - 48 * 3600 * 1000);
+      for (const name of ["restow-db-run-a", "restow-pg-relay-b", "restow-db-young", "other-c"]) {
+        await mkdir(join(base, name));
+      }
+      await writeFile(join(base, "restow-db-file"), "x");
+      for (const name of ["restow-db-run-a", "restow-pg-relay-b", "other-c", "restow-db-file"]) {
+        await utimes(join(base, name), old, old);
+      }
+      const removed = await sweepStaleTempDirs({ base, maxAgeMs: 25 * 3600 * 1000 });
+      expect(removed).toBe(2);
+      expect(existsSync(join(base, "restow-db-run-a"))).toBe(false);
+      expect(existsSync(join(base, "restow-pg-relay-b"))).toBe(false);
+      expect(existsSync(join(base, "restow-db-young"))).toBe(true);
+      expect(existsSync(join(base, "other-c"))).toBe(true);
+      expect(existsSync(join(base, "restow-db-file"))).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 });
 
