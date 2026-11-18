@@ -255,6 +255,7 @@
     "db_restore_name_taken": "Name schon vergeben",
     "db_restore_failed": "Wiederherstellung fehlgeschlagen",
     "db_backup_mismatch": "Prüfsumme weicht ab",
+    "db_restore_unchecked": "Anweisung der Sicherung nicht prüfbar",
     "db_verify_no_space": "Kein Platz für die Prüfung",
     "db_verify_timeout": "Prüfung abgebrochen (Zeitlimit)",
     "db_runner_offline": "Ausführer nicht erreichbar",

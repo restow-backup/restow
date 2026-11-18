@@ -77,6 +77,9 @@ describe.each(SERVERS)(
     let fingerprint = "";
     let storageDir = "";
     let customer: PgAdminSession;
+    /** The scheduler as it was, and when the source's one-time event fires (16 "D4" M3). */
+    let scheduler = "OFF";
+    let fireAt = 0;
     const credentials: Record<string, { user: string; password: string }> = {};
     const now = new Date("2026-11-18T10:00:00.000Z");
     const keys = new Keyring("x", [generateDek(1)]);
@@ -213,8 +216,14 @@ describe.each(SERVERS)(
         await app(
           `CREATE DEFINER=${owner} TRIGGER stamp BEFORE INSERT ON orders FOR EACH ROW SET NEW.item = NEW.item`,
         );
+        // An event that fires once, soon, with the scheduler on: it runs in the source, and a
+        // restore that created it enabled would run it in the copy too.
+        const [[was]] = (await sql("SELECT @@event_scheduler")) as [[string]];
+        scheduler = was === "ON" ? "ON" : "OFF";
+        await sql("SET GLOBAL event_scheduler = ON");
+        fireAt = Date.now() + 30_000;
         await app(
-          `CREATE DEFINER=${owner} EVENT nightly ON SCHEDULE EVERY 1 DAY DO DELETE FROM legacy`,
+          `CREATE DEFINER=${owner} EVENT fire ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 30 SECOND ON COMPLETION PRESERVE ENABLE DO INSERT INTO legacy VALUES (42)`,
         );
       } finally {
         inside.session.close();
@@ -268,6 +277,7 @@ describe.each(SERVERS)(
     afterAll(async () => {
       if (!enabled) return;
       if (customer) {
+        await sql(`SET GLOBAL event_scheduler = ${scheduler}`);
         for (const [name] of await sql("SHOW DATABASES")) {
           if (name?.includes(`_${suffix}`) || name?.startsWith(SOURCE)) {
             await sql(`DROP DATABASE IF EXISTS ${mysqlQuoteIdent(name)}`);
@@ -350,9 +360,13 @@ describe.each(SERVERS)(
           name: copy,
         });
         expect(same).toMatchObject({ status: "succeeded" });
+        // The procedure, the function and the view (SQL SECURITY DEFINER), the trigger and the
+        // event run with the rights of the user who restored.
         expect(same.notes).toEqual([
-          expect.objectContaining({ result: "restored", eventsDisabled: 1 }),
+          expect.objectContaining({ result: "restored", eventsDisabled: 1, definerRights: 5 }),
         ]);
+        // Restored before the event's time: had it come in enabled, it would fire in the copy.
+        expect(Date.now()).toBeLessThan(fireAt);
         const c = mysqlQuoteIdent(copy);
         expect(await sql(`SELECT id, item, HEX(blob_col) FROM ${c}.orders ORDER BY id`)).toEqual([
           ["1", "tea", "00FF0A27"],
@@ -361,6 +375,18 @@ describe.each(SERVERS)(
         expect(await sql(`SELECT ${c}.one()`)).toEqual([["1"]]);
         const [event] = await sql(`SHOW EVENTS FROM ${c}`);
         expect(String(event?.[10])).toMatch(/DISABLED/);
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.max(0, fireAt - Date.now()) + 3000),
+        );
+        // It ran in the source (the scheduler is on), never in the copy.
+        expect(
+          await sql(`SELECT COUNT(*) FROM ${mysqlQuoteIdent(SOURCE)}.legacy WHERE id = 42`),
+        ).toEqual([["1"]]);
+        expect(await sql(`SELECT COUNT(*) FROM ${c}.legacy WHERE id = 42`)).toEqual([["0"]]);
+        const [fired] = await sql(
+          `SELECT STATUS, LAST_EXECUTED FROM information_schema.EVENTS WHERE EVENT_SCHEMA = '${copy}'`,
+        );
+        expect(fired).toEqual(["DISABLED", null]);
         expect((await sql(`SHOW TABLES FROM ${c}`)).map((row) => row[0]).sort()).toEqual([
           "cheap",
           "legacy",

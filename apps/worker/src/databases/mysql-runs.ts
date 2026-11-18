@@ -495,7 +495,9 @@ export async function serverMysqlRestore(
     const restored = await restoreInto(access, backup, prepared, tools.tools.client, name);
     const after = await adminSession(prepared);
     let eventsDisabled = 0;
+    let definerRights = 0;
     try {
+      // The events came in disabled (the filter); this is the second line of defence.
       for (const row of await after.query(`SHOW EVENTS FROM ${mysqlQuoteIdent(name)}`)) {
         const event = row[1];
         if (event) {
@@ -505,6 +507,7 @@ export async function serverMysqlRestore(
           eventsDisabled++;
         }
       }
+      definerRights = await countDefinerRights(after, name);
       await after.query(`DROP TABLE ${mysqlQuoteIdent(name)}.${mysqlQuoteIdent(marker)}`);
     } finally {
       after.close();
@@ -516,6 +519,9 @@ export async function serverMysqlRestore(
           result: "restored",
           definersRemoved: restored.definersRemoved,
           eventsDisabled,
+          // Routines and views with SQL SECURITY DEFINER, triggers and events: they run with the
+          // rights of the user who restored (16 "D4" M3).
+          definerRights,
         },
       ],
     });
@@ -528,6 +534,18 @@ export async function serverMysqlRestore(
     }
     throw error;
   }
+}
+
+/**
+ * How many objects of the schema `name` run with their definer's rights (routines and views with
+ * SQL SECURITY DEFINER, triggers, events). Compared through `DATABASE()`, never a literal.
+ */
+async function countDefinerRights(session: PgAdminSession, name: string): Promise<number> {
+  await session.query(`USE ${mysqlQuoteIdent(name)}`);
+  const [row] = await session.query(
+    "SELECT (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND SECURITY_TYPE = 'DEFINER') + (SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE() AND SECURITY_TYPE = 'DEFINER') + (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()) + (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE())",
+  );
+  return Number(row?.[0] ?? 0);
 }
 
 /** Drop `name` only while it still holds this run's marker table. */
@@ -548,7 +566,7 @@ async function restoreInto(
   prepared: Prepared,
   client: string,
   name: string,
-): Promise<{ definersRemoved: number }> {
+): Promise<{ definersRemoved: number; eventsChecked: number }> {
   const dir = await privateTempDir("restow-db-restore-");
   try {
     return await withRepository(access, async (session) => {
@@ -580,13 +598,23 @@ async function restoreInto(
           stderr = (stderr + chunk.toString("utf8")).slice(-4096);
         });
         child.stdin.on("error", () => undefined);
-        filter.stream.on("error", () => undefined);
+        // A header the filter cannot check stops everything: nothing more reaches the client.
+        filter.stream.on("error", () => {
+          // Killed before its input ends: the client runs nothing it still holds.
+          child.kill("SIGKILL");
+          child.stdin.destroy();
+          dump.cancel();
+        });
         dump.stream.on("data", (chunk: Buffer) => hash.update(chunk));
         dump.stream.pipe(filter.stream).pipe(child.stdin);
         const code = await new Promise<number | null>((resolve) => {
           child.on("error", () => resolve(null));
           child.on("close", resolve);
         });
+        if (filter.scanner.failure !== null) {
+          await dump.done.catch(() => undefined);
+          throw new DatabaseRunFailure("db_restore_unchecked", filter.scanner.failure);
+        }
         await dump.done.catch((error: unknown) => {
           throw new DatabaseRunFailure(
             "db_restore_failed",
@@ -612,7 +640,10 @@ async function restoreInto(
             sanitizeDbMessage(stderr.trim() || "the client failed", prepared.credentials),
           );
         }
-        return { definersRemoved: filter.scanner.definersRemoved };
+        return {
+          definersRemoved: filter.scanner.definersRemoved,
+          eventsChecked: filter.scanner.eventsDisabled,
+        };
       } finally {
         relay.relay.close();
         await rm(optionFile, { force: true });

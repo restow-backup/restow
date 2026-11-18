@@ -920,7 +920,7 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
     expect(guide).toMatch(
       /mysql -e 'CREATE DATABASE `shop_restored_\d{8}_\d{6}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci'/,
     );
-    expect(guide).toContain("--database='shop_restored_");
+    expect(guide).toContain("mysql --binary-mode --skip-system-command --database='shop_restored_");
     expect(guide).not.toContain("pg_restore");
     // A schema name of 64 characters is a MySQL name; 65 is not.
     await expect(

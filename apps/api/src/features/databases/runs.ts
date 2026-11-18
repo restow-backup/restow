@@ -739,7 +739,7 @@ export async function restoreGuide(
 }
 
 /** The guide of MySQL and MariaDB (16 "D4" M3): the client's commands, without a secret. */
-function mysqlGuide(input: {
+export function mysqlGuide(input: {
   engine: string;
   database: string;
   connection: string;
@@ -748,6 +748,12 @@ function mysqlGuide(input: {
 }): string {
   const { backup, file } = input;
   const client = input.engine === "mariadb" ? "mariadb" : "mysql";
+  // The options that switch off `system` and the other commands that reach the file system.
+  const sandbox = input.engine === "mariadb" ? "--sandbox" : "--skip-system-command";
+  const sandboxFrom =
+    input.engine === "mariadb"
+      ? "--sandbox: MariaDB client 10.6.18, 10.11.8, 11.4.2 or newer"
+      : "--skip-system-command: MySQL client 8.4.3 or newer";
   const family = input.engine === "mariadb" ? "MariaDB" : "MySQL";
   const name = defaultMysqlRestoreName(input.database, backup.finishedAt);
   const ident = `\`${name.replace(/`/g, "``")}\``;
@@ -768,19 +774,25 @@ function mysqlGuide(input: {
     "2. Create a new, empty schema (never restore over an existing one):",
     `     ${client} -e ${shellQuote(create)}`,
     "",
-    "3. Restore into it, stopping at the first error:",
-    `     ${client} --database=${shellQuote(name)} --default-character-set=utf8mb4 --max-allowed-packet=1G < ${file}`,
+    "3. Restore into it, stopping at the first error, in binary mode (the dump holds binary",
+    `   data) and without the client's commands that reach the file system (${sandbox}):`,
+    `     ${client} --binary-mode ${sandbox} --database=${shellQuote(name)} --default-character-set=utf8mb4 --max-allowed-packet=1G < ${file}`,
     "",
-    `   Use the ${family} client of the server's version or newer. User and password go into an`,
-    "   option file (~/.my.cnf, mode 0600), never onto the command line.",
+    `   Use the ${family} client of the server's version or newer (${sandboxFrom}). User and`,
+    "   password go into an option file (~/.my.cnf, mode 0600), never onto the command line.",
     "",
     "4. Definers: the dump keeps the DEFINER of views, routines, triggers and events. Restoring",
     "   them as another user needs SET_ANY_DEFINER (MySQL 8.2 and later, SET_USER_ID before) or",
     "   SUPER, or the original users must exist; Restow's own restore makes the restoring user the",
-    "   definer instead. With the binary log on, a user without SUPER creates routines and",
-    "   triggers only while log_bin_trust_function_creators is ON.",
+    "   definer instead. Restore as a user of its own with only the rights the restore needs, not",
+    "   as an administrator: routines and views with SQL SECURITY DEFINER, triggers and events",
+    "   run with their definer's rights, after Restow's restore with that user's. With the binary",
+    "   log on, a user without SUPER creates routines and triggers only while",
+    "   log_bin_trust_function_creators is ON.",
     "",
-    "5. Events run on the new schema once it is restored; to stop them:",
+    "5. Events: the dump creates them as they were (usually ENABLE), and they start to run once",
+    "   restored (Restow's own restore creates them disabled). To keep the copy from running the",
+    "   source's jobs, turn them off right after the restore:",
     `     ${client} -e ${shellQuote(`SHOW EVENTS FROM ${ident}`)}   # then ALTER EVENT … DISABLE`,
     "",
     "6. Users and grants of the instance are in the users backup of the same run (users.sql),",

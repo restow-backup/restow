@@ -7,6 +7,7 @@ import {
   defaultMysqlRestoreName,
   MysqlDumpScanner,
   mysqlClientFailureCode,
+  mysqlDefinerFilter,
   mysqlDumpArgs,
   mysqlOptionFile,
   mysqlRestoreArgs,
@@ -106,7 +107,10 @@ describe("the DEFINER filter of a restore [DB-008]", () => {
     expect(out).toContain(
       "/*!50003 CREATE*/ /*!50003 TRIGGER `t1` BEFORE INSERT ON `orders` FOR EACH ROW SET NEW.note = 'x' */;;",
     );
-    expect(out).toContain("/*!50106 CREATE*/ /*!50106 EVENT `nightly` ON SCHEDULE");
+    expect(out).toContain(
+      "/*!50106 CREATE*/ /*!50106 EVENT `nightly` ON SCHEDULE EVERY 1 DAY STARTS '2026-01-01 00:00:00' ON COMPLETION NOT PRESERVE DISABLE DO DELETE FROM orders */ ;;",
+    );
+    expect(scanner.eventsDisabled).toBe(1);
     expect(out).toContain("\nCREATE PROCEDURE `cleanup`()\n");
     expect(out).toContain("\nCREATE FUNCTION `f`() RETURNS int\n");
     expect(out).toContain("\n/*!50013 SQL SECURITY DEFINER */\n");
@@ -115,7 +119,7 @@ describe("the DEFINER filter of a restore [DB-008]", () => {
       "INSERT INTO `orders` VALUES (1,'CREATE DEFINER=`x`@`%` PROCEDURE `evil`()'),(2,'\\nCREATE TABLE `fake` (');",
     );
     expect(out).toContain("\nCREATE DEFINER=`root`@`%` PROCEDURE `not_a_header`();\n");
-    // Only the definer clauses went.
+    // Only the definer clauses went (and ENABLE became DISABLE, one byte more).
     const removed = DUMP.length - out.length;
     expect(removed).toBeGreaterThan(0);
     expect(out.split("\n").length).toBe(DUMP.split("\n").length);
@@ -142,14 +146,99 @@ describe("the DEFINER filter of a restore [DB-008]", () => {
     expect(scanner.definersRemoved).toBe(0);
   });
 
-  it("passes a line longer than it looks at unchanged, with bounded memory", () => {
+  it("passes a long data line as it is and rewrites a long header within its beginning", () => {
     const blob = `INSERT INTO \`t\` VALUES (0x${"ab".repeat(200_000)});`;
-    const header = `CREATE DEFINER=\`a\`@\`b\` PROCEDURE \`p\`(${"x int,".repeat(20_000)}y int)`;
+    const params = `${"x int,".repeat(20_000)}y int`;
+    const header = `CREATE DEFINER=\`a\`@\`b\` PROCEDURE \`p\`(${params})`;
     const text = `${blob}\n${header}\nBEGIN END;\n`;
-    const { out, scanner } = scan(text, true, 1000);
-    expect(out).toBe(text);
-    expect(scanner.counts.PROCEDURE).toBe(1);
-    expect(scanner.definersRemoved).toBe(0);
+    expect(header.length).toBeGreaterThan(64 * 1024);
+    for (const chunk of [0, 1000]) {
+      const { out, scanner } = scan(text, true, chunk);
+      expect(out).toBe(`${blob}\nCREATE PROCEDURE \`p\`(${params})\nBEGIN END;\n`);
+      expect(scanner.counts.PROCEDURE).toBe(1);
+      expect(scanner.definersRemoved).toBe(1);
+      expect(scanner.failure).toBeNull();
+    }
+    // The download keeps the line as it is.
+    expect(scan(text, false, 1000).out).toBe(text);
+  });
+
+  it("stops a restore at a header longer than it can check", () => {
+    const longName = "n".repeat(70_000);
+    const cases = [
+      // A definer that does not end within the first 64 KiB.
+      `CREATE DEFINER=\`${longName}\`@\`b\` PROCEDURE \`p\`()\nBEGIN END;\n`,
+      `/*!50003 CREATE*/ /*!50017 DEFINER=\`${longName}\`@\`%\`*/ /*!50003 TRIGGER \`t\` BEFORE INSERT ON \`x\` FOR EACH ROW SET @a = 1 */;\n`,
+      // An event whose DO comes after the first 64 KiB.
+      `/*!50106 CREATE*/ /*!50106 EVENT \`e\` ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE ENABLE COMMENT '${longName}' DO SELECT 1 */ ;\n`,
+      // A view's definer line of that length.
+      `/*!50001 CREATE ALGORITHM=UNDEFINED */\n/*!50013 DEFINER=\`${longName}\`@\`%\` SQL SECURITY DEFINER */\n/*!50001 VIEW \`v\` AS select 1 */;\n`,
+    ];
+    for (const text of cases) {
+      for (const chunk of [0, 4096]) {
+        const { out, scanner } = scan(
+          `SELECT 1;\n${text}INSERT INTO \`t\` VALUES (1);\n`,
+          true,
+          chunk,
+        );
+        expect(scanner.failure).toMatch(/header/);
+        expect(out).not.toContain(longName.slice(0, 100));
+        expect(out).not.toContain("INSERT");
+      }
+    }
+  });
+
+  it("never creates an event enabled, whatever its header holds", () => {
+    const event = (rest: string) =>
+      `/*!50106 CREATE*/ /*!50117 DEFINER=\`a\`@\`%\`*/ /*!50106 EVENT \`e\` ${rest} */ ;;`;
+    const check = (rest: string) => {
+      const text = `DELIMITER ;;\n${event(rest)}\nDELIMITER ;\n`;
+      const { out, scanner } = scan(text, true, 3);
+      return { line: out.split("\n")[1], scanner };
+    };
+    expect(
+      check(
+        "ON SCHEDULE AT CURRENT_TIMESTAMP ON COMPLETION PRESERVE ENABLE DO INSERT INTO t VALUES (1)",
+      ).line,
+    ).toBe(
+      "/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE AT CURRENT_TIMESTAMP ON COMPLETION PRESERVE DISABLE DO INSERT INTO t VALUES (1) */ ;;",
+    );
+    // Without a status the server would take ENABLE: DISABLE goes in before DO.
+    expect(check("ON SCHEDULE EVERY 1 SECOND DO SET @a = 'ENABLE'").line).toBe(
+      "/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 SECOND DISABLE DO SET @a = 'ENABLE' */ ;;",
+    );
+    // Words in quotes are no status; the body is never touched.
+    expect(
+      check(
+        "ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE ENABLE COMMENT 'it''s \\' ENABLE DO x' DO SELECT 'ENABLE DO'",
+      ).line,
+    ).toBe(
+      "/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE DISABLE COMMENT 'it''s \\' ENABLE DO x' DO SELECT 'ENABLE DO' */ ;;",
+    );
+    expect(
+      check("ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE DISABLE ON SLAVE DO SELECT 1").line,
+    ).toContain("DISABLE ON SLAVE DO SELECT 1");
+    // A quote that does not end on the line: the header cannot be checked.
+    const cut = check("ON SCHEDULE EVERY 1 DAY COMMENT 'open");
+    expect(cut.scanner.failure).toMatch(/event/);
+    expect(cut.line ?? "").not.toContain("EVENT");
+    // A backup (counting only) keeps the event as it is.
+    const kept = scan(
+      `DELIMITER ;;\n${event("ON SCHEDULE EVERY 1 DAY ENABLE DO SELECT 1")}\n`,
+      false,
+    );
+    expect(kept.out).toContain("ENABLE DO SELECT 1");
+  });
+
+  it("ends the restore's stream with an error when it stops", async () => {
+    const filter = mysqlDefinerFilter();
+    const failed = new Promise((resolve) => filter.stream.once("error", resolve));
+    filter.stream.resume();
+    filter.stream.end(
+      Buffer.from("/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY COMMENT 'x\n"),
+    );
+    expect(String(await failed)).toMatch(/event header/);
+    expect(filter.scanner.failure).not.toBeNull();
   });
 
   it("keeps CRLF and bytes that are no UTF-8", () => {
@@ -185,7 +274,7 @@ describe("the MySQL programs [DB-002]", () => {
       socket: "/dev/shm/r/mysqld.sock",
     });
     expect(file).toBe(
-      '[client]\nuser="backup"\npassword="p"a\\\\s s\\nw#\'"\nsocket="/dev/shm/r/mysqld.sock"\nprotocol=SOCKET\n',
+      '[client]\nuser="backup"\npassword="p"a\\\\s s\\nw#\'"\nsocket="/dev/shm/r/mysqld.sock"\nprotocol=SOCKET\n[mysql]\nlocal-infile=0\n',
     );
     for (const args of [dump, restore]) {
       expect(args.join(" ")).not.toContain("password");

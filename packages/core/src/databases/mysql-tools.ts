@@ -42,6 +42,10 @@ export function mysqlOptionFile(options: {
       : []),
     `socket=${mysqlOptionValue(options.socket)}`,
     "protocol=SOCKET",
+    // No LOAD DATA LOCAL: the client (`mysql`, `mariadb`, both read [mysql]) never sends a
+    // local file. The dump programs have no such option and refuse a server's request for one.
+    "[mysql]",
+    "local-infile=0",
     "",
   ].join("\n");
 }
@@ -341,6 +345,80 @@ const EVENT_DEFINER = new RegExp(
 const VIEW_START = /^\/\*!50001 CREATE ALGORITHM=/;
 const VIEW_DEFINER = new RegExp(`^/\\*!50013 ${DEFINER} SQL SECURITY (DEFINER|INVOKER) \\*/\\s*$`);
 const VIEW_BODY = /^\/\*!50001 VIEW /;
+const EVENT_NAME_AT = "/*!50106 EVENT ";
+
+/** The end of the quoted word that starts at `start` (`…`, '…', "…"), or -1 when it is cut. */
+function quotedEnd(line: string, start: number): number {
+  const quote = line[start];
+  let i = start + 1;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === "\\" && quote !== "`") {
+      i += 2;
+      continue;
+    }
+    if (c === quote) {
+      if (line[i + 1] === quote) {
+        i += 2;
+        continue;
+      }
+      return i + 1;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * An event's header with its status set to `DISABLE` (16 "D4" M3): the words between the
+ * event's name and `DO` are read outside quotes; every `ENABLE` there becomes `DISABLE`, and a
+ * header without a status gets `DISABLE` before `DO` (the server's default is `ENABLE`). Null
+ * when `DO` is not found on the line (cut off, or a quote that does not end on it): the header
+ * cannot be checked.
+ */
+export function mysqlDisableEvent(line: string, from: number): string | null {
+  const enables: number[] = [];
+  let sawStatus = false;
+  let i = from;
+  while (i < line.length) {
+    const c = line[i] as string;
+    if (c === "`" || c === "'" || c === '"') {
+      i = quotedEnd(line, i);
+      if (i < 0) {
+        return null;
+      }
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let j = i;
+      while (j < line.length && /[A-Za-z0-9_$]/.test(line[j] as string)) {
+        j++;
+      }
+      if (j === line.length) {
+        // The word may go on past what is here.
+        return null;
+      }
+      const word = line.slice(i, j).toUpperCase();
+      if (word === "DO") {
+        let out = sawStatus ? line : `${line.slice(0, i)}DISABLE ${line.slice(i)}`;
+        for (const at of enables.reverse()) {
+          out = `${out.slice(0, at)}DISABLE${out.slice(at + "ENABLE".length)}`;
+        }
+        return out;
+      }
+      if (word === "ENABLE") {
+        enables.push(i);
+        sawStatus = true;
+      } else if (word === "DISABLE") {
+        sawStatus = true;
+      }
+      i = j;
+      continue;
+    }
+    i++;
+  }
+  return null;
+}
 
 /** Could a line starting with `head` be one the scanner counts or rewrites? */
 function candidate(head: string): boolean {
@@ -368,6 +446,13 @@ export class MysqlDumpScanner {
   readonly counts: Record<string, number> = {};
   /** DEFINER clauses removed (restore). */
   definersRemoved = 0;
+  /** Event headers set to `DISABLE` (restore). */
+  eventsDisabled = 0;
+  /**
+   * Why a restore must stop: a header the filter has to rewrite could not be checked (longer
+   * than it looks at, or not in the form the dump programs write). Nothing after it is handed on.
+   */
+  failure: string | null = null;
   private readonly strip: boolean;
   private head: Buffer[] = [];
   private headLength = 0;
@@ -388,7 +473,7 @@ export class MysqlDumpScanner {
   push(chunk: Buffer): Buffer {
     const out: Buffer[] = [];
     let offset = 0;
-    while (offset < chunk.length) {
+    while (offset < chunk.length && this.failure === null) {
       const newline = chunk.indexOf(0x0a, offset);
       const end = newline < 0 ? chunk.length : newline + 1;
       const piece = chunk.subarray(offset, end);
@@ -402,11 +487,22 @@ export class MysqlDumpScanner {
         }
         continue;
       }
-      this.head.push(piece);
-      this.headLength += piece.length;
-      if (newline >= 0) {
-        out.push(this.finishLine());
-        continue;
+      // A line longer than HEAD_MAX is judged by its first HEAD_MAX + 1 bytes, however the
+      // chunks fall; the rest of it passes.
+      const content = newline >= 0 ? piece.length - 1 : piece.length;
+      const room = HEAD_MAX + 1 - this.headLength;
+      let rest: Buffer | null = null;
+      if (content >= room) {
+        this.head.push(piece.subarray(0, room));
+        this.headLength += room;
+        rest = piece.subarray(room);
+      } else {
+        this.head.push(piece);
+        this.headLength += piece.length;
+        if (newline >= 0) {
+          out.push(this.finishLine());
+          continue;
+        }
       }
       const start = Buffer.concat(this.head);
       if (
@@ -415,14 +511,32 @@ export class MysqlDumpScanner {
           !candidate(start.subarray(0, DECIDE_BYTES).toString("latin1")))
       ) {
         // A long line, or one that cannot be a header: it passes as it comes. Its beginning
-        // still counts (a routine header may be long); nothing in it is rewritten.
-        out.push(start);
+        // still counts (a routine header may be long). A restore rewrites a header within this
+        // beginning, or stops when it cannot check it there.
+        const prefix = start.toString("latin1");
+        let handed: string | null = prefix;
+        if (this.strip) {
+          handed = this.lookPrefix(prefix);
+        } else {
+          this.look(prefix, false);
+        }
+        if (handed === null) {
+          break;
+        }
+        out.push(Buffer.from(handed, "latin1"));
         this.head = [];
         this.headLength = 0;
         this.passing = true;
         this.tail = "";
-        this.look(start.toString("latin1"), false);
         this.noteTail(start);
+        if (rest !== null) {
+          out.push(rest);
+          this.noteTail(rest);
+          if (newline >= 0) {
+            this.passing = false;
+            this.endLine(null);
+          }
+        }
       }
     }
     return out.length === 1 ? (out[0] as Buffer) : Buffer.concat(out);
@@ -430,10 +544,40 @@ export class MysqlDumpScanner {
 
   /** The bytes still held at the end of the stream. */
   end(): Buffer {
-    if (this.passing || this.head.length === 0) {
+    if (this.passing || this.head.length === 0 || this.failure !== null) {
       return Buffer.alloc(0);
     }
     return this.finishLine();
+  }
+
+  /**
+   * The beginning of a line too long to hold (restore): a header form must be complete and
+   * rewritten within it, or the restore stops; any other line passes as it is.
+   */
+  private lookPrefix(prefix: string): string | null {
+    const header =
+      (this.viewLine > 0 && prefix.startsWith("/*!50013 ")) ||
+      (this.atStart &&
+        this.viewLine === 0 &&
+        ((prefix.startsWith("CREATE ") && !prefix.startsWith("CREATE TABLE ")) ||
+          prefix.startsWith("/*!50003 CREATE*/") ||
+          prefix.startsWith("/*!50106 CREATE*/")));
+    const rewritten = this.look(prefix, true);
+    if (this.failure !== null) {
+      return null;
+    }
+    if (!header) {
+      return rewritten;
+    }
+    const checked =
+      /^CREATE (PROCEDURE|FUNCTION|AGGREGATE FUNCTION) /.test(rewritten) ||
+      rewritten.startsWith("/*!50003 CREATE*/ /*!50003 TRIGGER ") ||
+      rewritten.startsWith("/*!50106 CREATE*/ /*!50106 EVENT ");
+    if (!checked) {
+      this.failure = "a statement header of the backup is longer than Restow checks";
+      return null;
+    }
+    return rewritten;
   }
 
   private noteTail(piece: Buffer): void {
@@ -451,6 +595,9 @@ export class MysqlDumpScanner {
     const eol = /\r?\n$/.exec(line)?.[0] ?? "";
     const body = line.slice(0, line.length - eol.length);
     const rewritten = this.look(body, this.strip);
+    if (this.failure !== null) {
+      return Buffer.alloc(0);
+    }
     this.endLine(body);
     return Buffer.from(rewritten + eol, "latin1");
   }
@@ -504,10 +651,26 @@ export class MysqlDumpScanner {
     }
     if (EVENT.test(line)) {
       this.bump("EVENT");
-      if (rewrite && EVENT_DEFINER.test(line)) {
-        this.definersRemoved++;
-        return line.replace(EVENT_DEFINER, (_match, a: string, b: string) => a + b);
+      if (!rewrite) {
+        return line;
       }
+      let header = line;
+      if (EVENT_DEFINER.test(line)) {
+        this.definersRemoved++;
+        header = line.replace(EVENT_DEFINER, (_match, a: string, b: string) => a + b);
+      }
+      // Never created enabled: a copy runs no job of the source, not even before the run
+      // switches its events off at the end.
+      const disabled = mysqlDisableEvent(
+        header,
+        header.indexOf(EVENT_NAME_AT) + EVENT_NAME_AT.length,
+      );
+      if (disabled === null) {
+        this.failure = "an event header of the backup could not be checked";
+        return line;
+      }
+      this.eventsDisabled++;
+      return disabled;
     }
     return line;
   }
@@ -549,10 +712,12 @@ export function mysqlDefinerFilter(): { stream: Transform; scanner: MysqlDumpSca
   const scanner = new MysqlDumpScanner({ stripDefiners: true });
   const stream = new Transform({
     transform(chunk: Buffer, _encoding: BufferEncoding, done: TransformCallback) {
-      done(null, scanner.push(chunk));
+      const out = scanner.push(chunk);
+      done(scanner.failure === null ? null : new Error(scanner.failure), out);
     },
     flush(done: TransformCallback) {
-      done(null, scanner.end());
+      const out = scanner.end();
+      done(scanner.failure === null ? null : new Error(scanner.failure), out);
     },
   });
   return { stream, scanner };

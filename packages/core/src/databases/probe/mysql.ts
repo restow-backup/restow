@@ -24,6 +24,7 @@ export const CLIENT_LONG_PASSWORD = 0x1;
 export const CLIENT_LONG_FLAG = 0x4;
 export const CLIENT_CONNECT_WITH_DB = 0x8;
 export const CLIENT_COMPRESS = 0x20;
+export const CLIENT_LOCAL_FILES = 0x80;
 export const CLIENT_PROTOCOL_41 = 0x200;
 export const CLIENT_SSL = 0x800;
 export const CLIENT_TRANSACTIONS = 0x2000;

@@ -255,6 +255,7 @@
     "db_restore_name_taken": "Name already taken",
     "db_restore_failed": "Restore failed",
     "db_backup_mismatch": "Checksum differs",
+    "db_restore_unchecked": "A statement of the backup could not be checked",
     "db_verify_no_space": "No space for the check",
     "db_verify_timeout": "Check stopped (time limit)",
     "db_runner_offline": "Executor not reachable",

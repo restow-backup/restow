@@ -9,6 +9,7 @@ import { DbProbeScope } from "./probe/conn.js";
 import {
   CLIENT_COMPRESS,
   CLIENT_CONNECT_WITH_DB,
+  CLIENT_LOCAL_FILES,
   CLIENT_PLUGIN_AUTH,
   CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA,
   CLIENT_SECURE_CONNECTION,
@@ -18,7 +19,6 @@ import {
   type MysqlGreeting,
   mysqlQuery,
   mysqlQuit,
-  mysqlRsaPassword,
   mysqlSignIn,
 } from "./probe/mysql.js";
 import { isPgLoginError, pgQuery, pgSignIn, pgTerminate } from "./probe/postgres.js";
@@ -247,7 +247,9 @@ async function relayOver(
   meta: RelayMeta,
   options: Pick<PgRelayOptions, "acceptTimeoutMs" | "idleTimeoutMs" | "maxDurationMs" | "baseDir">,
   socketName: string,
-  stage: () => SignInStage,
+  stage: () =>
+    | SignInStage
+    | Promise<SignInStage | { failure: { code: DbErrorCode; message: string } }>,
 ): Promise<PgRelayOpen> {
   const started = Date.now();
   let socketDir: string;
@@ -316,7 +318,19 @@ async function relayOver(
     });
     socket.once("error", () => finish("error"));
     socket.once("close", () => finish("client_closed"));
-    const signIn = stage();
+    void Promise.resolve(stage()).then((staged) => {
+      if (reason !== null) {
+        return;
+      }
+      if ("failure" in staged) {
+        failure = staged.failure;
+        finish("error");
+        return;
+      }
+      serve(socket, staged, idle);
+    });
+  });
+  const serve = (socket: Socket, signIn: SignInStage, idle: number) => {
     let through = false;
     const apply = (step: RelayStep) => {
       if (reason !== null || !upstream) {
@@ -383,7 +397,7 @@ async function relayOver(
     if (upstream) {
       attach(upstream, EMPTY);
     }
-  });
+  };
   try {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -418,7 +432,9 @@ async function relayOver(
       socketDir,
       socketPath,
       port: PG_RELAY_PORT,
-      connectedAddress: meta.connectedAddress,
+      get connectedAddress() {
+        return meta.connectedAddress;
+      },
       get tls() {
         return meta.tls;
       },
@@ -432,81 +448,99 @@ async function relayOver(
 export const MYSQL_RELAY_SOCKET = "mysqld.sock";
 
 /**
- * The relay of MySQL and MariaDB (16 "D4" M1): the pinned connection of {@link openPinnedMysql}
- * (SSLRequest and TLS already done when offered), the original greeting handed to the program
- * without the TLS and compression flags, the sign-in through {@link MysqlSignInFilter}.
+ * The relay of MySQL and MariaDB (16 "D4" M1). The server is connected only once the program
+ * has connected to the relay's socket (a server ends a connection that does not sign in within
+ * its `connect_timeout`, 10 seconds by default): the pinned connection of
+ * {@link openPinnedMysql}, the original greeting handed to the program without the TLS,
+ * compression and local-file flags, TLS with the capabilities of the program's login, the
+ * sign-in through {@link MysqlSignInFilter}. Whatever refuses the server (address, engine,
+ * certificate) ends the relay with that failure.
  */
 export async function openMysqlRelay(
   options: PgRelayOptions & { engine: "mysql" | "mariadb" },
 ): Promise<PgRelayOpen> {
-  // The connect, and the TLS that waits for the program's login, under one deadline.
-  const scope = new DbProbeScope(
-    Date.now() + (options.connectTimeoutMs ?? 30_000) + (options.acceptTimeoutMs ?? 60_000),
-  );
-  const pinned = await openPinnedMysql(options.target, options.engine, options.network, scope, {
-    deferTls: true,
-  });
-  if (!pinned.ok) {
-    scope.close();
-    return pinned;
-  }
-  const filter = new MysqlSignInFilter({
-    greetingPayload: pinned.greetingPayload,
-    greeting: pinned.greeting,
-    upstreamTls: pinned.startTls !== null || pinned.tls.used,
-  });
+  let scope: DbProbeScope | null = null;
   const meta: RelayMeta = {
-    connectedAddress: pinned.connectedAddress,
-    tls: pinned.tls,
-    onEnd: () => setImmediate(() => scope.close()),
+    connectedAddress: options.target.address ?? null,
+    tls: {
+      offered: null,
+      used: false,
+      fingerprintSha256: null,
+      subject: null,
+      issuer: null,
+      notAfter: null,
+    },
+    onEnd: () => setImmediate(() => scope?.close()),
   };
-  const begin = (client: Socket) =>
-    new Promise<
-      { upstream: Socket; rest: Buffer } | { failure: { code: DbErrorCode; message: string } }
-    >((resolve) => {
-      let got = EMPTY;
-      const onData = (chunk: Buffer) => {
-        got = Buffer.concat([got, chunk]);
-        const next = takePacket(got);
-        if (next === null) {
-          return;
-        }
-        client.off("data", onData);
-        client.pause();
-        if (next === "too_large") {
-          resolve({
-            failure: { code: "db_probe_failed", message: "the program's login is too large" },
-          });
-          return;
-        }
-        const login = filter.login(next.payload);
-        if ("failure" in login) {
-          resolve({ failure: login.failure });
-          return;
-        }
-        void (async () => {
-          if (pinned.startTls) {
-            const secured = await pinned.startTls(login.sslRequest);
-            if (!secured.ok) {
-              resolve({ failure: { code: secured.code, message: secured.message } });
-              return;
-            }
-            meta.tls = secured.tls;
-          }
-          const upstream = pinned.conn.detach();
-          scope.close();
-          upstream.write(login.toServer);
-          resolve({ upstream, rest: next.rest });
-        })();
-      };
-      client.on("data", onData);
+  const stage = async (): Promise<
+    SignInStage | { failure: { code: DbErrorCode; message: string } }
+  > => {
+    // The connect, and the TLS that waits for the program's login, under one deadline.
+    scope = new DbProbeScope(Date.now() + (options.connectTimeoutMs ?? 30_000) + 60_000);
+    const pinned = await openPinnedMysql(options.target, options.engine, options.network, scope, {
+      deferTls: true,
     });
-  return relayOver(null, meta, options, MYSQL_RELAY_SOCKET, () => ({
-    first: filter.greetingForClient(),
-    begin,
-    fromClient: (chunk) => filter.fromClient(chunk),
-    fromServer: (chunk) => filter.fromServer(chunk),
-  }));
+    if (!pinned.ok) {
+      scope.close();
+      return { failure: { code: pinned.code, message: pinned.message } };
+    }
+    meta.connectedAddress = pinned.connectedAddress;
+    meta.tls = pinned.tls;
+    const filter = new MysqlSignInFilter({
+      greetingPayload: pinned.greetingPayload,
+      greeting: pinned.greeting,
+      upstreamTls: pinned.startTls !== null || pinned.tls.used,
+    });
+    const opened = scope;
+    const begin = (client: Socket) =>
+      new Promise<
+        { upstream: Socket; rest: Buffer } | { failure: { code: DbErrorCode; message: string } }
+      >((resolve) => {
+        let got = EMPTY;
+        const onData = (chunk: Buffer) => {
+          got = Buffer.concat([got, chunk]);
+          const next = takePacket(got);
+          if (next === null) {
+            return;
+          }
+          client.off("data", onData);
+          client.pause();
+          if (next === "too_large") {
+            resolve({
+              failure: { code: "db_probe_failed", message: "the program's login is too large" },
+            });
+            return;
+          }
+          const login = filter.login(next.payload);
+          if ("failure" in login) {
+            resolve({ failure: login.failure });
+            return;
+          }
+          void (async () => {
+            if (pinned.startTls) {
+              const secured = await pinned.startTls(login.sslRequest);
+              if (!secured.ok) {
+                resolve({ failure: { code: secured.code, message: secured.message } });
+                return;
+              }
+              meta.tls = secured.tls;
+            }
+            const upstream = pinned.conn.detach();
+            opened.close();
+            upstream.write(login.toServer);
+            resolve({ upstream, rest: next.rest });
+          })();
+        };
+        client.on("data", onData);
+      });
+    return {
+      first: filter.greetingForClient(),
+      begin,
+      fromClient: (chunk) => filter.fromClient(chunk),
+      fromServer: (chunk) => filter.fromServer(chunk),
+    };
+  };
+  return relayOver(null, meta, options, MYSQL_RELAY_SOCKET, stage);
 }
 
 /** Sign-in plugins that never send the password readable: allowed without TLS upstream. */
@@ -520,17 +554,17 @@ const MYSQL_PLAIN_SAFE_PLUGINS = new Set([
 /**
  * The sign-in of a MySQL program through the relay (16 "D4" M1). The relay sent the SSLRequest
  * itself (sequence 1), so until the server's OK or error every packet gets a new sequence number
- * on either side, and the program's login packet the TLS flag (and never compression). Without
- * TLS upstream the full `caching_sha2_password` step is done by the relay: the program sends its
- * password over the local socket as on any secure transport, the relay asks the server for its
- * RSA key and sends the password encrypted with it; any other plugin that would send the
- * password readable ends the relay with `db_auth_unsupported` before the program is asked.
- * A packet during the sign-in has at most {@link SIGN_IN_MESSAGE_MAX} bytes.
+ * on either side, and the program's login packet the TLS flag (and never compression, never
+ * local files). Without TLS upstream, a plugin that would send the password readable ends the
+ * relay with `db_auth_unsupported` before the program is asked, and the full step of
+ * `caching_sha2_password` (the program would send its password, the server's cache does not
+ * know it) with `db_tls_missing`: like the official client without `--get-server-public-key`,
+ * the relay does not fetch the server's RSA key over an unencrypted connection. A packet during
+ * the sign-in has at most {@link SIGN_IN_MESSAGE_MAX} bytes.
  */
 export class MysqlSignInFilter {
   private readonly greetingPayload: Buffer;
   private readonly upstreamTls: boolean;
-  private scramble: Buffer;
   private plugin: string;
   private clientPending: Buffer = EMPTY;
   private serverPending: Buffer = EMPTY;
@@ -538,16 +572,11 @@ export class MysqlSignInFilter {
   private serverSeq: number;
   /** The sequence number of the last packet the program has seen or sent. */
   private clientSeq = 0;
-  private loginSeen = false;
   private finished = false;
-  /** RSA step: waiting for the program's password, then for the server's key. */
-  private rsa: "none" | "await_password" | "await_key" = "none";
-  private rsaPassword: Buffer = EMPTY;
 
   constructor(options: { greetingPayload: Buffer; greeting: MysqlGreeting; upstreamTls: boolean }) {
     this.greetingPayload = options.greetingPayload;
     this.upstreamTls = options.upstreamTls;
-    this.scramble = options.greeting.scramble;
     this.plugin = options.greeting.authPlugin || "mysql_native_password";
     this.serverSeq = options.upstreamTls ? 2 : 1;
   }
@@ -558,7 +587,8 @@ export class MysqlSignInFilter {
     const versionEnd = payload.indexOf(0, 1);
     const lower = versionEnd + 1 + 4 + 8 + 1;
     if (versionEnd > 0 && payload.length >= lower + 2) {
-      const caps = payload.readUInt16LE(lower) & ~(CLIENT_SSL | CLIENT_COMPRESS);
+      const caps =
+        payload.readUInt16LE(lower) & ~(CLIENT_SSL | CLIENT_COMPRESS | CLIENT_LOCAL_FILES);
       payload.writeUInt16LE(caps & 0xffff, lower);
       const upper = lower + 2 + 1 + 2;
       if (payload.length >= upper + 2) {
@@ -583,7 +613,6 @@ export class MysqlSignInFilter {
   ):
     | { sslRequest: Buffer; toServer: Buffer }
     | { failure: { code: DbErrorCode; message: string } } {
-    this.loginSeen = true;
     this.clientSeq = 1;
     if (payload.length <= 32) {
       // An SSLRequest on the local socket, or a packet that is no login.
@@ -596,7 +625,7 @@ export class MysqlSignInFilter {
     }
     const login = Buffer.from(payload);
     let caps = login.readUInt32LE(0);
-    caps &= ~(CLIENT_COMPRESS | CLIENT_ZSTD_COMPRESSION);
+    caps &= ~(CLIENT_COMPRESS | CLIENT_ZSTD_COMPRESSION | CLIENT_LOCAL_FILES);
     caps = this.upstreamTls ? caps | CLIENT_SSL : caps & ~CLIENT_SSL;
     login.writeUInt32LE(caps >>> 0, 0);
     const plugin = loginPlugin(login);
@@ -634,14 +663,6 @@ export class MysqlSignInFilter {
       this.clientPending = next.rest;
       this.clientSeq = next.sequence;
       const payload = next.payload;
-      if (this.rsa === "await_password") {
-        // The program's password for the full caching_sha2 step, never sent on readable.
-        this.rsaPassword = Buffer.from(payload);
-        this.rsa = "await_key";
-        toServer.push(packet(this.serverSeq, Buffer.from([0x02])));
-        this.serverSeq = (this.serverSeq + 1) & 0xff;
-        continue;
-      }
       toServer.push(packet(this.serverSeq, payload));
       this.serverSeq = (this.serverSeq + 1) & 0xff;
     }
@@ -654,7 +675,6 @@ export class MysqlSignInFilter {
     }
     this.serverPending = Buffer.concat([this.serverPending, chunk]);
     const toClient: Buffer[] = [];
-    const toServer: Buffer[] = [];
     for (;;) {
       const next = takePacket(this.serverPending);
       if (next === "too_large") {
@@ -667,31 +687,10 @@ export class MysqlSignInFilter {
       this.serverSeq = (next.sequence + 1) & 0xff;
       const payload = next.payload;
       const head = payload.length > 0 ? (payload[0] as number) : -1;
-      if (this.rsa === "await_key") {
-        if (head !== 0x01) {
-          return this.fail("the server did not send its RSA key", "db_login_failed");
-        }
-        try {
-          const pem = payload.subarray(1, 16 * 1024).toString("latin1");
-          toServer.push(
-            packet(this.serverSeq, mysqlRsaPassword(this.rsaPassword, this.scramble, pem)),
-          );
-          this.serverSeq = (this.serverSeq + 1) & 0xff;
-        } catch {
-          return this.fail("the server's RSA key could not be used", "db_login_failed");
-        } finally {
-          this.rsaPassword.fill(0);
-          this.rsaPassword = EMPTY;
-        }
-        this.rsa = "none";
-        continue;
-      }
       if (head === 0xfe && payload.length > 1) {
         // Auth switch: the plugin and the data the program signs next.
         const end = payload.indexOf(0, 1);
         this.plugin = payload.subarray(1, end < 0 ? payload.length : end).toString("latin1");
-        const data = end < 0 ? EMPTY : payload.subarray(end + 1);
-        this.scramble = Buffer.from(data.length > 20 ? data.subarray(0, 20) : data);
         if (!this.upstreamTls && !MYSQL_PLAIN_SAFE_PLUGINS.has(this.plugin)) {
           return this.fail(
             `the server asks for the sign-in method ${this.plugin}, which sends the password readable; the connection has no TLS`,
@@ -704,7 +703,10 @@ export class MysqlSignInFilter {
         payload[1] === 0x04 &&
         !this.upstreamTls
       ) {
-        this.rsa = "await_password";
+        return this.fail(
+          "caching_sha2_password asks for the full sign-in, which sends the password: only over TLS. Turn TLS on at the server, or let the user sign in once over TLS so that the server caches the password.",
+          "db_tls_missing",
+        );
       }
       this.clientSeq = (this.clientSeq + 1) & 0xff;
       toClient.push(packet(this.clientSeq, payload));
@@ -716,7 +718,7 @@ export class MysqlSignInFilter {
       }
     }
     return {
-      toServer: Buffer.concat(toServer),
+      toServer: EMPTY,
       toClient: Buffer.concat(toClient),
       failure: null,
       done: this.finished,

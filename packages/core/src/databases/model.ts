@@ -88,6 +88,8 @@ export const DB_ERROR_CODES = [
   "db_restore_name_taken",
   "db_restore_failed",
   "db_backup_mismatch",
+  /** A statement header of a MySQL dump the restore's filter could not check (16 "D4" M3). */
+  "db_restore_unchecked",
   "db_verify_no_space",
   "db_verify_timeout",
   "db_runner_offline",

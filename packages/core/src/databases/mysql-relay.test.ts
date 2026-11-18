@@ -6,19 +6,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TLSSocket } from "node:tls";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { DbServerProbeOptions } from "./probe/probe.js";
 import { MYSQL_RELAY_SOCKET, openMysqlRelay } from "./relay.js";
 
 /**
  * The relay of MySQL and MariaDB (docs/DATABASES.md 16 "D4" M1) against a fake server: the
- * program gets the original greeting without TLS and compression, the sequence numbers and the
- * TLS flag of the login are set for the server, then the bytes pass; without TLS upstream the
- * relay does the RSA step of caching_sha2_password itself and the readable password never
- * reaches the server; a sign-in method that would send it readable ends the relay; refused
- * before connecting or before the login when the address is not allowed, is Restow's own
- * database, or shows another certificate; one client only. A real server: relay.mysql test.
+ * server is connected only once the program is; the program gets the original greeting without
+ * TLS, compression and local files, the sequence numbers and the TLS flag of the login are set for
+ * the server, then the bytes pass; without TLS upstream the full step of caching_sha2_password
+ * and any method that would send the password readable end the relay, and the password never
+ * reaches the server; refused before connecting or before the login when the address is not
+ * allowed, is Restow's own database, or shows another certificate; one client only. Real
+ * servers: apps/worker src/databases/mysql-runs.pg.test.ts.
  */
 
 const CLIENT_COMPRESS = 0x20;
+const CLIENT_LOCAL_FILES = 0x80;
 const CLIENT_SSL = 0x800;
 const CAPS_LOW = 0x0001 | 0x0004 | 0x0200 | 0x2000 | 0x8000; // long pw, long flag, 41, trans, secure
 const CAPS_HIGH = (0x80000 | 0x200000) >>> 16; // plugin auth, lenenc client data
@@ -108,7 +111,7 @@ function reader(socket: Socket) {
 
 function greeting(options: { tls: boolean; mariadb: boolean; plugin: string }): Buffer {
   const version = options.mariadb ? "5.5.5-11.8.2-MariaDB" : "8.4.3";
-  const low = CAPS_LOW | CLIENT_COMPRESS | (options.tls ? CLIENT_SSL : 0);
+  const low = CAPS_LOW | CLIENT_COMPRESS | CLIENT_LOCAL_FILES | (options.tls ? CLIENT_SSL : 0);
   const head = Buffer.alloc(4 + 8 + 1 + 2 + 1 + 2 + 2 + 1 + 10);
   let o = 0;
   head.writeUInt32LE(7, o);
@@ -147,6 +150,8 @@ function fakeMysql(options: {
   mariadb?: boolean;
   plugin?: string;
   scenario: "ok" | "rsa" | "clear_switch";
+  /** Like a server's connect_timeout: a connection without a login is closed after it. */
+  connectTimeoutMs?: number;
 }): Promise<Fake> {
   let finished: () => void = () => undefined;
   const fake: Fake = {
@@ -167,6 +172,11 @@ function fakeMysql(options: {
     raw.write(
       packet(0, greeting({ tls: options.tls === true, mariadb: options.mariadb === true, plugin })),
     );
+    if (options.connectTimeoutMs) {
+      setTimeout(() => {
+        if (fake.login === null) raw.destroy();
+      }, options.connectTimeoutMs).unref();
+    }
     if (options.tls) {
       // The SSLRequest (36 bytes), then TLS on the same socket; bytes after it go back.
       const request = await new Promise<Buffer>((resolve) => {
@@ -265,7 +275,10 @@ async function program(path: string, options: { plugin?: string; password?: stri
   const caps = hello.payload.readUInt16LE(hello.payload.indexOf(0, 1) + 1 + 4 + 8 + 1);
   const plugin = options.plugin ?? "mysql_native_password";
   const fixed = Buffer.alloc(32);
-  fixed.writeUInt32LE((CAPS_LOW | (CAPS_HIGH << 16) | CLIENT_COMPRESS) >>> 0, 0);
+  fixed.writeUInt32LE(
+    (CAPS_LOW | (CAPS_HIGH << 16) | CLIENT_COMPRESS | CLIENT_LOCAL_FILES) >>> 0,
+    0,
+  );
   fixed.writeUInt32LE(1 << 24, 4);
   fixed.writeUInt8(45, 8);
   const auth = Buffer.alloc(20, 7);
@@ -298,9 +311,11 @@ describe("the MySQL relay [DB-003]", () => {
     // TLS waits for the program's login: the server keeps the SSLRequest's capabilities.
     expect(opened.relay.tls.used).toBe(false);
     expect(opened.relay.socketPath).toBe(join(opened.relay.socketDir, MYSQL_RELAY_SOCKET));
+    // Nothing reaches the server before the program is there.
+    expect(fake.connections).toBe(0);
     const { socket, packets, hello, caps } = await program(opened.relay.socketPath);
     expect(hello.seq).toBe(0);
-    expect(caps & (CLIENT_SSL | CLIENT_COMPRESS)).toBe(0);
+    expect(caps & (CLIENT_SSL | CLIENT_COMPRESS | CLIENT_LOCAL_FILES)).toBe(0);
     // The relay sent the SSLRequest (sequence 1): the login is the server's sequence 2, with TLS.
     const ok = await packets.next();
     expect(ok).toEqual({ seq: 2, payload: Buffer.from([0, 0, 0, 2, 0, 0, 0]) });
@@ -310,6 +325,8 @@ describe("the MySQL relay [DB-003]", () => {
     expect(fake.sslCaps).toBe(fake.login?.caps);
     expect((fake.login?.caps ?? 0) & CLIENT_SSL).toBe(CLIENT_SSL);
     expect((fake.login?.caps ?? 0) & CLIENT_COMPRESS).toBe(0);
+    // No LOAD DATA LOCAL: the server learns the program takes no local file.
+    expect((fake.login?.caps ?? 0) & CLIENT_LOCAL_FILES).toBe(0);
     socket.write(packet(0, Buffer.from([0x0e])));
     expect(await packets.next()).toEqual({ seq: 1, payload: Buffer.from([0, 0, 0, 2, 0, 0, 0]) });
     // One client only; the socket is gone.
@@ -319,7 +336,7 @@ describe("the MySQL relay [DB-003]", () => {
     await fake.done;
   });
 
-  it("does the RSA step itself without TLS: the readable password never reaches the server", async () => {
+  it("refuses the full caching_sha2 step without TLS: the password never reaches the server", async () => {
     const fake = await fakeMysql({ scenario: "rsa", plugin: "caching_sha2_password" });
     const opened = await openMysqlRelay({
       target: target(fake.port),
@@ -331,17 +348,38 @@ describe("the MySQL relay [DB-003]", () => {
     const { socket, packets } = await program(opened.relay.socketPath, {
       plugin: "caching_sha2_password",
     });
-    const more = await packets.next();
-    expect(more.payload).toEqual(Buffer.from([0x01, 0x04]));
-    // The program sends its password as on any secure transport (the local socket).
-    socket.write(packet(more.seq + 1, Buffer.from("s3cret-pw\0")));
-    const ok = await packets.next();
-    expect(ok).toEqual({ seq: more.seq + 2, payload: Buffer.from([0, 0, 0, 2, 0, 0, 0]) });
-    socket.write(packet(0, Buffer.from([0x0e])));
-    await packets.next();
+    const ended = await opened.relay.ended;
+    expect(ended.failure?.code).toBe("db_tls_missing");
+    expect(ended.failure?.message).toMatch(/TLS/);
+    // The program never got the request for its password; had it sent one, nothing would pass.
+    const seen = await Promise.race([
+      packets.next().then(() => "packet"),
+      new Promise((resolve) => setTimeout(() => resolve("none"), 100)),
+    ]);
+    expect(seen).toBe("none");
+    socket.write(packet(3, Buffer.from("s3cret-pw\0")));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(Buffer.concat(fake.received).includes(Buffer.from("s3cret-pw"))).toBe(false);
+    // No request for the server's RSA key either.
+    expect(Buffer.concat(fake.received).includes(Buffer.from([1, 0, 0, 3, 2]))).toBe(false);
+  });
+
+  it("connects the server only when the program is there, however late it comes", async () => {
+    const fake = await fakeMysql({ tls: true, scenario: "ok", connectTimeoutMs: 200 });
+    const opened = await openMysqlRelay({
+      target: target(fake.port, { allowUnencrypted: false }),
+      engine: "mysql",
+      network: loopback,
+      maxDurationMs: 30_000,
+    });
+    if (!opened.ok) throw new Error(opened.message);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(fake.connections).toBe(0);
+    const { socket, packets } = await program(opened.relay.socketPath);
+    expect(await packets.next()).toEqual({ seq: 2, payload: Buffer.from([0, 0, 0, 2, 0, 0, 0]) });
+    expect(fake.connections).toBe(1);
     socket.end();
-    await opened.relay.ended;
+    expect((await opened.relay.ended).reason).toBe("client_closed");
   });
 
   it("ends before a readable sign-in without TLS (db_auth_unsupported)", async () => {
@@ -402,41 +440,57 @@ describe("the MySQL relay [DB-003]", () => {
     expect((await refused.relay.ended).failure?.code).toBe("db_tls_changed");
     // Nothing of a login reached the server with the other certificate.
     expect(pinned.login).toBeNull();
-    const maria = await fakeMysql({ mariadb: true, scenario: "ok" });
-    expect(
-      await openMysqlRelay({
-        target: target(maria.port),
+    // Engine, address, Restow's own database and TLS are judged when the program connects:
+    // the relay ends with the reason, and nothing of a login reaches such a server.
+    const refusedAt = async (
+      port: number,
+      over: Record<string, unknown>,
+      network: DbServerProbeOptions,
+    ): Promise<string | undefined> => {
+      const relay = await openMysqlRelay({
+        target: target(port, over),
         engine: "mysql",
-        network: loopback,
+        network,
         maxDurationMs: 30_000,
-      }),
-    ).toMatchObject({ ok: false, code: "db_engine_changed" });
+      });
+      if (!relay.ok) throw new Error(relay.message);
+      const socket = connect(relay.relay.socketPath);
+      socket.on("error", () => undefined);
+      const ended = await relay.relay.ended;
+      socket.destroy();
+      return ended.failure?.code;
+    };
+    const maria = await fakeMysql({ mariadb: true, scenario: "ok" });
+    expect(await refusedAt(maria.port, {}, loopback)).toBe("db_engine_changed");
+    expect(maria.login).toBeNull();
     const plain = await fakeMysql({ scenario: "ok" });
     expect(
-      await openMysqlRelay({
-        target: target(plain.port),
-        engine: "mysql",
-        network: { allowPrivateNetworks: false, approvedAddresses: [], forbiddenTargets: [] },
-        maxDurationMs: 30_000,
-      }),
-    ).toMatchObject({ ok: false, code: "db_private_network" });
+      await refusedAt(
+        plain.port,
+        {},
+        {
+          allowPrivateNetworks: false,
+          approvedAddresses: [],
+          forbiddenTargets: [],
+        },
+      ),
+    ).toBe("db_private_network");
+    // A refused address is never connected.
     expect(plain.connections).toBe(0);
     expect(
-      await openMysqlRelay({
-        target: target(plain.port),
-        engine: "mysql",
-        network: { ...loopback, forbiddenTargets: [{ address: "127.0.0.1", port: plain.port }] },
-        maxDurationMs: 30_000,
-      }),
-    ).toMatchObject({ ok: false, code: "db_target_is_restow" });
-    expect(
-      await openMysqlRelay({
-        target: target(plain.port, { allowUnencrypted: false }),
-        engine: "mysql",
-        network: loopback,
-        maxDurationMs: 30_000,
-      }),
-    ).toMatchObject({ ok: false, code: "db_tls_missing" });
+      await refusedAt(
+        plain.port,
+        {},
+        {
+          ...loopback,
+          forbiddenTargets: [{ address: "127.0.0.1", port: plain.port }],
+        },
+      ),
+    ).toBe("db_target_is_restow");
+    expect(await refusedAt(plain.port, { allowUnencrypted: false }, loopback)).toBe(
+      "db_tls_missing",
+    );
+    expect(plain.login).toBeNull();
   });
 
   it("takes one client and refuses TLS asked for on its local socket", async () => {
