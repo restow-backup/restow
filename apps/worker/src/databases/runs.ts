@@ -43,9 +43,13 @@ import {
   type DbStreamStats,
   DEFAULT_ENDPOINT_RETENTION,
   deletionDecision,
+  type MysqlFamily,
+  type MysqlToolChoice,
   openPgAdminSession,
   openPgRelay,
   type PgAdminSession,
+  type PgRelay,
+  type PgRelayOpen,
   type PgToolChoice,
   pgDumpArgs,
   pgDumpallGlobalsArgs,
@@ -93,6 +97,7 @@ import {
 } from "../handlers/framework.js";
 import { recordDeferredDeletion } from "../handlers/immutability.js";
 import { hasActiveMigration } from "../handlers/storage-migration.js";
+import { serverMysqlBackup, serverMysqlRestore } from "./mysql-runs.js";
 
 const MINUTE_MS = 60 * 1000;
 /** The pass runs every minute. */
@@ -115,9 +120,12 @@ const AGENT_FETCH_DEADLINE_MS = DATABASE_RUN_AGENT_FETCH_MS;
 /** A run that never ended fails after this. */
 const RUN_MAX_MS = 24 * 60 * MINUTE_MS;
 /** One dump, one restore: the relay's hard deadline. */
-const PROGRAM_MAX_MS = 12 * 60 * MINUTE_MS;
+export const PROGRAM_MAX_MS = 12 * 60 * MINUTE_MS;
 /** A restored database name: at most 63 bytes (PostgreSQL's NAMEDATALEN - 1). */
 export const DB_NAME_MAX_BYTES = 63;
+
+/** The engines whose runs the executors know (D3 PostgreSQL, D4 MySQL and MariaDB). */
+export const DB_RUN_ENGINES: ReadonlySet<string> = new Set(["postgresql", "mysql", "mariadb"]);
 
 interface Logger {
   info(message: string, fields?: Record<string, unknown>): void;
@@ -147,6 +155,11 @@ export interface DatabaseRunDeps {
   readonly enqueue: (payload: { tenantId: string; runId: string }) => Promise<void>;
   /** Tests: the programs. */
   readonly tools?: (serverMajor: number) => Promise<PgToolChoice>;
+  /** Tests: the MySQL and MariaDB programs. */
+  readonly mysqlTools?: (
+    family: MysqlFamily,
+    serverVersion: { major: number; minor: number },
+  ) => Promise<MysqlToolChoice>;
   /** Tests: how restic starts `db-stream` (default: this Node with the compiled entry). */
   readonly dbStreamCommand?: readonly string[];
 }
@@ -212,9 +225,9 @@ export async function databaseRunsPass(deps: DatabaseRunDeps): Promise<DatabaseR
         ) last ON true
        WHERE t.status = 'active'
          AND c.enabled
-         AND c.engine = 'postgresql'
+         AND c.engine IN ('postgresql', 'mysql', 'mariadb')
          AND c.mode = 'backup'
-         -- An agent on Windows runs no PostgreSQL backup yet (E7, db_platform_unsupported).
+         -- An agent on Windows runs no PostgreSQL or MySQL backup yet (E7, db_platform_unsupported).
          AND NOT EXISTS (SELECT 1 FROM endpoints e
                           WHERE c.executor_kind = 'agent'
                             AND e.id = c.executor_endpoint_id
@@ -353,16 +366,22 @@ export async function ensureDatabaseRepository(
 // The server's runs
 // ---------------------------------------------------------------------------
 
-interface Prepared {
+export interface Prepared {
   connection: DatabaseConnection;
   credentials: { user: string; password: string | null };
   target: DbPinnedTarget;
   network: DbServerProbeOptions;
 }
 
-async function prepare(deps: DatabaseRunDeps, connection: DatabaseConnection): Promise<Prepared> {
-  if (connection.engine !== "postgresql") {
-    throw new DatabaseRunFailure("db_engine_unsupported", "D3 backs up PostgreSQL only.");
+export async function prepare(
+  deps: DatabaseRunDeps,
+  connection: DatabaseConnection,
+): Promise<Prepared> {
+  if (!DB_RUN_ENGINES.has(connection.engine)) {
+    throw new DatabaseRunFailure(
+      "db_engine_unsupported",
+      "Backups of this engine come with a later stage.",
+    );
   }
   if (!connection.host || !connection.port) {
     throw new DatabaseRunFailure("db_engine_unsupported", "The connection has no address.");
@@ -468,7 +487,7 @@ async function postgresIsEmpty(prepared: Prepared): Promise<boolean> {
   }
 }
 
-async function finishRun(
+export async function finishRun(
   deps: DatabaseRunDeps,
   run: DatabaseRun,
   outcome: {
@@ -539,12 +558,13 @@ export async function runDatabaseJob(
     password: null,
   };
   try {
+    const mysql = connection.engine === "mysql" || connection.engine === "mariadb";
     if (run.kind === "backup") {
       const prepared = await prepare(deps, connection);
       secretsSeen = prepared.credentials;
-      await serverBackup(deps, run, prepared);
+      await (mysql ? serverMysqlBackup : serverBackup)(deps, run, prepared);
     } else {
-      await serverRestore(deps, run, connection, (credentials) => {
+      await (mysql ? serverMysqlRestore : serverRestore)(deps, run, connection, (credentials) => {
         secretsSeen = credentials;
       });
     }
@@ -571,7 +591,7 @@ function fileNameOf(name: string, kind: "database" | "globals"): string {
     : `postgresql/${name.replace(/[/\\]/g, "_")}.pgdump`;
 }
 
-interface DumpOutcome {
+export interface DumpOutcome {
   snapshotId: string;
   stats: DbStreamStats;
   startedAt: Date;
@@ -593,29 +613,62 @@ async function dumpOne(
     tags: string[];
   },
 ): Promise<DumpOutcome> {
-  const startedAt = deps.now();
-  const relay = await openPgRelay({
-    target: prepared.target,
-    network: prepared.network,
-    maxDurationMs: PROGRAM_MAX_MS,
+  return dumpThrough(deps, session, dir, {
+    open: () =>
+      openPgRelay({
+        target: prepared.target,
+        network: prepared.network,
+        maxDurationMs: PROGRAM_MAX_MS,
+      }),
+    spec: (relay) => ({
+      tool: input.tool,
+      args: input.args,
+      env: pgToolEnv({
+        socketDir: relay?.socketDir ?? "",
+        port: relay?.port ?? 0,
+        user: prepared.credentials.user,
+        passFile,
+      }),
+      listTool: input.listTool,
+    }),
+    fileName: input.fileName,
+    tags: input.tags,
   });
-  if (!relay.ok) {
-    throw new DatabaseRunFailure(relay.code, relay.message);
+}
+
+/**
+ * One `restic backup --stdin-from-command` of `db-stream`, through a relay of its own (`open`,
+ * none for a file the executor wrote): what restic keeps is a snapshot only when the program
+ * ended well (5.1).
+ */
+export async function dumpThrough(
+  deps: DatabaseRunDeps,
+  session: ResticSession,
+  dir: string,
+  input: {
+    open: (() => Promise<PgRelayOpen>) | null;
+    spec: (
+      relay: PgRelay | null,
+    ) => Omit<DbStreamSpec, "statsPath"> | Promise<Omit<DbStreamSpec, "statsPath">>;
+    fileName: string;
+    tags: string[];
+  },
+): Promise<DumpOutcome> {
+  const startedAt = deps.now();
+  const opened = input.open ? await input.open() : null;
+  if (opened && !opened.ok) {
+    throw new DatabaseRunFailure(opened.code, opened.message);
   }
+  const relay = opened?.ok ? opened : null;
   const statsPath = join(dir, `stats-${randomUUID()}.json`);
   const specPath = join(dir, `spec-${randomUUID()}.json`);
-  const spec: DbStreamSpec = {
-    tool: input.tool,
-    args: input.args,
-    env: pgToolEnv({
-      socketDir: relay.relay.socketDir,
-      port: relay.relay.port,
-      user: prepared.credentials.user,
-      passFile,
-    }),
-    listTool: input.listTool,
-    statsPath,
-  };
+  let spec: DbStreamSpec;
+  try {
+    spec = { ...(await input.spec(relay?.relay ?? null)), statsPath };
+  } catch (error) {
+    relay?.relay.close();
+    throw error;
+  }
   await writeFile(specPath, JSON.stringify(spec), { mode: 0o600 });
   try {
     const command = deps.dbStreamCommand ?? defaultDbStreamCommand();
@@ -640,6 +693,19 @@ async function dumpOne(
     const stats = JSON.parse(
       await readFile(statsPath, "utf8").catch(() => "null"),
     ) as DbStreamStats | null;
+    // A sign-in the relay stopped (MySQL: a method it does not hand on) says why the program failed.
+    const failure =
+      !stats?.ok && relay
+        ? (
+            await Promise.race([
+              relay.relay.ended,
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000).unref()),
+            ])
+          )?.failure
+        : null;
+    if (!stats?.ok && failure) {
+      throw new DatabaseRunFailure(failure.code, failure.message);
+    }
     if (!stats?.ok) {
       throw new DatabaseRunFailure(
         "db_dump_failed",
@@ -661,25 +727,25 @@ async function dumpOne(
     }
     return { snapshotId: summary.snapshot_id, stats, startedAt, finishedAt: deps.now() };
   } finally {
-    relay.relay.close();
+    relay?.relay.close();
     await rm(specPath, { force: true });
     await rm(statsPath, { force: true });
   }
 }
 
 /** Record the databases the instance has now (packages/db `recordInstanceDatabasesTx`). */
-function recordDatabases(
+export function recordDatabases(
   deps: DatabaseRunDeps,
   connection: DatabaseConnection,
   instanceKey: string,
-  found: { name: string; oid: string }[],
+  found: { name: string; oid: string | null }[],
 ): Promise<Map<string, string>> {
   return withTenantTx(deps.db, connection.tenantId, (tx) =>
     recordInstanceDatabasesTx(tx, connection, instanceKey, found, deps.now()),
   );
 }
 
-function selected(connection: DatabaseConnection, name: string): boolean {
+export function selected(connection: DatabaseConnection, name: string): boolean {
   const selection = connection.selection;
   if (selection.mode === "selected") {
     return selection.names.includes(name);
@@ -826,7 +892,7 @@ async function serverBackup(
   });
 }
 
-async function recordBackup(
+export async function recordBackup(
   deps: DatabaseRunDeps,
   run: DatabaseRun,
   connection: DatabaseConnection,
@@ -840,6 +906,7 @@ async function recordBackup(
     dumped: DumpOutcome;
     toolVersion: string;
     serverVersion: string;
+    engineOptions?: { characterSet?: string; collation?: string };
   },
 ): Promise<void> {
   await withTenantTx(deps.db, connection.tenantId, (tx) =>
@@ -857,6 +924,7 @@ async function recordBackup(
       sha256: input.dumped.stats.sha256,
       bytes: input.dumped.stats.bytes,
       objects: input.dumped.stats.objects,
+      engineOptions: input.engineOptions ?? {},
       toolVersion: input.toolVersion,
       serverVersion: input.serverVersion.slice(0, 256),
       startedAt: input.dumped.startedAt,
