@@ -66,6 +66,7 @@ export const PLAN_WARNING_CODES = [
   "esp_grown_4kn",
   "ext_block_size_raised",
   "fallback_kernel_driver_missing",
+  "firmware_mode_switched",
   "fs_not_recreated",
   "grow_not_last",
   "keyfile_regenerated",

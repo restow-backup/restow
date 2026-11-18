@@ -39,6 +39,10 @@ type Facts struct {
 	Kernels      []KernelFacts          `json:"kernels"`
 	RestoreSizes map[string]RestoreSize `json:"restoreSizes"`
 	MokFiles     []MokFileFact          `json:"mokFiles"`
+	// GrubBIOS: the snapshot has GRUB's modules for BIOS (i386-pc), read
+	// only for a UEFI system (docs/BAREMETAL-ONESHOT.md 14: UEFI to BIOS on
+	// a hybrid GPT disk). Nil: not looked at.
+	GrubBIOS *bool `json:"grubBios,omitempty"`
 }
 
 // KernelFacts are the module lists of one kernel. An empty text means the

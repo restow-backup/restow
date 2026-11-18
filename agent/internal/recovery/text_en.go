@@ -28,6 +28,7 @@ var textEN = map[string]string{
 	"code.mapping_invalid":                  "The disk mapping is not valid: {reason}.",
 	"code.nic_driver_missing":               "The backed-up kernel {kernel} has no driver for network card {nic} ({modalias}); the system starts without network on it.",
 	"code.fallback_kernel_driver_missing":   "The fallback kernel {kernel} has no driver for {modalias} of disk {target}.",
+	"code.firmware_mode_switched": "The system was backed up in UEFI mode and starts here in BIOS mode: its disk has a BIOS boot partition, and GRUB for BIOS is installed on {target}.",
 	"code.other_controller_driver_missing":  "On another controller the backed-up kernel {kernel} would have no driver for {modalias} ({module}).",
 	"code.driver_facts_missing":             "The kernel module lists of {kernel} are not known; drivers were not checked.",
 	"code.secure_boot_dbx_unknown":          "The revocation list (dbx) of this machine is not known; revoked loaders were not checked.",

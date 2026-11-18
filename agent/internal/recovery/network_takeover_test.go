@@ -95,3 +95,17 @@ func TestNetworkTakeoverRefusesAnUnclearStackAndChangesNothing(t *testing.T) {
 		t.Error("the backup folder was made")
 	}
 }
+
+// What the check of the takeover finds stands under point 9; the
+// verification keeps its ten checks.
+func TestNetworkFindingsGoToTheMountPointsCheck(t *testing.T) {
+	x := &Executor{Network: &NetworkTakeover{Problems: []string{"the address 203.0.113.7/32 stands in 0 written files, not in one"}}}
+	x.report.Checks = []*Check{NewCheck(CheckFstab), NewCheck(CheckMountPoints)}
+	x.networkFindings()
+	if len(x.report.Checks) != 2 || x.report.Checks[1].Result != api.VerifyFailed || x.report.Checks[0].Result != api.VerifyOK {
+		t.Fatalf("%+v %+v", x.report.Checks[0].RecoveryCheck, x.report.Checks[1].RecoveryCheck)
+	}
+	if f := x.report.Checks[1].Findings; len(f) != 1 || !strings.Contains(f[0].Message, "203.0.113.7") {
+		t.Errorf("findings %+v", f)
+	}
+}
