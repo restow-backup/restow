@@ -481,6 +481,13 @@ jobs:
         # needed. The release smoke check allows no high or critical advisory.
         run: pnpm audit --audit-level high
 
+      - name: Audit exceptions (documented, no fix yet)
+        # Every advisory pnpm.auditConfig.ignoreGhsas leaves out has a row in
+        # docs/CI.md "Audit exceptions"; fails once the advisory has a fix.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/check-audit-exceptions.mjs
+
   licenses:
     name: Dependency licenses
     runs-on: ubuntu-24.04
