@@ -146,6 +146,17 @@ export const ENDPOINT_PROBLEMS = {
   recoverySessionEnded: "urn:restow:problem:recovery-session-ended",
   /** 409: the session waits for an admin to release it. */
   recoveryNotApproved: "urn:restow:problem:recovery-not-approved",
+  /**
+   * 409: a oneshot session has not reported from the recovery environment yet
+   * (docs/BAREMETAL-ONESHOT.md 6.4): the credentials go only to the recovery environment.
+   */
+  recoveryNotBooted: "urn:restow:problem:recovery-not-booted",
+  /**
+   * 409: a oneshot session cannot be released: the command on the fresh machine has not shown
+   * that it can switch into the recovery environment (`extensions.reason`: `kexec_not_tried`,
+   * `kexec_failed`, `agent_enrolled`).
+   */
+  oneshotNotReady: "urn:restow:problem:oneshot-not-ready",
   /** 409: the credentials were collected twice, or the window for the second time has passed. */
   recoveryCredentialsCollected: "urn:restow:problem:recovery-credentials-collected",
   /** 409: the session is in a state that does not allow this (`extensions.status`). */

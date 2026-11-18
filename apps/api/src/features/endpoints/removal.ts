@@ -318,14 +318,14 @@ export async function removeEndpoint(
       .update(endpointRecoveries)
       .set({ status: "revoked", revokedAt: now, revokedBy: actor.userId, updatedAt: now })
       .where(and(eq(endpointRecoveries.endpointId, id), eq(endpointRecoveries.status, "issued")))
-      .returning({ id: endpointRecoveries.id });
+      .returning({ id: endpointRecoveries.id, kind: endpointRecoveries.kind });
     for (const code of revoked) {
       await auditEndpoint(tx, {
         tenantId,
         actor,
         action: ENDPOINT_AUDIT_ACTIONS.recoveryCodeRevoked,
         endpointId: id,
-        details: { recoveryId: code.id, kind: "code", reason: "removed" },
+        details: { recoveryId: code.id, kind: code.kind, reason: "removed" },
       });
     }
     // A session that waits for its release ends too: released later, it would hold the deletion of

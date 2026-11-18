@@ -1,13 +1,22 @@
+import { Readable } from "node:stream";
 import { type Context, Hono } from "hono";
 import { clientIp } from "../../lib/request.js";
 import { guardBrowserRequest } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody } from "../../schemas.js";
 import { SlidingWindowRateLimiter } from "../apikeys/rate-limit.js";
+import { openDistributionFile } from "./distribution.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { AGENT_API_LIMIT, TEN_MINUTES_MS } from "./rate-limits.js";
 import { redeemRebindInRecovery } from "./rebind.js";
+import {
+  type OneshotExchangeReport,
+  type OneshotIsoFile,
+  oneshotIso,
+  recordOneshotChecks,
+  reportOneshotBooted,
+} from "./recovery-oneshot.js";
 import {
   appendLog,
   assertRebindAllowed,
@@ -25,11 +34,15 @@ import {
 } from "./recovery-service.js";
 import type { RecoverySessionAccess } from "./recovery-session-cache.js";
 import {
+  oneshotChecksSchema,
   type RecoveryExchangeInput,
+  type RecoveryOneshotExchangeInput,
   recoveryEventSchema,
   recoveryExchangeSchema,
   recoveryFinishSchema,
   recoveryLogSchema,
+  recoveryOneshotBootedSchema,
+  recoveryOneshotExchangeSchema,
   recoveryProgressSchema,
   recoveryRebindSchema,
 } from "./schemas.js";
@@ -51,6 +64,15 @@ import {
  *   POST /sessions/current/release        the end of the repository access (finishing)
  *   POST /sessions/current/finish         succeeded, failed or cancelled, with the verification
  *   POST /sessions/current/rebind         a rebind token of the machine -> the agent's state (201)
+ *
+ * A oneshot restore (docs/BAREMETAL-ONESHOT.md 6.2, 6.4): the command on a fresh machine exchanges
+ * its code here, before the machine switches into the recovery environment.
+ *
+ *   POST /oneshot                                 code proof, secret hash, hardware, target, checks
+ *   POST /sessions/current/oneshot/checks         the checks after the test load (while waiting)
+ *   GET  /sessions/current/iso[/sums|/signature]  the offered ISO and its signed checksums (before
+ *                                                 the switch; the image three times per session)
+ *   POST /sessions/current/oneshot/booted         the recovery environment reports back (released)
  *
  * A session that has ended (`succeeded`, `failed`, `cancelled`) still answers `current`, so the ISO
  * learns of a cancel, and `rebind` for 15 minutes after a success; progress, log, event, release
@@ -82,7 +104,8 @@ function withRetryAfter(c: Context, error: unknown): never {
   throw error;
 }
 
-recoveryRoutes.post("/sessions", async (c) => {
+/** The exchange of the ISO (`/sessions`) and of a oneshot command (`/oneshot`). */
+async function exchangeRoute(c: Context, oneshot: boolean) {
   const key = failureKeyOf(c);
   const now = Date.now();
   if (recoveryFailures.isBlocked(key, now)) {
@@ -93,23 +116,43 @@ recoveryRoutes.post("/sessions", async (c) => {
     });
   }
   let input: RecoveryExchangeInput;
+  let report: OneshotExchangeReport | null = null;
   try {
     // The ISO is no browser: it sends JSON and no Origin. A request that is no exchange at all
     // (cross-site, not JSON, malformed) counts as a failed attempt like an unknown code.
     await guardBrowserRequest(c);
-    input = await parseJsonBody(c.req, recoveryExchangeSchema);
+    if (oneshot) {
+      const full: RecoveryOneshotExchangeInput = await parseJsonBody(
+        c.req,
+        recoveryOneshotExchangeSchema,
+      );
+      const { target, checks, sshKeys, ...exchange } = full;
+      input = exchange;
+      report = { target, checks, sshKeys };
+    } else {
+      input = await parseJsonBody(c.req, recoveryExchangeSchema);
+    }
   } catch (error) {
     recordRecoveryFailure(key, "malformed", now);
     throw error;
   }
   try {
-    const session = await exchangeRecoveryCode(input, { ip: clientIp(c), failureKey: key });
+    const session = await exchangeRecoveryCode(
+      input,
+      { ip: clientIp(c), failureKey: key },
+      undefined,
+      0,
+      report,
+    );
     c.header("cache-control", "no-store");
     return c.json(session, 202);
   } catch (error) {
     return withRetryAfter(c, error);
   }
-});
+}
+
+recoveryRoutes.post("/sessions", (c) => exchangeRoute(c, false));
+recoveryRoutes.post("/oneshot", (c) => exchangeRoute(c, true));
 
 recoveryRoutes.use("/sessions/current", async (c, next) => sessionAuth(c, next));
 recoveryRoutes.use("/sessions/current/*", async (c, next) => sessionAuth(c, next));
@@ -173,6 +216,40 @@ recoveryRoutes.post("/sessions/current/finish", async (c) => {
   const input = await parseJsonBody(c.req, recoveryFinishSchema);
   return c.json(await finishSession(c.get("session"), input, clientIp(c)));
 });
+
+recoveryRoutes.post("/sessions/current/oneshot/checks", async (c) => {
+  const input = await parseJsonBody(c.req, oneshotChecksSchema);
+  await recordOneshotChecks(c.get("session"), input);
+  return c.body(null, 204);
+});
+
+recoveryRoutes.post("/sessions/current/oneshot/booted", async (c) => {
+  const input = await parseJsonBody(c.req, recoveryOneshotBootedSchema);
+  return c.json(await reportOneshotBooted(c.get("session"), input.hardware, clientIp(c)));
+});
+
+for (const [path, file] of [
+  ["/sessions/current/iso", "iso"],
+  ["/sessions/current/iso/sums", "sums"],
+  ["/sessions/current/iso/signature", "signature"],
+] as const satisfies readonly (readonly [string, OneshotIsoFile])[]) {
+  recoveryRoutes.get(path, async (c) => {
+    const served = await oneshotIso(c.get("session"), file);
+    const headers = {
+      "content-type": "application/octet-stream",
+      "content-disposition": `attachment; filename="${served.fileName}"`,
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    };
+    if (served.bytes) {
+      return c.body(new Uint8Array(served.bytes), 200, headers);
+    }
+    return new Response(
+      Readable.toWeb(openDistributionFile(served.path as string)) as unknown as ReadableStream,
+      { status: 200, headers: { ...headers, "content-length": String(served.size) } },
+    );
+  });
+}
 
 recoveryRoutes.post("/sessions/current/rebind", async (c) => {
   const session = c.get("session");

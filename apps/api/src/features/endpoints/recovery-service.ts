@@ -50,6 +50,14 @@ import {
   stateConflict,
 } from "./recovery-codes.js";
 import {
+  assertOneshotBooted,
+  type OneshotExchangeExtras,
+  type OneshotExchangeReport,
+  oneshotClaim,
+  oneshotCurrent,
+  withOneshotExtras,
+} from "./recovery-oneshot.js";
+import {
   forgetRecoverySession,
   holdForRecovery,
   loadRecoverySession,
@@ -157,6 +165,8 @@ export interface RecoveryExchangeResponse {
   expiresAt: string;
   endpoint: { id: string; hostname: string; displayName: string | null; os: string };
   minRecoveryVersion: string;
+  /** Kind `oneshot` (docs/BAREMETAL-ONESHOT.md 6.2): the ISO on offer and what the restore needs. */
+  oneshot?: OneshotExchangeExtras;
 }
 
 function exchangeAnswer(
@@ -199,12 +209,17 @@ const DEAD_PROBLEMS: Record<DeadReason, () => ProblemError> = {
  * only while the repository's shared maintenance lock is held (9.5): when it is busy the code stays
  * unused. The same proof with the same session secret answers the same session again (a lost
  * answer), within 15 minutes, while it waits or is active and before `release`.
+ *
+ * `oneshot` is the report of the command on a fresh machine (docs/BAREMETAL-ONESHOT.md 6.2): with
+ * it only a oneshot code is found, without it never one; a code of the other kind answers like an
+ * unknown one. Its session then lasts until the end its admin chose at the issue.
  */
 export async function exchangeRecoveryCode(
   input: RecoveryExchangeInput,
   context: { ip: string | null; failureKey: string },
   now: Date = new Date(),
   attempt = 0,
+  oneshot: OneshotExchangeReport | null = null,
 ): Promise<RecoveryExchangeResponse> {
   const codeHash = hashRecoveryCodeProof(input.codeProof);
   const [found] = await providerDb
@@ -221,7 +236,7 @@ export async function exchangeRecoveryCode(
     .innerJoin(tenants, eq(tenants.id, endpointRecoveries.tenantId))
     .where(eq(endpointRecoveries.codeHash, codeHash))
     .limit(1);
-  if (!found) {
+  if (!found || (found.recovery.kind === "oneshot") !== (oneshot !== null)) {
     recordRecoveryFailure(context.failureKey, "unknown", now.getTime());
     throw new ProblemError(401, "Recovery code not valid", {
       type: ENDPOINT_PROBLEMS.recoveryCodeInvalid,
@@ -267,7 +282,7 @@ export async function exchangeRecoveryCode(
       (row.status === "pending_approval" || row.status === "active") &&
       row.releasedAt === null
     ) {
-      return exchangeAnswer(row, endpoint);
+      return withOneshotExtras(exchangeAnswer(row, endpoint), row);
     }
     dead = "used";
   } else if (row.status === "expired" || row.expiresAt <= now || row.status !== "issued") {
@@ -320,7 +335,8 @@ export async function exchangeRecoveryCode(
     throw DEAD_PROBLEMS[reason]();
   }
 
-  const status = row.requireApproval ? "pending_approval" : "active";
+  // A oneshot code always waits for its release (issue refuses anything else).
+  const status = row.requireApproval || oneshot !== null ? "pending_approval" : "active";
   const claim = () =>
     withTenantTx(db, row.tenantId, async (tx) => {
       // The machine is held against its removal until the claim commits: a removal either comes
@@ -344,6 +360,7 @@ export async function exchangeRecoveryCode(
           recoveryVersion: input.recoveryVersion,
           hardware: input.hardware,
           ...(status === "active" ? { approvedAt: now } : {}),
+          ...(oneshot !== null ? oneshotClaim(row, oneshot, input.recoveryVersion) : {}),
           updatedAt: now,
         })
         .where(
@@ -387,6 +404,7 @@ export async function exchangeRecoveryCode(
           ip: context.ip,
           recoveryVersion: input.recoveryVersion,
           hardware: summary,
+          ...(oneshot !== null ? { kind: "oneshot", checks: oneshot.checks } : {}),
         },
       });
       await raiseTenantEvent(tx, {
@@ -416,10 +434,10 @@ export async function exchangeRecoveryCode(
     if (attempt > 0) {
       throw DEAD_PROBLEMS.used();
     }
-    return exchangeRecoveryCode(input, context, now, attempt + 1);
+    return exchangeRecoveryCode(input, context, now, attempt + 1, oneshot);
   }
   forgetRecoverySession(claimed.id);
-  return exchangeAnswer(claimed, endpoint);
+  return withOneshotExtras(exchangeAnswer(claimed, endpoint), claimed);
 }
 
 // ---------------------------------------------------------------------------
@@ -533,15 +551,19 @@ export interface RecoverySessionState {
   expiresAt: string;
   cancelRequested: boolean;
   approved: boolean;
+  /** Kind `oneshot`: the admin's answers of the release, and whether `booted` came. */
+  oneshot?: ReturnType<typeof oneshotCurrent>;
 }
 
 export function currentState(access: RecoverySessionAccess): RecoverySessionState {
+  const oneshot = oneshotCurrent(access);
   return {
     sessionId: access.id,
     status: access.status,
     expiresAt: access.expiresAt.toISOString(),
     cancelRequested: access.cancelRequestedAt !== null,
     approved: access.status !== "pending_approval",
+    ...(oneshot ? { oneshot } : {}),
   };
 }
 
@@ -596,6 +618,8 @@ export async function issueCredentials(
   ) {
     throw sessionEnded("The session's repository access has ended.");
   }
+  // A oneshot session gets them only in its recovery environment (docs/BAREMETAL-ONESHOT.md 6.4).
+  assertOneshotBooted(access);
   // The storage is resolved first: a fetch is counted only for an answer that can be built.
   const targets = await tenantStorage(db, access.tenantId);
   const prefix = endpointPrefix(access.endpointId);

@@ -2516,12 +2516,13 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only 0102, 0103 (the log's key block mark) and 0104 (the boot probe) are left to apply.
+      // Only 0102, 0103 (the log's key block mark), 0104 (the boot probe) and 0105 (oneshot, 0.5.1)
+      // are left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(105);
+      expect(Number(applied[0]?.count)).toBe(106);
       const { rows: column } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
@@ -2682,7 +2683,8 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0104)", () => {
         "baremetal_check",
         "boot_probe",
       ]);
-      expect(await enumOf("endpoint_recovery_kind")).toEqual(["code", "probe"]);
+      // Later migrations add kinds after these (0105: oneshot).
+      expect((await enumOf("endpoint_recovery_kind")).slice(0, 2)).toEqual(["code", "probe"]);
       const { rows: lab } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'settings' AND column_name = 'recovery_lab'`,
@@ -2711,6 +2713,104 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0104)", () => {
                   (SELECT count(*) FROM endpoint_reports WHERE kind = 'boot_probe')::int AS reports`,
         );
         expect(counted.rows).toEqual([{ probes: 1, reports: 1 }]);
+      });
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.1: bare metal onto a fresh machine (0105)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_oneshot_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_oneshot_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0104_boot_probe");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0104, keeps every code and probe, and adds the kind and its state", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, code_hash, expires_at, issued_at)
+           VALUES ($1, $2, 'code', 'h1', now() + interval '4 hours', now()),
+                  ($1, $2, 'probe', null, now() + interval '3 hours', now())`,
+          [ids.tenant, ids.endpoint],
+        );
+      });
+
+      await runMigrations(url);
+
+      const { rows: kinds } = await pool.query<{ value: string }>(
+        `SELECT e.enumlabel AS value FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'endpoint_recovery_kind' ORDER BY e.enumsortorder`,
+      );
+      expect(kinds.map((row) => row.value)).toEqual(["code", "probe", "oneshot"]);
+      const { rows: column } = await pool.query(
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_name = 'endpoint_recoveries' AND column_name = 'oneshot'`,
+      );
+      expect(column).toEqual([{ data_type: "jsonb", is_nullable: "YES", column_default: null }]);
+      await asTenant(pool, ids.tenant, async (client) => {
+        const kept = await client.query(
+          "SELECT kind, oneshot FROM endpoint_recoveries ORDER BY kind",
+        );
+        expect(kept.rows).toEqual([
+          { kind: "code", oneshot: null },
+          { kind: "probe", oneshot: null },
+        ]);
+        await client.query(
+          `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, code_hash, expires_at, issued_at, oneshot)
+           VALUES ($1, $2, 'oneshot', 'h2', now() + interval '30 minutes', now(), '{"validityHours":12}'::jsonb)`,
+          [ids.tenant, ids.endpoint],
+        );
+        const counted = await client.query(
+          "SELECT oneshot->>'validityHours' AS hours FROM endpoint_recoveries WHERE kind = 'oneshot'",
+        );
+        expect(counted.rows).toEqual([{ hours: "12" }]);
       });
     } finally {
       await pool.end();

@@ -47,6 +47,8 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   recoveryRemoteAccessEnabled: "endpoint.recovery.remote_access_enabled",
   recoveryKeyfileRegenerated: "endpoint.recovery.keyfile_regenerated",
   recoveryReleased: "endpoint.recovery.released",
+  /** A oneshot restore reported back from its recovery environment (docs/BAREMETAL-ONESHOT.md 6.4). */
+  recoveryBooted: "endpoint.recovery.booted",
   recoveryFinished: RECOVERY_FINISHED_ACTION,
   /** The ISO wrote to a session that had ended (9.8): the first refused call, once per session. */
   recoveryReportRefused: "endpoint.recovery.report_refused",

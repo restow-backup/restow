@@ -626,6 +626,7 @@
         "remote_access_enabled": "Fernzugang zum Recovery-ISO eingeschaltet",
         "keyfile_regenerated": "Schlüsseldatei eines verschlüsselten Volumes bei der Wiederherstellung neu erzeugt",
         "released": "Recovery-ISO hat seinen Repository-Zugang beendet",
+        "booted": "Frischer Rechner hat sich aus der Recovery-Umgebung gemeldet",
         "finished": "Wiederherstellung beendet",
         "report_refused": "Meldung des Recovery-ISO an eine beendete Sitzung abgewiesen",
         "expired": "Wiederherstellungscode oder Sitzung abgelaufen",

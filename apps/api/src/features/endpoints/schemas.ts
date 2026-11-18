@@ -1,4 +1,6 @@
+import { isIP } from "node:net";
 import {
+  DEFAULT_ONESHOT_SESSION_HOURS,
   DEFAULT_REBIND_VALIDITY_HOURS,
   DEFAULT_RECOVERY_VALIDITY_HOURS,
   ENDPOINT_ARCH,
@@ -11,6 +13,7 @@ import {
   MAX_ENDPOINT_QUOTA_GIB,
   MAX_REBIND_VALIDITY_HOURS,
   MAX_RECOVERY_VALIDITY_HOURS,
+  MIN_ONESHOT_SESSION_HOURS,
   noControlChars,
   parseCapabilities,
   parseWindowsFacts,
@@ -603,6 +606,12 @@ export const recoveryExchangeSchema = z.object({
 });
 
 export const RECOVERY_PHASES = [
+  // A oneshot restore (docs/BAREMETAL-ONESHOT.md 6.5): the command on the fresh machine, before
+  // the switch into the recovery environment.
+  "registered",
+  "downloading",
+  "kexec",
+  "booted",
   "connected",
   "waiting_approval",
   "planning",
@@ -656,21 +665,166 @@ export const recoveryRebindSchema = z.object({
   hooks: hookPolicySchema.optional().catch("off"),
 });
 
-/** POST /api/v1/endpoints/:id/recovery-codes (9.2). */
+/**
+ * POST /api/v1/endpoints/:id/recovery-codes (9.2). `kind: "oneshot"` issues the code of the command
+ * for a fresh machine (docs/BAREMETAL-ONESHOT.md 6.1): redeemable for 30 minutes, its session then
+ * lasts `validityHours` from the issue (4 to 48, default 12), and it always needs the release.
+ */
 export const issueRecoveryCodeSchema = z
   .object({
+    kind: z.enum(["code", "oneshot"]).default("code"),
     snapshotId: z
       .string()
       .regex(/^[0-9a-fA-F]{64}$/, "not a full restic snapshot id")
       .transform((value) => value.toLowerCase())
       .optional(),
-    validityHours: z
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_RECOVERY_VALIDITY_HOURS)
-      .default(DEFAULT_RECOVERY_VALIDITY_HOURS),
+    validityHours: z.number().int().min(1).max(MAX_RECOVERY_VALIDITY_HOURS).optional(),
     requireApproval: z.boolean().default(true),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind !== "oneshot") return;
+    if (!value.requireApproval) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requireApproval"],
+        message: "a oneshot code always needs the release",
+      });
+    }
+    if (value.validityHours !== undefined && value.validityHours < MIN_ONESHOT_SESSION_HOURS) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["validityHours"],
+        message: `a oneshot session lasts at least ${MIN_ONESHOT_SESSION_HOURS} hours`,
+      });
+    }
+  })
+  .transform((value) => ({
+    ...value,
+    validityHours:
+      value.validityHours ??
+      (value.kind === "oneshot" ? DEFAULT_ONESHOT_SESSION_HOURS : DEFAULT_RECOVERY_VALIDITY_HOURS),
+  }));
+
+// ---------------------------------------------------------------------------
+// Oneshot restore (docs/BAREMETAL-ONESHOT.md 6)
+// ---------------------------------------------------------------------------
+
+const oneshotAddressSchema = z
+  .object({
+    address: isoText(64).refine((value) => isIP(value) !== 0, "not an IP address"),
+    prefix: z.number().int().min(0).max(128),
+    dynamic: z.boolean(),
+  })
+  .strict();
+
+/** The network and the machine the command measured on the fresh machine (10.1). */
+export const oneshotTargetSchema = z
+  .object({
+    hostname: isoText(253),
+    interfaces: z
+      .array(
+        z
+          .object({
+            name: isoText(32),
+            mac: isoText(64),
+            driver: isoText(64),
+            mtu: z.number().int().min(0).max(65535),
+            dhcp4: z.boolean(),
+            slaac: z.boolean(),
+            addresses: z.array(oneshotAddressSchema).max(32),
+          })
+          .strict(),
+      )
+      .max(16),
+    routes: z
+      .array(
+        z
+          .object({
+            family: z.enum(["inet", "inet6"]),
+            gateway: isoText(64).refine((value) => isIP(value) !== 0, "not an IP address"),
+            dev: isoText(32),
+            onlink: z.boolean(),
+            metric: count,
+          })
+          .strict(),
+      )
+      .max(16),
+    dns: z.array(isoText(64)).max(8),
+    searchDomains: z.array(isoText(253)).max(8),
+    cloud: z
+      .object({
+        name: isoText(64),
+        platform: isoText(64),
+        instanceId: isoText(200),
+        region: isoText(64),
+      })
+      .strict()
+      .nullable(),
+    vendor: isoText(200),
+    product: isoText(200),
+    consoles: z.array(isoText(32)).max(8),
+    uptimeSeconds: count,
+    /** Started from the provider's rescue system (docs/BAREMETAL-ONESHOT.md 17.1). */
+    rescue: z.boolean(),
+  })
+  .strict();
+
+/** Signs that the machine is no fresh one (8.4); `agent_enrolled` stops the command itself. */
+export const ONESHOT_IN_USE_SIGNS = [
+  "agent_enrolled",
+  "uptime",
+  "users",
+  "services",
+  "data",
+] as const;
+
+/** The checks of the command (8.2); `kexec` is known after the test load. */
+export const oneshotChecksSchema = z
+  .object({
+    /** `kexec`: switch with kexec; `direct`: recover runs in the rescue system itself (17.1). */
+    mode: z.enum(["kexec", "direct"]),
+    kexec: z.enum(["ok", "failed", "not_tried"]),
+    kexecError: isoText(500),
+    kexecLoadDisabled: z.boolean(),
+    lockdown: isoText(32),
+    secureBoot: z.boolean().nullable(),
+    memTotalBytes: count,
+    memAvailableBytes: count,
+    inUse: z.array(z.enum(ONESHOT_IN_USE_SIGNS)).max(ONESHOT_IN_USE_SIGNS.length),
+    warnings: z.array(isoText(64)).max(32),
+  })
+  .strict();
+
+/** POST /agent/v1/recovery/oneshot: the command exchanges its code (6.2). */
+export const recoveryOneshotExchangeSchema = recoveryExchangeSchema
+  .extend({
+    target: oneshotTargetSchema,
+    checks: oneshotChecksSchema,
+    sshKeys: z
+      .array(
+        z
+          .object({
+            type: isoText(64),
+            fingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}$/, "not a SHA256 fingerprint"),
+            comment: isoText(200),
+          })
+          .strict(),
+      )
+      .max(16),
+  })
+  .strict();
+
+/** POST /agent/v1/recovery/sessions/current/oneshot/booted: the recovery environment reports back. */
+export const recoveryOneshotBootedSchema = z.object({ hardware: recoveryHardwareSchema }).strict();
+
+/** The admin's answers when releasing a oneshot session (6.3). */
+export const approveOneshotSchema = z
+  .object({
+    networkMode: z.enum(["takeover", "keep"]),
+    confirmShrink: z.boolean().default(false),
+    secureBootWarningsOnly: z.boolean().default(false),
+    remoteAccess: z.boolean().default(false),
   })
   .strict();
 
@@ -796,6 +950,9 @@ export type RecoveryProgressInput = z.infer<typeof recoveryProgressSchema>;
 export type RecoveryEventInput = z.infer<typeof recoveryEventSchema>;
 export type RecoveryRebindInput = z.infer<typeof recoveryRebindSchema>;
 export type IssueRecoveryCodeInput = z.infer<typeof issueRecoveryCodeSchema>;
+export type RecoveryOneshotExchangeInput = z.infer<typeof recoveryOneshotExchangeSchema>;
+export type OneshotChecksInput = z.infer<typeof oneshotChecksSchema>;
+export type ApproveOneshotInput = z.infer<typeof approveOneshotSchema>;
 export type CreateRebindTokenInput = z.infer<typeof createRebindTokenSchema>;
 export type { EndpointOsName, RecoveryFinishInput };
 export { MAX_ERRORS };

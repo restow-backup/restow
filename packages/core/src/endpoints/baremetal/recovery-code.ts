@@ -152,6 +152,47 @@ export function recoveryCodeProof(origin: string, normalizedCode: string): strin
   return sha256Hex(`restow-recovery-code:${origin}:${normalizedCode}`);
 }
 
+/**
+ * Oneshot codes (docs/BAREMETAL-ONESHOT.md 6.1): the code in the command an admin pastes on a fresh
+ * machine. Same alphabet and length as a recovery code, shown as `OS-XXXXX-…`, redeemable for 30
+ * minutes; its proof carries its own prefix, so a oneshot code opens nothing at the ISO's exchange
+ * and a recovery code nothing at the command's.
+ */
+export const ONESHOT_REDEEM_MS = 30 * 60 * 1000;
+/** The session of a oneshot code lasts this long from its issue unless chosen otherwise (4 to 48). */
+export const DEFAULT_ONESHOT_SESSION_HOURS = 12;
+export const MIN_ONESHOT_SESSION_HOURS = 4;
+/** A oneshot session that has not reported from the recovery environment this long after its approval fails. */
+export const ONESHOT_BOOT_TIMEOUT_MS = 30 * 60 * 1000;
+/** How often a oneshot session may fetch the recovery ISO. */
+export const ONESHOT_ISO_DOWNLOADS = 3;
+
+/** A normalized oneshot code as it is shown: `OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`. */
+export function formatOneshotCode(normalized: string): string {
+  return `OS-${formatRecoveryCode(normalized).slice(3)}`;
+}
+
+/**
+ * A oneshot code as given, normalized like a recovery code, without the `OS` prefix (taken off
+ * before `O` reads as `0`); a recovery code (`RC` prefix) is not one. Null when it is not 25
+ * symbols of the alphabet.
+ */
+export function normalizeOneshotCode(input: string): string | null {
+  let value = input.toUpperCase().replace(/[\s-]/g, "");
+  if (value.length === RECOVERY_CODE_LENGTH + 2) {
+    if (!value.startsWith("OS")) {
+      return null;
+    }
+    value = value.slice(2);
+  }
+  return value.length === RECOVERY_CODE_LENGTH ? normalizeRecoveryCode(value) : null;
+}
+
+/** What the command on the fresh machine sends for its code, bound to the origin it connects to. */
+export function oneshotCodeProof(origin: string, normalizedCode: string): string {
+  return sha256Hex(`restow-oneshot-code:${origin}:${normalizedCode}`);
+}
+
 /** What the server stores and looks a code up by: SHA-256 of the proof's hex text. */
 export function hashRecoveryCodeProof(codeProof: string): string {
   return sha256Hex(codeProof.toLowerCase());

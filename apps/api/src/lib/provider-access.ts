@@ -156,6 +156,14 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/v1/recovery/sessions/current/release",
   "POST /agent/v1/recovery/sessions/current/finish",
   "POST /agent/v1/recovery/sessions/current/rebind",
+  // A oneshot restore (docs/BAREMETAL-ONESHOT.md 6): the command on a fresh machine exchanges its
+  // code with the proof alone; the rest authenticates with the session's secret.
+  "POST /agent/v1/recovery/oneshot",
+  "POST /agent/v1/recovery/sessions/current/oneshot/checks",
+  "POST /agent/v1/recovery/sessions/current/oneshot/booted",
+  "GET /agent/v1/recovery/sessions/current/iso",
+  "GET /agent/v1/recovery/sessions/current/iso/sums",
+  "GET /agent/v1/recovery/sessions/current/iso/signature",
   "GET /install/linux.sh",
   "GET /install/macos.sh",
   "GET /install/windows.ps1",

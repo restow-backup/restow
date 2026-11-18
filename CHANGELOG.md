@@ -27,6 +27,21 @@ private repository.
     checked against the image's own checksum list) and builds the initrd (`restow-agent
     oneshot-payload`, hidden, for the CI). The CI job of the ISO starts it that way in QEMU and
     checks what arrives (`scripts/recovery-e2e/oneshot-boot.mjs`).
+  - O2: the server side, behind `RESTOW_BAREMETAL_ONESHOT=true` (off by default). Migration 0105
+    adds the recovery kind `oneshot` and its state (`endpoint_recoveries.oneshot`), nothing is
+    rewritten. `POST /api/v1/endpoints/:id/recovery-codes` with `kind: "oneshot"` issues an
+    `OS-…` code with its command, redeemable for 30 minutes, whose session then lasts 4 to 48 hours
+    (default 12) from the issue and always needs the release. The command exchanges it at
+    `POST /agent/v1/recovery/oneshot` (a oneshot code is unknown at the ISO's exchange and a code of
+    the ISO unknown here; the proof has its own prefix) with what it measured on the machine, which
+    is kept apart from what the admin decides. The release needs the admin's answers (network,
+    shrinking, Secure Boot findings as warnings, remote access) and a machine that has shown it
+    can switch (a test load with kexec, or the rescue system's direct mode) and carries no enrolled
+    agent. The session fetches the verified recovery ISO and its signed checksums through
+    `GET …/sessions/current/iso` (the image three times, never after the switch). Credentials and
+    the repository read only after the recovery environment reported back
+    (`POST …/sessions/current/oneshot/booted`); other hardware there ends the session, and a
+    released session that does not report back within 30 minutes fails (monitor).
 
 ## [0.5.0] - 2026-11-18
 
