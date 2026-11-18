@@ -404,6 +404,11 @@ export async function mysqlSignIn(
 export const DB_MAX_GRANT_BYTES = 64 * 1024;
 /** At most this many lines of `SHOW GRANTS` are kept. */
 export const DB_MAX_GRANT_LINES = 200;
+/**
+ * At most this many bytes of `SHOW GRANTS` in all, so the facts of a test fit the body limit of
+ * an agent's result (apps/api middleware/body-limit.ts); the agent keeps the same bound.
+ */
+export const DB_MAX_GRANT_TOTAL_BYTES = 1024 * 1024;
 
 /** How a query keeps its values: up to `maxValueBytes` each; `truncated` is set when one was cut. */
 export interface MysqlQueryLimits {
@@ -511,10 +516,17 @@ export async function mysqlFacts(session: MysqlSession): Promise<DbMysqlFacts> {
   const grantLines = (await mysqlQuery(session, "SHOW GRANTS", grantLimits))
     .map((row) => redactIdentifiedBy(row[0] ?? ""))
     .filter((line) => line.length > 0);
-  const grants = grantLines
-    .slice(0, DB_MAX_GRANT_LINES)
-    .map((line) => line.slice(0, DB_MAX_GRANT_BYTES));
-  const grantsTruncated = grantLimits.truncated || grantLines.length > DB_MAX_GRANT_LINES;
+  const grants: string[] = [];
+  let total = 0;
+  for (const line of grantLines.slice(0, DB_MAX_GRANT_LINES)) {
+    const kept = line.slice(0, DB_MAX_GRANT_BYTES);
+    total += Buffer.byteLength(kept);
+    if (total > DB_MAX_GRANT_TOTAL_BYTES) {
+      break;
+    }
+    grants.push(kept);
+  }
+  const grantsTruncated = grantLimits.truncated || grants.length < grantLines.length;
   const schemas = await mysqlQuery(
     session,
     `SELECT s.SCHEMA_NAME, (SELECT SUM(t.DATA_LENGTH + t.INDEX_LENGTH) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA = s.SCHEMA_NAME) FROM information_schema.SCHEMATA s ORDER BY s.SCHEMA_NAME LIMIT ${DB_MAX_DATABASES}`,

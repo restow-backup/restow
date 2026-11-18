@@ -54,8 +54,10 @@ private repository.
     the server), and every socket closed when the test ends. A stored connection's confirmed
     certificate travels with the test: the executor stops right after the TLS handshake, before
     anything of the sign-in is sent, when the server shows another one or no TLS.
-    A line of MySQL's `SHOW GRANTS` is read up to 64 KiB (a long column list); a list cut even so
-    rates no right as missing but as not checkable (`grants_truncated`). The agent opens an SQLite
+    A line of MySQL's `SHOW GRANTS` is read up to 64 KiB (a long column list), 1 MiB in all; a
+    list cut even so rates no right as missing but as not checkable (`grants_truncated`). An
+    agent's test result and health samples may be up to 4 MiB per request (413 beyond); the agent
+    cuts what it sends to fit. The agent opens an SQLite
     file with the `openat2` number of its architecture (MIPS has its own).
   - Saving a connection keeps exactly the credentials its test used, within 30 minutes of the
     test; the scheduler deletes credentials of tests that may no longer use them. Moving a

@@ -9,6 +9,7 @@ import {
   BODY_LIMIT_RULES,
   BULK_BODY_LIMIT,
   bodyLimitFor,
+  DATABASE_FACTS_BODY_LIMIT,
   DEFAULT_BODY_LIMIT,
   PAYLOAD_TOO_LARGE_PROBLEM,
   RECOVERY_BODY_LIMIT,
@@ -208,6 +209,39 @@ describe("the assembled application", () => {
       body: "{}",
     });
     expect(response.status).toBe(413);
+  });
+
+  it("takes the facts of a database test or health check up to 4 MiB, refuses more with 413", async () => {
+    for (const path of [
+      "/agent/v1/databases/probes/x/result",
+      "/agent/v1/databases/health/x/samples",
+    ]) {
+      expect(bodyLimitFor("POST", path)).toBe(DATABASE_FACTS_BODY_LIMIT);
+      expect(DATABASE_FACTS_BODY_LIMIT).toBe(4 * 1024 * 1024);
+      const response = await app.request(path, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(DATABASE_FACTS_BODY_LIMIT + 1),
+        },
+        body: "{}",
+      });
+      expect(response.status).toBe(413);
+      expect(((await response.json()) as { type?: string }).type).toBe(PAYLOAD_TOO_LARGE_PROBLEM);
+      // 2 MiB (grants of several long lines) is no reason for 413; this one fails at the sign-in.
+      const body = JSON.stringify({ samples: [], pad: "x".repeat(2 * 1024 * 1024) });
+      const within = await app.request(path, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(within.status).not.toBe(413);
+    }
+    // The fetches with the credentials keep the default.
+    expect(bodyLimitFor("GET", "/agent/v1/databases/health/x")).toBe(DEFAULT_BODY_LIMIT);
   });
 
   it("refuses an exchange over 64 KiB with 413 before anything reads it", async () => {

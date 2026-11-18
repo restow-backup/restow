@@ -758,6 +758,15 @@ E10 (alle Editionen) entschieden.
   wird verworfen, nicht gespeichert: Ein Agent kann den Verlauf nicht fluten und keinen Alarm
   erzwingen. Die Zugangsdaten einer Verbindung werden je Meldung einmal geöffnet (zum Bereinigen
   der Meldungen). So hält der Agent Zugangsdaten höchstens 6 Minuten im Speicher.
+- **Größe der Meldungen:** Das Ergebnis eines Tests (`POST …/probes/:id/result`) und die
+  Prüfungen eines Healthchecks (`POST …/health/:taskId/samples`) dürfen je Anfrage höchstens
+  4 MiB groß sein, sonst antwortet die API mit 413 (apps/api `middleware/body-limit.ts`,
+  `DATABASE_FACTS_BODY_LIMIT`; Caddy erlaubt dem Agenten-API 16 MiB). Darin passen bis zu 1000
+  Datenbanken und die Rechte eines MySQL-Benutzers: `SHOW GRANTS` höchstens 200 Zeilen zu je
+  64 KiB und 1 MiB insgesamt (Server und Agent kürzen gleich und melden `grantsTruncated`). Der
+  Agent kürzt vor dem Senden, was nicht passt (`api.FitDBProbeResult`): zuerst Rechte-Zeilen von
+  hinten (`grantsTruncated`), dann die Größen einer Prüfung; passt es dann noch nicht, meldet er
+  einen Fehler ohne Fakten (`db_probe_failed`).
 - **Verlauf:** Tabelle `database_health_samples` (Migration `0108_database_health`): eine Zeile je
   Prüfung, nach 14 Tagen eine je Stunde (Summen, Mittel und Extreme, letzte Version, Startzeit,
   Zertifikat, Größen), 400 Tage. Je Verbindung, Zeitpunkt und Auflösung gibt es eine Zeile

@@ -338,6 +338,20 @@ func TestReadsLongGrantLinesAndReportsWhatWasCut(t *testing.T) {
 	if r.Error != nil || r.MySQL == nil || len(r.MySQL.Grants) != 1 || len(r.MySQL.Grants[0]) != maxGrantBytes || !r.MySQL.GrantsTruncated {
 		t.Fatalf("over-long line not reported as cut: %+v", r.Error)
 	}
+	// At most maxGrantTotalBytes in all: 20 full lines are more.
+	full := make([]string, 20)
+	for i := range full {
+		full[i] = "GRANT SELECT (" + strings.Repeat("y", maxGrantBytes-60) + ") ON `app`.`t` TO `u`@`%`"
+	}
+	f = &fakeMySQL{version: "8.4.3", password: "s3cret-pass", plugin: mysqlAuthNative, grants: full}
+	r = Run(context.Background(), spec(listen(t, f.serve)), fast)
+	total := 0
+	for _, g := range r.MySQL.Grants {
+		total += len(g)
+	}
+	if r.Error != nil || !r.MySQL.GrantsTruncated || total > maxGrantTotalBytes || len(r.MySQL.Grants) < 15 {
+		t.Fatalf("grants not bounded in all: %d lines, %d bytes", len(r.MySQL.Grants), total)
+	}
 	many := make([]string, maxGrantLines+5)
 	for i := range many {
 		many[i] = "GRANT USAGE ON *.* TO `restow_backup`@`%`"

@@ -661,6 +661,27 @@ describe("long grant lines (SHOW GRANTS)", () => {
       note: "grants_truncated",
     });
   });
+
+  it("keeps at most 1 MiB of grants in all, and says so", async () => {
+    const full = grantWith(Array.from({ length: 5000 }, (_, index) => `X_${index}_ADMIN`)).slice(
+      0,
+      60 * 1024,
+    );
+    const port = await startMysql({
+      version: "8.4.3",
+      password: "s3cret-pass",
+      plugin: "mysql_native_password",
+      ssl: false,
+      grants: Array.from({ length: 20 }, () => full),
+      serverUuid: null,
+    });
+    const result = await probeDatabaseFromServer(spec({ port }), allowLoopback);
+    expect(result.error).toBeNull();
+    const total = (result.mysql?.grants ?? []).reduce((sum, line) => sum + line.length, 0);
+    expect(total).toBeLessThanOrEqual(1024 * 1024);
+    expect(result.mysql?.grants.length).toBe(17);
+    expect(result.mysql?.grantsTruncated).toBe(true);
+  });
 });
 
 describe("protocol pieces", () => {

@@ -67,6 +67,15 @@ export const RECOVERY_LOG_BODY_LIMIT = 1024 * 1024;
 export const RECOVERY_FINISH_BODY_LIMIT = 320 * 1024;
 
 /**
+ * POST /agent/v1/databases/probes/:id/result and .../health/:taskId/samples (docs/DATABASES.md
+ * 4.1, 8): the facts of a test or a health check. Up to 1000 databases (names of at most 128
+ * characters) and the grants of a MySQL user (at most 200 lines of 64 KiB, 1 MiB in all) fit,
+ * escaped, with room to spare; the agent cuts what it sends to fit (api.MaxDBFactsBody,
+ * agent/internal/api/databases.go: grants from the end, then the sizes, else an error).
+ */
+export const DATABASE_FACTS_BODY_LIMIT = 4 * 1024 * 1024;
+
+/**
  * The routes whose limit is not {@link DEFAULT_BODY_LIMIT} (more, or for the recovery ISO's API
  * less); the first match wins.
  */
@@ -86,6 +95,17 @@ export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
     limit: RECOVERY_FINISH_BODY_LIMIT,
   },
   { method: "*", path: /^\/agent\/v1\/recovery\//, limit: RECOVERY_BODY_LIMIT },
+  // The facts of a database test or health check, the grants of a MySQL user included.
+  {
+    method: "POST",
+    path: new RegExp(`^/agent/v1/databases/probes/${SEGMENT}/result$`),
+    limit: DATABASE_FACTS_BODY_LIMIT,
+  },
+  {
+    method: "POST",
+    path: new RegExp(`^/agent/v1/databases/health/${SEGMENT}/samples$`),
+    limit: DATABASE_FACTS_BODY_LIMIT,
+  },
   // The restic REST backend streams pack files to storage; @restow/core refuses
   // anything over MAX_RESTIC_BODY_BYTES (128 MiB) itself.
   { method: "*", path: /^\/agent\/restic\//, limit: null },

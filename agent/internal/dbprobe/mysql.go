@@ -428,10 +428,13 @@ func encryptPassword(pemBytes []byte, password string, scramble []byte) ([]byte,
 }
 
 // maxGrantBytes: a line of SHOW GRANTS is kept up to this many bytes (a long
-// column list stays readable); maxGrantLines: at most this many lines.
+// column list stays readable); maxGrantLines: at most this many lines;
+// maxGrantTotalBytes: at most this much in all, so the facts fit the server's
+// body limit (api.MaxDBFactsBody).
 const (
-	maxGrantBytes = 64 << 10
-	maxGrantLines = 200
+	maxGrantBytes      = 64 << 10
+	maxGrantLines      = 200
+	maxGrantTotalBytes = 1 << 20
 )
 
 // mysqlQuery runs one text query; NULL is nil. Values are kept up to
@@ -573,6 +576,7 @@ func (p *packets) mysqlFacts() (*api.DBMysqlFacts, error) {
 	// lines than are kept) is reported, so no right reads as missing that
 	// could not be read.
 	grants, truncated, err := p.queryLimited("SHOW GRANTS", maxGrantBytes)
+	total := 0
 	if err != nil {
 		return nil, err
 	}
@@ -581,11 +585,13 @@ func (p *packets) mysqlFacts() (*api.DBMysqlFacts, error) {
 		if g == "" {
 			continue
 		}
-		if len(f.Grants) >= maxGrantLines {
+		g = clip(g, maxGrantBytes)
+		if len(f.Grants) >= maxGrantLines || total+len(g) > maxGrantTotalBytes {
 			truncated = true
 			break
 		}
-		f.Grants = append(f.Grants, clip(g, maxGrantBytes))
+		total += len(g)
+		f.Grants = append(f.Grants, g)
 	}
 	if truncated {
 		f.GrantsTruncated = true

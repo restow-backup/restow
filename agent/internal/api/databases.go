@@ -2,10 +2,68 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"time"
 )
+
+// MaxDBFactsBody is the body limit of POST /agent/v1/databases/probes/:id/result
+// and POST /agent/v1/databases/health/:taskId/samples (apps/api
+// middleware/body-limit.ts, DATABASE_FACTS_BODY_LIMIT): up to 1000 databases
+// and the grants of a MySQL user (at most 1 MiB in all) fit with room to
+// spare. FitDBProbeResult makes what the agent sends fit.
+const MaxDBFactsBody = 4 << 20
+
+// encodedLen is the size of v as the client sends it.
+func encodedLen(v any) int {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	return len(b)
+}
+
+// FitDBProbeResult shrinks r until it encodes in at most limit bytes: first
+// the lines of SHOW GRANTS from the end (GrantsTruncated, so the server rates
+// no right as missing), then the sizes of a health check (as if none were
+// read). What still does not fit is replaced by an error without facts, so
+// the server answers the test or the check instead of refusing the body.
+func FitDBProbeResult(r *DBProbeResult, limit int) {
+	if encodedLen(r) <= limit {
+		return
+	}
+	if r.MySQL != nil && len(r.MySQL.Grants) > 0 {
+		grants := r.MySQL.Grants
+		r.MySQL.GrantsTruncated = true
+		// The most lines that fit (none may).
+		lo, hi := 0, len(grants)
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			r.MySQL.Grants = grants[:mid]
+			if encodedLen(r) <= limit {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		r.MySQL.Grants = grants[:lo]
+		if encodedLen(r) <= limit {
+			return
+		}
+	}
+	if r.Health != nil && r.Health.Databases != nil {
+		r.Health.Databases = nil
+		if encodedLen(r) <= limit {
+			return
+		}
+	}
+	*r = DBProbeResult{
+		Engine: r.Engine, Port: r.Port, TLS: r.TLS, Login: "skipped",
+		Error:      &DBProbeError{Code: "db_probe_failed", Message: "the facts were too large to report"},
+		DurationMs: r.DurationMs,
+	}
+}
 
 // The module "Databases" (docs/DATABASES.md, stage D1): the agent tests a
 // connection for the server ("Test connection") and reports the database
@@ -242,6 +300,7 @@ func (c *Client) FetchDBProbe(ctx context.Context, probeID string) (*DBProbeSpec
 
 // FinishDBProbe posts the facts of a connection test.
 func (c *Client) FinishDBProbe(ctx context.Context, probeID string, result DBProbeResult) error {
+	FitDBProbeResult(&result, MaxDBFactsBody)
 	retry := RetryPolicy{MaxAttempts: 5, BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second}
 	return c.do(ctx, call{method: http.MethodPost, path: "/agent/v1/databases/probes/" + url.PathEscape(probeID) + "/result",
 		body: result, retry: &retry, idempotent: true, tolerate: []int{http.StatusNotFound}})
@@ -262,6 +321,14 @@ func (c *Client) FetchDBHealth(ctx context.Context, taskID string) (*DBHealthPla
 // one the server no longer knows (404) is not retried: the samples are lost,
 // the next task brings new ones.
 func (c *Client) ReportDBHealth(ctx context.Context, taskID string, samples []DBHealthSample) error {
+	// Each sample fits on its own (the agent posts one per check); room is
+	// left for the envelope of the samples.
+	fitted := make([]DBHealthSample, len(samples))
+	for i, sample := range samples {
+		FitDBProbeResult(&sample.Result, MaxDBFactsBody/max(1, len(samples))-1024)
+		fitted[i] = sample
+	}
+	samples = fitted
 	retry := RetryPolicy{MaxAttempts: 3, BaseDelay: 2 * time.Second, MaxDelay: 10 * time.Second}
 	return c.do(ctx, call{method: http.MethodPost, path: "/agent/v1/databases/health/" + url.PathEscape(taskID) + "/samples",
 		body: DBHealthSamples{Samples: samples}, retry: &retry, tolerate: []int{http.StatusNotFound, http.StatusConflict}})

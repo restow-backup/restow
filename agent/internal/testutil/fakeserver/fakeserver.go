@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -378,6 +379,12 @@ func (s *Server) handleRunSub(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// tooLarge: the body passed the server's limit (as the api answers 413).
+func tooLarge(err error) bool {
+	var limit *http.MaxBytesError
+	return errors.As(err, &limit)
+}
+
 // handleDBProbe serves GET /agent/v1/databases/probes/:id (once) and POST .../:id/result.
 func (s *Server) handleDBProbe(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/agent/v1/databases/probes/")
@@ -403,7 +410,11 @@ func (s *Server) handleDBProbe(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(spec)
 	case r.Method == http.MethodPost && sub == "result":
 		var res api.DBProbeResult
-		if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, api.MaxDBFactsBody)).Decode(&res); err != nil {
+			if tooLarge(err) {
+				problem(w, http.StatusRequestEntityTooLarge, "Payload Too Large", "")
+				return
+			}
 			problem(w, http.StatusBadRequest, "Bad Request", err.Error())
 			return
 		}
@@ -442,7 +453,11 @@ func (s *Server) handleDBHealth(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(plan)
 	case r.Method == http.MethodPost && sub == "samples":
 		var body api.DBHealthSamples
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, api.MaxDBFactsBody)).Decode(&body); err != nil {
+			if tooLarge(err) {
+				problem(w, http.StatusRequestEntityTooLarge, "Payload Too Large", "")
+				return
+			}
 			problem(w, http.StatusBadRequest, "Bad Request", err.Error())
 			return
 		}
