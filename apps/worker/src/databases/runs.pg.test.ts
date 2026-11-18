@@ -27,6 +27,7 @@ import {
   openPgAdminSession,
   type PgAdminSession,
   pgQuoteIdent,
+  pgQuoteLiteral,
   probeDatabaseFromServer,
   resticSnapshots,
   withRepository,
@@ -54,6 +55,9 @@ const suffix = randomBytes(4).toString("hex");
 const SOURCE = `restow_d3_src_${suffix}`;
 const NO_CREATE = `restow_d3_nocreate_${suffix}`;
 const NO_CREATE_PASSWORD = `pw-${randomBytes(8).toString("hex")}`;
+/** A role whose sessions read backslashes in literals the old way (standard_conforming_strings). */
+const OLD_STRINGS = `restow_d3_oldstrings_${suffix}`;
+const OLD_STRINGS_PASSWORD = `pw-${randomBytes(8).toString("hex")}`;
 
 const tls = tlsUrl ? new URL(tlsUrl) : null;
 const host = tls?.hostname ?? "localhost";
@@ -204,6 +208,12 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     await customer.query(
       `CREATE ROLE ${pgQuoteIdent(NO_CREATE)} LOGIN PASSWORD '${NO_CREATE_PASSWORD}'`,
     );
+    await customer.query(
+      `CREATE ROLE ${pgQuoteIdent(OLD_STRINGS)} LOGIN CREATEDB PASSWORD '${OLD_STRINGS_PASSWORD}'`,
+    );
+    await customer.query(
+      `ALTER ROLE ${pgQuoteIdent(OLD_STRINGS)} SET standard_conforming_strings = off`,
+    );
 
     const [provider] = await q<{ id: string }>(
       "INSERT INTO providers (name) VALUES ('p') RETURNING id",
@@ -254,6 +264,7 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
         );
       }
       await customer.query(`DROP ROLE IF EXISTS ${pgQuoteIdent(NO_CREATE)}`);
+      await customer.query(`DROP ROLE IF EXISTS ${pgQuoteIdent(OLD_STRINGS)}`);
       customer.close();
     }
     await db?.$client.end();
@@ -299,6 +310,12 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     expect(snapshots.map((snapshot) => snapshot.id).sort()).toEqual(
       backups.map((backup) => backup.snapshotId).sort(),
     );
+    // Each snapshot names its run: the server checks an agent's report against these tags.
+    for (const snapshot of snapshots) {
+      expect(snapshot.tags).toContain(`restow-db-run=${run.id}`);
+      expect(snapshot.tags).toContain(`restow-db-connection=${connectionId}`);
+      expect(snapshot.hostname).toBe("restow-db");
+    }
     // A database row with its identity (name and OID).
     const [database] = await q<{ name: string; identity: string; instance_key: string }>(
       "SELECT name, identity, instance_key FROM databases WHERE connection_id = $1 AND name = $2",
@@ -382,15 +399,26 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     expect(refused).toMatchObject({ status: "failed", errorCode: "db_permission_missing" });
 
     // A backup whose content does not match its record: restored, then the run's own database
-    // (and only it) is dropped.
+    // (and only it) is dropped, found by its name and OID even when the name holds \' and the
+    // target's sessions read backslashes in literals as escapes.
+    const [oldStrings] = await q<{ id: string }>(
+      `INSERT INTO secrets (tenant_id, kind, ciphertext, key_version)
+       VALUES ($1, 'database_credentials', 'x', 1) RETURNING id`,
+      [tenantId],
+    );
+    credentials[oldStrings?.id as string] = { user: OLD_STRINGS, password: OLD_STRINGS_PASSWORD };
+    await q("UPDATE database_connections SET credential_secret_id = $1 WHERE id = $2", [
+      oldStrings?.id,
+      otherConnectionId,
+    ]);
     await q("UPDATE database_backups SET sha256 = repeat('0', 64) WHERE id = $1", [dump?.id]);
-    const broken = `restow_d3_broken_${suffix}`;
-    const failed = await restore(connectionId, broken, dump?.id as string);
+    const broken = `restow_d3_br\\'k_${suffix}`;
+    const failed = await restore(otherConnectionId, broken, dump?.id as string);
     expect(failed).toMatchObject({ status: "failed", errorCode: "db_backup_mismatch" });
     expect(failed.targetOid).toMatch(/^\d+$/);
-    expect(await customer.query(`SELECT 1 FROM pg_database WHERE datname = '${broken}'`)).toEqual(
-      [],
-    );
+    expect(
+      await customer.query(`SELECT 1 FROM pg_database WHERE datname = ${pgQuoteLiteral(broken)}`),
+    ).toEqual([]);
     await q("UPDATE database_backups SET sha256 = $1 WHERE id = $2", [dump?.sha256, dump?.id]);
   }, 120_000);
 
@@ -484,7 +512,27 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
       .from(databaseConnections)
       .where(eq(databaseConnections.id, connectionId));
     const access = await ensureDatabaseRepository(deps(), full as NonNullable<typeof full>);
-    const before = (await withRepository(access, (session) => resticSnapshots(session))).length;
+    const listedBefore = await withRepository(access, (session) => resticSnapshots(session));
+    const before = listedBefore.length;
+    // Rows no run of the server wrote and the server never found in the repository, each older
+    // than a genuine backup of the same day (so the policy drops them): one under a prefix of a
+    // genuine snapshot (restic would forget every snapshot starting with it) and one under an id
+    // nobody wrote. Retention forgets neither.
+    const genuine = listedBefore[0]?.id as string;
+    const [sample] = await db
+      .select()
+      .from(databaseBackups)
+      .where(eq(databaseBackups.connectionId, connectionId))
+      .limit(1);
+    for (const snapshotId of [genuine.slice(0, 8), "0".repeat(64)]) {
+      await db.insert(databaseBackups).values({
+        ...(sample as NonNullable<typeof sample>),
+        id: undefined,
+        snapshotId,
+        startedAt: new Date(Number(sample?.finishedAt.getTime()) - 2000),
+        finishedAt: new Date(Number(sample?.finishedAt.getTime()) - 1000),
+      } as never);
+    }
     const active = await db
       .select()
       .from(databaseBackups)
@@ -534,10 +582,16 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
       .select()
       .from(databaseBackups)
       .where(eq(databaseBackups.connectionId, connectionId));
-    const kept = after.filter((row) => row.status === "active");
-    const wasActive = active.filter((row) => row.status === "active");
+    const real = (row: { snapshotId: string }) =>
+      row.snapshotId !== "0".repeat(64) && /^[0-9a-f]{64}$/.test(row.snapshotId);
+    const kept = after.filter((row) => row.status === "active" && real(row));
+    const wasActive = active.filter((row) => row.status === "active" && real(row));
     expect(outcome.forgotten).toBeGreaterThan(0);
     expect(outcome.forgotten).toBe(wasActive.length - kept.length);
+    // The prefix row is left alone (no forget by a prefix ever runs); the unknown id is marked
+    // gone without a forget.
+    expect(after.find((row) => row.snapshotId === genuine.slice(0, 8))?.status).toBe("active");
+    expect(after.find((row) => row.snapshotId === "0".repeat(64))?.status).toBe("pruned");
     for (const kind of ["database", "globals"] as const) {
       const newest = wasActive
         .filter((row) => row.kind === kind)
@@ -550,5 +604,18 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     expect(snapshots.map((snapshot) => snapshot.id).sort()).toEqual(
       expect.arrayContaining(kept.map((row) => row.snapshotId)),
     );
+
+    // The pass notes when it checked a connection and leaves it a day.
+    // (Switched off: the pass plans no backup, whose queued run would hold the retention back.)
+    await q("UPDATE database_connections SET retention_checked_at = NULL, enabled = false");
+    await databaseRunsPass(deps());
+    const checked = await connectionRow(connectionId);
+    expect(checked?.retention_checked_at).toBeTruthy();
+    const first = new Date(checked?.retention_checked_at as string).getTime();
+    now = new Date(now.getTime() + 60 * 60 * 1000);
+    await databaseRunsPass(deps());
+    expect(
+      new Date((await connectionRow(connectionId))?.retention_checked_at as string).getTime(),
+    ).toBe(first);
   }, 240_000);
 });

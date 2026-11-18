@@ -6325,6 +6325,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "retention_checked_at": {
+          "name": "retention_checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "enabled": {
           "name": "enabled",
           "type": "boolean",

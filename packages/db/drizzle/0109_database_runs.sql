@@ -65,6 +65,7 @@ CREATE TABLE "database_runs" (
 --> statement-breakpoint
 ALTER TABLE "database_connections" ADD COLUMN "repository_secret_id" uuid;--> statement-breakpoint
 ALTER TABLE "database_connections" ADD COLUMN "repository_initialized_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "database_connections" ADD COLUMN "retention_checked_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "database_backups" ADD CONSTRAINT "database_backups_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "database_backups" ADD CONSTRAINT "database_backups_connection_id_database_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."database_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "database_backups" ADD CONSTRAINT "database_backups_run_id_database_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."database_runs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint

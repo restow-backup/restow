@@ -62,10 +62,12 @@ import {
   resticForget,
   resticInit,
   resticPrune,
+  resticSnapshots,
   runRestic,
   type StorageBackend,
   sanitizeDbMessage,
   sealSecret,
+  sweepStaleTempDirs,
   withDeletionPermit,
   withRepository,
   writePgPassFile,
@@ -403,6 +405,11 @@ async function adminSession(prepared: Prepared, database: string): Promise<PgAdm
   if (!opened.ok) {
     throw new DatabaseRunFailure(opened.code, opened.message);
   }
+  // The run's first connection did the instance check: every later one (the relays, the other
+  // statements) goes to the same address, judged by the same rules.
+  if (!prepared.target.address && opened.session.connectedAddress) {
+    prepared.target = { ...prepared.target, address: opened.session.connectedAddress };
+  }
   return opened.session;
 }
 
@@ -478,7 +485,8 @@ async function finishRun(
         ...(outcome.notes ? { notes: outcome.notes } : {}),
         ...(outcome.targetOid !== undefined ? { targetOid: outcome.targetOid } : {}),
       })
-      .where(eq(databaseRuns.id, run.id)),
+      // A run failed meanwhile (its connection moved to another executor) stays failed.
+      .where(and(eq(databaseRuns.id, run.id), eq(databaseRuns.status, "running"))),
   );
 }
 
@@ -722,6 +730,7 @@ async function serverBackup(
         "restow-db",
         "restow-db-engine=postgresql",
         `restow-db-connection=${connection.id}`,
+        `restow-db-run=${run.id}`,
       ];
       for (const database of wanted) {
         const databaseId = ids.get(database.name) ?? null;
@@ -851,10 +860,14 @@ async function recordBackup(
   );
 }
 
-/** A new database's name (O3): at most 63 bytes, no NUL. */
+/** A new database's name (O3): at most 63 bytes, no control character, no outer blanks. */
 export function validRestoreName(name: string): boolean {
   return (
-    name.length > 0 && Buffer.byteLength(name, "utf8") <= DB_NAME_MAX_BYTES && !name.includes("\0")
+    name.length > 0 &&
+    name.trim() === name &&
+    Buffer.byteLength(name, "utf8") <= DB_NAME_MAX_BYTES &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused
+    !/[\u0000-\u001f\u007f]/.test(name)
   );
 }
 
@@ -1057,18 +1070,26 @@ async function dropCreated(
 /** Retention runs at most this often per connection. */
 const RETENTION_EVERY_MS = 24 * 60 * MINUTE_MS;
 
+/** Retention runs at most this many connections per pass, the longest unchecked first. */
+const RETENTION_PER_PASS = 20;
+
+/** A snapshot id restic forgets exactly: the full 64 hex characters, never a prefix. */
+const FULL_SNAPSHOT_ID = /^[0-9a-f]{64}$/;
+
 /**
  * Keep a connection's repository to its retention (4.4, 5.1: per database, group
  * `db:<connection>:<database>`; the instance's globals are a group of their own): the server
- * decides from the backups runs reported, dated by when they finished, never restic's own rules,
- * so an agent cannot push genuine backups out. Snapshots no run reported are never forgotten.
- * The forgotten ones turn `pruned`, then restic prunes. Waits while a run of the connection is
- * active. D3 keeps the default of the machines (30 daily, 12 weekly, 12 monthly).
+ * decides from the backups it recorded (a server run's own, an agent's after the server found the
+ * snapshot in the repository), dated by the server, never restic's own rules, so an agent cannot
+ * push genuine backups out. Only full snapshot ids that the repository lists for this connection
+ * are forgotten; snapshots no run reported are never touched. The forgotten ones turn `pruned`,
+ * then restic prunes. `deferred`: a run of the connection is active, retention comes back soon.
+ * D3 keeps the default of the machines (30 daily, 12 weekly, 12 monthly).
  */
 export async function databaseRetention(
   deps: DatabaseRunDeps,
   connection: DatabaseConnection,
-): Promise<{ forgotten: number }> {
+): Promise<{ forgotten: number; deferred?: true }> {
   const [active] = await withTenantTx(deps.db, connection.tenantId, (tx) =>
     tx
       .select({ id: databaseRuns.id })
@@ -1081,17 +1102,25 @@ export async function databaseRetention(
       )
       .limit(1),
   );
-  if (active || !connection.repositorySecretId) {
+  if (active) {
+    return { forgotten: 0, deferred: true };
+  }
+  if (!connection.repositorySecretId) {
     return { forgotten: 0 };
   }
-  const rows = await withTenantTx(deps.db, connection.tenantId, (tx) =>
-    tx
-      .select()
-      .from(databaseBackups)
-      .where(
-        and(eq(databaseBackups.connectionId, connection.id), eq(databaseBackups.status, "active")),
-      ),
-  );
+  const rows = (
+    await withTenantTx(deps.db, connection.tenantId, (tx) =>
+      tx
+        .select()
+        .from(databaseBackups)
+        .where(
+          and(
+            eq(databaseBackups.connectionId, connection.id),
+            eq(databaseBackups.status, "active"),
+          ),
+        ),
+    )
+  ).filter((row) => FULL_SNAPSHOT_ID.test(row.snapshotId));
   const groups = new Map<string, { id: string; time: Date }[]>();
   for (const row of rows) {
     const group = `db:${connection.id}:${row.kind === "globals" ? "globals" : (row.databaseId ?? row.databaseName)}`;
@@ -1139,12 +1168,26 @@ export async function databaseRetention(
       recordDeferredDeletion(deps.db, tenantId, ensured.storage, key, retainUntil),
   };
   // restic's deletes through the loopback carry this permit (storage/deletion-guard.ts).
-  await withDeletionPermit({ pass: "database_retention", tenantId }, () =>
+  const gone = await withDeletionPermit({ pass: "database_retention", tenantId }, () =>
     withRepository(access, async (session) => {
-      await resticForget(session, remove);
-      await resticPrune(session, { storage: access.storage });
+      const listed = new Set(
+        (await resticSnapshots(session))
+          .filter(
+            (snapshot) =>
+              snapshot.hostname === "restow-db" &&
+              snapshot.tags.includes(`restow-db-connection=${connection.id}`),
+          )
+          .map((snapshot) => snapshot.id),
+      );
+      const forget = remove.filter((id) => listed.has(id));
+      if (forget.length > 0) {
+        await resticForget(session, forget);
+        await resticPrune(session, { storage: access.storage });
+      }
+      return forget;
     }),
   );
+  // What the repository no longer lists is gone as well; only `gone` was forgotten here.
   await withTenantTx(deps.db, connection.tenantId, (tx) =>
     tx
       .update(databaseBackups)
@@ -1156,40 +1199,59 @@ export async function databaseRetention(
         ),
       ),
   );
-  return { forgotten: remove.length };
+  return { forgotten: gone.length };
 }
 
-const retentionDone = new Map<string, number>();
-
+/**
+ * Retention once a day per connection with active backups: the longest unchecked first, at most
+ * {@link RETENTION_PER_PASS} per pass, taking the tenants in turn (one tenant's many connections
+ * do not hold back the others'). A connection with an active run comes back on the next pass.
+ */
 async function retentionPass(deps: DatabaseRunDeps): Promise<number> {
-  const now = deps.now().getTime();
+  const now = deps.now();
+  const due = new Date(now.getTime() - RETENTION_EVERY_MS);
   const candidates = rowsOf<{ id: string; tenant_id: string }>(
     await deps.providerDb.execute(sql`
-      SELECT DISTINCT c.id, c.tenant_id
-        FROM database_connections c
-        JOIN database_backups b ON b.connection_id = c.id AND b.status = 'active'
-       LIMIT 500`),
+      SELECT id, tenant_id FROM (
+        SELECT c.id, c.tenant_id, c.retention_checked_at,
+               row_number() OVER (
+                 PARTITION BY c.tenant_id ORDER BY c.retention_checked_at NULLS FIRST, c.id
+               ) AS turn
+          FROM database_connections c
+         WHERE (c.retention_checked_at IS NULL OR c.retention_checked_at < ${due.toISOString()}::timestamptz)
+           AND EXISTS (SELECT 1 FROM database_backups b
+                        WHERE b.connection_id = c.id AND b.status = 'active')
+      ) d
+      ORDER BY turn, retention_checked_at NULLS FIRST, id
+      LIMIT ${RETENTION_PER_PASS}`),
   );
   let forgotten = 0;
   for (const row of candidates) {
-    if (now - (retentionDone.get(row.id) ?? 0) < RETENTION_EVERY_MS) {
-      continue;
-    }
-    retentionDone.set(row.id, now);
     const [connection] = await withTenantTx(deps.db, row.tenant_id, (tx) =>
       tx.select().from(databaseConnections).where(eq(databaseConnections.id, row.id)).limit(1),
     );
     if (!connection) {
       continue;
     }
+    let deferred = false;
     try {
-      forgotten += (await databaseRetention(deps, connection)).forgotten;
+      const outcome = await databaseRetention(deps, connection);
+      forgotten += outcome.forgotten;
+      deferred = outcome.deferred === true;
     } catch (error) {
       deps.logger.error("database retention failed", {
         tenantId: row.tenant_id,
         connectionId: row.id,
         errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error),
       });
+    }
+    if (!deferred) {
+      await withTenantTx(deps.db, row.tenant_id, (tx) =>
+        tx
+          .update(databaseConnections)
+          .set({ retentionCheckedAt: now })
+          .where(eq(databaseConnections.id, row.id)),
+      );
     }
   }
   return forgotten;
@@ -1214,6 +1276,14 @@ export function startDatabaseRuns(
 ): () => void {
   let timer: NodeJS.Timeout | null = null;
   let stopped = false;
+  // What crashed runs left in memory (the relay's sockets, password files): older than any run.
+  void sweepStaleTempDirs({ maxAgeMs: RUN_MAX_MS + 60 * MINUTE_MS })
+    .then((removed) => {
+      if (removed > 0) {
+        deps.logger.info("database runs: stale directories removed", { removed });
+      }
+    })
+    .catch(() => undefined);
   const tick = async () => {
     const client = await deps.providerDb.$client.connect().catch(() => null);
     if (!client) {

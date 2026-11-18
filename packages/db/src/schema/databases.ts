@@ -133,6 +133,8 @@ export const databaseConnections = pgTable(
       onDelete: "set null",
     }),
     repositoryInitializedAt: timestamp("repository_initialized_at", { withTimezone: true }),
+    /** When the worker last applied the retention to this connection's repository (D3). */
+    retentionCheckedAt: timestamp("retention_checked_at", { withTimezone: true }),
     enabled: boolean("enabled").notNull().default(true),
     createdBy: text("created_by"),
     ...timestamps(),
