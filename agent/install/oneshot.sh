@@ -58,7 +58,7 @@ die() {
   exit 1
 }
 
-# shellcheck disable=SC2329 # run by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # run by the EXIT trap (SC2317 for older ShellCheck)
 cleanup() {
   if [ -n "$TMP" ] && [ -d "$TMP" ]; then
     rm -rf "$TMP"
