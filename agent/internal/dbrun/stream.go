@@ -29,6 +29,12 @@ type StreamSpec struct {
 	Env       []string `json:"env"`
 	ListTool  string   `json:"listTool"`
 	StatsPath string   `json:"statsPath"`
+	// CountMysql: count MySQL's and MariaDB's objects from the dump's statement
+	// headers (16 "D4" M4).
+	CountMysql bool `json:"countMysql,omitempty"`
+	// InputFile: instead of a program, pass this file (0600 in the run's
+	// private folder, written by the agent: MySQL's users and grants).
+	InputFile string `json:"inputFile,omitempty"`
 }
 
 // StreamStats is what db-stream writes when the program ended.
@@ -70,6 +76,9 @@ func (t *tail) String() string {
 
 // Stream runs the spec and returns the exit code for restic.
 func Stream(ctx context.Context, spec StreamSpec, out io.Writer) int {
+	if spec.InputFile != "" {
+		return streamFile(spec, out)
+	}
 	cmd := exec.CommandContext(ctx, spec.Tool, spec.Args...) // #nosec G204 -- fixed argument lists (tools.go)
 	cmd.Env = spec.Env
 	errs := &tail{}
@@ -103,6 +112,10 @@ func Stream(ctx context.Context, spec StreamSpec, out io.Writer) int {
 		}
 	}
 	hash := sha256.New()
+	var scanner *MysqlDumpScanner
+	if spec.CountMysql {
+		scanner = NewMysqlDumpScanner(false)
+	}
 	buf := make([]byte, 64<<10)
 	var writeErr error
 	for {
@@ -111,6 +124,9 @@ func Stream(ctx context.Context, spec StreamSpec, out io.Writer) int {
 			chunk := buf[:n]
 			hash.Write(chunk)
 			stats.Bytes += int64(n)
+			if scanner != nil {
+				scanner.Push(chunk)
+			}
 			if listIn != nil {
 				if fed+n > listBufferMax {
 					_ = listIn.Close()
@@ -141,7 +157,37 @@ func Stream(ctx context.Context, spec StreamSpec, out io.Writer) int {
 	stats.OK = waitErr == nil && writeErr == nil && stats.ExitCode == 0
 	stats.SHA256 = hex.EncodeToString(hash.Sum(nil))
 	stats.Objects = CountListEntries(listing.String())
+	if scanner != nil {
+		stats.Objects = scanner.Counts
+	}
 	stats.Stderr = errs.String()
+	writeStats(spec.StatsPath, stats)
+	if !stats.OK {
+		return 1
+	}
+	return 0
+}
+
+// streamFile passes a file the agent wrote (InputFile).
+func streamFile(spec StreamSpec, out io.Writer) int {
+	stats := StreamStats{Objects: map[string]int{}, ExitCode: -1}
+	f, err := os.Open(spec.InputFile)
+	if err != nil {
+		stats.Stderr = err.Error()
+		writeStats(spec.StatsPath, stats)
+		return 1
+	}
+	defer f.Close()
+	hash := sha256.New()
+	n, err := io.Copy(io.MultiWriter(out, hash), f)
+	stats.Bytes = n
+	stats.SHA256 = hex.EncodeToString(hash.Sum(nil))
+	stats.OK = err == nil
+	if err != nil {
+		stats.Stderr = err.Error()
+	} else {
+		stats.ExitCode = 0
+	}
 	writeStats(spec.StatsPath, stats)
 	if !stats.OK {
 		return 1

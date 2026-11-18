@@ -92,8 +92,8 @@ type session struct {
 
 func newSession(spec *api.DBRunSpec) (*session, error) {
 	c := spec.Connection
-	if c.Engine != "postgresql" {
-		return nil, failf("db_engine_unsupported", "D3 backs up PostgreSQL only")
+	if c.Engine != "postgresql" && c.Engine != "mysql" && c.Engine != "mariadb" {
+		return nil, failf("db_engine_unsupported", "backups of this engine come with a later stage")
 	}
 	if c.Host == nil || c.Port == nil {
 		return nil, failf("db_engine_unsupported", "the connection has no address")
@@ -191,10 +191,11 @@ func (d Deps) runner(spec *api.DBRunSpec, tmp string) *restic.Runner {
 func instanceOf(f *facts) *api.DBRunInstance {
 	inst := &api.DBRunInstance{SystemIdentifier: f.systemID, ServerVersion: f.version}
 	for _, db := range f.databases {
+		oid := db.oid
 		inst.Databases = append(inst.Databases, struct {
-			Name string `json:"name"`
-			OID  string `json:"oid"`
-		}{db.name, db.oid})
+			Name string  `json:"name"`
+			OID  *string `json:"oid"`
+		}{db.name, &oid})
 	}
 	return inst
 }
@@ -236,6 +237,9 @@ func Backup(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
 	}
 	out := api.DBRunFinish{Status: "failed", Backups: []api.DBRunBackup{}, Notes: []map[string]any{}}
 	SweepStale("", staleAfter, d.now())
+	if isMysqlEngine(spec.Connection.Engine) {
+		return backupMysql(ctx, spec, d)
+	}
 	s, err := newSession(spec)
 	if err != nil {
 		code, msg := codeOf(err, "db_dump_failed")
@@ -429,6 +433,9 @@ func Restore(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
 	}
 	out := api.DBRunFinish{Status: "failed", Backups: []api.DBRunBackup{}, Notes: []map[string]any{}}
 	SweepStale("", staleAfter, d.now())
+	if isMysqlEngine(spec.Connection.Engine) {
+		return restoreMysql(ctx, spec, d)
+	}
 	s, err := newSession(spec)
 	if err != nil || spec.Restore == nil {
 		if err == nil {

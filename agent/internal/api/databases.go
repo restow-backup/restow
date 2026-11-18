@@ -181,11 +181,17 @@ type DBRunSpec struct {
 
 // DBRunInstance is what a run found of the instance.
 type DBRunInstance struct {
-	SystemIdentifier string `json:"systemIdentifier"`
+	// SystemIdentifier is PostgreSQL's; ServerUUID MySQL's; ServerID and
+	// Datadir MariaDB's (3.3).
+	SystemIdentifier string `json:"systemIdentifier,omitempty"`
+	ServerUUID       string `json:"serverUuid,omitempty"`
+	ServerID         string `json:"serverId,omitempty"`
+	Datadir          string `json:"datadir,omitempty"`
 	ServerVersion    string `json:"serverVersion"`
 	Databases        []struct {
 		Name string `json:"name"`
-		OID  string `json:"oid"`
+		// OID is PostgreSQL's; MySQL and MariaDB schemas have none (nil).
+		OID *string `json:"oid"`
 	} `json:"databases"`
 }
 
@@ -202,6 +208,8 @@ type DBRunBackup struct {
 	StartedAt   time.Time      `json:"startedAt"`
 	FinishedAt  time.Time      `json:"finishedAt"`
 	ToolVersion *string        `json:"toolVersion"`
+	// EngineOptions are a MySQL or MariaDB schema's character set and collation.
+	EngineOptions *DBEngineOptions `json:"engineOptions,omitempty"`
 }
 
 // DBRunFinish is the body of POST /agent/v1/databases/runs/:runId/finish.

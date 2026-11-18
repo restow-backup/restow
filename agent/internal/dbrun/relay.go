@@ -52,8 +52,16 @@ type RelayOptions struct {
 type Relay struct {
 	Dir  string
 	Port int
+	// Path is the socket's file (PostgreSQL .s.PGSQL.<port>, MySQL mysqld.sock).
+	Path string
 
+	mu       sync.Mutex
 	upstream net.Conn
+	// begin (MySQL) reads the program's login and makes the upstream ready.
+	begin func(client net.Conn) (net.Conn, error)
+	// mysql filters the sign-in both ways (MySQL); nil: PostgreSQL's filter.
+	mysql    *mysqlFilter
+	failure  error
 	ln       *net.UnixListener
 	once     sync.Once
 	done     chan struct{}
@@ -117,17 +125,50 @@ func OpenRelay(ctx context.Context, upstream net.Conn, o RelayOptions) (*Relay, 
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	r := &Relay{Dir: dir, Port: RelayPort, upstream: upstream, ln: ln, done: make(chan struct{})}
+	r := &Relay{Dir: dir, Port: RelayPort, Path: path, upstream: upstream, ln: ln, done: make(chan struct{})}
 	r.last.Store(time.Now().UnixNano())
 	go r.serve(ctx, o)
 	return r, nil
+}
+
+// listen makes the relay's folder and its socket name (one client, 0600).
+func listen(base, name string) (string, string, *net.UnixListener, error) {
+	dir, err := PrivateDir(base, "restow-pg-relay-")
+	if err != nil {
+		return "", "", nil, err
+	}
+	path := filepath.Join(dir, name)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", nil, err
+	}
+	ln.SetUnlinkOnClose(true)
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = ln.Close()
+		_ = os.RemoveAll(dir)
+		return "", "", nil, err
+	}
+	return dir, path, ln, nil
+}
+
+// Failure is why the sign-in filter ended the relay, or nil.
+func (r *Relay) Failure() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.failure
 }
 
 func (r *Relay) finish(reason string) {
 	r.once.Do(func() {
 		r.reason.Store(reason)
 		_ = r.ln.Close()
-		_ = r.upstream.Close()
+		r.mu.Lock()
+		up := r.upstream
+		r.mu.Unlock()
+		if up != nil {
+			_ = up.Close()
+		}
 		_ = os.RemoveAll(r.Dir)
 		close(r.done)
 	})
@@ -179,18 +220,51 @@ func (r *Relay) serve(ctx context.Context, o RelayOptions) {
 		return
 	}
 	defer client.Close()
+	if r.begin != nil {
+		up, err := r.begin(client)
+		if err != nil {
+			r.mu.Lock()
+			r.failure = err
+			r.mu.Unlock()
+			r.finish("error")
+			return
+		}
+		r.mu.Lock()
+		r.upstream = up
+		r.mu.Unlock()
+		select {
+		case <-r.done:
+			_ = up.Close()
+			return
+		default:
+		}
+	}
+	upstream := r.upstream
 	var copies sync.WaitGroup
 	copies.Add(2)
-	go func() {
-		defer copies.Done()
-		r.pump(client, r.upstream, &r.toServer, nil)
-		r.finish("client_closed")
-	}()
-	go func() {
-		defer copies.Done()
-		r.pump(r.upstream, client, &r.toClient, &signInFilter{})
-		r.finish("server_closed")
-	}()
+	if r.mysql != nil {
+		go func() {
+			defer copies.Done()
+			r.pumpMysql(client, upstream, client, &r.toServer, true)
+			r.finish("client_closed")
+		}()
+		go func() {
+			defer copies.Done()
+			r.pumpMysql(upstream, upstream, client, &r.toClient, false)
+			r.finish("server_closed")
+		}()
+	} else {
+		go func() {
+			defer copies.Done()
+			r.pump(client, upstream, &r.toServer, nil)
+			r.finish("client_closed")
+		}()
+		go func() {
+			defer copies.Done()
+			r.pump(upstream, client, &r.toClient, &signInFilter{})
+			r.finish("server_closed")
+		}()
+	}
 	idle := time.NewTicker(o.Idle / 4)
 	defer idle.Stop()
 	for {

@@ -95,6 +95,8 @@ func TestContractFixturesRoundTrip(t *testing.T) {
 		{"db-run-spec.json", func() any { return &DBRunSpec{} }, false},
 		{"db-run-spec-backup.json", func() any { return &DBRunSpec{} }, false},
 		{"db-run-finish.json", func() any { return &DBRunFinish{} }, false},
+		// D4: a MySQL report (server_uuid, schemas without OID, character set).
+		{"db-run-finish-mysql.json", func() any { return &DBRunFinish{} }, false},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {

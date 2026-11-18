@@ -70,6 +70,8 @@ type greeting struct {
 	capabilities uint32
 	plugin       string
 	mariadb      bool
+	// raw is the payload as the server sent it (the relay hands it on).
+	raw []byte
 }
 
 // splitPacket reads one packet (3 bytes length, 1 byte sequence) from b.
@@ -280,6 +282,7 @@ func (c *conn) mysqlGreeting() (*greeting, error) {
 	if g == nil {
 		return nil, errors.New("the server's greeting is not MySQL protocol 10")
 	}
+	g.raw = append([]byte(nil), payload...)
 	return g, nil
 }
 
@@ -447,6 +450,11 @@ func (p *packets) query(sql string) ([][]*string, error) {
 // queryLimited is query with its own limit per value; truncated says whether
 // a value was cut.
 func (p *packets) queryLimited(sql string, limit int) (rows [][]*string, truncated bool, err error) {
+	return p.queryRows(sql, limit, maxDatabases)
+}
+
+// queryRows is queryLimited with its own bound on the rows.
+func (p *packets) queryRows(sql string, limit, maxRows int) (rows [][]*string, truncated bool, err error) {
 	p.seq = 0
 	if err := p.write(append([]byte{0x03}, sql...)); err != nil {
 		return nil, false, err
@@ -476,9 +484,9 @@ func (p *packets) queryLimited(sql string, limit int) (rows [][]*string, truncat
 			return nil, false, err
 		}
 	}
-	// The probe's queries return at most maxDatabases rows; a server that
-	// sends more is cut off.
-	for count := 0; count <= maxDatabases+1; count++ {
+	// The probe's queries return at most maxRows rows; a server that sends
+	// more is cut off.
+	for count := 0; count <= maxRows+1; count++ {
 		payload, err := p.read()
 		if err != nil {
 			return nil, false, err
@@ -512,7 +520,7 @@ func (p *packets) queryLimited(sql string, limit int) (rows [][]*string, truncat
 			row = append(row, &v)
 			off = next + n
 		}
-		if len(rows) <= maxDatabases {
+		if len(rows) <= maxRows {
 			rows = append(rows, row)
 		}
 	}

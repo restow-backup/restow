@@ -63,5 +63,18 @@ describe("the contract of a database run with the agent (docs/DATABASES.md 9) [D
     expect(finish.backups.map((backup) => backup.kind)).toEqual(["database", "globals"]);
     expect(finish.backups[0]?.objects).toEqual({ TABLE: 2, "TABLE DATA": 2, VIEW: 1 });
     expect(finish.instance?.databases).toHaveLength(2);
+    const mysql = agentRunFinishSchema.parse(fixture("db-run-finish-mysql.json"));
+    expect(mysql.instance).toMatchObject({
+      serverUuid: "3e11fa47-71ca-11e1-9e33-c80aa9429562",
+      databases: [{ name: "shop", oid: null }],
+    });
+    expect(mysql.backups.map((backup) => backup.fileName)).toEqual([
+      "mysql/shop.sql",
+      "mysql/users.sql",
+    ]);
+    expect(mysql.backups[0]?.engineOptions).toEqual({
+      characterSet: "utf8mb4",
+      collation: "utf8mb4_0900_ai_ci",
+    });
   });
 });

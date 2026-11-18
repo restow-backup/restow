@@ -66,20 +66,18 @@ type PinnedError struct {
 
 func (e *PinnedError) Error() string { return e.Message }
 
-// OpenPinned opens the connection within timeout. Nothing of the sign-in has
-// been sent when it returns. dial nil: the system's.
-func OpenPinned(ctx context.Context, target PinnedTarget, timeout time.Duration, dial func(ctx context.Context, network, address string) (net.Conn, error)) (*PinnedConn, error) {
+// connectPinned dials target (its fixed Address when set) and checks the
+// address reached; the connection's context is the caller's.
+func connectPinned(ctx context.Context, target PinnedTarget, timeout time.Duration, dial func(ctx context.Context, network, address string) (net.Conn, error)) (*conn, string, error) {
 	if dial == nil {
 		dial = defaultDial
 	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	dialHost := target.Host
 	fixed := ""
 	if target.Address != "" {
 		ip := net.ParseIP(target.Address)
 		if ip == nil {
-			return nil, &PinnedError{Code: CodeUnreachable, Message: "the run's address is not an IP address"}
+			return nil, "", &PinnedError{Code: CodeUnreachable, Message: "the run's address is not an IP address"}
 		}
 		if v4 := ip.To4(); v4 != nil {
 			ip = v4
@@ -90,25 +88,38 @@ func OpenPinned(ctx context.Context, target PinnedTarget, timeout time.Duration,
 				hostIP = v4
 			}
 			if hostIP.String() != fixed {
-				return nil, &PinnedError{Code: CodeInstanceChanged, Message: "The run reached another address than its first connection."}
+				return nil, "", &PinnedError{Code: CodeInstanceChanged, Message: "The run reached another address than its first connection."}
 			}
 		}
 		dialHost = fixed
 	}
 	address := net.JoinHostPort(dialHost, strconv.Itoa(target.Port))
-	// The connection outlives the connect's own deadline: its context is the
-	// caller's, and only the steps here are bounded by cctx.
 	c, err := openConn(ctx, dial, "tcp", address, timeout)
 	if err != nil {
-		return nil, &PinnedError{Code: CodeUnreachable, Message: err.Error()}
+		return nil, "", &PinnedError{Code: CodeUnreachable, Message: err.Error()}
+	}
+	reached := remoteIP(c.raw)
+	if fixed != "" && reached != "" && reached != fixed {
+		c.close()
+		return nil, "", &PinnedError{Code: CodeInstanceChanged, Message: "The run reached another address than its first connection."}
+	}
+	return c, reached, nil
+}
+
+// OpenPinned opens the connection within timeout. Nothing of the sign-in has
+// been sent when it returns. dial nil: the system's.
+func OpenPinned(ctx context.Context, target PinnedTarget, timeout time.Duration, dial func(ctx context.Context, network, address string) (net.Conn, error)) (*PinnedConn, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// The connection outlives the connect's own deadline: its context is the
+	// caller's, and only the steps here are bounded by cctx.
+	c, reached, err := connectPinned(ctx, target, timeout, dial)
+	if err != nil {
+		return nil, err
 	}
 	refuse := func(code, message string) (*PinnedConn, error) {
 		c.close()
 		return nil, &PinnedError{Code: code, Message: message}
-	}
-	reached := remoteIP(c.raw)
-	if fixed != "" && reached != "" && reached != fixed {
-		return refuse(CodeInstanceChanged, "The run reached another address than its first connection.")
 	}
 	stopAtConnect := context.AfterFunc(cctx, func() {
 		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
