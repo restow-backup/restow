@@ -392,7 +392,7 @@
     "restoreTarget": "Connection",
     "restoreName": "Name of the new database",
     "restoreNamePlaceholder": "{name}_restored_<time>",
-    "restoreNameHint": "Leave empty for the suggestion. At most 63 bytes; the name must not be taken.",
+    "restoreNameHint": "Leave empty for the suggestion. PostgreSQL: at most 63 bytes; MySQL and MariaDB: at most 64 characters; the name must not be taken.",
     "restoreNameInvalid": "The name is too long, contains control characters or starts or ends with a blank.",
     "restoreStart": "Restore",
     "restoreQueued": "The restore into “{name}” is planned.",
@@ -402,7 +402,7 @@
     "restoreOtherConnection": "The executor of the target connection receives the content of this one backup through {appName}, not the source connection's repository.",
     "globalsTitle": "Roles and global objects",
     "globalsDescription": "The instance's roles, with their password hashes where the user could read them. Administrators only; every download is logged.",
-    "globalsDownload": "Download globals.sql",
+    "globalsDownload": "Download {file}",
     "platformUnsupported": "Backups and restores by an agent on Windows come with a later version. Choose an agent on Linux or macOS, or the {appName} server, as the executor."
   }
 }

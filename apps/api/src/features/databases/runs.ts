@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { Readable } from "node:stream";
 import {
   DB_ERROR_CODES,
+  dbDumpFileName,
+  defaultMysqlRestoreName,
   hashSecret,
   openRepository,
   type RepositoryAccess,
@@ -12,6 +14,7 @@ import {
   resticSnapshots,
   sanitizeDbMessage,
   secretMatchesHash,
+  validMysqlSchemaName,
   withRepository,
 } from "@restow/core";
 import {
@@ -79,11 +82,20 @@ export function validRestoreName(name: string): boolean {
   );
 }
 
-/** The dump's file in the repository (`postgresql/<name>.pgdump`, the globals' own). */
-export function dumpFileNameOf(kind: "database" | "globals", name: string): string {
-  return kind === "globals"
-    ? "postgresql/globals.sql"
-    : `postgresql/${name.replace(/[/\\]/g, "_")}.pgdump`;
+/** The dump's file in the repository (core `dbDumpFileName`; PostgreSQL by default). */
+export function dumpFileNameOf(
+  kind: "database" | "globals",
+  name: string,
+  engine = "postgresql",
+): string {
+  return dbDumpFileName(engine, kind, name);
+}
+
+/** The engines with backups and restores (D3 PostgreSQL, D4 MySQL and MariaDB). */
+const RUN_ENGINES = new Set(["postgresql", "mysql", "mariadb"]);
+
+function isMysqlFamily(engine: string): boolean {
+  return engine === "mysql" || engine === "mariadb";
 }
 
 /** The file's name for a download and the restore guide: only `[A-Za-z0-9._-]`. */
@@ -247,7 +259,7 @@ export async function requestBackup(
   const now = ctx.now ?? new Date();
   return withTenantTx(db, tenantId, async (tx) => {
     const { connection } = await databaseAndConnection(tx, tenantId, databaseId);
-    if (connection.engine !== "postgresql") {
+    if (!RUN_ENGINES.has(connection.engine)) {
       throw new ProblemError(422, "Not backed up yet", {
         detail: "Backups of this engine come with a later stage.",
       });
@@ -370,11 +382,18 @@ export async function requestRestore(
       target = other;
     }
     await assertPlatformRuns(tx, target);
-    const name = input.name ?? defaultRestoreName(database.name, now);
-    if (!validRestoreName(name)) {
+    const mysql = isMysqlFamily(target.engine);
+    const name =
+      input.name ??
+      (mysql
+        ? defaultMysqlRestoreName(database.name, now)
+        : defaultRestoreName(database.name, now));
+    if (!(mysql ? validMysqlSchemaName(name) : validRestoreName(name))) {
       throw new ProblemError(422, "Invalid database name", {
         type: RUN_PROBLEMS.restoreName,
-        detail: `The new database's name has at most ${DB_NAME_MAX_BYTES} bytes and no control characters.`,
+        detail: mysql
+          ? "The new schema's name has 1 to 64 characters, no control characters and no blank at the end."
+          : `The new database's name has at most ${DB_NAME_MAX_BYTES} bytes and no control characters.`,
         extensions: { field: "name" },
       });
     }
@@ -682,8 +701,17 @@ export async function restoreGuide(
   );
   // The same name as the download, quoted for the shell all the same.
   const file = shellQuote(downloadFileNameOf(backup.fileName));
-  const target = shellQuote(defaultRestoreName(database.name, backup.finishedAt));
   const oneLine = (value: string) => JSON.stringify(value);
+  if (isMysqlFamily(connection.engine)) {
+    return mysqlGuide({
+      engine: connection.engine,
+      database: database.name,
+      connection: connection.name,
+      backup,
+      file,
+    });
+  }
+  const target = shellQuote(defaultRestoreName(database.name, backup.finishedAt));
   return [
     `Restore guide for the database ${oneLine(database.name)} of the connection ${oneLine(connection.name)}`,
     `Backup of ${backup.finishedAt.toISOString()} (PostgreSQL ${oneLine(backup.serverVersion ?? "?")}, pg_dump ${oneLine(backup.toolVersion ?? "?")})`,
@@ -706,6 +734,55 @@ export async function restoreGuide(
     "   administrator downloads on the database page:",
     "     psql --dbname=postgres --file=globals.sql   # review it first: it creates roles",
     "   then restore again without --no-owner --no-privileges, or grant by hand.",
+    "",
+  ].join("\n");
+}
+
+/** The guide of MySQL and MariaDB (16 "D4" M3): the client's commands, without a secret. */
+function mysqlGuide(input: {
+  engine: string;
+  database: string;
+  connection: string;
+  backup: DatabaseBackup;
+  file: string;
+}): string {
+  const { backup, file } = input;
+  const client = input.engine === "mariadb" ? "mariadb" : "mysql";
+  const family = input.engine === "mariadb" ? "MariaDB" : "MySQL";
+  const name = defaultMysqlRestoreName(input.database, backup.finishedAt);
+  const ident = `\`${name.replace(/`/g, "``")}\``;
+  const word = (value: string | undefined) =>
+    value && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : null;
+  const characterSet = word(backup.engineOptions?.characterSet);
+  const collation = word(backup.engineOptions?.collation);
+  const create = `CREATE DATABASE ${ident}${characterSet ? ` CHARACTER SET ${characterSet}` : ""}${collation ? ` COLLATE ${collation}` : ""}`;
+  const oneLine = (value: string) => JSON.stringify(value);
+  return [
+    `Restore guide for the schema ${oneLine(input.database)} of the connection ${oneLine(input.connection)}`,
+    `Backup of ${backup.finishedAt.toISOString()} (${family} ${oneLine(backup.serverVersion ?? "?")}, dump program ${oneLine(backup.toolVersion ?? "?")})`,
+    `File: ${file} (SQL text), SHA-256 ${backup.sha256}`,
+    "",
+    "1. Check the file:",
+    `     sha256sum ${file}`,
+    "",
+    "2. Create a new, empty schema (never restore over an existing one):",
+    `     ${client} -e ${shellQuote(create)}`,
+    "",
+    "3. Restore into it, stopping at the first error:",
+    `     ${client} --database=${shellQuote(name)} --default-character-set=utf8mb4 --max-allowed-packet=1G < ${file}`,
+    "",
+    `   Use the ${family} client of the server's version or newer. User and password go into an`,
+    "   option file (~/.my.cnf, mode 0600), never onto the command line.",
+    "",
+    "4. Definers: the dump keeps the DEFINER of views, routines, triggers and events. Restoring",
+    "   them as another user needs SET_USER_ID (MySQL) or SUPER, or the original users must exist;",
+    `   ${"Restow's"} own restore makes the restoring user the definer instead.`,
+    "",
+    "5. Events run on the new schema once it is restored; to stop them:",
+    `     ${client} -e ${shellQuote(`SHOW EVENTS FROM ${ident}`)}   # then ALTER EVENT … DISABLE`,
+    "",
+    "6. Users and grants of the instance are in the users backup of the same run (users.sql),",
+    "   which an administrator downloads on the database page; review it before running it.",
     "",
   ].join("\n");
 }
@@ -743,7 +820,13 @@ export interface AgentRunSpec {
     password: string;
     repositoryPassword: string;
   } | null;
-  restore: { fileName: string; sha256: string; targetName: string } | null;
+  restore: {
+    fileName: string;
+    sha256: string;
+    targetName: string;
+    /** MySQL and MariaDB: the source schema's character set and collation. */
+    engineOptions: { characterSet?: string; collation?: string };
+  } | null;
   maxDurationSeconds: number;
 }
 
@@ -902,6 +985,7 @@ export async function agentFetchRun(
             fileName: backup.fileName,
             sha256: backup.sha256,
             targetName: run.targetName ?? "",
+            engineOptions: backup.engineOptions ?? {},
           }
         : null,
     maxDurationSeconds: 12 * 60 * 60,
@@ -948,6 +1032,20 @@ const backupReportSchema = z.object({
   startedAt: z.string().datetime({ offset: true }),
   finishedAt: z.string().datetime({ offset: true }),
   toolVersion: z.string().max(64).nullable(),
+  /** MySQL and MariaDB: the schema's character set and collation. */
+  engineOptions: z
+    .object({
+      characterSet: z
+        .string()
+        .regex(/^[A-Za-z0-9_]{1,64}$/)
+        .optional(),
+      collation: z
+        .string()
+        .regex(/^[A-Za-z0-9_]{1,64}$/)
+        .optional(),
+    })
+    .strict()
+    .catch({}),
 });
 
 export const agentRunFinishSchema = z.object({
@@ -955,10 +1053,34 @@ export const agentRunFinishSchema = z.object({
   error: z.object({ code: codeSchema, message: z.string().max(2000).catch("") }).nullable(),
   instance: z
     .object({
-      systemIdentifier: z.string().regex(/^\d{1,20}$/),
+      /** PostgreSQL (3.3). */
+      systemIdentifier: z
+        .string()
+        .regex(/^\d{1,20}$/)
+        .optional(),
+      /** MySQL (3.3). */
+      serverUuid: z
+        .string()
+        .regex(/^[0-9a-fA-F-]{36}$/)
+        .optional(),
+      /** MariaDB (3.3). */
+      serverId: z
+        .string()
+        .regex(/^\d{1,10}$/)
+        .optional(),
+      datadir: z.string().min(1).max(1024).optional(),
       serverVersion: z.string().max(256),
       databases: z
-        .array(z.object({ name: z.string().max(128), oid: z.string().regex(/^\d{1,10}$/) }))
+        .array(
+          z.object({
+            name: z.string().max(128),
+            // PostgreSQL's OID; MySQL and MariaDB schemas have none.
+            oid: z
+              .string()
+              .regex(/^\d{1,10}$/)
+              .nullable(),
+          }),
+        )
         .max(1000),
     })
     .nullable(),
@@ -1037,8 +1159,18 @@ export async function agentFinishRun(
     typeof note.message === "string" ? { ...note, message: clean(note.message) } : note,
   );
   if (report.instance) {
-    const instanceKey = `postgresql:${report.instance.systemIdentifier}`;
-    const own = await restowSystemIdentifier();
+    const instanceKey = instanceKeyOf(connection.engine, report.instance);
+    if (!instanceKey) {
+      await finishAgentRun(
+        db,
+        run,
+        "failed",
+        "db_probe_failed",
+        "The agent's report names no identity of the instance.",
+      );
+      return;
+    }
+    const own = connection.engine === "postgresql" ? await restowSystemIdentifier() : null;
     if (own !== null && report.instance.systemIdentifier === own) {
       await finishAgentRun(
         db,
@@ -1093,6 +1225,7 @@ export async function agentFinishRun(
               sha256: backup.sha256,
               bytes: backup.bytes,
               objects: backup.objects,
+              engineOptions: backup.engineOptions,
               toolVersion: backup.toolVersion,
               serverVersion: instance.serverVersion.slice(0, 256),
               startedAt,
@@ -1134,6 +1267,25 @@ export async function agentFinishRun(
     clean(report.error?.message),
     { notes, ...(run.kind === "restore" ? { targetOid: report.targetOid } : {}) },
   );
+}
+
+/** The instance key of a report (3.3, core `dbInstanceKey`), or null when it names none. */
+function instanceKeyOf(
+  engine: string,
+  instance: NonNullable<AgentRunFinish["instance"]>,
+): string | null {
+  switch (engine) {
+    case "postgresql":
+      return instance.systemIdentifier ? `postgresql:${instance.systemIdentifier}` : null;
+    case "mysql":
+      return instance.serverUuid ? `mysql:${instance.serverUuid.toLowerCase()}` : null;
+    case "mariadb":
+      return instance.serverId && instance.datadir
+        ? `mariadb:${instance.serverId}:${instance.datadir}`
+        : null;
+    default:
+      return null;
+  }
 }
 
 /** How far a snapshot's time may lie before the run's start (the agent's clock). */
@@ -1196,7 +1348,7 @@ async function verifyAgentBackups(
       snapshot.tags.includes(`restow-db-connection=${connection.id}`) &&
       snapshot.tags.includes(`restow-db-run=${run.id}`) &&
       snapshot.tags.includes("restow-db-globals") === globals &&
-      backup.fileName === dumpFileNameOf(backup.kind, backup.name) &&
+      backup.fileName === dumpFileNameOf(backup.kind, backup.name, connection.engine) &&
       snapshot.paths.length === 1 &&
       snapshot.paths[0] === `/${backup.fileName}` &&
       (globals || listed.has(backup.name)) &&

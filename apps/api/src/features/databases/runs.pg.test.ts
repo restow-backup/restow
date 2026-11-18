@@ -615,6 +615,7 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
       fileName: backup?.fileName,
       sha256: backup?.sha256,
       targetName: run.targetName,
+      engineOptions: {},
     });
     const stored = await runOf(run.id);
     expect(stored?.tokenHash).toBeNull();
@@ -831,6 +832,124 @@ describe.skipIf(!testDatabaseAdminUrl)("database runs through the API against Po
         .set({ executorEndpointId: agentId })
         .where(eq(databaseConnections.id, connectionId));
     }
+  });
+
+  it("records a MySQL agent's backups by the instance's server_uuid and guides its restore [DB-007]", async () => {
+    const [connection] = await fixture.db
+      .insert(databaseConnections)
+      .values({
+        tenantId: fixture.tenantId,
+        name: "Shop",
+        engine: "mysql",
+        host: "10.0.0.6",
+        port: 3306,
+        executorKind: "agent",
+        executorEndpointId: agentId,
+        authMethod: "password",
+        instanceKey: "mysql:3e11fa47-71ca-11e1-9e33-c80aa9429562",
+        schedule: { kind: "interval", intervalMinutes: 60, timeZone: "UTC" },
+      })
+      .returning();
+    const mysqlId = connection?.id as string;
+    const [shop] = await fixture.db
+      .insert(databases)
+      .values({
+        tenantId: fixture.tenantId,
+        connectionId: mysqlId,
+        name: "shop",
+        instanceKey: "mysql:3e11fa47-71ca-11e1-9e33-c80aa9429562",
+      })
+      .returning();
+    const run = await runs.requestBackup(shared.db, fixture.tenantId, shop?.id as string, ctx());
+    const spec = await runs.agentFetchRun(
+      shared.db,
+      agent(),
+      run.id,
+      "https://restow.example.test",
+    );
+    expect(spec.connection.engine).toBe("mysql");
+    // The snapshot the agent wrote, in the MySQL connection's own repository.
+    const savedConnection = connectionId;
+    connectionId = mysqlId;
+    let snapshot: string;
+    try {
+      snapshot = await writeSnapshot({
+        fileName: "mysql/shop.sql",
+        content: Buffer.from("-- MySQL dump\nCREATE TABLE `t` (`id` int);\n"),
+        tags: runTags(run.id),
+      });
+    } finally {
+      connectionId = savedConnection;
+    }
+    await runs.agentFinishRun(shared.db, agent(), run.id, {
+      status: "succeeded",
+      error: null,
+      instance: {
+        serverUuid: "3E11FA47-71CA-11E1-9E33-C80AA9429562",
+        serverVersion: "8.4.3",
+        databases: [{ name: "shop", oid: null }],
+      },
+      backups: [
+        {
+          ...reported({ snapshotId: snapshot, name: "shop" }),
+          oid: null,
+          fileName: "mysql/shop.sql",
+          engineOptions: { characterSet: "utf8mb4", collation: "utf8mb4_0900_ai_ci" },
+        },
+      ],
+      notes: [],
+      targetOid: null,
+    });
+    expect(await runOf(run.id)).toMatchObject({ status: "succeeded" });
+    const [recorded] = await fixture.db
+      .select()
+      .from(databaseBackups)
+      .where(eq(databaseBackups.runId, run.id));
+    expect(recorded).toMatchObject({
+      instanceKey: "mysql:3e11fa47-71ca-11e1-9e33-c80aa9429562",
+      identity: null,
+      engineOptions: { characterSet: "utf8mb4", collation: "utf8mb4_0900_ai_ci" },
+    });
+    const guide = await runs.restoreGuide(
+      shared.db,
+      fixture.tenantId,
+      shop?.id as string,
+      recorded?.id as string,
+    );
+    expect(guide).toContain("sha256sum 'shop.sql'");
+    expect(guide).toMatch(
+      /mysql -e 'CREATE DATABASE `shop_restored_\d{8}_\d{6}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci'/,
+    );
+    expect(guide).toContain("--database='shop_restored_");
+    expect(guide).not.toContain("pg_restore");
+    // A schema name of 64 characters is a MySQL name; 65 is not.
+    await expect(
+      runs.requestRestore(
+        shared.db,
+        fixture.tenantId,
+        shop?.id as string,
+        { backupId: recorded?.id as string, name: "s".repeat(65) },
+        ctx(),
+      ),
+    ).rejects.toMatchObject({ status: 422, type: runs.RUN_PROBLEMS.restoreName });
+    const restore = await runs.requestRestore(
+      shared.db,
+      fixture.tenantId,
+      shop?.id as string,
+      { backupId: recorded?.id as string, name: "ä".repeat(64) },
+      ctx(),
+    );
+    expect(restore.targetName).toBe("ä".repeat(64));
+    const fetched = await runs.agentFetchRun(
+      shared.db,
+      agent(),
+      restore.id,
+      "https://restow.example.test",
+    );
+    expect(fetched.restore?.engineOptions).toEqual({
+      characterSet: "utf8mb4",
+      collation: "utf8mb4_0900_ai_ci",
+    });
   });
 
   it("limits downloads at once, per tenant and in all", () => {

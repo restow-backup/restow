@@ -392,7 +392,7 @@
     "restoreTarget": "Verbindung",
     "restoreName": "Name der neuen Datenbank",
     "restoreNamePlaceholder": "{name}_restored_<Zeit>",
-    "restoreNameHint": "Leer lassen für den Vorschlag. Höchstens 63 Bytes; der Name darf noch nicht vergeben sein.",
+    "restoreNameHint": "Leer lassen für den Vorschlag. PostgreSQL: höchstens 63 Bytes; MySQL und MariaDB: höchstens 64 Zeichen; der Name darf noch nicht vergeben sein.",
     "restoreNameInvalid": "Der Name ist zu lang, enthält Steuerzeichen oder beginnt bzw. endet mit Leerzeichen.",
     "restoreStart": "Wiederherstellen",
     "restoreQueued": "Die Wiederherstellung nach „{name}“ ist eingeplant.",
@@ -402,7 +402,7 @@
     "restoreOtherConnection": "Der Ausführer der Zielverbindung erhält den Inhalt dieser einen Sicherung über {appName}, nicht das Repository der Quellverbindung.",
     "globalsTitle": "Rollen und globale Objekte",
     "globalsDescription": "Die Rollen der Instanz, mit ihren Kennwort-Hashes, soweit der Benutzer sie lesen durfte. Nur für Administratoren; jeder Download wird protokolliert.",
-    "globalsDownload": "globals.sql herunterladen",
+    "globalsDownload": "{file} herunterladen",
     "platformUnsupported": "Sicherung und Wiederherstellung durch einen Agenten unter Windows kommen mit einer späteren Version. Wählen Sie einen Agenten unter Linux oder macOS oder den {appName}-Server als Ausführer."
   }
 }

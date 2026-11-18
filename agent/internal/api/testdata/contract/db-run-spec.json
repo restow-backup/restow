@@ -19,7 +19,8 @@
   "restore": {
     "fileName": "postgresql/app.pgdump",
     "sha256": "9d1f8e0c3b2a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6",
-    "targetName": "app_restored_20261118_100000"
+    "targetName": "app_restored_20261118_100000",
+    "engineOptions": {}
   },
   "maxDurationSeconds": 43200
 }

@@ -185,6 +185,30 @@ describe("the backups of a database [DB-008]", () => {
     expect(buttonByText(document, "Download")).not.toBeNull();
   });
 
+  it("offers backups of MySQL and MariaDB, with their names of 64 characters", async () => {
+    const base = routes([]);
+    rendered = await render(<DatabasePage databaseId="db-1" />, {
+      routes: {
+        ...base,
+        "GET /databases/db-1": () =>
+          json({
+            ...databaseFixture({
+              id: "db-1",
+              name: "app",
+              engine: "mariadb",
+              lastBackupAt: backup.finishedAt,
+            }),
+            connection: connectionFixture({ engine: "mariadb" }),
+          }),
+      },
+    });
+    expect(buttonByText(document, "Back up now")).not.toBeNull();
+    expect(buttonByText(document, "Download users.sql")).not.toBeNull();
+    expect(restoreNameValid("ä".repeat(64), "mariadb")).toBe(true);
+    expect(restoreNameValid("ä".repeat(64), "postgresql")).toBe(false);
+    expect(restoreNameValid("a".repeat(65), "mysql")).toBe(false);
+  });
+
   it("accepts a new name of at most 63 bytes", () => {
     expect(restoreNameValid("a".repeat(63))).toBe(true);
     expect(restoreNameValid("a".repeat(64))).toBe(false);

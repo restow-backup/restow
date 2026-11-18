@@ -42,15 +42,23 @@ import {
 } from "../hooks.js";
 import { problemKey } from "./add-connection-dialog.js";
 
-/** A new database's name: at most 63 bytes, no control characters (docs/DATABASES.md 16 "D3" O3). */
-export function restoreNameValid(name: string): boolean {
-  return (
-    name.length > 0 &&
-    name.trim() === name &&
-    new TextEncoder().encode(name).length <= 63 &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused
-    !/[\u0000-\u001f\u007f]/.test(name)
-  );
+/** The engines with backups and restores (D3 PostgreSQL, D4 MySQL and MariaDB). */
+const BACKUP_ENGINES = new Set(["postgresql", "mysql", "mariadb"]);
+
+/**
+ * A new database's name (docs/DATABASES.md 16 "D3" O3, "D4" M3): no control characters, no outer
+ * blanks; PostgreSQL at most 63 bytes, MySQL and MariaDB 1 to 64 characters of the BMP.
+ */
+export function restoreNameValid(name: string, engine = "postgresql"): boolean {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused
+  if (name.length === 0 || name.trim() !== name || /[\u0000-\u001f\u007f]/.test(name)) {
+    return false;
+  }
+  if (engine === "mysql" || engine === "mariadb") {
+    const chars = [...name];
+    return chars.length <= 64 && chars.every((char) => (char.codePointAt(0) ?? 0) <= 0xffff);
+  }
+  return new TextEncoder().encode(name).length <= 63;
 }
 
 /**
@@ -84,7 +92,9 @@ export function DatabaseBackupsCard({
   const backup = useRequestBackup(databaseId);
   const [restoring, setRestoring] = React.useState<DbBackup | null>(null);
   const [downloadError, setDownloadError] = React.useState<unknown>(null);
-  const supported = engine === "postgresql" && !platformUnsupported;
+  const supported = BACKUP_ENGINES.has(engine) && !platformUnsupported;
+  const mysql = engine === "mysql" || engine === "mariadb";
+  const globalsFile = mysql ? "users.sql" : "globals.sql";
   const download = async (row: DbBackup, kind: "dump" | "guide" | "globals") => {
     setDownloadError(null);
     try {
@@ -100,8 +110,8 @@ export function DatabaseBackupsCard({
           kind === "guide"
             ? `${databaseName}-restore-guide.txt`
             : kind === "globals"
-              ? "globals.sql"
-              : `${databaseName}.pgdump`,
+              ? globalsFile
+              : `${databaseName}.${mysql ? "sql" : "pgdump"}`,
       });
     } catch (error) {
       setDownloadError(error);
@@ -197,7 +207,7 @@ export function DatabaseBackupsCard({
                   <span>{format.dateTime(row.finishedAt)}</span>
                   <Button size="sm" variant="outline" onClick={() => void download(row, "globals")}>
                     <KeyRound aria-hidden="true" />
-                    {t("backups.globalsDownload")}
+                    {t("backups.globalsDownload", { file: globalsFile })}
                   </Button>
                 </li>
               ))}
@@ -245,7 +255,7 @@ function RestoreDialog({
   const targets = (connections.data?.connections ?? []).filter(
     (connection: DbConnection) => connection.engine === engine,
   );
-  const valid = name === "" || restoreNameValid(name);
+  const valid = name === "" || restoreNameValid(name, engine);
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent>

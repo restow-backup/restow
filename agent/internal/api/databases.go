@@ -159,6 +159,14 @@ type DBRunRestore struct {
 	FileName   string `json:"fileName"`
 	SHA256     string `json:"sha256"`
 	TargetName string `json:"targetName"`
+	// EngineOptions are MySQL's and MariaDB's character set and collation of the source schema.
+	EngineOptions DBEngineOptions `json:"engineOptions"`
+}
+
+// DBEngineOptions is what a restore of MySQL or MariaDB needs beyond the dump (16 "D4").
+type DBEngineOptions struct {
+	CharacterSet string `json:"characterSet,omitempty"`
+	Collation    string `json:"collation,omitempty"`
 }
 
 // DBRunSpec is what GET /agent/v1/databases/runs/:runId returns, once.
