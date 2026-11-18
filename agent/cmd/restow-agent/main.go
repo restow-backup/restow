@@ -83,6 +83,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdSnapshotExec(rest, stdout, stderr)
 	case "recover":
 		return cmdRecover(rest, stdout, stderr)
+	case "db-stream":
+		// Hidden: the dump command restic starts for a database backup (D3).
+		return cmdDBStream(rest, stdout, stderr)
 	case "db-probe-peer":
 		// Hidden: the PostgreSQL socket sign-in the agent starts as the database's user.
 		return cmdDBProbePeer(os.Stdin, stdout, stderr)

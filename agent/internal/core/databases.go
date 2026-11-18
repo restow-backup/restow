@@ -3,12 +3,14 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"runtime"
 	"sync"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/dbprobe"
+	"github.com/restow-backup/restow/agent/internal/dbrun"
 )
 
 // The module "Databases" in the engine (docs/DATABASES.md, stage D1): the
@@ -26,6 +28,64 @@ type DBProber interface {
 type DBHealthReporter interface {
 	FetchDBHealth(ctx context.Context, taskID string) (*api.DBHealthPlan, error)
 	ReportDBHealth(ctx context.Context, taskID string, samples []api.DBHealthSample) error
+}
+
+// DBRunReporter is what a Server needs for backup and restore runs (api.Client has it).
+type DBRunReporter interface {
+	FetchDBRun(ctx context.Context, runID string) (*api.DBRunSpec, error)
+	FinishDBRun(ctx context.Context, runID string, finish api.DBRunFinish) error
+}
+
+// dbRunMax bounds one backup or restore run, whatever the server says.
+const dbRunMax = 24 * time.Hour
+
+// runDBRun runs a backup or restore run (docs/DATABASES.md 4.3, 16 "D3"):
+// it fetches the run with its credentials and restic access once, runs it
+// (internal/dbrun: every connection pinned, the programs only through the
+// relay, the password in a PGPASSFILE in memory) and reports the outcome.
+// The credentials stay in this goroutine's memory; a log line names the run
+// and the code only.
+func (a *Agent) runDBRun(ctx context.Context, t api.Task) {
+	var params api.DBRunTaskParams
+	if err := json.Unmarshal(t.Params, &params); err != nil || params.RunID == "" {
+		a.log.Warn("ignoring a database run without a run id", "task", t.ID.String())
+		return
+	}
+	srv, ok := a.d.Server.(DBRunReporter)
+	if !ok || a.d.Restic == nil {
+		a.log.Warn("this agent cannot run database backups", "task", t.ID.String())
+		return
+	}
+	go func() {
+		rctx, cancel := context.WithTimeout(ctx, dbRunMax)
+		defer cancel()
+		spec, err := srv.FetchDBRun(rctx, params.RunID)
+		if err != nil {
+			a.log.Warn("could not fetch the database run", "run", params.RunID, "error", err)
+			return
+		}
+		self, err := os.Executable()
+		if err != nil {
+			self = os.Args[0]
+		}
+		deps := dbrun.Deps{Restic: *a.d.Restic, Self: self}
+		var report api.DBRunFinish
+		if spec.Kind == "restore" {
+			report = dbrun.Restore(rctx, spec, deps)
+		} else {
+			report = dbrun.Backup(rctx, spec, deps)
+		}
+		spec.Connection.User, spec.Connection.Password = nil, nil
+		spec.Repository.Password, spec.Repository.RepositoryPassword = "", ""
+		code := ""
+		if report.Error != nil {
+			code = report.Error.Code
+		}
+		a.log.Info("database run done", "run", params.RunID, "kind", spec.Kind, "status", report.Status, "code", code)
+		if err := srv.FinishDBRun(rctx, params.RunID, report); err != nil {
+			a.log.Warn("could not report the database run", "run", params.RunID, "error", err)
+		}
+	}()
 }
 
 // dbHealthMaxWindow bounds how long one db_health task runs, whatever the

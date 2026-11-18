@@ -109,6 +109,125 @@ type DBHealthSamples struct {
 	Samples []DBHealthSample `json:"samples"`
 }
 
+// TaskDBBackup and TaskDBRestore are a backup or restore run of a database
+// connection (D3, docs/DATABASES.md 4.3): the agent fetches the run once
+// with its credentials and repository access and reports its outcome. They
+// end on delivery.
+const (
+	TaskDBBackup  = "db_backup"
+	TaskDBRestore = "db_restore"
+)
+
+// DBRunTaskParams are the parameters of a db_backup or db_restore task.
+type DBRunTaskParams struct {
+	RunID string `json:"runId"`
+}
+
+// DBRunConnection is the connection a run signs in to (the target's for a restore).
+type DBRunConnection struct {
+	ConnectionID            string  `json:"connectionId"`
+	Engine                  string  `json:"engine"`
+	Host                    *string `json:"host"`
+	Port                    *int    `json:"port"`
+	LoginDatabase           *string `json:"loginDatabase"`
+	AuthMethod              string  `json:"authMethod"`
+	User                    *string `json:"user"`
+	Password                *string `json:"password"`
+	AllowUnencrypted        bool    `json:"allowUnencrypted"`
+	PinnedFingerprintSHA256 *string `json:"pinnedFingerprintSha256"`
+	InstanceKey             *string `json:"instanceKey"`
+	Selection               struct {
+		Mode    string   `json:"mode"`
+		Names   []string `json:"names"`
+		Exclude []string `json:"exclude"`
+	} `json:"selection"`
+}
+
+// DBRunRepository is the restic access of a run: the connection's
+// repository through the run's own REST credential.
+type DBRunRepository struct {
+	URL                string `json:"url"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	RepositoryPassword string `json:"repositoryPassword"`
+}
+
+// DBRunRestore is what a restore run plays back, and under which name.
+type DBRunRestore struct {
+	SnapshotID string `json:"snapshotId"`
+	FileName   string `json:"fileName"`
+	SHA256     string `json:"sha256"`
+	TargetName string `json:"targetName"`
+}
+
+// DBRunSpec is what GET /agent/v1/databases/runs/:runId returns, once.
+type DBRunSpec struct {
+	RunID              string          `json:"runId"`
+	Kind               string          `json:"kind"`
+	Connection         DBRunConnection `json:"connection"`
+	Repository         DBRunRepository `json:"repository"`
+	Restore            *DBRunRestore   `json:"restore"`
+	MaxDurationSeconds int             `json:"maxDurationSeconds"`
+}
+
+// DBRunInstance is what a run found of the instance.
+type DBRunInstance struct {
+	SystemIdentifier string `json:"systemIdentifier"`
+	ServerVersion    string `json:"serverVersion"`
+	Databases        []struct {
+		Name string `json:"name"`
+		OID  string `json:"oid"`
+	} `json:"databases"`
+}
+
+// DBRunBackup is one snapshot a backup run wrote.
+type DBRunBackup struct {
+	Kind        string         `json:"kind"`
+	Name        string         `json:"name"`
+	OID         *string        `json:"oid"`
+	SnapshotID  string         `json:"snapshotId"`
+	FileName    string         `json:"fileName"`
+	SHA256      string         `json:"sha256"`
+	Bytes       int64          `json:"bytes"`
+	Objects     map[string]int `json:"objects"`
+	StartedAt   time.Time      `json:"startedAt"`
+	FinishedAt  time.Time      `json:"finishedAt"`
+	ToolVersion *string        `json:"toolVersion"`
+}
+
+// DBRunFinish is the body of POST /agent/v1/databases/runs/:runId/finish.
+type DBRunFinish struct {
+	Status    string           `json:"status"`
+	Error     *DBProbeError    `json:"error"`
+	Instance  *DBRunInstance   `json:"instance"`
+	Backups   []DBRunBackup    `json:"backups"`
+	Notes     []map[string]any `json:"notes"`
+	TargetOID *string          `json:"targetOid"`
+}
+
+// FetchDBRun fetches a run with its credentials; the server hands them out once.
+func (c *Client) FetchDBRun(ctx context.Context, runID string) (*DBRunSpec, error) {
+	var out DBRunSpec
+	once := RetryPolicy{MaxAttempts: 2, BaseDelay: time.Second, MaxDelay: 5 * time.Second}
+	if err := c.do(ctx, call{method: http.MethodGet, path: "/agent/v1/databases/runs/" + url.PathEscape(runID), out: &out, retry: &once}); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FinishDBRun reports a run's outcome.
+func (c *Client) FinishDBRun(ctx context.Context, runID string, finish DBRunFinish) error {
+	retry := RetryPolicy{MaxAttempts: 5, BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second}
+	if finish.Backups == nil {
+		finish.Backups = []DBRunBackup{}
+	}
+	if finish.Notes == nil {
+		finish.Notes = []map[string]any{}
+	}
+	return c.do(ctx, call{method: http.MethodPost, path: "/agent/v1/databases/runs/" + url.PathEscape(runID) + "/finish",
+		body: finish, retry: &retry, idempotent: true, tolerate: []int{http.StatusNotFound}})
+}
+
 // TaskDBProbe is a connection test: the agent fetches the probe (with its
 // credentials, once), runs it and posts the facts. It ends on delivery.
 const TaskDBProbe = "db_probe"

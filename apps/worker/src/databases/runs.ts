@@ -779,7 +779,10 @@ async function serverBackup(
           serverVersion: facts.serverVersion,
         });
         notes.push({ globals: true, result: "backed_up", rolePasswords: facts.rolePasswords });
+        done++;
       } catch (error) {
+        // The instance's roles count like a database: without them the run is not whole.
+        failed++;
         notes.push({
           globals: true,
           result: "failed",
@@ -798,7 +801,7 @@ async function serverBackup(
   await finishRun(deps, run, {
     status,
     errorCode: status === "succeeded" ? null : "db_dump_failed",
-    errorMessage: status === "succeeded" ? null : `${failed} of ${wanted.length} databases failed.`,
+    errorMessage: status === "succeeded" ? null : `${failed} of ${wanted.length + 1} dumps failed.`,
     notes,
   });
 }

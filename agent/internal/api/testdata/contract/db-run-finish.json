@@ -1,0 +1,45 @@
+{
+  "status": "partial",
+  "error": { "code": "db_dump_failed", "message": "1 of 3 dumps failed" },
+  "instance": {
+    "systemIdentifier": "7300000000000000042",
+    "serverVersion": "16.4",
+    "databases": [
+      { "name": "app", "oid": "16384" },
+      { "name": "shop", "oid": "16390" }
+    ]
+  },
+  "backups": [
+    {
+      "kind": "database",
+      "name": "app",
+      "oid": "16384",
+      "snapshotId": "4f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e",
+      "fileName": "postgresql/app.pgdump",
+      "sha256": "9d1f8e0c3b2a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6",
+      "bytes": 81920,
+      "objects": { "TABLE": 2, "TABLE DATA": 2, "VIEW": 1 },
+      "startedAt": "2026-11-18T10:00:00Z",
+      "finishedAt": "2026-11-18T10:00:05Z",
+      "toolVersion": "16"
+    },
+    {
+      "kind": "globals",
+      "name": "",
+      "oid": null,
+      "snapshotId": "5a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f",
+      "fileName": "postgresql/globals.sql",
+      "sha256": "0e2f9e1d4c3b5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7",
+      "bytes": 2048,
+      "objects": {},
+      "startedAt": "2026-11-18T10:00:06Z",
+      "finishedAt": "2026-11-18T10:00:07Z",
+      "toolVersion": "16"
+    }
+  ],
+  "notes": [
+    { "database": "app", "result": "backed_up", "snapshotId": "4f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e" },
+    { "code": "db_dump_failed", "database": "shop", "message": "pg_dump: error: query failed", "result": "failed" }
+  ],
+  "targetOid": null
+}

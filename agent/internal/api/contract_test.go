@@ -91,6 +91,9 @@ func TestContractFixturesRoundTrip(t *testing.T) {
 		// D2: the health checks of a db_health task and what the agent posts.
 		{"db-health-plan.json", func() any { return &DBHealthPlan{} }, false},
 		{"db-health-samples.json", func() any { return &DBHealthSamples{} }, false},
+		// D3: a backup or restore run, once with its credentials, and its report.
+		{"db-run-spec.json", func() any { return &DBRunSpec{} }, false},
+		{"db-run-finish.json", func() any { return &DBRunFinish{} }, false},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -111,6 +114,7 @@ func TestContractTasks(t *testing.T) {
 		{"task-sql-restore.json", TaskSQLRestore, func() any { return &SQLRestoreParams{} }},
 		{"task-db-probe.json", TaskDBProbe, func() any { return &DBProbeTaskParams{} }},
 		{"task-db-health.json", TaskDBHealth, func() any { return &DBHealthTaskParams{} }},
+		{"task-db-backup.json", TaskDBBackup, func() any { return &DBRunTaskParams{} }},
 	} {
 		t.Run(c.file, func(t *testing.T) {
 			raw := readFixture(t, c.file)

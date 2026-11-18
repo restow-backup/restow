@@ -838,6 +838,10 @@ func (a *Agent) dispatchTasks(ctx context.Context, tasks []api.Task) {
 		case api.TaskDBProbe:
 			// Ends on delivery; the result goes to the probe, not into a run.
 			a.runDBProbe(ctx, t)
+		case api.TaskDBBackup, api.TaskDBRestore:
+			// Ends on delivery; the run fetches its credentials once and
+			// reports to the database run (D3), beside a running backup.
+			a.runDBRun(ctx, t)
 		case api.TaskSQLInventory:
 			// Ends on delivery (like update_config); the inventory goes out with
 			// the next heartbeat once it is collected.

@@ -1221,7 +1221,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Zugangsdaten einer Datenbank liegen nur verschlüsselt auf dem Server und erscheinen in keiner API-Antwort und keinem Fehlertext; Fehlertexte der Clients werden vor dem Speichern um URL, Benutzer und Kennwort bereinigt.
 - Fundstelle: docs/DATABASES.md (Abschnitt 3.2 "Zugangsdaten", Abschnitt 10, Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go, packages/core/src/databases/relay.test.ts, apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts
+- Tests: packages/core/src/databases/sanitize.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/health.pg.test.ts, agent/internal/dbprobe/probe_test.go, packages/core/src/databases/relay.test.ts, apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts, agent/internal/dbrun/relay_test.go
 - Belegt gegen: beides (PostgreSQL 16 echt, Job test in ci.yml: Geheimnisspeicher, Antworten, Audit-Log, gespeicherte Prüfungen und Healthchecks; MySQL als Simulator)
 - Stand: belegt
 - Hinweis: "keine Kommandozeile" gilt mit den Dump-Programmen ab Stufe D3 und wird dort belegt.
@@ -1230,7 +1230,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Der Restow-Server verbindet sich als Ausführer nur mit öffentlichen Adressen und mit Adressen in privaten Netzen, die ein Provider-Admin freigegeben hat (oder die Installation mit `RESTOW_DB_ALLOW_PRIVATE_NETWORKS=true`); link-local und reservierte Adressen (Cloud-Metadaten) nie, eine öffentliche Adresse nie ohne TLS.
 - Fundstelle: docs/DATABASES.md (Abschnitt 4.2 "Restow-Server", Abschnitt 3.2 "TLS", Abschnitt 12)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/databases/network.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/limits.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/own-database.test.ts, packages/core/src/databases/own-database.test.ts, agent/internal/dbprobe/limits_test.go, packages/core/src/databases/relay.test.ts, packages/core/src/databases/relay.pg.test.ts
+- Tests: packages/core/src/databases/network.test.ts, packages/core/src/databases/probe/probe.test.ts, packages/core/src/databases/probe/limits.test.ts, packages/core/src/databases/probe/postgres.pg.test.ts, apps/api/src/features/databases/databases.pg.test.ts, apps/api/src/features/databases/own-database.test.ts, packages/core/src/databases/own-database.test.ts, agent/internal/dbprobe/limits_test.go, packages/core/src/databases/relay.test.ts, packages/core/src/databases/relay.pg.test.ts, agent/internal/dbrun/relay_test.go
 - Belegt gegen: Logik (Einheitentests der Regel und des Sockets) und echtes System (PostgreSQL 16, Job test in ci.yml: Freigabe des Provider-Admins beim Speichern, auditiert)
 - Stand: belegt
 
@@ -1255,7 +1255,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Ein abgebrochener oder fehlgeschlagener Dump wird nie zu einer Sicherung: restic legt mit `--stdin-from-command` keinen Snapshot an, wenn das Dump-Programm mit einem Fehler endet, und der Lauf meldet die Datenbank als fehlgeschlagen.
 - Fundstelle: docs/DATABASES.md (Abschnitt 5.1, Abschnitt 12, Abschnitt 16 "D3")
 - Öffentliche Seite: nicht abgeglichen
-- Tests: apps/worker/src/databases/runs.pg.test.ts
+- Tests: apps/worker/src/databases/runs.pg.test.ts, agent/internal/dbrun/run_pg_test.go
 - Belegt gegen: beides (restic 0.19.1 echt, PostgreSQL 16 echt mit TLS, Job test in ci.yml; das Dump-Programm, das mittendrin abbricht, ist ein Skript, das einen Teil eines Archivs schreibt und mit Fehler endet)
 - Stand: belegt
 
@@ -1263,7 +1263,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Der Restow-Server sichert jede ausgewählte PostgreSQL-Datenbank einer Verbindung als eigenen restic-Snapshot im Repository der Verbindung, mit SHA-256, Größe und Objektzählung, dazu einmal je Instanz die Rollen und Tablespaces; die Programme erreichen den Server nur über das Relais mit dem bestätigten Zertifikat.
 - Fundstelle: docs/DATABASES.md (Abschnitte 4.3, 4.4, 5.1, 5.2, 16 "D3")
 - Öffentliche Seite: nicht abgeglichen
-- Tests: apps/worker/src/databases/runs.pg.test.ts
+- Tests: apps/worker/src/databases/runs.pg.test.ts, agent/internal/dbrun/run_pg_test.go, apps/api/src/features/databases/runs-contract.test.ts
 - Belegt gegen: beides (PostgreSQL 16 echt mit TLS und pg_dump 16, restic 0.19.1 echt auf einem lokalen Speicherziel, Job test in ci.yml)
 - Stand: belegt
 
