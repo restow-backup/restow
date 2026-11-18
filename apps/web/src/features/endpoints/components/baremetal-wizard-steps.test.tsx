@@ -34,6 +34,11 @@ vi.mock("./recovery-code-dialog.js", () => ({
   ),
   typedAddress: (value: string) => value,
 }));
+vi.mock("./oneshot.js", () => ({
+  OneshotDialog: ({ snapshotId }: { snapshotId?: string }) => (
+    <div data-slot="oneshot-dialog-mock" data-snapshot={snapshotId} />
+  ),
+}));
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const RECOVERY = "22222222-2222-4222-8222-222222222222";
@@ -75,6 +80,7 @@ const bios: ReplacementHardware = { ...uefi, firmwareMode: "bios", biosNeedsCsm:
 const state = {
   iso: {} as RecoveryIso,
   recovery: null as Record<string, unknown> | null,
+  oneshot: false,
 };
 
 const baremetal: Baremetal = {
@@ -140,6 +146,10 @@ vi.mock("../api.js", async (importOriginal) => {
     fetchRecoveries: async () =>
       state.recovery ? [{ id: RECOVERY, status: state.recovery.status }] : [],
     fetchRecovery: async () => state.recovery,
+    fetchEndpointCapabilities: async () => ({
+      baremetalPreview: true,
+      baremetalOneshot: state.oneshot,
+    }),
   };
 });
 
@@ -240,6 +250,31 @@ describe("the bare metal wizard (docs/BAREMETAL.md 14.6)", () => {
     expect(document.querySelector('[data-slot="code-dialog"]')?.getAttribute("data-snapshot")).toBe(
       NEW,
     );
+  });
+
+  it("offers the way onto a fresh machine only when the installation switched it on", async () => {
+    state.iso = iso();
+    state.recovery = null;
+    state.oneshot = false;
+    page = mount();
+    await page.render(<BaremetalWizardPage endpointId={ID} />);
+    await page.settle();
+    expect(document.querySelector('[data-action="open-recovery-code"]')).not.toBeNull();
+    expect(document.querySelector('[data-action="open-oneshot"]')).toBeNull();
+    page.unmount();
+
+    state.oneshot = true;
+    page = mount();
+    await page.render(<BaremetalWizardPage endpointId={ID} />);
+    await page.settle();
+    expect(document.querySelector('[data-action="open-oneshot"]')?.textContent).toContain(
+      "Onto a fresh machine (link)",
+    );
+    expect(page.text()).toContain("Windows servers cannot be restored this way.");
+    expect(
+      document.querySelector('[data-slot="oneshot-dialog-mock"]')?.getAttribute("data-snapshot"),
+    ).toBe(OLD);
+    state.oneshot = false;
   });
 
   it("says where the ISO comes from and links the GPL sources and the firmware licences", async () => {

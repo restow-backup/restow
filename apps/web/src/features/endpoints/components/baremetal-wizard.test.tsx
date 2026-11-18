@@ -57,6 +57,7 @@ vi.mock("../api.js", async (importOriginal) => {
       commands: { linux: [], macos: [], windows: [] },
     }),
     fetchRecoveries: () => recoveries(),
+    fetchEndpointCapabilities: async () => ({ baremetalPreview: true, baremetalOneshot: true }),
   };
 });
 
