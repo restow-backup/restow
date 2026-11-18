@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,11 +70,11 @@ func (s *session) mysqlAdmin(ctx context.Context, d Deps) (*dbprobe.MysqlSession
 }
 
 func (s *session) mysqlRelay(ctx context.Context, d Deps, max time.Duration) (*Relay, error) {
-	p, err := dbprobe.OpenPinnedMysql(ctx, s.target, s.spec.Connection.Engine, connectTimeout, d.Dial)
-	if err != nil {
-		return nil, err
+	target, engine := s.target, s.spec.Connection.Engine
+	open := func(ctx context.Context) (*dbprobe.PinnedMysql, error) {
+		return dbprobe.OpenPinnedMysql(ctx, target, engine, connectTimeout, d.Dial)
 	}
-	return OpenMysqlRelay(ctx, p, RelayOptions{MaxDuration: max})
+	return OpenMysqlRelay(ctx, open, RelayOptions{MaxDuration: max})
 }
 
 func readMysqlFacts(ms *dbprobe.MysqlSession, engine string) (*mysqlFacts, error) {
@@ -431,7 +432,7 @@ func restoreMysql(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFin
 		return fail(err, "db_restore_failed")
 	}
 	ms.Close()
-	removed, err := restoreMysqlInto(ctx, s, d, spec, f, name)
+	removed, _, err := restoreMysqlInto(ctx, s, d, spec, f, name)
 	if err != nil {
 		if cleanup, cerr := s.mysqlAdmin(ctx, d); cerr == nil {
 			dropOwnSchema(cleanup, name, marker)
@@ -454,10 +455,28 @@ func restoreMysql(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFin
 			}
 		}
 	}
+	definerRights := countDefinerRights(after, name)
 	_, _ = after.Query("DROP TABLE " + MysqlQuoteIdent(name) + "." + MysqlQuoteIdent(marker))
-	out.Notes = append(out.Notes, map[string]any{"result": "restored", "definersRemoved": removed, "eventsDisabled": disabled})
+	// definerRights: routines and views with SQL SECURITY DEFINER, triggers
+	// and events, which run with the rights of the user who restored.
+	out.Notes = append(out.Notes, map[string]any{"result": "restored", "definersRemoved": removed, "eventsDisabled": disabled, "definerRights": definerRights})
 	out.Status = "succeeded"
 	return out
+}
+
+// countDefinerRights is how many objects of the schema name run with their
+// definer's rights (core countDefinerRights): compared through DATABASE(),
+// never a literal.
+func countDefinerRights(ms *dbprobe.MysqlSession, name string) int {
+	if _, err := ms.Query("USE " + MysqlQuoteIdent(name)); err != nil {
+		return 0
+	}
+	rows, err := ms.Query("SELECT (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND SECURITY_TYPE = 'DEFINER') + (SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE() AND SECURITY_TYPE = 'DEFINER') + (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()) + (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE())")
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(cellOr(rows, 0, 0))
+	return n
 }
 
 // dropOwnSchema drops name only while it holds the run's marker table.
@@ -468,21 +487,21 @@ func dropOwnSchema(ms *dbprobe.MysqlSession, name, marker string) {
 	_, _ = ms.Query("DROP DATABASE " + MysqlQuoteIdent(name))
 }
 
-func restoreMysqlInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSpec, f *mysqlFacts, name string) (int, error) {
+func restoreMysqlInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSpec, f *mysqlFacts, name string) (int, int, error) {
 	dirs := d.ToolDirs
 	if dirs == nil {
 		dirs = MysqlToolDirs()
 	}
 	tools, err := ChooseMysqlTools(ctx, spec.Connection.Engine, f.major, f.minor, dirs, d.Trusted)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if d.ReadDump == nil {
-		return 0, failf("db_restore_failed", "the agent cannot read the dump from the server")
+		return 0, 0, failf("db_restore_failed", "the agent cannot read the dump from the server")
 	}
 	tmp, err := PrivateDir("", "restow-db-restore-")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer os.RemoveAll(tmp)
 	max := time.Duration(spec.MaxDurationSeconds) * time.Second
@@ -491,15 +510,15 @@ func restoreMysqlInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSp
 	}
 	rl, err := s.mysqlRelay(ctx, d, max)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer rl.Close()
 	opt, err := WriteMysqlOptionFile(tmp, s.user, deref(s.pass), rl.Path)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if err := recheck(d.Trusted, tools.Client); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	cmd := exec.CommandContext(ctx, tools.Client, MysqlRestoreArgs(opt, name)...) // #nosec G204 -- fixed argument lists
 	cmd.Env = MysqlToolEnv(tmp)
@@ -508,32 +527,39 @@ func restoreMysqlInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSp
 	cmd.Stderr = errs
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if err := cmd.Start(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	hash := sha256.New()
 	filter := &definerFilter{w: ignoreClosed{stdin}, s: NewMysqlDumpScanner(true)}
 	dumpErr := d.ReadDump(ctx, io.MultiWriter(hash, filter))
 	_ = filter.Close()
+	if filter.s.Failure != "" {
+		// Killed before its input ends: the client runs nothing it still holds.
+		_ = cmd.Process.Kill()
+		_ = stdin.Close()
+		_ = cmd.Wait()
+		return 0, 0, failf("db_restore_unchecked", "%s", filter.s.Failure)
+	}
 	_ = stdin.Close()
 	waitErr := cmd.Wait()
 	if dumpErr != nil {
-		return 0, failf("db_restore_failed", "the backup could not be read: %v", dumpErr)
+		return 0, 0, failf("db_restore_failed", "the backup could not be read: %v", dumpErr)
 	}
 	if hex.EncodeToString(hash.Sum(nil)) != spec.Restore.SHA256 {
-		return 0, failf("db_backup_mismatch", "the backup's SHA-256 differs from the one recorded")
+		return 0, 0, failf("db_backup_mismatch", "the backup's SHA-256 differs from the one recorded")
 	}
 	if waitErr != nil {
 		if ferr := rl.Failure(); ferr != nil {
-			return 0, ferr
+			return 0, 0, ferr
 		}
 		msg := errs.String()
 		if msg == "" {
 			msg = waitErr.Error()
 		}
-		return 0, failf(MysqlClientFailureCode(msg), "%s", msg)
+		return 0, 0, failf(MysqlClientFailureCode(msg), "%s", msg)
 	}
-	return filter.s.DefinersRemoved, nil
+	return filter.s.DefinersRemoved, filter.s.EventsDisabled, nil
 }

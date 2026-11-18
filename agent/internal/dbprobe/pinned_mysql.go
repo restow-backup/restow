@@ -67,9 +67,6 @@ func OpenPinnedMysql(ctx context.Context, target PinnedTarget, engine string, ti
 // Greeting is the server's greeting as it sent it.
 func (p *PinnedMysql) Greeting() []byte { return p.g.raw }
 
-// Scramble is the greeting's scramble; Plugin its sign-in method.
-func (p *PinnedMysql) Scramble() []byte { return p.g.scramble }
-
 // Plugin is the greeting's sign-in method.
 func (p *PinnedMysql) Plugin() string { return p.g.plugin }
 
@@ -161,14 +158,4 @@ func MysqlPacket(seq byte, payload []byte) []byte {
 	out[0], out[1], out[2], out[3] = byte(n), byte(n>>8), byte(n>>16), seq
 	copy(out[4:], payload)
 	return out
-}
-
-// MysqlRSAPassword encrypts the password (with its NUL) for caching_sha2's
-// full sign-in without TLS, as the D1 client does.
-func MysqlRSAPassword(pemKey []byte, passwordWithNul []byte, scramble []byte) ([]byte, error) {
-	pw := string(passwordWithNul)
-	if len(pw) > 0 && pw[len(pw)-1] == 0 {
-		pw = pw[:len(pw)-1]
-	}
-	return encryptPassword(pemKey, pw, scramble)
 }

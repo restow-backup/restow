@@ -183,6 +183,10 @@ func MysqlOptionFile(user, password, socket string) string {
 	}
 	b.WriteString("socket=" + MysqlOptionValue(socket) + "\n")
 	b.WriteString("protocol=SOCKET\n")
+	// No LOAD DATA LOCAL: the client (mysql, mariadb, both read [mysql]) never
+	// sends a local file. The dump programs have no such option and refuse a
+	// server's request for one.
+	b.WriteString("[mysql]\nlocal-infile=0\n")
 	return b.String()
 }
 

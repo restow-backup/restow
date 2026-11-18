@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -196,7 +197,12 @@ func TestAgentBacksUpAndRestoresIntoANewDatabase(t *testing.T) {
 	mismatch.Connection.User, mismatch.Connection.Password = &oldStrings, &oldPass
 	broken := `restow_d3_agent_b\'d_` + s
 	defer env.exec(t, "postgres", "DROP DATABASE IF EXISTS "+QuoteIdent(broken)+" WITH (FORCE)")
-	mismatch.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: dump.SHA256[:63] + "0", TargetName: broken}
+	// Never the recorded one, whatever its last digit.
+	wrong := strings.Repeat("0", 64)
+	if dump.SHA256 == wrong {
+		wrong = strings.Repeat("1", 64)
+	}
+	mismatch.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: wrong, TargetName: broken}
 	if r := Restore(context.Background(), &mismatch, deps); r.Error == nil || r.Error.Code != "db_backup_mismatch" || r.TargetOID == nil {
 		t.Fatalf("mismatch: %+v", r.Error)
 	}

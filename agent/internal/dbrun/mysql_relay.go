@@ -14,13 +14,18 @@ import (
 )
 
 // The relay of MySQL and MariaDB (16 "D4" M1), like packages/core
-// databases/relay.ts openMysqlRelay: the program gets the original greeting
-// without the TLS and compression flags; its login decides the SSLRequest
-// (the server keeps those capabilities), then TLS and the certificate check,
-// then the login with a new sequence number. Until the server's OK or error
-// every packet gets a new sequence number either way; without TLS upstream
-// the relay does caching_sha2_password's RSA step itself and ends before any
-// method that would send the password readable (db_auth_unsupported).
+// databases/relay.ts openMysqlRelay: the server is connected only once the
+// program has connected to the socket (a server ends a connection that does
+// not sign in within its connect_timeout); the program gets the original
+// greeting without the TLS, compression and local-file flags; its login
+// decides the SSLRequest (the server keeps those capabilities), then TLS and
+// the certificate check, then the login with a new sequence number and
+// without local files. Until the server's OK or error every packet gets a new
+// sequence number either way. Without TLS upstream the relay ends before any
+// method that would send the password readable (db_auth_unsupported) and
+// before the full step of caching_sha2_password (db_tls_missing): like the
+// official client without --get-server-public-key, it does not fetch the
+// server's RSA key over an unencrypted connection.
 
 // MysqlRelaySocket is the socket's file in the relay's folder.
 const MysqlRelaySocket = "mysqld.sock"
@@ -28,6 +33,7 @@ const MysqlRelaySocket = "mysqld.sock"
 const (
 	myClientConnectWithDB = 0x8
 	myClientCompress      = 0x20
+	myClientLocalFiles    = 0x80
 	myClientSSL           = 0x800
 	myClientSecure        = 0x8000
 	myClientPluginAuth    = 0x80000
@@ -41,15 +47,12 @@ type mysqlFilter struct {
 	mu            sync.Mutex
 	greeting      []byte
 	upstreamTLS   bool
-	scramble      []byte
 	plugin        string
 	clientPending []byte
 	serverPending []byte
 	serverSeq     byte
 	clientSeq     byte
 	finished      bool
-	rsa           int // 0 none, 1 waiting for the password, 2 waiting for the key
-	rsaPassword   []byte
 }
 
 func takeMysqlPacket(b []byte) (seq byte, payload, rest []byte, ok bool, tooLarge bool) {
@@ -72,7 +75,7 @@ func (f *mysqlFilter) greetingForClient() []byte {
 	if end >= 0 {
 		lower := 1 + end + 1 + 4 + 8 + 1
 		if len(p) >= lower+2 {
-			caps := binary.LittleEndian.Uint16(p[lower:]) &^ uint16(myClientSSL|myClientCompress)
+			caps := binary.LittleEndian.Uint16(p[lower:]) &^ uint16(myClientSSL|myClientCompress|myClientLocalFiles)
 			binary.LittleEndian.PutUint16(p[lower:], caps)
 			upper := lower + 2 + 1 + 2
 			if len(p) >= upper+2 {
@@ -150,7 +153,7 @@ func (f *mysqlFilter) login(payload []byte) (sslRequest, toServer []byte, err er
 		return nil, nil, failf("db_probe_failed", "the program asked for TLS on the relay's local socket")
 	}
 	l := append([]byte(nil), payload...)
-	caps := binary.LittleEndian.Uint32(l) &^ uint32(myClientCompress|myClientZstd)
+	caps := binary.LittleEndian.Uint32(l) &^ uint32(myClientCompress|myClientZstd|myClientLocalFiles)
 	if f.upstreamTLS {
 		caps |= myClientSSL
 	} else {
@@ -185,31 +188,23 @@ func (f *mysqlFilter) fromClient(chunk []byte) (toServer []byte, done bool, err 
 		}
 		f.clientPending = rest
 		f.clientSeq = seq
-		if f.rsa == 1 {
-			// The program's password for the full caching_sha2 step: never sent on readable.
-			f.rsaPassword = append([]byte(nil), payload...)
-			f.rsa = 2
-			toServer = append(toServer, dbprobe.MysqlPacket(f.serverSeq, []byte{0x02})...)
-			f.serverSeq++
-			continue
-		}
 		toServer = append(toServer, dbprobe.MysqlPacket(f.serverSeq, payload)...)
 		f.serverSeq++
 	}
 	return toServer, false, nil
 }
 
-func (f *mysqlFilter) fromServer(chunk []byte) (toServer, toClient []byte, done bool, err error) {
+func (f *mysqlFilter) fromServer(chunk []byte) (toClient []byte, done bool, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.finished {
-		return nil, chunk, true, nil
+		return chunk, true, nil
 	}
 	f.serverPending = append(f.serverPending, chunk...)
 	for {
 		seq, payload, rest, ok, tooLarge := takeMysqlPacket(f.serverPending)
 		if tooLarge {
-			return nil, nil, false, failf("db_probe_failed", "the server sent a packet too large for a sign-in")
+			return nil, false, failf("db_probe_failed", "the server sent a packet too large for a sign-in")
 		}
 		if !ok {
 			break
@@ -220,27 +215,6 @@ func (f *mysqlFilter) fromServer(chunk []byte) (toServer, toClient []byte, done 
 		if len(payload) > 0 {
 			head = int(payload[0])
 		}
-		if f.rsa == 2 {
-			if head != 0x01 {
-				return nil, nil, false, failf("db_login_failed", "the server did not send its RSA key")
-			}
-			key := payload[1:]
-			if len(key) > 16<<10 {
-				key = key[:16<<10]
-			}
-			sealed, serr := dbprobe.MysqlRSAPassword(key, f.rsaPassword, f.scramble)
-			for i := range f.rsaPassword {
-				f.rsaPassword[i] = 0
-			}
-			f.rsaPassword = nil
-			if serr != nil {
-				return nil, nil, false, failf("db_login_failed", "the server's RSA key could not be used")
-			}
-			toServer = append(toServer, dbprobe.MysqlPacket(f.serverSeq, sealed)...)
-			f.serverSeq++
-			f.rsa = 0
-			continue
-		}
 		switch {
 		case head == 0xfe && len(payload) > 1:
 			rest := payload[1:]
@@ -249,19 +223,11 @@ func (f *mysqlFilter) fromServer(chunk []byte) (toServer, toClient []byte, done 
 				end = len(rest)
 			}
 			f.plugin = string(rest[:end])
-			data := []byte{}
-			if end < len(rest) {
-				data = rest[end+1:]
-			}
-			if len(data) > 20 {
-				data = data[:20]
-			}
-			f.scramble = append([]byte(nil), data...)
 			if !f.upstreamTLS && !mysqlPlainSafe[f.plugin] {
-				return nil, nil, false, failf("db_auth_unsupported", "the server asks for the sign-in method %s, which sends the password readable; the connection has no TLS", f.plugin)
+				return nil, false, failf("db_auth_unsupported", "the server asks for the sign-in method %s, which sends the password readable; the connection has no TLS", f.plugin)
 			}
 		case head == 0x01 && len(payload) >= 2 && f.plugin == "caching_sha2_password" && payload[1] == 0x04 && !f.upstreamTLS:
-			f.rsa = 1
+			return nil, false, failf("db_tls_missing", "caching_sha2_password asks for the full sign-in, which sends the password: only over TLS. Turn TLS on at the server, or let the user sign in once over TLS so that the server caches the password.")
 		}
 		f.clientSeq++
 		toClient = append(toClient, dbprobe.MysqlPacket(f.clientSeq, payload)...)
@@ -272,7 +238,7 @@ func (f *mysqlFilter) fromServer(chunk []byte) (toServer, toClient []byte, done 
 			break
 		}
 	}
-	return toServer, toClient, f.finished, nil
+	return toClient, f.finished, nil
 }
 
 // pumpMysql copies src to the other side through the MySQL filter until the
@@ -289,7 +255,7 @@ func (r *Relay) pumpMysql(src, upstream, client net.Conn, count *atomic.Int64, f
 			if fromClient {
 				toServer, _, ferr = r.mysql.fromClient(buf[:n])
 			} else {
-				toServer, toClient, _, ferr = r.mysql.fromServer(buf[:n])
+				toClient, _, ferr = r.mysql.fromServer(buf[:n])
 			}
 			if ferr != nil {
 				r.mu.Lock()
@@ -315,9 +281,10 @@ func (r *Relay) pumpMysql(src, upstream, client net.Conn, count *atomic.Int64, f
 	}
 }
 
-// OpenMysqlRelay starts the relay over a pinned MySQL connection (its TLS
-// waits for the program's login).
-func OpenMysqlRelay(ctx context.Context, pinned *dbprobe.PinnedMysql, o RelayOptions) (*Relay, error) {
+// OpenMysqlRelay starts the relay. open connects the server (address rules,
+// engine, TLS offered) once the program has connected; what refuses it ends
+// the relay with that failure. The TLS waits for the program's login.
+func OpenMysqlRelay(ctx context.Context, open func(context.Context) (*dbprobe.PinnedMysql, error), o RelayOptions) (*Relay, error) {
 	if o.Idle <= 0 {
 		o.Idle = 10 * time.Minute
 	}
@@ -326,18 +293,22 @@ func OpenMysqlRelay(ctx context.Context, pinned *dbprobe.PinnedMysql, o RelayOpt
 	}
 	dir, path, ln, err := listen(o.BaseDir, MysqlRelaySocket)
 	if err != nil {
-		pinned.Close()
 		return nil, err
 	}
-	f := &mysqlFilter{greeting: pinned.Greeting(), upstreamTLS: pinned.TLSOffered, scramble: pinned.Scramble(), plugin: pinned.Plugin(), serverSeq: 1}
-	if f.plugin == "" {
-		f.plugin = "mysql_native_password"
-	}
-	if f.upstreamTLS {
-		f.serverSeq = 2
-	}
-	r := &Relay{Dir: dir, Path: path, ln: ln, done: make(chan struct{}), mysql: f}
+	r := &Relay{Dir: dir, Path: path, ln: ln, done: make(chan struct{})}
 	r.begin = func(client net.Conn) (net.Conn, error) {
+		pinned, err := open(ctx)
+		if err != nil {
+			return nil, err
+		}
+		f := &mysqlFilter{greeting: pinned.Greeting(), upstreamTLS: pinned.TLSOffered, plugin: pinned.Plugin(), serverSeq: 1}
+		if f.plugin == "" {
+			f.plugin = "mysql_native_password"
+		}
+		if f.upstreamTLS {
+			f.serverSeq = 2
+		}
+		r.mysql = f
 		if _, err := client.Write(f.greetingForClient()); err != nil {
 			pinned.Close()
 			return nil, err

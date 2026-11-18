@@ -2,6 +2,7 @@ package dbrun
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"regexp"
 	"strings"
@@ -13,7 +14,9 @@ import (
 // up to 64 KiB, is looked at; an INSERT or any other line passes as it
 // comes); it knows where a statement starts, so a line inside the body of a
 // routine never counts. It counts the objects and, for a restore, removes the
-// DEFINER clause from exactly the header forms the dump programs write.
+// DEFINER clause from exactly the header forms the dump programs write and
+// sets every event header to DISABLE. A header longer than it looks at is
+// rewritten within its first bytes, or the restore stops (Failure).
 
 const (
 	scanHeadMax     = 64 << 10
@@ -33,7 +36,84 @@ var (
 	scanViewStart      = regexp.MustCompile(`^/\*!50001 CREATE ALGORITHM=`)
 	scanViewDefiner    = regexp.MustCompile(`^/\*!50013 ` + scanDefiner + ` SQL SECURITY (DEFINER|INVOKER) \*/\s*$`)
 	scanViewBody       = regexp.MustCompile(`^/\*!50001 VIEW `)
+	scanRoutineClean   = regexp.MustCompile(`^CREATE (PROCEDURE|FUNCTION|AGGREGATE FUNCTION) `)
 )
+
+const scanEventNameAt = "/*!50106 EVENT "
+
+func isWordStart(c byte) bool { return c == '_' || (c|0x20 >= 'a' && c|0x20 <= 'z') }
+
+func isWordByte(c byte) bool { return isWordStart(c) || c == '$' || (c >= '0' && c <= '9') }
+
+// quotedEnd is the end of the quoted word that starts at start, or -1 when it
+// is cut.
+func quotedEnd(line string, start int) int {
+	quote := line[start]
+	for i := start + 1; i < len(line); {
+		c := line[i]
+		if c == '\\' && quote != '`' {
+			i += 2
+			continue
+		}
+		if c == quote {
+			if i+1 < len(line) && line[i+1] == quote {
+				i += 2
+				continue
+			}
+			return i + 1
+		}
+		i++
+	}
+	return -1
+}
+
+// MysqlDisableEvent is an event's header with its status set to DISABLE (core
+// mysqlDisableEvent): every ENABLE between the name and DO, outside quotes,
+// becomes DISABLE; a header without a status gets DISABLE before DO. ok is
+// false when DO is not on the line.
+func MysqlDisableEvent(line string, from int) (string, bool) {
+	var enables []int
+	sawStatus := false
+	for i := from; i < len(line); {
+		c := line[i]
+		switch {
+		case c == '`' || c == '\'' || c == '"':
+			i = quotedEnd(line, i)
+			if i < 0 {
+				return "", false
+			}
+		case isWordStart(c):
+			j := i
+			for j < len(line) && isWordByte(line[j]) {
+				j++
+			}
+			if j == len(line) {
+				return "", false
+			}
+			switch strings.ToUpper(line[i:j]) {
+			case "DO":
+				out := line
+				if !sawStatus {
+					out = line[:i] + "DISABLE " + line[i:]
+				}
+				for k := len(enables) - 1; k >= 0; k-- {
+					at := enables[k]
+					out = out[:at] + "DISABLE" + out[at+len("ENABLE"):]
+				}
+				return out, true
+			case "ENABLE":
+				enables = append(enables, i)
+				sawStatus = true
+			case "DISABLE":
+				sawStatus = true
+			}
+			i = j
+		default:
+			i++
+		}
+	}
+	return "", false
+}
 
 func scanCandidate(head string) bool {
 	for _, prefix := range []string{"CREATE ", "/*!50001 ", "/*!50003 ", "/*!50013 ", "/*!50106 "} {
@@ -48,13 +128,18 @@ func scanCandidate(head string) bool {
 type MysqlDumpScanner struct {
 	Counts          map[string]int
 	DefinersRemoved int
-	strip           bool
-	head            []byte
-	passing         bool
-	tail            string
-	delimiter       string
-	atStart         bool
-	viewLine        int
+	// EventsDisabled counts the event headers set to DISABLE (restore).
+	EventsDisabled int
+	// Failure says why a restore must stop: a header the filter has to
+	// rewrite could not be checked. Nothing after it is handed on.
+	Failure   string
+	strip     bool
+	head      []byte
+	passing   bool
+	tail      string
+	delimiter string
+	atStart   bool
+	viewLine  int
 }
 
 // NewMysqlDumpScanner makes a scanner; stripDefiners for a restore.
@@ -65,7 +150,7 @@ func NewMysqlDumpScanner(stripDefiners bool) *MysqlDumpScanner {
 // Push returns the bytes to hand on for chunk.
 func (s *MysqlDumpScanner) Push(chunk []byte) []byte {
 	var out []byte
-	for len(chunk) > 0 {
+	for len(chunk) > 0 && s.Failure == "" {
 		nl := bytes.IndexByte(chunk, '\n')
 		end := len(chunk)
 		if nl >= 0 {
@@ -82,19 +167,49 @@ func (s *MysqlDumpScanner) Push(chunk []byte) []byte {
 			}
 			continue
 		}
-		s.head = append(s.head, piece...)
+		// A line longer than scanHeadMax is judged by its first scanHeadMax+1
+		// bytes, however the chunks fall; the rest of it passes.
+		content := len(piece)
 		if nl >= 0 {
-			out = append(out, s.finishLine()...)
-			continue
+			content--
+		}
+		room := scanHeadMax + 1 - len(s.head)
+		var rest []byte
+		if content >= room {
+			s.head = append(s.head, piece[:room]...)
+			rest = piece[room:]
+		} else {
+			s.head = append(s.head, piece...)
+			if nl >= 0 {
+				out = append(out, s.finishLine()...)
+				continue
+			}
 		}
 		if len(s.head) > scanHeadMax || (len(s.head) >= scanDecideBytes && !scanCandidate(string(s.head[:scanDecideBytes]))) {
 			start := s.head
-			out = append(out, start...)
+			prefix := string(start)
+			handed := prefix
+			if s.strip {
+				var ok bool
+				if handed, ok = s.lookPrefix(prefix); !ok {
+					break
+				}
+			} else {
+				s.look(prefix, false)
+			}
+			out = append(out, handed...)
 			s.head = nil
 			s.passing = true
 			s.tail = ""
-			s.look(string(start), false)
 			s.noteTail(start)
+			if rest != nil {
+				out = append(out, rest...)
+				s.noteTail(rest)
+				if nl >= 0 {
+					s.passing = false
+					s.endLine(nil)
+				}
+			}
 		}
 	}
 	return out
@@ -102,10 +217,34 @@ func (s *MysqlDumpScanner) Push(chunk []byte) []byte {
 
 // End returns what is still held at the end of the stream.
 func (s *MysqlDumpScanner) End() []byte {
-	if s.passing || len(s.head) == 0 {
+	if s.passing || len(s.head) == 0 || s.Failure != "" {
 		return nil
 	}
 	return s.finishLine()
+}
+
+// lookPrefix handles the beginning of a line too long to hold (restore): a
+// header form must be complete and rewritten within it, or the restore stops.
+func (s *MysqlDumpScanner) lookPrefix(prefix string) (string, bool) {
+	header := (s.viewLine > 0 && strings.HasPrefix(prefix, "/*!50013 ")) ||
+		(s.atStart && s.viewLine == 0 &&
+			((strings.HasPrefix(prefix, "CREATE ") && !strings.HasPrefix(prefix, "CREATE TABLE ")) ||
+				strings.HasPrefix(prefix, "/*!50003 CREATE*/") ||
+				strings.HasPrefix(prefix, "/*!50106 CREATE*/")))
+	rewritten := s.look(prefix, true)
+	if s.Failure != "" {
+		return "", false
+	}
+	if !header {
+		return rewritten, true
+	}
+	if scanRoutineClean.MatchString(rewritten) ||
+		strings.HasPrefix(rewritten, "/*!50003 CREATE*/ /*!50003 TRIGGER ") ||
+		strings.HasPrefix(rewritten, "/*!50106 CREATE*/ /*!50106 EVENT ") {
+		return rewritten, true
+	}
+	s.Failure = "a statement header of the backup is longer than Restow checks"
+	return "", false
 }
 
 func (s *MysqlDumpScanner) noteTail(piece []byte) {
@@ -130,6 +269,9 @@ func (s *MysqlDumpScanner) finishLine() []byte {
 	}
 	body := line[:len(line)-len(eol)]
 	rewritten := s.look(body, s.strip)
+	if s.Failure != "" {
+		return nil
+	}
 	s.endLine(&body)
 	return []byte(rewritten + eol)
 }
@@ -176,11 +318,24 @@ func (s *MysqlDumpScanner) look(line string, rewrite bool) string {
 		}
 	case scanEvent.MatchString(line):
 		s.Counts["EVENT"]++
-		if rewrite && scanEventDefiner.MatchString(line) {
+		if !rewrite {
+			return line
+		}
+		header := line
+		if scanEventDefiner.MatchString(line) {
 			s.DefinersRemoved++
 			loc := scanEventDefiner.FindStringSubmatchIndex(line)
-			return line[loc[2]:loc[3]] + line[loc[4]:]
+			header = line[loc[2]:loc[3]] + line[loc[4]:]
 		}
+		// Never created enabled: a copy runs no job of the source, not even
+		// before the run switches its events off at the end.
+		disabled, ok := MysqlDisableEvent(header, strings.Index(header, scanEventNameAt)+len(scanEventNameAt))
+		if !ok {
+			s.Failure = "an event header of the backup could not be checked"
+			return line
+		}
+		s.EventsDisabled++
+		return disabled
 	}
 	return line
 }
@@ -223,14 +378,21 @@ func (f *definerFilter) Write(p []byte) (int, error) {
 			return 0, err
 		}
 	}
+	if f.s.Failure != "" {
+		return 0, errors.New(f.s.Failure)
+	}
 	return len(p), nil
 }
 
 // Close writes what is still held.
 func (f *definerFilter) Close() error {
 	if out := f.s.End(); len(out) > 0 {
-		_, err := f.w.Write(out)
-		return err
+		if _, err := f.w.Write(out); err != nil {
+			return err
+		}
+	}
+	if f.s.Failure != "" {
+		return errors.New(f.s.Failure)
 	}
 	return nil
 }

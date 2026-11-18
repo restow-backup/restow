@@ -119,6 +119,15 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	)
 	defer env.exec(t, "DROP DATABASE IF EXISTS "+q(source), "DROP USER IF EXISTS "+q(owner)+"@'%'", "DROP USER IF EXISTS "+q(restorer)+"@'%'")
 	definer := q(owner) + "@'%'"
+	// An event that fires once, soon, with the scheduler on: it runs in the
+	// source, and a restore that created it enabled would run it in the copy.
+	scheduler := *env.exec(t, "SELECT @@event_scheduler")[0][0]
+	if scheduler != "ON" {
+		scheduler = "OFF"
+	}
+	env.exec(t, "SET GLOBAL event_scheduler = ON")
+	defer env.exec(t, "SET GLOBAL event_scheduler = "+scheduler)
+	fireAt := time.Now().Add(30 * time.Second)
 	env.exec(t,
 		"USE "+q(source),
 		"CREATE TABLE orders (id INT PRIMARY KEY, item VARCHAR(40), raw VARBINARY(8)) ENGINE=InnoDB",
@@ -127,7 +136,7 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 		"CREATE DEFINER="+definer+" SQL SECURITY DEFINER VIEW cheap AS SELECT id, item FROM orders WHERE id < 10",
 		"CREATE DEFINER="+definer+" PROCEDURE add_order(IN n INT) BEGIN INSERT INTO orders (id, item) VALUES (n, 'x'); INSERT INTO audit VALUES (n); END",
 		"CREATE DEFINER="+definer+" TRIGGER orders_ai AFTER INSERT ON orders FOR EACH ROW INSERT INTO audit VALUES (NEW.id)",
-		"CREATE DEFINER="+definer+" EVENT tidy ON SCHEDULE EVERY 1 DAY ENABLE DO DELETE FROM audit",
+		"CREATE DEFINER="+definer+" EVENT fire ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 30 SECOND ON COMPLETION PRESERVE ENABLE DO INSERT INTO audit VALUES (42)",
 	)
 
 	repo := t.TempDir()
@@ -219,8 +228,24 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	if done.Status != "succeeded" || done.Error != nil {
 		t.Fatalf("restore: %+v %+v", done, done.Error)
 	}
-	if n := done.Notes[len(done.Notes)-1]; n["definersRemoved"] != 4 || n["eventsDisabled"] != 1 {
+	// The view, the procedure (SQL SECURITY DEFINER), the trigger and the
+	// event run with the rights of the user who restored.
+	if n := done.Notes[len(done.Notes)-1]; n["definersRemoved"] != 4 || n["eventsDisabled"] != 1 || n["definerRights"] != 4 {
 		t.Fatalf("notes %v", done.Notes)
+	}
+	// Restored before the event's time: had it come in enabled, it would fire.
+	if !time.Now().Before(fireAt) {
+		t.Fatal("the restore took too long to prove the event stays off")
+	}
+	time.Sleep(time.Until(fireAt) + 3*time.Second)
+	if rows := env.exec(t, "SELECT COUNT(*) FROM "+q(source)+".audit WHERE n = 42"); *rows[0][0] != "1" {
+		t.Fatal("the scheduler did not run the source's event")
+	}
+	if rows := env.exec(t, "SELECT COUNT(*) FROM "+q(target)+".audit WHERE n = 42"); *rows[0][0] != "0" {
+		t.Fatal("the copy ran the source's event")
+	}
+	if rows := env.exec(t, "SELECT LAST_EXECUTED FROM information_schema.EVENTS WHERE EVENT_SCHEMA = '"+target+"'"); len(rows) != 1 || rows[0][0] != nil {
+		t.Fatal("the copy's event ran")
 	}
 	rows := env.exec(t, "SELECT item, HEX(raw) FROM "+q(target)+".orders ORDER BY id")
 	if len(rows) != 2 || *rows[0][0] != "tea" || *rows[0][1] != "00FF" || *rows[1][0] != "CREATE DEFINER=`x`@`y` PROCEDURE p()" {
@@ -245,7 +270,11 @@ func agentMysqlRoundTrip(t *testing.T, variable, engine string) {
 	broken := "restow_d4_ag_b`k_" + s
 	defer env.exec(t, "DROP DATABASE IF EXISTS "+q(broken))
 	mismatch := restore
-	mismatch.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: dump.SHA256[:63] + "0", TargetName: broken}
+	wrong := strings.Repeat("0", 64)
+	if dump.SHA256 == wrong {
+		wrong = strings.Repeat("1", 64)
+	}
+	mismatch.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: wrong, TargetName: broken}
 	if r := Restore(context.Background(), &mismatch, deps); r.Error == nil || r.Error.Code != "db_backup_mismatch" {
 		t.Fatalf("mismatch: %+v", r.Error)
 	}

@@ -87,7 +87,7 @@ func TestDefinerFilterTouchesOnlyHeaderForms(t *testing.T) {
 	}
 	for _, want := range []string{
 		"/*!50003 CREATE*/ /*!50003 TRIGGER `t1` BEFORE INSERT",
-		"/*!50106 CREATE*/ /*!50106 EVENT `nightly`",
+		"/*!50106 CREATE*/ /*!50106 EVENT `nightly` ON SCHEDULE EVERY 1 DAY DISABLE DO DELETE FROM orders */ ;;",
 		"\nCREATE PROCEDURE `cleanup`()\n",
 		"\nCREATE FUNCTION `f`() RETURNS int\n",
 		"\n/*!50013 SQL SECURITY DEFINER */\n",
@@ -115,8 +115,15 @@ func TestDefinerFilterTouchesOnlyHeaderForms(t *testing.T) {
 	blob := "INSERT INTO `t` VALUES (0x" + strings.Repeat("ab", 200000) + ");"
 	header := "CREATE DEFINER=`a`@`b` PROCEDURE `p`(" + strings.Repeat("x int,", 20000) + "y int)"
 	long := blob + "\n" + header + "\nBEGIN END;\n"
-	if got, s := scanAll(long, true, 1000); got != long || s.Counts["PROCEDURE"] != 1 || s.DefinersRemoved != 0 {
-		t.Fatal("a long line changed")
+	params := strings.Repeat("x int,", 20000) + "y int"
+	for _, chunk := range []int{0, 1000} {
+		got, s := scanAll(long, true, chunk)
+		if got != blob+"\nCREATE PROCEDURE `p`("+params+")\nBEGIN END;\n" || s.Counts["PROCEDURE"] != 1 || s.DefinersRemoved != 1 || s.Failure != "" {
+			t.Fatalf("chunk %d: a long header was not rewritten within its beginning", chunk)
+		}
+	}
+	if got, _ := scanAll(long, false, 1000); got != long {
+		t.Fatal("the counter changed a long line")
 	}
 	raw := "CREATE DEFINER=`a`@`b` PROCEDURE `p\xe9`()\r\nBEGIN END;\r\n\xff\xfe\n"
 	if got, _ := scanAll(raw, true, 5); got != "CREATE PROCEDURE `p\xe9`()\r\nBEGIN END;\r\n\xff\xfe\n" {
@@ -140,7 +147,7 @@ func TestMysqlProgramsGetFixedArguments(t *testing.T) {
 		t.Fatal("wrong family arguments")
 	}
 	file := MysqlOptionFile("backup", "p\"a\\s s\nw#'", "/dev/shm/r/mysqld.sock")
-	if file != "[client]\nuser=\"backup\"\npassword=\"p\"a\\\\s s\\nw#'\"\nsocket=\"/dev/shm/r/mysqld.sock\"\nprotocol=SOCKET\n" {
+	if file != "[client]\nuser=\"backup\"\npassword=\"p\"a\\\\s s\\nw#'\"\nsocket=\"/dev/shm/r/mysqld.sock\"\nprotocol=SOCKET\n[mysql]\nlocal-infile=0\n" {
 		t.Fatalf("option file %q", file)
 	}
 	for text, want := range map[string]string{
@@ -173,5 +180,60 @@ func TestMysqlClientFailureCodes(t *testing.T) {
 		if got := MysqlClientFailureCode(text); got != want {
 			t.Errorf("%q: %s, want %s", text, got, want)
 		}
+	}
+}
+
+// claim: DB-008
+func TestDefinerFilterStopsAtAHeaderItCannotCheck(t *testing.T) {
+	long := strings.Repeat("n", 70000)
+	for i, text := range []string{
+		"CREATE DEFINER=`" + long + "`@`b` PROCEDURE `p`()\nBEGIN END;\n",
+		"/*!50003 CREATE*/ /*!50017 DEFINER=`" + long + "`@`%`*/ /*!50003 TRIGGER `t` BEFORE INSERT ON `x` FOR EACH ROW SET @a = 1 */;\n",
+		"/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE ENABLE COMMENT '" + long + "' DO SELECT 1 */ ;\n",
+		"/*!50001 CREATE ALGORITHM=UNDEFINED */\n/*!50013 DEFINER=`" + long + "`@`%` SQL SECURITY DEFINER */\n/*!50001 VIEW `v` AS select 1 */;\n",
+	} {
+		for _, chunk := range []int{0, 4096} {
+			out, s := scanAll("SELECT 1;\n"+text+"INSERT INTO `t` VALUES (1);\n", true, chunk)
+			if !strings.Contains(s.Failure, "header") || strings.Contains(out, long[:100]) || strings.Contains(out, "INSERT") {
+				t.Fatalf("case %d chunk %d: %q", i, chunk, s.Failure)
+			}
+		}
+	}
+	var sink bytes.Buffer
+	f := &definerFilter{w: &sink, s: NewMysqlDumpScanner(true)}
+	if _, err := f.Write([]byte("/*!50106 CREATE*/ /*!50106 EVENT `e` ON SCHEDULE EVERY 1 DAY COMMENT 'x\n")); err == nil || !strings.Contains(err.Error(), "event header") {
+		t.Fatalf("write %v", err)
+	}
+}
+
+// claim: DB-008
+func TestDefinerFilterNeverCreatesAnEventEnabled(t *testing.T) {
+	event := func(rest string) string {
+		return "/*!50106 CREATE*/ /*!50117 DEFINER=`a`@`%`*/ /*!50106 EVENT `e` " + rest + " */ ;;"
+	}
+	line := func(rest string) (string, *MysqlDumpScanner) {
+		out, s := scanAll("DELIMITER ;;\n"+event(rest)+"\nDELIMITER ;\n", true, 3)
+		parts := strings.Split(out, "\n")
+		if len(parts) < 2 {
+			return "", s
+		}
+		return parts[1], s
+	}
+	for rest, want := range map[string]string{
+		"ON SCHEDULE AT CURRENT_TIMESTAMP ON COMPLETION PRESERVE ENABLE DO INSERT INTO t VALUES (1)":                      "ON SCHEDULE AT CURRENT_TIMESTAMP ON COMPLETION PRESERVE DISABLE DO INSERT INTO t VALUES (1)",
+		"ON SCHEDULE EVERY 1 SECOND DO SET @a = 'ENABLE'":                                                                 "ON SCHEDULE EVERY 1 SECOND DISABLE DO SET @a = 'ENABLE'",
+		"ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE ENABLE COMMENT 'it''s \\' ENABLE DO x' DO SELECT 'ENABLE DO'": "ON SCHEDULE EVERY 1 DAY ON COMPLETION NOT PRESERVE DISABLE COMMENT 'it''s \\' ENABLE DO x' DO SELECT 'ENABLE DO'",
+		"ON SCHEDULE EVERY 1 DAY DISABLE ON SLAVE DO SELECT 1":                                                            "ON SCHEDULE EVERY 1 DAY DISABLE ON SLAVE DO SELECT 1",
+	} {
+		got, s := line(rest)
+		if got != "/*!50106 CREATE*/ /*!50106 EVENT `e` "+want+" */ ;;" || s.EventsDisabled != 1 {
+			t.Fatalf("%q became %q", rest, got)
+		}
+	}
+	if got, s := line("ON SCHEDULE EVERY 1 DAY COMMENT 'open"); !strings.Contains(s.Failure, "event") || strings.Contains(got, "EVENT") {
+		t.Fatalf("an unchecked event header passed: %q", got)
+	}
+	if out, _ := scanAll("DELIMITER ;;\n"+event("ON SCHEDULE EVERY 1 DAY ENABLE DO SELECT 1")+"\n", false, 0); !strings.Contains(out, "ENABLE DO SELECT 1") {
+		t.Fatal("a backup changed an event")
 	}
 }

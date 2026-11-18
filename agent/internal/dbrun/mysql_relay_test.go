@@ -5,31 +5,30 @@ package dbrun
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha1"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/dbprobe"
 )
 
-// The agent's MySQL relay against a fake server without TLS: the RSA step of
-// caching_sha2_password is done by the relay (the readable password never
-// reaches the server), a method that would send it readable ends the relay,
-// one client only. A real server with TLS: mysql_run_pg_test.go.
+// The agent's MySQL relay against a fake server without TLS: the server is
+// connected only once the program is (a server ends a connection that does
+// not sign in in time); the full step of caching_sha2_password and a method
+// that would send the password readable end the relay, and the password never
+// reaches the server; no local files; one client only. Real servers with TLS:
+// mysql_run_pg_test.go.
 
 var fakeScramble = []byte("abcdefghijklmnopqrst")
 
 func fakeGreeting(plugin string) []byte {
-	low := uint16(0x0001 | 0x0004 | 0x0200 | 0x2000 | 0x8000 | 0x20)
+	low := uint16(0x0001 | 0x0004 | 0x0200 | 0x2000 | 0x8000 | 0x20 | 0x80)
 	head := make([]byte, 4+8+1+2+1+2+2+1+10)
 	binary.LittleEndian.PutUint32(head, 7)
 	copy(head[4:], fakeScramble[:8])
@@ -80,22 +79,30 @@ type fakeMy struct {
 	addr     string
 	received lockedBuffer
 	login    chan []byte
+	accepted atomic.Int32
+	// connectTimeout closes a connection without a login after it, like a
+	// server's connect_timeout.
+	connectTimeout time.Duration
 }
 
-func startFakeMy(t *testing.T, scenario string, key *rsa.PrivateKey) *fakeMy {
+func startFakeMy(t *testing.T, scenario string, connectTimeout time.Duration) *fakeMy {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	f := &fakeMy{addr: ln.Addr().String(), login: make(chan []byte, 1)}
+	f := &fakeMy{addr: ln.Addr().String(), login: make(chan []byte, 1), connectTimeout: connectTimeout}
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
+		f.accepted.Add(1)
 		defer c.Close()
+		if f.connectTimeout > 0 {
+			_ = c.SetReadDeadline(time.Now().Add(f.connectTimeout))
+		}
 		r := io.TeeReader(c, &f.received)
 		plugin := "mysql_native_password"
 		if scenario == "rsa" {
@@ -106,35 +113,16 @@ func startFakeMy(t *testing.T, scenario string, key *rsa.PrivateKey) *fakeMy {
 		if err != nil {
 			return
 		}
+		_ = c.SetReadDeadline(time.Time{})
 		f.login <- login
 		switch scenario {
 		case "ok":
 			_, _ = c.Write(dbprobe.MysqlPacket(seq+1, []byte{0, 0, 0, 2, 0, 0, 0}))
 		case "rsa":
+			// The full step: the server would now want the password.
 			_, _ = c.Write(dbprobe.MysqlPacket(seq+1, []byte{0x01, 0x04}))
-			s2, ask, err := readPacket(r)
-			if err != nil || !bytes.Equal(ask, []byte{0x02}) {
-				return
-			}
-			der, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
-			pemKey := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
-			_, _ = c.Write(dbprobe.MysqlPacket(s2+1, append([]byte{0x01}, pemKey...)))
-			s3, sealed, err := readPacket(r)
-			if err != nil {
-				return
-			}
-			plain, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, key, sealed, nil)
-			if err != nil {
-				return
-			}
-			for i := range plain {
-				plain[i] ^= fakeScramble[i%len(fakeScramble)]
-			}
-			if string(plain) == "s3cret-pw\x00" {
-				_, _ = c.Write(dbprobe.MysqlPacket(s3+1, []byte{0, 0, 0, 2, 0, 0, 0}))
-			} else {
-				_, _ = c.Write(dbprobe.MysqlPacket(s3+1, []byte{0xff, 0x15, 0x04}))
-			}
+			_, _, _ = readPacket(r)
+			return
 		case "clear":
 			_, _ = c.Write(dbprobe.MysqlPacket(seq+1, []byte("\xfemysql_clear_password\x00")))
 		}
@@ -147,13 +135,16 @@ func startFakeMy(t *testing.T, scenario string, key *rsa.PrivateKey) *fakeMy {
 }
 
 func openFakeRelay(t *testing.T, f *fakeMy) *Relay {
+	return openFakeRelayAs(t, f, "mysql")
+}
+
+func openFakeRelayAs(t *testing.T, f *fakeMy, engine string) *Relay {
 	t.Helper()
 	host, port, _ := net.SplitHostPort(f.addr)
-	p, err := dbprobe.OpenPinnedMysql(context.Background(), dbprobe.PinnedTarget{Host: host, Port: atoiPort(port), AllowUnencrypted: true}, "mysql", 5*time.Second, nil)
-	if err != nil {
-		t.Fatal(err)
+	open := func(ctx context.Context) (*dbprobe.PinnedMysql, error) {
+		return dbprobe.OpenPinnedMysql(ctx, dbprobe.PinnedTarget{Host: host, Port: atoiPort(port), AllowUnencrypted: true}, engine, 5*time.Second, nil)
 	}
-	rl, err := OpenMysqlRelay(context.Background(), p, RelayOptions{MaxDuration: 30 * time.Second, BaseDir: t.TempDir()})
+	rl, err := OpenMysqlRelay(context.Background(), open, RelayOptions{MaxDuration: 30 * time.Second, BaseDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +171,7 @@ func programLogin(t *testing.T, path, plugin string) (net.Conn, []byte) {
 		t.Fatal(err)
 	}
 	fixed := make([]byte, 32)
-	binary.LittleEndian.PutUint32(fixed, uint32(0x0001|0x0004|0x0200|0x2000|0x8000|0x80000|0x200000|0x20))
+	binary.LittleEndian.PutUint32(fixed, uint32(0x0001|0x0004|0x0200|0x2000|0x8000|0x80000|0x200000|0x20|0x80))
 	binary.LittleEndian.PutUint32(fixed[4:], 1<<24)
 	fixed[8] = 45
 	login := append(append(append(fixed, []byte("backup\x00")...), 20), bytes.Repeat([]byte{7}, 20)...)
@@ -192,40 +183,56 @@ func programLogin(t *testing.T, path, plugin string) (net.Conn, []byte) {
 }
 
 // claim: DB-003
-func TestMysqlRelayDoesTheRSAStepWithoutTLS(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := startFakeMy(t, "rsa", key)
+func TestMysqlRelayNoFullStepPlain(t *testing.T) {
+	f := startFakeMy(t, "rsa", 0)
 	rl := openFakeRelay(t, f)
 	c, hello := programLogin(t, rl.Path, "caching_sha2_password")
 	defer c.Close()
 	verEnd := bytes.IndexByte(hello[1:], 0)
 	caps := binary.LittleEndian.Uint16(hello[1+verEnd+1+4+8+1:])
-	if caps&(myClientSSL|myClientCompress) != 0 {
+	if caps&(myClientSSL|myClientCompress|myClientLocalFiles) != 0 {
 		t.Fatalf("greeting caps %#x", caps)
 	}
-	seq, more, err := readPacket(c)
-	if err != nil || !bytes.Equal(more, []byte{0x01, 0x04}) {
-		t.Fatalf("more %x %v", more, err)
+	rl.Wait()
+	var rf *runFailure
+	if err := rl.Failure(); !errors.As(err, &rf) || rf.code != "db_tls_missing" || !strings.Contains(rf.msg, "TLS") {
+		t.Fatalf("failure %v", rl.Failure())
 	}
-	// The program sends its password as on any secure transport.
-	if _, err := c.Write(dbprobe.MysqlPacket(seq+1, []byte("s3cret-pw\x00"))); err != nil {
-		t.Fatal(err)
+	// The program never got the request for its password; what it sends now goes nowhere.
+	_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	if _, _, err := readPacket(c); err == nil {
+		t.Fatal("the program got a packet")
 	}
-	okSeq, ok, err := readPacket(c)
-	if err != nil || len(ok) == 0 || ok[0] != 0 || okSeq != seq+2 {
-		t.Fatalf("ok %x seq %d %v", ok, okSeq, err)
+	_, _ = c.Write(dbprobe.MysqlPacket(3, []byte("s3cret-pw\x00")))
+	time.Sleep(100 * time.Millisecond)
+	if bytes.Contains(f.received.Bytes(), []byte("s3cret-pw")) {
+		t.Fatal("the readable password reached the server")
+	}
+	// No local files: the server learns the program takes none.
+	login := <-f.login
+	if binary.LittleEndian.Uint32(login)&myClientLocalFiles != 0 {
+		t.Fatal("the login offers local files")
+	}
+}
+
+// claim: DB-003
+func TestMysqlRelayConnectsLate(t *testing.T) {
+	f := startFakeMy(t, "ok", 200*time.Millisecond)
+	rl := openFakeRelay(t, f)
+	time.Sleep(600 * time.Millisecond)
+	if f.accepted.Load() != 0 {
+		t.Fatal("the server was connected before the program")
+	}
+	c, _ := programLogin(t, rl.Path, "mysql_native_password")
+	defer c.Close()
+	if _, ok, err := readPacket(c); err != nil || len(ok) == 0 || ok[0] != 0 {
+		t.Fatalf("sign-in %x %v", ok, err)
 	}
 	if _, err := c.Write(dbprobe.MysqlPacket(0, []byte{0x0e})); err != nil {
 		t.Fatal(err)
 	}
 	if _, pong, err := readPacket(c); err != nil || pong[0] != 0 {
 		t.Fatalf("ping %x %v", pong, err)
-	}
-	if bytes.Contains(f.received.Bytes(), []byte("s3cret-pw")) {
-		t.Fatal("the readable password reached the server")
 	}
 	// A second client never gets in.
 	if c2, err := net.Dial("unix", rl.Path); err == nil {
@@ -235,11 +242,24 @@ func TestMysqlRelayDoesTheRSAStepWithoutTLS(t *testing.T) {
 		}
 		_ = c2.Close()
 	}
+	// What refuses the server ends the relay when the program connects.
+	g := startFakeMy(t, "ok", 0)
+	rl2 := openFakeRelayAs(t, g, "mariadb")
+	c3, err := net.Dial("unix", rl2.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c3.Close()
+	rl2.Wait()
+	var pe *dbprobe.PinnedError
+	if err := rl2.Failure(); !errors.As(err, &pe) || pe.Code != dbprobe.CodeEngineChanged {
+		t.Fatalf("failure %v", rl2.Failure())
+	}
 }
 
 // claim: DB-003
-func TestMysqlRelayRefusesAReadableSignInWithoutTLS(t *testing.T) {
-	f := startFakeMy(t, "clear", nil)
+func TestMysqlRelayNoClearText(t *testing.T) {
+	f := startFakeMy(t, "clear", 0)
 	rl := openFakeRelay(t, f)
 	c, _ := programLogin(t, rl.Path, "mysql_native_password")
 	defer c.Close()
@@ -249,7 +269,7 @@ func TestMysqlRelayRefusesAReadableSignInWithoutTLS(t *testing.T) {
 		t.Fatalf("failure %v", rl.Failure())
 	}
 	// The program named a readable method itself: refused before the server hears of it.
-	f2 := startFakeMy(t, "ok", nil)
+	f2 := startFakeMy(t, "ok", 0)
 	rl2 := openFakeRelay(t, f2)
 	c2, _ := programLogin(t, rl2.Path, "mysql_clear_password")
 	defer c2.Close()
@@ -276,7 +296,7 @@ func TestMysqlPinningRefusesAnotherServer(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f := startFakeMy(t, "ok", nil)
+			f := startFakeMy(t, "ok", 0)
 			host, port, _ := net.SplitHostPort(f.addr)
 			target := dbprobe.PinnedTarget{Host: host, Port: atoiPort(port), AllowUnencrypted: c.allowPlain, Address: c.address}
 			_, err := dbprobe.OpenPinnedMysql(context.Background(), target, c.engine, 5*time.Second, nil)
