@@ -167,6 +167,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /install/linux.sh",
   "GET /install/macos.sh",
   "GET /install/windows.ps1",
+  "GET /install/oneshot.sh",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
   // The recovery ISO from RESTOW_RECOVERY_ISO_DIR (docs/BAREMETAL.md 8.5): a public download of

@@ -1212,6 +1212,45 @@ Der Maintainer hat den Entwurf angenommen und die offenen Fragen so entschieden:
 Umfang: 0.5.1 = O1 bis O5 mit UEFI → BIOS aus O7 und der knappen Oberfläche (O8a); 0.5.2 = O6, der
 Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
 
+### 22.1 Festlegungen und Abweichungen bei der Umsetzung (O1 bis O3)
+
+- **`GET /install/oneshot.sh`** kam mit O3 statt mit O2 (die Route braucht die Vorlage). Sie
+  antwortet nur mit `RESTOW_BAREMETAL_PREVIEW` und `RESTOW_BAREMETAL_ONESHOT`, sonst 404.
+- **Signaturprüfung im Skript (8.1):** eine Kopie der Funktionen aus `linux.sh`
+  (`sha256_of` bis `verify_release`); ein Go-Test (`agent/internal/oneshot/script_test.go`) hält
+  beide Kopien gleich. `renderInstallScript` bleibt unverändert.
+- **Arbeitsordner des Skripts:** `mktemp -d` unter `/run`; startet der Agent dort nicht (`/run`
+  ist auf vielen Systemen `noexec`), dasselbe unter `/var/tmp`. Das ISO legt `restow-agent oneshot`
+  unter `/var/tmp/restow-oneshot` ab (0700, beim Ende gelöscht).
+- **Release-Schlüssel für das ISO:** `restow-agent oneshot` prüft mit dem Schlüssel, der in ihn
+  eingebaut ist (`release-signing.pub`), nicht mit dem Schlüssel aus dem Skript; das Skript hat
+  den Agenten selbst mit dem Schlüssel der Instanz geprüft. Mit `RESTOW_SHA256SUMS_SHA256` gilt
+  nur genau diese Liste. Das ISO muss vom selben Release sein wie der Befehl (ein Neubau zählt);
+  ein Entwicklungsbau (`-dev`) nimmt jedes.
+- **Eingerichteter Agent (8.4, Entscheidung 22.15):** `--this-is-not-production` entfällt. Der
+  Server gibt eine Sitzung mit `agent_enrolled` ohnehin nicht frei (O2); wer den Rechner wirklich
+  löschen will, entfernt den Agenten zuerst (`restow-agent uninstall`), der Text an der Konsole
+  sagt das.
+- **Unbeaufsichtigt (8.4):** `--answers` im Format `restow-oneshot-answers-v1` mit
+  `confirmErase`, `passphrase`, `language`, `keymap`; ein Schlüssel `code` wird abgelehnt.
+  Jede bestätigte Kennung muss eine Platte dieses Rechners sein.
+- **Prüfungen (8.2):** Xen PV an `/sys/hypervisor/guest_type`; mehrere Routing-Tabellen an
+  `ip -j rule show` (jede Tabelle außer `local`, `main`, `default`); `kexec_load_disabled` beendet
+  den Befehl **vor** dem Tausch, der Code bleibt gültig. Die Probeladung (Kernel und das initrd
+  des ISO allein) liegt nach dem Laden des ISO und vor der Bestätigung an der Konsole; scheitert
+  sie, meldet der Befehl `checks.kexec = failed` und endet; den Direktmodus im Rettungssystem
+  bringt O4.
+- **"Mehr als 5 GB belegt"** misst den belegten Platz von `/`, `/home`, `/srv`, `/var` und `/opt`
+  (jedes Dateisystem einmal) abzüglich der Blöcke unter `/usr` und `/var/cache`.
+- **Phasen:** `registered` nach dem Tausch, `downloading`, `waiting_approval`, `kexec`;
+  `booted` meldet `recover` (O4).
+- **Rückgabewerte** von `restow-agent oneshot`: 0 umgeschaltet, 1 Fehler, 2 Aufruf,
+  3 abgelehnt (Prüfung, ISO, Probeladung), 4 beendet (Sitzung abgelehnt, abgelaufen, abgebrochen,
+  nicht bestätigt). Außer bei 0 ist am Rechner nichts geändert.
+- **Ende zu Ende:** Die Fälle O-E1 bis O-E6 stehen als Daten in
+  `scripts/recovery-e2e/oneshot-cases.mjs` (mit Test); Treiber, Seed-Platte und gepinnte
+  Cloud-Abbilder kommen mit O9.
+
 ## 23. Entscheidungen
 
 ### 23.A Entscheidungen des Maintainers

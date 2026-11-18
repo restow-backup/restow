@@ -172,6 +172,7 @@ jobs:
           scripts/smoke/lib/*.test.mjs
           scripts/recovery-e2e/run.test.mjs
           scripts/recovery-e2e/oneshot-boot.test.mjs
+          scripts/recovery-e2e/oneshot-cases.test.mjs
 
       - name: Test
         # Root script builds the library packages first (consumers resolve their

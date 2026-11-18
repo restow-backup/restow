@@ -42,6 +42,26 @@ private repository.
     the repository read only after the recovery environment reported back
     (`POST …/sessions/current/oneshot/booted`); other hardware there ends the session, and a
     released session that does not report back within 30 minutes fails (monitor).
+  - O3: the command itself. `GET /install/oneshot.sh` (only with `RESTOW_BAREMETAL_ONESHOT`)
+    downloads `restow-agent`, checks it like `linux.sh` (the signature check is a copy a test
+    keeps equal) and starts the hidden `restow-agent oneshot` with the code on stdin, never in
+    the process list. The command only reads until the release: memory (2 GiB at least),
+    `kexec_load_disabled`, lockdown, Secure Boot, Xen PV, the network (addresses, default routes
+    with on-link gateways, name servers; a VLAN, bond, bridge, several default routes or policy
+    routing stop it), the disks, cloud-init's instance data, root's SSH keys (lines with options
+    are left out) and the signs of a machine in use; an enrolled Restow agent stops it (the
+    instance would not release such a machine either). Then it redeems the code, fetches the recovery ISO through the
+    session, accepts it only with the release signature over its checksums (or exactly the list
+    pinned with `RESTOW_SHA256SUMS_SHA256`), the announced hash, the same release as the command
+    and live-build's own list, and loads the ISO's kernel with `kexec_file_load` on trial (and
+    unloads it); the result goes to Restow. The console confirms every disk (the end of its
+    identity, then the erase word) and asks for the passphrase of new LUKS volumes (or reads
+    both from `--answers`); neither leaves the machine except in the session data for `recover`.
+    After the release it builds the initrd in a `memfd`, loads it with the session data and
+    switches with `systemctl kexec`. A rejected, expired or cancelled session, a refused test
+    load or a missing confirmation ends it with nothing changed. It never asks for the
+    credentials. `scripts/recovery-e2e/oneshot-cases.mjs` defines the end-to-end cases O-E1 to
+    O-E6 for the driver that follows.
 
 ## [0.5.0] - 2026-11-18
 

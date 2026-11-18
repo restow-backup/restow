@@ -1,4 +1,6 @@
-package payload
+// Package isotest writes small ISO 9660 images for tests of the oneshot
+// payload and the oneshot command. It is imported by tests only.
+package isotest
 
 import (
 	"bytes"
@@ -7,13 +9,13 @@ import (
 	"strings"
 )
 
-// testISO builds a small ISO 9660 image with Rock Ridge names (NM) and an SP
-// entry on the root, like xorriso writes, for the reader's tests. files maps
-// absolute paths to contents; directories are made as needed.
-type isoOpts struct {
-	noRockRidge bool
-	// mutate changes the image after it is built.
-	mutate func(img []byte)
+const sectorSize = 2048
+
+// Options change how Build writes the image.
+type Options struct {
+	NoRockRidge bool
+	// Mutate changes the image after it is built.
+	Mutate func(img []byte)
 }
 
 type isoNode struct {
@@ -25,7 +27,10 @@ type isoNode struct {
 	size     uint32
 }
 
-func buildTestISO(files map[string][]byte, o isoOpts) []byte {
+// Build writes a small ISO 9660 image with Rock Ridge names (NM) and an SP
+// entry on the root, like xorriso writes. files maps absolute paths to
+// contents; directories are made as needed.
+func Build(files map[string][]byte, o Options) []byte {
 	root := &isoNode{dir: true, children: map[string]*isoNode{}}
 	for p, d := range files {
 		parts := strings.Split(strings.Trim(p, "/"), "/")
@@ -92,7 +97,7 @@ func buildTestISO(files map[string][]byte, o isoOpts) []byte {
 	for _, d := range dirs {
 		var b bytes.Buffer
 		var sp []byte
-		if d == root && !o.noRockRidge {
+		if d == root && !o.NoRockRidge {
 			sp = []byte{'S', 'P', 7, 1, 0xBE, 0xEF, 0}
 		}
 		b.Write(record(d, "\x00", sp))
@@ -100,7 +105,7 @@ func buildTestISO(files map[string][]byte, o isoOpts) []byte {
 		for _, k := range sortedKeys(d.children) {
 			c := d.children[k]
 			var nm []byte
-			if !o.noRockRidge {
+			if !o.NoRockRidge {
 				nm = append([]byte{'N', 'M', byte(5 + len(c.name)), 1, 0}, c.name...)
 			}
 			b.Write(record(c, isoName(c), nm))
@@ -110,8 +115,8 @@ func buildTestISO(files map[string][]byte, o isoOpts) []byte {
 	for _, f := range filesOrder {
 		copy(img[int(f.extent)*sectorSize:], f.data)
 	}
-	if o.mutate != nil {
-		o.mutate(img)
+	if o.Mutate != nil {
+		o.Mutate(img)
 	}
 	return img
 }

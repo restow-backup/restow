@@ -1,0 +1,108 @@
+package recovery
+
+// The texts of restow-agent oneshot (docs/BAREMETAL-ONESHOT.md 8), the
+// command on a fresh machine; they join the catalogues of recover, so the
+// same checks (both languages, the same placeholders) cover them.
+
+var oneshotTextEN = map[string]string{
+	"oneshot.title":                "Restow: restore onto THIS machine without an ISO (restow-agent {version})",
+	"oneshot.code_invalid":         "That is not a oneshot code (OS-...). Copy the whole command from Restow again.",
+	"oneshot.unchanged":            "Nothing was changed on this machine. The code was not used.",
+	"oneshot.sum.machine":          "This machine:     {hostname} ({vendor})",
+	"oneshot.sum.network":          "Network:          {addresses}",
+	"oneshot.sum.gateway":          "Gateway:          {gateways}",
+	"oneshot.sum.firmware":         "Firmware:         {firmware}    Memory: {ram}",
+	"oneshot.sum.disk":             "Disk:             {path}  {size}  {model}  identity {identity}  (will be erased)",
+	"oneshot.fatal.ram":            "This machine has {ram} of memory; a restore without an ISO needs at least 2 GiB. Use the recovery ISO.",
+	"oneshot.fatal.kexec_disabled": "This kernel does not allow loading another kernel (kexec_load_disabled). Start the provider's rescue system or use the recovery ISO.",
+	"oneshot.fatal.xen_pv":         "This machine is a Xen PV guest; it cannot start the recovery environment. Use the recovery ISO.",
+	"oneshot.fatal.tool":           "{tool} is missing on this machine.",
+	"oneshot.fatal.no_disk":        "This machine has no disk to restore onto.",
+	"oneshot.fatal.network":        "The network of this machine cannot be taken over: {detail}. Use the recovery ISO.",
+	"oneshot.fatal.agent":          "A Restow agent is set up on this machine: this is not a fresh machine. Only if you are sure that it may be erased, remove the agent first (restow-agent uninstall) and run the command again.",
+	"oneshot.warn.ram_low":         "Warning: {ram} of memory. Below 4 GiB a large restore may run out of memory.",
+	"oneshot.warn.ram_need":        "Warning: the restore needs about {need} of memory, this machine has {ram}.",
+	"oneshot.warn.lockdown":        "Note: the kernel runs in lockdown mode {mode}. The test load shows whether it accepts the recovery kernel.",
+	"oneshot.warn.secureboot":      "Note: Secure Boot is on.",
+	"oneshot.warn.xen_hvm":         "Warning: this machine is a Xen HVM guest; its disks and network may get other names in the recovery environment.",
+	"oneshot.warn.in_use":          "WARNING: this machine looks like it is in use: {signs}. Everything on its disks will be ERASED.",
+	"oneshot.sign.agent_enrolled":  "a Restow agent is set up",
+	"oneshot.sign.uptime":          "running for more than a day",
+	"oneshot.sign.users":           "more than one user has a home folder",
+	"oneshot.sign.services":        "database or web services are running",
+	"oneshot.sign.data":            "more than 5 GB of data",
+	"oneshot.exchanging":           "Redeeming the code at {instance} ...",
+	"oneshot.no_iso":               "This Restow installation has no checked copy of the recovery ISO yet (Restow: Recovery ISO). Nothing was changed on this machine.",
+	"oneshot.iso_fetch":            "Downloading the recovery ISO {file} ({size}) ...",
+	"oneshot.iso_bad":              "The recovery ISO did not pass its check: {reason}. Nothing was changed on this machine.",
+	"oneshot.iso_ok":               "Recovery ISO {version}: signature and checksums OK.",
+	"oneshot.kexec_ok":             "Test load of the recovery kernel: OK.",
+	"oneshot.kexec_failed":         "This kernel refuses to load the recovery kernel ({reason}). A restore without an ISO is not possible here: start the provider's rescue system or use the recovery ISO. Nothing was changed on this machine; Restow shows the result.",
+	"oneshot.confirm_intro":        "Every disk listed above is ERASED once the restore is released in Restow. Confirm each one.",
+	"oneshot.confirm_abort":        "Not confirmed. Nothing was changed on this machine; reject the restore in Restow.",
+	"oneshot.answers_mismatch":     "The answers confirm {identity}, which is not a disk of this machine. Nothing was changed.",
+	"oneshot.passphrase_intro":     "The backup has encrypted volumes (LUKS). Enter the passphrase for the restored volumes. At boot the keyboard layout is US. A server with an encrypted root file system needs the provider's console at every start.",
+	"oneshot.passphrase_prompt":    "New passphrase",
+	"oneshot.passphrase_missing":   "The backup has encrypted volumes, and the answers carry no passphrase. Nothing was changed.",
+	"oneshot.ended":                "The restore ended in Restow ({status}). Nothing was changed on this machine.",
+	"oneshot.aborted":              "Aborted. Nothing was changed on this machine.",
+	"oneshot.load_failed":          "The recovery environment could not be loaded: {reason}. Nothing was changed on this machine.",
+	"oneshot.switching":            "Released. Switching into the recovery environment. The connection breaks off now. Follow the progress in Restow and on the console of your provider.",
+	"oneshot.kexec_exec_failed":    "The switch into the recovery environment failed: {reason}.",
+}
+
+var oneshotTextDE = map[string]string{
+	"oneshot.title":                "Restow: Wiederherstellung auf DIESEN Rechner ohne ISO (restow-agent {version})",
+	"oneshot.code_invalid":         "Das ist kein Einmalcode für diesen Befehl (OS-...). Kopieren Sie den ganzen Befehl erneut aus Restow.",
+	"oneshot.unchanged":            "An diesem Rechner wurde nichts geändert. Der Code wurde nicht eingelöst.",
+	"oneshot.sum.machine":          "Dieser Rechner:   {hostname} ({vendor})",
+	"oneshot.sum.network":          "Netz:             {addresses}",
+	"oneshot.sum.gateway":          "Gateway:          {gateways}",
+	"oneshot.sum.firmware":         "Firmware:         {firmware}    Arbeitsspeicher: {ram}",
+	"oneshot.sum.disk":             "Platte:           {path}  {size}  {model}  Kennung {identity}  (wird gelöscht)",
+	"oneshot.fatal.ram":            "Dieser Rechner hat {ram} Arbeitsspeicher; die Wiederherstellung ohne ISO braucht mindestens 2 GiB. Nehmen Sie das Recovery-ISO.",
+	"oneshot.fatal.kexec_disabled": "Dieser Kernel erlaubt nicht, einen anderen Kernel zu laden (kexec_load_disabled). Starten Sie das Rettungssystem des Anbieters oder nehmen Sie das Recovery-ISO.",
+	"oneshot.fatal.xen_pv":         "Dieser Rechner ist ein Xen-PV-Gast; er kann die Recovery-Umgebung nicht starten. Nehmen Sie das Recovery-ISO.",
+	"oneshot.fatal.tool":           "{tool} fehlt auf diesem Rechner.",
+	"oneshot.fatal.no_disk":        "Dieser Rechner hat keine Platte, auf die wiederhergestellt werden kann.",
+	"oneshot.fatal.network":        "Das Netz dieses Rechners lässt sich nicht übernehmen: {detail}. Nehmen Sie das Recovery-ISO.",
+	"oneshot.fatal.agent":          "Auf diesem Rechner ist ein Restow-Agent eingerichtet; das ist kein frischer Rechner. Nur wenn Sie sicher sind, dass er gelöscht werden darf, entfernen Sie zuerst den Agenten (restow-agent uninstall) und starten den Befehl erneut.",
+	"oneshot.warn.ram_low":         "Warnung: {ram} Arbeitsspeicher. Unter 4 GiB kann einer großen Wiederherstellung der Speicher ausgehen.",
+	"oneshot.warn.ram_need":        "Warnung: Die Wiederherstellung braucht etwa {need} Arbeitsspeicher, dieser Rechner hat {ram}.",
+	"oneshot.warn.lockdown":        "Hinweis: Der Kernel läuft im Lockdown-Modus {mode}. Die Probeladung zeigt, ob er den Kernel der Recovery-Umgebung annimmt.",
+	"oneshot.warn.secureboot":      "Hinweis: Secure Boot ist eingeschaltet.",
+	"oneshot.warn.xen_hvm":         "Warnung: Dieser Rechner ist ein Xen-HVM-Gast; Platten und Netz können in der Recovery-Umgebung andere Namen bekommen.",
+	"oneshot.warn.in_use":          "WARNUNG: Dieser Rechner sieht benutzt aus: {signs}. Alles auf seinen Platten wird GELÖSCHT.",
+	"oneshot.sign.agent_enrolled":  "ein Restow-Agent ist eingerichtet",
+	"oneshot.sign.uptime":          "läuft seit mehr als einem Tag",
+	"oneshot.sign.users":           "mehr als ein Benutzer hat einen Heimatordner",
+	"oneshot.sign.services":        "Datenbank- oder Webserverdienste laufen",
+	"oneshot.sign.data":            "mehr als 5 GB Daten",
+	"oneshot.exchanging":           "Code wird bei {instance} eingelöst ...",
+	"oneshot.no_iso":               "Diese Restow-Installation hat noch keine geprüfte Kopie des Recovery-ISO (Restow: Recovery-ISO). An diesem Rechner wurde nichts geändert.",
+	"oneshot.iso_fetch":            "Recovery-ISO {file} ({size}) wird geladen ...",
+	"oneshot.iso_bad":              "Das Recovery-ISO hat die Prüfung nicht bestanden: {reason}. An diesem Rechner wurde nichts geändert.",
+	"oneshot.iso_ok":               "Recovery-ISO {version}: Signatur und Prüfsummen in Ordnung.",
+	"oneshot.kexec_ok":             "Probeladung des Kernels der Recovery-Umgebung: in Ordnung.",
+	"oneshot.kexec_failed":         "Dieser Kernel lehnt den Kernel der Recovery-Umgebung ab ({reason}). Die Wiederherstellung ohne ISO geht hier nicht: Starten Sie das Rettungssystem des Anbieters oder nehmen Sie das Recovery-ISO. An diesem Rechner wurde nichts geändert; Restow zeigt das Ergebnis.",
+	"oneshot.confirm_intro":        "Jede oben genannte Platte wird GELÖSCHT, sobald die Wiederherstellung in Restow freigegeben ist. Bestätigen Sie jede einzeln.",
+	"oneshot.confirm_abort":        "Nicht bestätigt. An diesem Rechner wurde nichts geändert; lehnen Sie die Wiederherstellung in Restow ab.",
+	"oneshot.answers_mismatch":     "Die Antworten bestätigen {identity}, keine Platte dieses Rechners. Es wurde nichts geändert.",
+	"oneshot.passphrase_intro":     "Die Sicherung hat verschlüsselte Volumes (LUKS). Geben Sie die Passphrase für die wiederhergestellten Volumes ein. Beim Start gilt die US-Tastaturbelegung. Ein Server mit verschlüsselter Wurzel braucht bei jedem Start die Konsole des Anbieters.",
+	"oneshot.passphrase_prompt":    "Neue Passphrase",
+	"oneshot.passphrase_missing":   "Die Sicherung hat verschlüsselte Volumes, und die Antworten enthalten keine Passphrase. Es wurde nichts geändert.",
+	"oneshot.ended":                "Die Wiederherstellung wurde in Restow beendet ({status}). An diesem Rechner wurde nichts geändert.",
+	"oneshot.aborted":              "Abgebrochen. An diesem Rechner wurde nichts geändert.",
+	"oneshot.load_failed":          "Die Recovery-Umgebung ließ sich nicht laden: {reason}. An diesem Rechner wurde nichts geändert.",
+	"oneshot.switching":            "Freigegeben. Umschalten in die Recovery-Umgebung. Die Verbindung bricht jetzt ab. Fortschritt in Restow und auf der Konsole Ihres Anbieters.",
+	"oneshot.kexec_exec_failed":    "Das Umschalten in die Recovery-Umgebung ist gescheitert: {reason}.",
+}
+
+func init() {
+	for k, v := range oneshotTextEN {
+		textEN[k] = v
+	}
+	for k, v := range oneshotTextDE {
+		textDE[k] = v
+	}
+}

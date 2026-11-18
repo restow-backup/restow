@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/restow-backup/restow/agent/internal/oneshot/payload/isotest"
 )
 
 func sum(b []byte) string {
@@ -18,7 +20,7 @@ func sum(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func liveISO(t *testing.T, o isoOpts, edit func(files map[string][]byte)) []byte {
+func liveISO(t *testing.T, o isotest.Options, edit func(files map[string][]byte)) []byte {
 	t.Helper()
 	kernel := bytes.Repeat([]byte("K"), 5000)
 	initrd := bytes.Repeat([]byte("I"), 3001)
@@ -33,11 +35,11 @@ func liveISO(t *testing.T, o isoOpts, edit func(files map[string][]byte)) []byte
 	if edit != nil {
 		edit(files)
 	}
-	return buildTestISO(files, o)
+	return isotest.Build(files, o)
 }
 
 func TestISOLookupRockRidge(t *testing.T) {
-	img := liveISO(t, isoOpts{}, nil)
+	img := liveISO(t, isotest.Options{}, nil)
 	iso, err := OpenISO(bytes.NewReader(img), int64(len(img)))
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +69,7 @@ func TestISOLookupRockRidge(t *testing.T) {
 }
 
 func TestISOWithoutRockRidgeUsesISONames(t *testing.T) {
-	img := buildTestISO(map[string][]byte{"/LIVE/VMLINUZ": []byte("k")}, isoOpts{noRockRidge: true})
+	img := isotest.Build(map[string][]byte{"/LIVE/VMLINUZ": []byte("k")}, isotest.Options{NoRockRidge: true})
 	iso, err := OpenISO(bytes.NewReader(img), int64(len(img)))
 	if err != nil {
 		t.Fatal(err)
@@ -78,13 +80,13 @@ func TestISOWithoutRockRidgeUsesISONames(t *testing.T) {
 }
 
 func TestISORefusesBrokenImages(t *testing.T) {
-	good := liveISO(t, isoOpts{}, nil)
+	good := liveISO(t, isotest.Options{}, nil)
 	cases := map[string][]byte{
 		"empty":             nil,
 		"short":             good[:16*sectorSize+10],
-		"no magic":          buildTestISO(map[string][]byte{"/a": []byte("a")}, isoOpts{mutate: func(img []byte) { copy(img[16*sectorSize+1:], "XXXXX") }}),
-		"block size":        buildTestISO(map[string][]byte{"/a": []byte("a")}, isoOpts{mutate: func(img []byte) { img[16*sectorSize+129] = 4 }}),
-		"only a terminator": buildTestISO(map[string][]byte{"/a": []byte("a")}, isoOpts{mutate: func(img []byte) { img[16*sectorSize] = 255 }}),
+		"no magic":          isotest.Build(map[string][]byte{"/a": []byte("a")}, isotest.Options{Mutate: func(img []byte) { copy(img[16*sectorSize+1:], "XXXXX") }}),
+		"block size":        isotest.Build(map[string][]byte{"/a": []byte("a")}, isotest.Options{Mutate: func(img []byte) { img[16*sectorSize+129] = 4 }}),
+		"only a terminator": isotest.Build(map[string][]byte{"/a": []byte("a")}, isotest.Options{Mutate: func(img []byte) { img[16*sectorSize] = 255 }}),
 	}
 	for name, img := range cases {
 		if _, err := OpenISO(bytes.NewReader(img), int64(len(img))); err == nil {
@@ -92,7 +94,7 @@ func TestISORefusesBrokenImages(t *testing.T) {
 		}
 	}
 	// A file whose extent lies beyond the end of the image.
-	img := liveISO(t, isoOpts{}, nil)
+	img := liveISO(t, isotest.Options{}, nil)
 	truncated := img[:len(img)-sectorSize]
 	iso, err := OpenISO(bytes.NewReader(truncated), int64(len(truncated)))
 	if err != nil {
@@ -104,7 +106,7 @@ func TestISORefusesBrokenImages(t *testing.T) {
 }
 
 func TestLiveFilesChecksTheImagesList(t *testing.T) {
-	img := liveISO(t, isoOpts{}, nil)
+	img := liveISO(t, isotest.Options{}, nil)
 	iso, err := OpenISO(bytes.NewReader(img), int64(len(img)))
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +128,7 @@ func TestLiveFilesChecksTheImagesList(t *testing.T) {
 		"no kernel":    func(f map[string][]byte) { delete(f, KernelPath) },
 	}
 	for name, edit := range refused {
-		img := liveISO(t, isoOpts{}, edit)
+		img := liveISO(t, isotest.Options{}, edit)
 		iso, err := OpenISO(bytes.NewReader(img), int64(len(img)))
 		if err != nil {
 			t.Fatal(name, err)

@@ -622,4 +622,31 @@ describe.skipIf(!testDatabaseAdminUrl)("oneshot restores", () => {
       expect((await get("/sessions/current/iso", s.auth)).status).toBe(404);
     });
   });
+
+  it("serves oneshot.sh only when the restore onto a fresh machine is switched on", async () => {
+    const { installRoutes } = await import("./install-routes.js");
+    const { errorHandler } = await import("../../problem.js");
+    const site = new Hono();
+    site.onError(errorHandler);
+    site.route("/install", installRoutes);
+    const publicUrl = appConfig.publicUrl;
+    appConfig.publicUrl = ORIGIN;
+    try {
+      appConfig.baremetalOneshot = false;
+      expect((await site.request("/install/oneshot.sh")).status).toBe(404);
+      appConfig.baremetalOneshot = true;
+      const response = await site.request("/install/oneshot.sh");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/x-shellscript");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const body = await response.text();
+      expect(body).toContain(`INSTANCE_URL='${ORIGIN}'`);
+      expect(body).not.toContain("__RESTOW_URL__");
+      expect(body).toContain('restow-agent" oneshot --instance');
+      // No code and no secret: the admin passes the code as the argument.
+      expect(body).not.toMatch(/OS-(?!X{5})[0-9A-Z]{5}-/);
+    } finally {
+      appConfig.publicUrl = publicUrl;
+    }
+  });
 });

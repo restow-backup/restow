@@ -31,3 +31,8 @@ node scripts/recovery-e2e/run.mjs --iso out/restow-recovery_0.5.0_amd64.iso \
   `agent/internal/recovery/testdata/hw/qemu-e2e.json`).
 - `node --test scripts/recovery-e2e/run.test.mjs` tests the answers file, the case filter and
   the QEMU command lines without KVM.
+- `oneshot-cases.mjs`: the cases O-E1 to O-E6 of the restore onto a fresh machine without an
+  ISO (docs/BAREMETAL-ONESHOT.md 19.3), definitions only until the driver comes (O9);
+  `oneshot-cases.test.mjs` keeps them consistent with the source cases, the answers format of
+  `restow-agent oneshot` and the release body of the API. `oneshot-boot.mjs` is the CI test
+  "start without medium" of the ISO (job `recovery-iso`).
