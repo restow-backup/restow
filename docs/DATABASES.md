@@ -1,6 +1,6 @@
 # Datenbanken (Entwurf für 0.6.0)
 
-Stand: Stufen D1 bis D3 umgesetzt (Abschnitt 16), D4 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
+Stand: Stufen D1 bis D3 umgesetzt (Abschnitt 16), D4 entschieden und in Arbeit, D5 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
 Sicherung, 0.6.x für Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores
 (November 2026):
 
@@ -150,8 +150,8 @@ Benutzers. Die Oberfläche zeigt, was mit diesem Benutzer geht:
 
 | Fähigkeit | PostgreSQL | MySQL/MariaDB | SQL Server |
 |---|---|---|---|
-| Sicherung | `CONNECT` und Lesen aller Objekte (`pg_read_all_data` ab 14) | `SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, PROCESS, RELOAD` | `db_backupoperator` |
-| Prüfung und Restore auf derselben Instanz | zusätzlich `CREATEDB` | zusätzlich `CREATE, DROP, INSERT, ALTER, INDEX, REFERENCES, CREATE ROUTINE, ALTER ROUTINE` | `dbcreator` |
+| Sicherung | `CONNECT` und Lesen aller Objekte (`pg_read_all_data` ab 14) | `SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, PROCESS, RELOAD`, MySQL ab 8.0.20 dazu `SHOW_ROUTINE` | `db_backupoperator` |
+| Prüfung und Restore auf derselben Instanz | zusätzlich `CREATEDB` | zusätzlich `CREATE, DROP, INSERT, ALTER, INDEX, REFERENCES, CREATE ROUTINE, ALTER ROUTINE, CREATE VIEW, SHOW VIEW, TRIGGER, EVENT` | `dbcreator` |
 | Point-in-Time | `REPLICATION` und ein Eintrag `replication` in `pg_hba.conf` | `REPLICATION SLAVE, REPLICATION CLIENT`, Binlog an | `sysadmin` bzw. Log-Sicherung (7.2) |
 
 Fehlt eine Fähigkeit, zeigt der Dialog den SQL-Block, der sie erteilt (Benutzer `restow_backup`
@@ -163,8 +163,9 @@ packages/core `secret-seal.ts`, mit dem Schlüssel des Mandanten), nie im Klarte
 Tabelle, nie in einer API-Antwort, nie in einem Log. Der Ausführer bekommt sie je Lauf (4.3). Die
 Programme bekommen das Kennwort nie auf der Kommandozeile: PostgreSQL über eine `PGPASSFILE`
 (0600, im Speicher-Dateisystem des Ausführers, nach dem Lauf gelöscht), MySQL/MariaDB über eine
-Optionsdatei auf stdin (`--defaults-extra-file=/dev/stdin`), SQL Server über die Verbindung des
-Agenten selbst.
+Optionsdatei (`--defaults-extra-file=<datei>` als erstes Argument, 0600 im selben privaten
+Verzeichnis im Arbeitsspeicher, nach dem Programm gelöscht; stdin ist beim Restore der Dump),
+SQL Server über die Verbindung des Agenten selbst.
 
 **Ohne Kennwort:** Läuft der Agent auf dem Datenbankrechner, meldet er sich wie im ersten
 Entwurf über den Socket an (PostgreSQL `peer` als `postgres`, MariaDB `unix_socket` als root,
@@ -302,9 +303,11 @@ restic backup --stdin-from-command --stdin-filename <instanz>/<datenbank>.<endun
 
 ### 5.3 MySQL und MariaDB
 
-- Je Schema: `mysqldump` bzw. `mariadb-dump` mit `--single-transaction --routines --events
-  --triggers --hex-blob --default-character-set=utf8mb4 --no-tablespaces`, **ohne**
-  `--databases`, damit der Dump unter einem anderen Namen eingespielt werden kann **[CI]**.
+- Je Schema: `mysqldump` bzw. `mariadb-dump` mit `--single-transaction --quick --routines
+  --events --triggers --hex-blob --default-character-set=utf8mb4 --no-tablespaces
+  --skip-add-locks` (MySQL zusätzlich `--set-gtid-purged=OFF --column-statistics=0`), **ohne**
+  `--databases`, damit der Dump unter einem anderen Namen eingespielt werden kann **[CI]**. Kein
+  globales Lesesperren (`FLUSH TABLES WITH READ LOCK`) vor P2.
 - `--single-transaction` ist nur für InnoDB konsistent; andere Engines meldet der Lauf als
   Hinweis `db_nontransactional_tables` mit den Namen.
 - Benutzer und Rechte einmal je Instanz, wenn der Benutzer sie lesen darf (MariaDB
@@ -966,6 +969,74 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   Job agent nicht setzt; dieselben Wege belegen die Suiten von Worker und API gegen den TLS-Server
   der CI.
 - **Globale Objekte:** werden gesichert, aber nicht automatisch eingespielt (O3).
+
+### D4 (Entscheidungen, November 2026)
+
+Lucas Flores hat für D4 entschieden (MySQL und MariaDB: Sicherung, Restore unter neuem Namen und
+auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
+
+- **M1 Relais mit Anmeldefilter (durchreichend).** TLS beginnt bei MySQL im Protokoll: Der Server
+  begrüßt, der Client antwortet mit einer SSLRequest, dann TLS, dann das Anmeldepaket. Der
+  Ausführer öffnet die Verbindung mit dem gehärteten Client aus D1 (Adressprüfung, Freigabe, erste
+  Adresse des Laufs, TLS und bestätigter Fingerabdruck, alles vor der Anmeldung) und reicht dem
+  Programm über den Unix-Socket des Relais (0700/0600, ein Client, wie D3) die **ursprüngliche
+  Begrüßung** mit gelöschten Schaltern für TLS und Kompression. Bis zum OK oder Fehler der
+  Anmeldung setzt das Relais die Paketnummern beider Richtungen neu (es hat die SSLRequest
+  selbst gesendet) und im Anmeldepaket des Programms den TLS-Schalter; danach fließen die Bytes
+  unverändert. Das Programm meldet sich selbst an, mit jedem Verfahren, das es kennt
+  (`mysql_native_password`, `caching_sha2_password`, MariaDB `client_ed25519`). Über einen
+  Unix-Socket sendet es für die volle Anmeldung von `caching_sha2_password` das Kennwort im
+  Klartext; mit TLS nach oben reicht das Relais es im TLS weiter. **Ohne TLS nach oben** (nur über
+  einen Agenten mit "unverschlüsselt verbinden") fängt das Relais genau diesen Schritt ab und
+  verschlüsselt das Kennwort selbst mit dem RSA-Schlüssel des Servers (wie der D1-Client); jedes
+  andere Verfahren, das dann Klartext verlangen würde (`mysql_clear_password`,
+  `sha256_password`, PAM, GSSAPI), beendet das Relais vor der Weitergabe mit
+  `db_auth_unsupported`. Begrenzt wie der Filter von PostgreSQL (64 KiB je Nachricht, Frist).
+  Die Programme verbinden sich mit `--protocol=SOCKET --socket=<relais>`; Benutzer und Kennwort
+  stehen in der Optionsdatei (3.2).
+- **M2 Programme aus den Quellen der Hersteller, festgelegt.** Worker-Image: MariaDB-Client aus
+  Debian, wenn das Basis-Image 11.8 hat, sonst aus dem apt-Archiv von MariaDB mit festgelegtem
+  Schlüssel (genau ein Schlüssel, wie PGDG); MySQL 8.4 aus den "minimal"-Archiven von Oracle für
+  amd64 und arm64, festgelegt über SHA-256 und geprüft gegen einen mitgelieferten Schlüssel von
+  Oracle, davon nur `mysqldump`, `mysql` und `mysqlbinlog`. Größe messen, Lizenzen in die
+  Drittanbieter-Hinweise (eigenständige Programme). **Regel nach Familie:** nie über die Familie
+  hinweg (ein MySQL-Dump nie mit dem Client von MariaDB und umgekehrt); MySQL: Client 8.4 oder
+  neuer und mindestens die Version des Servers; MariaDB: der neueste vorhandene Client; sonst
+  `db_tool_missing` bzw. `db_tool_too_old`. Die Familie erkennt Restow an `--version` des
+  aufgelösten Programms (auf MariaDB-Rechnern ist `mysqldump` ein Link auf `mariadb-dump`).
+  Agent: nur vertrauenswürdige Programme des Rechners (wie D3), nicht unter Windows (E7), das Paket
+  `restow-agent-dbtools` mit D7.
+- **M3 Restore.** Immer in ein neues Schema: `CREATE DATABASE` mit Zeichensatz und Sortierung
+  des Quellschemas (beim Sichern festgehalten, denn ein Dump ohne `--databases` trägt kein
+  `CREATE DATABASE`), dann der Client `mysql` bzw. `mariadb` mit `--database=<neu>`, Abbruch beim
+  ersten Fehler (kein `--force`), `--default-character-set=utf8mb4`, großes
+  `--max-allowed-packet`. Name: 1 bis 64 Zeichen, keine Steuerzeichen, kein Leerzeichen am Ende,
+  nichts außerhalb der BMP; Vorgabe `<name>_restored_<UTC-Zeit>`; bei `lower_case_table_names`
+  ungleich 0 gilt ein Name ohne Rücksicht auf Groß- und Kleinschreibung als vergeben.
+  Bezeichner stehen in Backticks; Zeichenkettenliterale verwendet Restow nicht (ihre Bedeutung
+  hängt an `NO_BACKSLASH_ESCAPES`), Namen vergleicht der Code. **Aufräumen ohne OID:** direkt
+  nach `CREATE DATABASE` legt der Lauf die Markierungstabelle `__restow_run_<id>` an; scheitert er,
+  löscht er nur ein Schema dieses Namens, das noch seine Markierung trägt, und nach Erfolg die
+  Markierung. **DEFINER:** Beim Einspielen (nie im Download) entfernt ein strenger Filter im
+  Datenstrom die `DEFINER`-Klauseln aus genau den DDL-Formen, die die Dump-Programme schreiben
+  (`/*!50013 DEFINER=… */`, `/*!50017 …*/`, `/*!50117 …*/`, `CREATE DEFINER=…`), nur am Anfang
+  einer Anweisung und nie in einer `INSERT`-Zeile; die Objekte gehören dann dem einspielenden
+  Benutzer, die Anleitung beschreibt das Einspielen mit den ursprünglichen Besitzern.
+  **Ereignisse** des neuen Schemas schaltet der Lauf danach ab (`ALTER EVENT … DISABLE`), damit
+  eine Kopie keine Aufträge ausführt; der Lauf zeigt das. **GTID/Binlog:** MySQL mit
+  `--set-gtid-purged=OFF`, MariaDB ohne `--gtid`/`--master-data` (das ist P2); kein
+  `SQL_LOG_BIN=0`. **Benutzer und Rechte** einmal je Instanz als Gegenstück zu den globalen
+  Objekten von D3, nur für Administratoren herunterzuladen und nie automatisch eingespielt:
+  MariaDB `mariadb-dump --system=users`, MySQL von Restows eigenem Client erzeugt (`SHOW CREATE
+  USER`, `SHOW GRANTS`, mit höheren Grenzen als eine Prüfung).
+- **M4 Konsistenz.** `--single-transaction --quick`, keine globale Sperre. Vor dem Dump liest der
+  Lauf die Engines der Tabellen; nicht transaktionale (MyISAM, Aria, MEMORY) meldet er als
+  Hinweis `db_nontransactional_tables` mit den Namen (begrenzt). Der Objektzähler zählt nur
+  Zeilenanfänge von Anweisungen in den Formen der Dump-Programme (`CREATE TABLE`, `VIEW`,
+  `PROCEDURE`, `FUNCTION`, `TRIGGER`, `EVENT`), nie in Daten oder im Körper einer Routine.
+- **CI:** echte Server MySQL 8.4 und 8.0, MariaDB 11.8 und 10.6 mit TLS als Container (wie
+  `start-postgres-tls.sh`), mit einem Wächter wie für PostgreSQL, damit die Suiten in der CI nicht
+  still übersprungen werden.
 
 ### Nahtstellen für D3 bis D7
 
