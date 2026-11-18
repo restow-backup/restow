@@ -532,7 +532,11 @@ describe.skipIf(!testDatabaseAdminUrl)(
 
     it("never drops the newest events of a busy history, and reads long ranges by the hour", async () => {
       const connectionId = await agentConnection("ERP");
-      const now = new Date();
+      // Half past an hour, in the past: the newest failure (30 s before) and the good checks before
+      // it (from 64 s before) fall into the same hour. With the wall clock, a run in the first
+      // minute of an hour put the failure alone into a new hour, which the hourly view then rightly
+      // showed as an episode of its own.
+      const now = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000 - 30 * 60_000);
       // More samples than the history reads (one every 4 seconds for a day), the newest failed.
       await fixture.db.execute(sql`
         INSERT INTO database_health_samples (tenant_id, connection_id, at, executor_kind, ok_checks)
