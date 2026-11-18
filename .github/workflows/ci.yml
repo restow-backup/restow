@@ -160,6 +160,19 @@ jobs:
           chmod +x "$RUNNER_TEMP/planner/restow-agent"
           echo "RESTOW_PLANNER_BIN=$RUNNER_TEMP/planner/restow-agent" >> "$GITHUB_ENV"
 
+      - name: Start MySQL and MariaDB with TLS (the suites of the D4 runs)
+        # MySQL 8.4 and 8.0, MariaDB 11.8 and 10.6, each in its own container with a throwaway
+        # self-signed certificate, on port 3306 of its own address
+        # (apps/worker src/databases/mysql-runs.pg.test.ts). Sets RESTOW_TEST_MYSQL_URL,
+        # RESTOW_TEST_MYSQL80_URL, RESTOW_TEST_MARIADB_URL and RESTOW_TEST_MARIADB106_URL; the
+        # guard below fails the job when a server's suite skipped itself (docs/CI.md).
+        run: sh scripts/ci/start-mysql-tls.sh
+
+      - name: Install the MySQL and MariaDB client programs (the worker runs them)
+        # MySQL 8.4 from the archive the Dockerfile pins (SHA-256 and Oracle's signature) into
+        # /opt/mysql, the MariaDB client from the runner's distribution.
+        run: sh scripts/ci/install-mysql-tools.sh
+
       - name: Start a PostgreSQL with TLS (the server probe's suite)
         # The service above offers no TLS. packages/core databases/probe/postgres.pg.test.ts
         # proves the encrypted sign-in, the certificate pinning and the facts against a real
@@ -189,8 +202,9 @@ jobs:
 
       - name: Assert no Postgres suite was skipped
         # A suite without RESTOW_TEST_DATABASE_URL (or, for the TLS suite,
-        # RESTOW_TEST_DATABASE_TLS_URL) skips itself and still looks green; this
-        # fails the job unless every Postgres test ran and passed.
+        # RESTOW_TEST_DATABASE_TLS_URL, for the D4 suites the four MySQL and MariaDB
+        # variables) skips itself and still looks green; this fails the job unless
+        # every Postgres test ran and passed.
         run: pnpm test:pg-guard
 
   i18n:
@@ -364,15 +378,25 @@ jobs:
           test "$licenses" = "Apache-2.0 AND GPL-2.0-only AND LGPL-3.0-only AND BSD-2-Clause-Patent"
 
       - name: The images carry their tools
-        # restic, the standalone restore tool and the PostgreSQL client programs must be in both
-        # application images, the agent binaries with their checksums must sit where the api
-        # serves them from (when agent/ exists in this commit).
+        # restic, the standalone restore tool and the PostgreSQL, MySQL and MariaDB client programs
+        # must be in both application images, the agent binaries with their checksums must sit
+        # where the api serves them from (when agent/ exists in this commit).
         run: |
           for image in restow:ci restow-community:ci; do
             docker run --rm --entrypoint restow-restore "$image" --help > /dev/null
             # The PostgreSQL client programs of the server's database runs (docs/DATABASES.md 11).
             docker run --rm --entrypoint sh "$image" -c \
               'set -eu; for tool in pg_dump pg_dumpall pg_restore; do /usr/lib/postgresql/*/bin/$tool --version; done' 
+            # MySQL 8.4 in /opt/mysql (only its three programs) and MariaDB 11.8 (16 "D4" M2).
+            docker run --rm --entrypoint sh "$image" -c '
+              set -eu
+              /opt/mysql/bin/mysqldump --version | grep -q "Ver 8\.4\."
+              /opt/mysql/bin/mysql --version
+              /opt/mysql/bin/mysqlbinlog --version
+              test "$(ls /opt/mysql/bin | tr "\n" " ")" = "mysql mysqlbinlog mysqldump "
+              test -s /opt/mysql/LICENSE
+              mariadb-dump --version | grep -q "from 11\.8\."
+              mariadb --version'
             if [ -f agent/go.mod ]; then
               docker run --rm --entrypoint restic "$image" version
               docker run --rm --entrypoint sh "$image" -c \

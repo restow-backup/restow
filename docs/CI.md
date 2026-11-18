@@ -71,6 +71,22 @@ them, and fails on every skipped Postgres test. Locally, point the variable at a
 with `ssl = on` on port 5432 (for example the one `RESTOW_TEST_DATABASE_URL` names, if it has a
 certificate), or run the script with Docker.
 
+### MySQL and MariaDB suites
+
+The D4 suites (`apps/worker/src/databases/mysql-runs.pg.test.ts`, and the agent's
+`agent/internal/dbrun/mysql_run_pg_test.go` when run by hand) run against real servers with TLS.
+The step "Start MySQL and MariaDB with TLS" runs `scripts/ci/start-mysql-tls.sh`, which starts
+MySQL 8.4 and 8.0 and MariaDB 11.8 and 10.6, each in its own container with a throwaway
+self-signed certificate (the key copied into place for the `mysql` user), on port 3306 of its
+own address, waits until a connection that requires TLS gets a cipher, and writes
+`RESTOW_TEST_MYSQL_URL`, `RESTOW_TEST_MYSQL80_URL`, `RESTOW_TEST_MARIADB_URL` and
+`RESTOW_TEST_MARIADB106_URL` (as root) to `$GITHUB_ENV`. "Install the MySQL and MariaDB client
+programs" (`scripts/ci/install-mysql-tools.sh`) puts the MySQL 8.4 archive the Dockerfile pins
+(SHA-256 and Oracle's signature) into `/opt/mysql` and the MariaDB client of the runner's
+distribution on the runner. The Postgres guard asks for each of the four variables as soon as a
+Postgres test file reads it. Locally, run the script with the servers wanted
+(`scripts/ci/start-mysql-tls.sh mysql84 mariadb118`) and export the lines it prints.
+
 ## Dependency licenses and Dependabot
 
 The job **Dependency licenses** of `ci.yml` installs the workspace and runs

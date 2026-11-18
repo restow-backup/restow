@@ -120,6 +120,25 @@ describe("assert-pg-suites", () => {
     assert.deepEqual(checkPostgresSuites({ root, env: withTls }).problems, []);
   });
 
+  it("fails without a MySQL or MariaDB variable that a suite reads", () => {
+    write(
+      "apps/api/src/mysql-runs.pg.test.ts",
+      'const servers = ["RESTOW_TEST_MYSQL_URL", "RESTOW_TEST_MARIADB106_URL"].map((name) => process.env[name]);\n',
+    );
+    writeReport({ "apps/api/src/mysql-runs.pg.test.ts": [assertion("dumps and restores")] });
+    const without = checkPostgresSuites({ root, env: ENV }).problems;
+    assert.equal(without.length, 2);
+    assert.match(
+      without[0],
+      /RESTOW_TEST_MYSQL_URL is not set: apps\/api\/src\/mysql-runs\.pg\.test\.ts skip\(s\) without MySQL 8\.4 with TLS \(scripts\/ci\/start-mysql-tls\.sh\)/,
+    );
+    assert.match(without[1], /RESTOW_TEST_MARIADB106_URL is not set/);
+    const one = { ...ENV, RESTOW_TEST_MYSQL_URL: "mysql://root@172.17.0.3:3306" };
+    assert.equal(checkPostgresSuites({ root, env: one }).problems.length, 1);
+    const both = { ...one, RESTOW_TEST_MARIADB106_URL: "mysql://root@172.17.0.4:3306" };
+    assert.deepEqual(checkPostgresSuites({ root, env: both }).problems, []);
+  });
+
   it("does not ask for the TLS variable when no suite reads it", () => {
     writeReport();
     assert.deepEqual(checkPostgresSuites({ root, env: ENV }).problems, []);

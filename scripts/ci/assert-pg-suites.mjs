@@ -10,6 +10,9 @@
  *   - RESTOW_TEST_DATABASE_TLS_URL is not set while a Postgres test file reads it (the server
  *     probe's suite needs a PostgreSQL with TLS; the CI starts a second server for it,
  *     scripts/ci/start-postgres-tls.sh),
+ *   - one of the MySQL and MariaDB variables (RESTOW_TEST_MYSQL_URL, RESTOW_TEST_MYSQL80_URL,
+ *     RESTOW_TEST_MARIADB_URL, RESTOW_TEST_MARIADB106_URL) is not set while a Postgres test file
+ *     reads it (the suites of the D4 runs; scripts/ci/start-mysql-tls.sh starts the servers),
  *   - a workspace holding Postgres tests wrote no Vitest JSON report,
  *   - a Postgres test file is missing from its workspace's report or has no tests, or
  *   - any test in a Postgres test file did not pass (skipped, todo, pending, failed).
@@ -33,6 +36,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const DATABASE_ENV = "RESTOW_TEST_DATABASE_URL";
 /** A PostgreSQL that offers TLS, for the suites that prove the encrypted path. */
 export const DATABASE_TLS_ENV = "RESTOW_TEST_DATABASE_TLS_URL";
+/** The MySQL and MariaDB servers with TLS of the D4 suites, with the script that starts them. */
+export const SERVER_ENVS = [
+  { name: DATABASE_TLS_ENV, what: "a PostgreSQL that offers TLS", script: "start-postgres-tls.sh" },
+  { name: "RESTOW_TEST_MYSQL_URL", what: "MySQL 8.4 with TLS", script: "start-mysql-tls.sh" },
+  { name: "RESTOW_TEST_MYSQL80_URL", what: "MySQL 8.0 with TLS", script: "start-mysql-tls.sh" },
+  { name: "RESTOW_TEST_MARIADB_URL", what: "MariaDB 11.8 with TLS", script: "start-mysql-tls.sh" },
+  {
+    name: "RESTOW_TEST_MARIADB106_URL",
+    what: "MariaDB 10.6 with TLS",
+    script: "start-mysql-tls.sh",
+  },
+];
 export const REPORT_FILE = join("test-results", "vitest.json");
 
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
@@ -162,7 +177,15 @@ export function findPostgresTestFiles(root) {
         continue;
       }
       if (POSTGRES_TEST_FILE.test(file) || graph.readsDatabaseEnv(file)) {
-        found.push({ workspace, file, tls: readFileSync(file, "utf8").includes(DATABASE_TLS_ENV) });
+        const source = readFileSync(file, "utf8");
+        found.push({
+          workspace,
+          file,
+          tls: source.includes(DATABASE_TLS_ENV),
+          servers: SERVER_ENVS.filter((server) => source.includes(server.name)).map(
+            (server) => server.name,
+          ),
+        });
       }
     }
   }
@@ -199,11 +222,15 @@ export function checkPostgresSuites({ root, env = process.env }) {
   }
 
   const files = findPostgresTestFiles(root);
-  const needTls = files.filter((entry) => entry.tls).map((entry) => relative(root, entry.file));
-  if (needTls.length > 0 && !env[DATABASE_TLS_ENV]) {
-    problems.push(
-      `${DATABASE_TLS_ENV} is not set: ${needTls.join(", ")} skip(s) without a PostgreSQL that offers TLS (scripts/ci/start-postgres-tls.sh).`,
-    );
+  for (const server of SERVER_ENVS) {
+    const need = files
+      .filter((entry) => entry.servers.includes(server.name))
+      .map((entry) => relative(root, entry.file));
+    if (need.length > 0 && !env[server.name]) {
+      problems.push(
+        `${server.name} is not set: ${need.join(", ")} skip(s) without ${server.what} (scripts/ci/${server.script}).`,
+      );
+    }
   }
   if (files.length === 0) {
     problems.push("no Postgres test files were found; the discovery rules no longer match.");
