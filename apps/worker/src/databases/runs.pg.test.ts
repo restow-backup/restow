@@ -523,7 +523,8 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
       executorKind: "server" as const,
       executorEndpointId: null,
     };
-    for (let index = 0; index < 2; index++) {
+    // Three runs: the policy always keeps the newest and the oldest, so one of each group goes.
+    for (let index = 0; index < 3; index++) {
       now = new Date(now.getTime() + 60 * 1000);
       const run = await insertDatabaseRun(
         db,
@@ -546,11 +547,12 @@ describe.skipIf(!adminUrl || !tlsUrl)("database runs of the Restow server [DB-00
     // genuine snapshot (restic would forget every snapshot starting with it) and one under an id
     // nobody wrote. Retention forgets neither.
     const genuine = listedBefore[0]?.id as string;
-    const [sample] = await db
-      .select()
-      .from(databaseBackups)
-      .where(eq(databaseBackups.connectionId, connectionId))
-      .limit(1);
+    // Next to the middle backup of the database: the policy drops them like it drops that one.
+    const sample = (
+      await db.select().from(databaseBackups).where(eq(databaseBackups.connectionId, connectionId))
+    )
+      .filter((row) => row.kind === "database")
+      .sort((x, y) => y.finishedAt.getTime() - x.finishedAt.getTime())[1];
     for (const snapshotId of [genuine.slice(0, 8), "0".repeat(64)]) {
       await db.insert(databaseBackups).values({
         ...(sample as NonNullable<typeof sample>),
