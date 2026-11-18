@@ -10,6 +10,7 @@ import {
   createConnection,
   databaseKeys,
   deleteConnection,
+  fetchBackups,
   fetchConnection,
   fetchConnectionHealth,
   fetchConnections,
@@ -18,7 +19,11 @@ import {
   fetchDatabases,
   fetchProbe,
   fetchRunners,
+  fetchRuns,
   fetchSuggestions,
+  type RestoreInput,
+  requestBackup,
+  requestRestore,
   type TestConnectionInput,
   testConnection,
   testStoredConnection,
@@ -189,6 +194,39 @@ export function useDeleteConnection(id: string) {
   const invalidate = useInvalidate();
   return useMutation({
     mutationFn: () => deleteConnection(id),
+    onSuccess: () => void invalidate(),
+  });
+}
+
+export function useDatabaseBackups(id: string) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: databaseKeys.backups(tenantId, id),
+    queryFn: () => fetchBackups(id),
+    enabled,
+    refetchInterval: IDLE_REFRESH_MS,
+  });
+}
+
+export function useConnectionRuns(connectionId: string) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: databaseKeys.runs(tenantId, connectionId),
+    queryFn: () => fetchRuns(connectionId),
+    enabled,
+    refetchInterval: IDLE_REFRESH_MS,
+  });
+}
+
+export function useRequestBackup(id: string) {
+  const invalidate = useInvalidate();
+  return useMutation({ mutationFn: () => requestBackup(id), onSuccess: () => void invalidate() });
+}
+
+export function useRequestRestore(id: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (input: RestoreInput) => requestRestore(id, input),
     onSuccess: () => void invalidate(),
   });
 }

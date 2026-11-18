@@ -1,0 +1,270 @@
+import { Download, FileText, History, Play, RotateCcw } from "lucide-react";
+import * as React from "react";
+
+import { EmptyState, StatusBadge } from "@/components/kit";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import { downloadFile } from "../../stats/download.js";
+import { backupDownloadPath, type DbBackup, type DbConnection, restoreGuidePath } from "../api.js";
+import {
+  type DbFormat,
+  useConnections,
+  useDatabaseBackups,
+  useRequestBackup,
+  useRequestRestore,
+} from "../hooks.js";
+import { problemKey } from "./add-connection-dialog.js";
+
+/** A new database's name: at most 63 bytes (docs/DATABASES.md 16 "D3" O3). */
+export function restoreNameValid(name: string): boolean {
+  return name.length > 0 && name.trim() === name && new TextEncoder().encode(name).length <= 63;
+}
+
+/**
+ * The backups of a database (docs/DATABASES.md 2.3, 7.1, D3): when, how large, SHA-256, with
+ * "Jetzt sichern", "Wiederherstellen" (always into a new database), "Herunterladen" and the
+ * restore guide. Administrators start runs; restore operators read and download.
+ */
+export function DatabaseBackupsCard({
+  databaseId,
+  databaseName,
+  engine,
+  connectionId,
+  admin,
+  format,
+}: {
+  databaseId: string;
+  databaseName: string;
+  engine: string;
+  connectionId: string;
+  admin: boolean;
+  format: DbFormat;
+}) {
+  const { t } = format;
+  const backups = useDatabaseBackups(databaseId);
+  const backup = useRequestBackup(databaseId);
+  const [restoring, setRestoring] = React.useState<DbBackup | null>(null);
+  const [downloadError, setDownloadError] = React.useState<unknown>(null);
+  const supported = engine === "postgresql";
+  const download = async (row: DbBackup, guide: boolean) => {
+    setDownloadError(null);
+    try {
+      await downloadFile({
+        path: guide ? restoreGuidePath(databaseId, row.id) : backupDownloadPath(databaseId, row.id),
+        accept: guide ? "text/plain" : "application/octet-stream",
+        fallbackName: guide ? `${databaseName}-restore-guide.txt` : `${databaseName}.pgdump`,
+      });
+    } catch (error) {
+      setDownloadError(error);
+    }
+  };
+  const rows = backups.data?.backups ?? [];
+  return (
+    <Card data-slot="database-backups">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle>{t("backups.title")}</CardTitle>
+          <CardDescription>{t("backups.description")}</CardDescription>
+        </div>
+        {admin && supported ? (
+          <Button size="sm" onClick={() => backup.mutate()} disabled={backup.isPending}>
+            <Play aria-hidden="true" />
+            {t("backups.now")}
+          </Button>
+        ) : null}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {backup.isSuccess ? (
+          <Alert>
+            <AlertTitle>{t("backups.queued")}</AlertTitle>
+          </Alert>
+        ) : null}
+        {backup.isError ? (
+          <Alert variant="destructive">
+            <AlertTitle>{t(problemKey(backup.error))}</AlertTitle>
+          </Alert>
+        ) : null}
+        {downloadError ? (
+          <Alert variant="destructive">
+            <AlertTitle>{t("backups.downloadFailed")}</AlertTitle>
+          </Alert>
+        ) : null}
+        {backups.isPending ? (
+          <Skeleton className="h-24 w-full" />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon={History}
+            title={t("database.noBackups.title")}
+            description={t(supported ? "backups.none" : "database.noBackups.description")}
+          />
+        ) : (
+          <ul className="divide-y">
+            {rows.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div className="space-y-0.5 text-sm">
+                  <div className="font-medium">{format.dateTime(row.finishedAt)}</div>
+                  <div className="text-muted-foreground">
+                    {format.bytes(row.bytes)} · SHA-256 {row.sha256.slice(0, 16)}… ·{" "}
+                    {t("backups.snapshot", { id: row.snapshotId.slice(0, 8) })}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone="neutral">{t("backups.unverified")}</StatusBadge>
+                  <Button size="sm" variant="outline" onClick={() => void download(row, false)}>
+                    <Download aria-hidden="true" />
+                    {t("backups.download")}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void download(row, true)}>
+                    <FileText aria-hidden="true" />
+                    {t("backups.guide")}
+                  </Button>
+                  {admin ? (
+                    <Button size="sm" variant="outline" onClick={() => setRestoring(row)}>
+                      <RotateCcw aria-hidden="true" />
+                      {t("backups.restore")}
+                    </Button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+      {restoring ? (
+        <RestoreDialog
+          databaseId={databaseId}
+          databaseName={databaseName}
+          engine={engine}
+          connectionId={connectionId}
+          backup={restoring}
+          format={format}
+          onClose={() => setRestoring(null)}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function RestoreDialog({
+  databaseId,
+  databaseName,
+  engine,
+  connectionId,
+  backup,
+  format,
+  onClose,
+}: {
+  databaseId: string;
+  databaseName: string;
+  engine: string;
+  connectionId: string;
+  backup: DbBackup;
+  format: DbFormat;
+  onClose: () => void;
+}) {
+  const { t } = format;
+  const connections = useConnections();
+  const restore = useRequestRestore(databaseId);
+  const [target, setTarget] = React.useState(connectionId);
+  const [name, setName] = React.useState("");
+  const targets = (connections.data?.connections ?? []).filter(
+    (connection: DbConnection) => connection.engine === engine,
+  );
+  const valid = name === "" || restoreNameValid(name);
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("backups.restoreTitle", { name: databaseName })}</DialogTitle>
+          <DialogDescription>{t("backups.restoreDescription")}</DialogDescription>
+        </DialogHeader>
+        {restore.isSuccess ? (
+          <Alert>
+            <AlertTitle>
+              {t("backups.restoreQueued", { name: restore.data.targetName ?? "" })}
+            </AlertTitle>
+            <AlertDescription>{t("backups.restoreOwners")}</AlertDescription>
+          </Alert>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {t("backups.restoreFrom", { at: format.dateTime(backup.finishedAt) })}
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="restore-target">{t("backups.restoreTarget")}</Label>
+              <Select value={target} onValueChange={setTarget}>
+                <SelectTrigger id="restore-target">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {targets.map((connection) => (
+                    <SelectItem key={connection.id} value={connection.id}>
+                      {connection.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="restore-name">{t("backups.restoreName")}</Label>
+              <Input
+                id="restore-name"
+                value={name}
+                placeholder={t("backups.restoreNamePlaceholder", { name: databaseName })}
+                onChange={(event) => setName(event.target.value)}
+                aria-invalid={!valid}
+              />
+              <p className="text-xs text-muted-foreground">
+                {valid ? t("backups.restoreNameHint") : t("backups.restoreNameInvalid")}
+              </p>
+            </div>
+            {restore.isError ? (
+              <Alert variant="destructive">
+                <AlertTitle>{t(problemKey(restore.error))}</AlertTitle>
+              </Alert>
+            ) : null}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t(restore.isSuccess ? "backups.close" : "backups.cancel")}
+          </Button>
+          {restore.isSuccess ? null : (
+            <Button
+              disabled={!valid || restore.isPending}
+              onClick={() =>
+                restore.mutate({
+                  backupId: backup.id,
+                  ...(target !== connectionId ? { targetConnectionId: target } : {}),
+                  ...(name ? { name } : {}),
+                })
+              }
+            >
+              {t("backups.restoreStart")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

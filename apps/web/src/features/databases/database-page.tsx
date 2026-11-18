@@ -1,24 +1,29 @@
 import { Link } from "@tanstack/react-router";
-import { Database, History } from "lucide-react";
+import { Database } from "lucide-react";
 
-import { EmptyState, ErrorState, PageHeader, StatusBadge } from "@/components/kit";
+import { ErrorState, PageHeader, StatusBadge } from "@/components/kit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { canAccess, useSession } from "@/lib/session";
+
+import { DatabaseBackupsCard } from "./components/backups.js";
 import { DatabaseSizeCard } from "./components/health.js";
 import { useDatabase, useDbFormat } from "./hooks.js";
-import { connectionTo, linkTo } from "./paths.js";
+import { connectionTo, DATABASE_ADMIN_ROLES, linkTo } from "./paths.js";
 import { ENGINE_LABEL, ratingView, reachabilityView } from "./presenters.js";
 
 /**
- * One database (docs/DATABASES.md 2.3): where it lives, its identity, size and rating. Backups,
- * check reports, the health history and the actions to restore come with the backups of the
- * module; until a backup exists the page says so.
+ * One database (docs/DATABASES.md 2.3): where it lives, its identity, size and rating, its
+ * backups with "Jetzt sichern", "Wiederherstellen", the download and the restore guide (D3); the
+ * check reports come with D6.
  */
 export function DatabasePage({ databaseId }: { databaseId: string }) {
   const format = useDbFormat();
   const { t } = format;
   const database = useDatabase(databaseId);
+  const { role } = useSession();
+  const admin = canAccess(role, DATABASE_ADMIN_ROLES);
   if (database.isError) {
     return (
       <ErrorState
@@ -82,12 +87,15 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
           </dl>
         </CardContent>
       </Card>
-      <DatabaseSizeCard databaseId={data.id} format={format} />
-      <EmptyState
-        icon={History}
-        title={t("database.noBackups.title")}
-        description={t("database.noBackups.description")}
+      <DatabaseBackupsCard
+        databaseId={data.id}
+        databaseName={data.name}
+        engine={data.engine}
+        connectionId={data.connectionId}
+        admin={admin}
+        format={format}
       />
+      <DatabaseSizeCard databaseId={data.id} format={format} />
     </div>
   );
 }

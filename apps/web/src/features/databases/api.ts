@@ -310,6 +310,57 @@ export const deleteConnection = (id: string) =>
 
 type TenantKey = string | null;
 
+/** One backup in the connection's repository (D3, docs/DATABASES.md 5.5). */
+export interface DbBackup {
+  id: string;
+  kind: "database" | "globals";
+  databaseName: string;
+  snapshotId: string;
+  fileName: string;
+  sha256: string;
+  bytes: number;
+  objects: Record<string, number>;
+  toolVersion: string | null;
+  serverVersion: string | null;
+  startedAt: string;
+  finishedAt: string;
+}
+
+/** A backup or restore run (D3, 4.3). */
+export interface DbRun {
+  id: string;
+  kind: "backup" | "restore";
+  trigger: "schedule" | "manual";
+  status: "queued" | "running" | "succeeded" | "partial" | "failed";
+  executor: "agent" | "server";
+  targetConnectionId: string | null;
+  targetName: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export const fetchBackups = (id: string) =>
+  apiFetch<{ backups: DbBackup[] }>(`${BASE}/${encodeURIComponent(id)}/backups`);
+export const fetchRuns = (connectionId: string) =>
+  apiFetch<{ runs: DbRun[] }>(`${BASE}/connections/${encodeURIComponent(connectionId)}/runs`);
+export const requestBackup = (id: string) =>
+  apiFetch<DbRun>(`${BASE}/${encodeURIComponent(id)}/backup`, { method: "POST" });
+export interface RestoreInput {
+  backupId: string;
+  targetConnectionId?: string;
+  name?: string;
+}
+export const requestRestore = (id: string, input: RestoreInput) =>
+  apiFetch<DbRun>(`${BASE}/${encodeURIComponent(id)}/restore`, { method: "POST", body: input });
+/** API paths of a backup's file and its restore guide (fetched with the tenant header). */
+export const backupDownloadPath = (id: string, backupId: string) =>
+  `${BASE}/${encodeURIComponent(id)}/backups/${encodeURIComponent(backupId)}/download`;
+export const restoreGuidePath = (id: string, backupId: string) =>
+  `${BASE}/${encodeURIComponent(id)}/backups/${encodeURIComponent(backupId)}/restore-guide`;
+
 export const databaseKeys = {
   all: (tenantId: TenantKey) => ["tenant", tenantId, "databases"] as const,
   list: (tenantId: TenantKey) => ["tenant", tenantId, "databases", "list"] as const,
@@ -323,6 +374,10 @@ export const databaseKeys = {
   sizes: (tenantId: TenantKey, id: string, days: number) =>
     ["tenant", tenantId, "databases", "detail", id, "sizes", days] as const,
   suggestions: (tenantId: TenantKey) => ["tenant", tenantId, "databases", "suggestions"] as const,
+  backups: (tenantId: TenantKey, id: string) =>
+    ["tenant", tenantId, "databases", "detail", id, "backups"] as const,
+  runs: (tenantId: TenantKey, id: string) =>
+    ["tenant", tenantId, "databases", "connection", id, "runs"] as const,
   runners: (tenantId: TenantKey) => ["tenant", tenantId, "databases", "runners"] as const,
   probe: (tenantId: TenantKey, id: string) =>
     ["tenant", tenantId, "databases", "probe", id] as const,

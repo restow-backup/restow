@@ -1271,7 +1271,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Eine Wiederherstellung legt immer eine neue Datenbank an (auf derselben oder einer anderen Verbindung), nie über eine vorhandene; ohne `CREATEDB` wird sie abgelehnt, und scheitert sie, löscht Restow nur die Datenbank, die dieser Lauf angelegt hat (an Name und OID erkannt).
 - Fundstelle: docs/DATABASES.md (Abschnitt 7.1, Abschnitt 16 "D3" O3)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts
+- Tests: apps/worker/src/databases/runs.pg.test.ts, apps/api/src/features/databases/runs.pg.test.ts, apps/web/src/features/databases/database-page.dom.test.tsx
 - Belegt gegen: beides (PostgreSQL 16 echt mit TLS, pg_restore 16, restic 0.19.1 echt, Job test in ci.yml)
 - Stand: belegt
 ## Prüfungen gegen echte Systeme, die es gibt, die aber in der Pipeline nicht laufen

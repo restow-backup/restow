@@ -286,7 +286,11 @@
     "credentials-required": "Enter the password again: stored credentials only go to the executor they were stored for.",
     "own-database-unknown": "The {appName} server cannot tell right now where its own database is, so it tests no connections. Try again in a moment.",
     "confirm": "There is nothing to confirm. Test the connection again.",
-    "server-connection-limit": "This tenant already runs as many connections on the {appName} server as allowed. Run this connection on an agent."
+    "server-connection-limit": "This tenant already runs as many connections on the {appName} server as allowed. Run this connection on an agent.",
+    "run-active": "This connection is running a backup or a restore right now. Try again when it has ended.",
+    "restore-name": "The new database's name is too long (at most 63 bytes).",
+    "backup-gone": "This backup is no longer available.",
+    "restore-target": "Choose a connection of the same engine."
   },
   "health": {
     "title": "Health checks",
@@ -367,5 +371,31 @@
       "description": "The health checks read the size at most once an hour."
     },
     "loadError": "The size history could not be loaded"
+  },
+  "backups": {
+    "title": "Backups",
+    "description": "Every backup is a snapshot of its own in the connection's repository. Unverified until the check in the verification service arrives.",
+    "now": "Back up now",
+    "queued": "The backup is planned. It appears here once it is done.",
+    "none": "No backup yet. The first one comes with the connection's schedule or with “Back up now”.",
+    "snapshot": "Snapshot {id}",
+    "unverified": "Unverified",
+    "download": "Download",
+    "guide": "Restore guide",
+    "downloadFailed": "The download failed. Try again.",
+    "restore": "Restore",
+    "restoreTitle": "Restore “{name}”",
+    "restoreDescription": "{appName} always creates a new database and restores the backup into it. An existing database is never overwritten.",
+    "restoreFrom": "Backup of {at}",
+    "restoreTarget": "Connection",
+    "restoreName": "Name of the new database",
+    "restoreNamePlaceholder": "{name}_restored_<time>",
+    "restoreNameHint": "Leave empty for the suggestion. At most 63 bytes; the name must not be taken.",
+    "restoreNameInvalid": "The name is too long or starts or ends with a space.",
+    "restoreStart": "Restore",
+    "restoreQueued": "The restore into “{name}” is planned.",
+    "restoreOwners": "Owners and privileges are not carried over. The restore guide describes how to set them up.",
+    "cancel": "Cancel",
+    "close": "Close"
   }
 }

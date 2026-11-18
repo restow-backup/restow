@@ -286,7 +286,11 @@
     "credentials-required": "Geben Sie das Kennwort noch einmal ein: Gespeicherte Zugangsdaten gehen nur an den Ausführer, für den sie gespeichert wurden.",
     "own-database-unknown": "Der {appName}-Server kann gerade nicht feststellen, wo seine eigene Datenbank liegt, und prüft deshalb keine Verbindungen. Versuchen Sie es gleich noch einmal.",
     "confirm": "Es gibt nichts zu bestätigen. Prüfen Sie die Verbindung noch einmal.",
-    "server-connection-limit": "Für diesen Mandanten laufen schon so viele Verbindungen auf dem {appName}-Server, wie erlaubt sind. Lassen Sie diese Verbindung über einen Agenten laufen."
+    "server-connection-limit": "Für diesen Mandanten laufen schon so viele Verbindungen auf dem {appName}-Server, wie erlaubt sind. Lassen Sie diese Verbindung über einen Agenten laufen.",
+    "run-active": "Für diese Verbindung läuft gerade eine Sicherung oder Wiederherstellung. Versuchen Sie es danach noch einmal.",
+    "restore-name": "Der Name der neuen Datenbank ist zu lang (höchstens 63 Bytes).",
+    "backup-gone": "Diese Sicherung ist nicht mehr verfügbar.",
+    "restore-target": "Wählen Sie eine Verbindung derselben Engine."
   },
   "health": {
     "title": "Healthchecks",
@@ -367,5 +371,31 @@
       "description": "Die Healthchecks lesen die Größe höchstens einmal je Stunde."
     },
     "loadError": "Der Verlauf der Größe konnte nicht geladen werden"
+  },
+  "backups": {
+    "title": "Sicherungen",
+    "description": "Jede Sicherung ist ein eigener Snapshot im Repository der Verbindung. Ungeprüft, bis die Prüfung im Prüfdienst kommt.",
+    "now": "Jetzt sichern",
+    "queued": "Die Sicherung ist eingeplant. Sie erscheint hier, sobald sie fertig ist.",
+    "none": "Noch keine Sicherung. Die erste kommt mit dem Zeitplan der Verbindung oder mit „Jetzt sichern“.",
+    "snapshot": "Snapshot {id}",
+    "unverified": "Ungeprüft",
+    "download": "Herunterladen",
+    "guide": "Restore-Anleitung",
+    "downloadFailed": "Der Download ist fehlgeschlagen. Versuchen Sie es noch einmal.",
+    "restore": "Wiederherstellen",
+    "restoreTitle": "„{name}“ wiederherstellen",
+    "restoreDescription": "{appName} legt immer eine neue Datenbank an und spielt die Sicherung dort ein. Eine vorhandene Datenbank wird nie überschrieben.",
+    "restoreFrom": "Sicherung vom {at}",
+    "restoreTarget": "Verbindung",
+    "restoreName": "Name der neuen Datenbank",
+    "restoreNamePlaceholder": "{name}_restored_<Zeit>",
+    "restoreNameHint": "Leer lassen für den Vorschlag. Höchstens 63 Bytes; der Name darf noch nicht vergeben sein.",
+    "restoreNameInvalid": "Der Name ist zu lang oder beginnt bzw. endet mit Leerzeichen.",
+    "restoreStart": "Wiederherstellen",
+    "restoreQueued": "Die Wiederherstellung nach „{name}“ ist eingeplant.",
+    "restoreOwners": "Besitzer und Rechte werden nicht übernommen. Die Restore-Anleitung beschreibt, wie Sie sie herstellen.",
+    "cancel": "Abbrechen",
+    "close": "Schließen"
   }
 }
