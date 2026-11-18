@@ -225,7 +225,11 @@ func TestOneshotScriptDirectModeChecksRestic(t *testing.T) {
 			b, _ := os.ReadFile(p)
 			_ = os.WriteFile(p, append(b, '#'), 0o644)
 		}, "checksum mismatch for restic"},
-		"a restic of one's own": {[]string{"--direct", "--restic", "/tmp/x"}, nil, "set by this script"},
+		"a restic of one's own":           {[]string{"--direct", "--restic", "/tmp/x"}, nil, "set by this script"},
+		"a restic of one's own, one dash": {[]string{"--direct", "-restic=/tmp/x"}, nil, "set by this script"},
+		"direct with one dash":            {[]string{"-direct"}, nil, "exactly as --direct"},
+		"direct with a value":             {[]string{"--direct=true"}, nil, "exactly as --direct"},
+		"direct with one dash and value":  {[]string{"-direct=1"}, nil, "exactly as --direct"},
 	} {
 		r := runScript(t, code, tc.args, tc.edit)
 		if r.code == 0 || r.code == 4 || !strings.Contains(r.output, tc.want) {

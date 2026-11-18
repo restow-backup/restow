@@ -206,7 +206,10 @@ main() {
   for _arg in "$@"; do
     case "$_arg" in
       --direct) DIRECT=yes ;;
-      --restic | --restic=*) die "--restic is set by this script (with --direct)" ;;
+      # The agent's flag parser also takes these forms; only the exact one
+      # makes this script download and check restic.
+      -direct | -direct=* | --direct=*) die "write the option exactly as --direct" ;;
+      -restic | -restic=* | --restic | --restic=*) die "--restic is set by this script (with --direct)" ;;
       [Oo][Ss]-*) die "the code does not belong on the command line, where every user of this machine can read it. Copy the command from Restow again: curl -fsSL '<instance>/install/oneshot.sh' | RESTOW_ONESHOT_CODE='OS-...' sh" ;;
     esac
   done

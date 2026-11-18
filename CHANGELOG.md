@@ -96,6 +96,13 @@ private repository.
     datasource. The written files are checked and the result stands in the verification. A UEFI
     system with GRUB on a hybrid GPT disk (ESP and BIOS boot partition) now restores onto a BIOS
     machine when the backup has GRUB's BIOS modules (warning `firmware_mode_switched`).
+  - Hardening of O4 and O5: the direct mode finds a disk in use by device numbers (a root
+    mounted as /dev/root included, and refuses when /, the agent or restic lives on a disk of the
+    machine); recover records the start of the writing beside the session data, so a recover
+    restarted after a crash never restarts the machine into half-written disks; the network
+    takeover is all or nothing (checked, written, read back and verified before anything old is
+    put aside, rolled back on any error) and keeps the files of each restore in a folder of its
+    own; oneshot.sh accepts `--direct` only in that exact form.
 
 ## [0.5.0] - 2026-11-18
 

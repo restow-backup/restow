@@ -1294,7 +1294,8 @@ Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
   netplan, sobald `/etc/netplan` eine Datei hat; sonst die eine aktivierte Unit
   (`NetworkManager`, `systemd-networkd`, `networking`) unter `/etc/systemd/system/*.wants`; mehrere
   ohne eindeutige Konfiguration → Fehler, kein Raten. Weggenommen (gesichert unter
-  `/etc/restow/network-before-restore/<pfad>` mit Rechten, Ordner 0700, dazu `README`): netplan-
+  `/etc/restow/network-before-restore/<recovery-id>/<pfad>` mit Rechten, Ordner 0700, dazu
+  `README`): netplan-
   Dateien mit `ethernets`/`addresses`/`match`, networkd-Dateien mit `Address`/`DHCP`/`Gateway`,
   NetworkManager-Verbindungen vom Typ Ethernet und `ifcfg-*` außer `lo`, ifupdown-Dateien mit
   Schnittstellen außer `lo` (`/etc/network/interfaces` wird zu `lo` plus `source`), dazu udev-
@@ -1320,6 +1321,22 @@ Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
   `firmware_mode_mismatch` die Warnung `firmware_mode_switched` und `grub-install
   --target=i386-pc` auf diese Platte. Die Prüfung der Stufe 1 im Worker liefert `grubBios` nicht
   und zeigt für BIOS-Ziele eines UEFI-Systems weiter den Befund.
+- **Nach der zweiten Sicherheitsprüfung (O4, O5):**
+  - Direktmodus: "Platte in Gebrauch" wird über Gerätenummern erkannt (`major:minor` aus
+    `/proc/self/mountinfo`, der Swap-Bereiche, von `/`, `/proc/self/exe` und restic gegen
+    `/sys/block/<platte>[/<partition>]/dev`), zusätzlich über Namen und Halter; eine Wurzel als
+    `/dev/root` ohne initramfs verdeckt die Platte nicht mehr.
+  - `recover` legt vor dem ersten Schreiben neben den Sitzungsdaten die Marke `writing` an
+    (0600, `O_EXCL|O_NOFOLLOW`); ohne Marke schreibt es nicht. Ein nach einem Absturz neu
+    gestartetes `recover` findet sie, sagt es an der Konsole und startet bei einem Fehler nicht
+    neu.
+  - Netzübernahme ganz oder gar nicht: zuerst jeder Pfad geprüft (kein Link, kein Ordner), dann
+    gesichert, die neuen Dateien geschrieben, zurückgelesen und geprüft, erst dann die alten
+    weggenommen; jeder Fehler stellt den Zustand aus der Sicherung wieder her. Die Sicherung liegt
+    je Wiederherstellung unter `/etc/restow/network-before-restore/<recovery-id>/`, ein README
+    oben listet die Ordner. Die Prüfung zählt Adressen geparst (Adresse und Präfix).
+  - `oneshot.sh` nimmt nur genau `--direct`; `-direct`, `--direct=…` und jede Form von
+    `--restic` lehnt es ab.
 - **Für O8a:** Die Oberfläche zeigt "gebootet" nur aus `oneshot.booted` (dem Bericht von
   `recover`), nie aus einer Phase des Fortschritts. **Für O4:** `recover` schaltet `sshd` mit den
   Schlüsseln aus `oneshot.json` nur ein, wenn ihre Fingerabdrücke genau die sind, die der Admin in
