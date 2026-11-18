@@ -17,7 +17,7 @@ klären (gesammelt in Abschnitt 19.4), **[CI]** nur in der CI mit KVM. **[Spike]
 Machbarkeitsprobe dieses Entwurfs gemessen bzw. beobachtet (Abschnitt 4).
 
 Die Grundentscheidungen hat der Maintainer getroffen (Abschnitt 23.A). Dieses Dokument legt
-fest, wie, und markiert, was es selbst vorschlägt (Abschnitt 23.B, Offene Fragen in 22). Die
+fest, wie. Die offenen Fragen des Entwurfs hat der Maintainer entschieden (Abschnitt 22). Die
 Grundregeln aus BM gelten unverändert: **Identität bewahren statt umbauen, erst prüfen, dann
 zerstören, nichts löschen, was nicht gelöscht werden muss, grün ist Beweis.** Dazu kommen für
 diesen Weg zwei eigene:
@@ -80,7 +80,9 @@ Verbindungen; Community-Edition ohne Lizenzprüfung, kein Code unter `ee/`.
   in 0.5.1 nicht unterstützt, Weg über ein Hilfssystem als Ausblick.
 - **Schema:** eine Migration `0105_recovery_oneshot` (neuer Wert `oneshot` der Art, eine
   `jsonb`-Spalte); Begründung in Abschnitt 7.
-- **Meilensteine:** O1 bis O9, zusammen rund 58 Personentage (Abschnitt 20).
+- **Meilensteine:** 0.5.1 = O1 bis O5 mit UEFI → BIOS und knapper Oberfläche, 0.5.2 = Suche nach
+  der alten Adresse, Vorplan, Feinschliff, echte Anbieter; zusammen rund 59 Personentage
+  (Abschnitt 20).
 
 ## 1. Ausgangslage
 
@@ -401,11 +403,15 @@ sobald er fertig ist.
   Warnungen, Schrumpfen, Firmwaremodus. Ein Problem (etwa `firmware_mode_mismatch`) steht damit
   **vor** dem Umschalten in der Oberfläche und an der SSH-Konsole, und der Befehl endet ohne
   Änderung am Rechner.
+- Der Vorplan kommt mit 0.5.2 (Abschnitt 20). In 0.5.1 zeigt die Freigabe statt seiner Ergebnisse
+  die Kästchen ohne Vorauswahl; ein Plan, der eine nicht erteilte Erlaubnis braucht, endet in
+  `recover` vor dem ersten Schreiben mit dem Befund des Planers.
 - `POST /api/v1/endpoints/:id/recoveries/:rid/approve` bekommt für `oneshot` einen Body
-  `{ networkMode: "takeover" | "keep", confirmShrink: bool, secureBootWarningsOnly: bool }`. Die
-  Entscheidungen landen in `oneshot.decided` und sind die Antworten auf die Fragen, die `recover`
-  sonst an der Konsole stellt (BM 10.4 Punkt 5). Ohne `confirmShrink` bei einem Vorplan mit
-  Schrumpfen ist die Freigabe 422.
+  `{ networkMode: "takeover" | "keep", confirmShrink: bool, secureBootWarningsOnly: bool,
+  remoteAccess: bool }` (alle `bool` mit Vorgabe `false`). Die Entscheidungen landen in
+  `oneshot.decided` und sind die Antworten auf die Fragen, die `recover` sonst an der Konsole
+  stellt (BM 10.4 Punkt 5). Mit Vorplan (0.5.2) ist die Freigabe ohne `confirmShrink` bei einem
+  Vorplan mit Schrumpfen 422.
 - Freigabe und Ablehnung, Zeitgrenze 30 Minuten ohne Freigabe, Audit: wie BM 9.4.
 
 ### 6.4 Sitzung nach der Freigabe
@@ -567,9 +573,12 @@ verschlüsselter Wurzel braucht bei jedem Start die Konsole des Anbieters". Die 
 nur in die Daten für `recover` (RAM), nie an den Server.
 
 Optional **Fernzugang** zur Recovery-Umgebung mit den Schlüsseln aus `/root/.ssh/authorized_keys`
-dieses Rechners (Frage, Vorgabe Ja, Offene Frage 3): Die öffentlichen Schlüssel gehen in die Daten
-für `recover`, das `sshd` damit gleich nach dem Start einschaltet (BM 10.2 Punkt 3, nach dem
-Tausch: nur Schlüssel) und die Hostschlüssel-Fingerabdrücke wie bisher meldet. Der Admin kommt so
+dieses Rechners, **nur über ein Kästchen in der Freigabe, Vorgabe aus** (Entscheidung 22.3):
+`restow-agent oneshot` liest die öffentlichen Schlüssel (höchstens 16, nur gültige Zeilen ohne
+`command=`-Optionen), meldet ihre Fingerabdrücke an den Server (`reported.sshKeys`, die Oberfläche
+zeigt sie neben dem Kästchen) und legt die Schlüssel selbst in die Daten für `recover`. `recover`
+schaltet `sshd` damit nur ein, wenn `decided.remoteAccess` gesetzt ist (BM 10.2 Punkt 3, nach dem
+Tausch: nur Schlüssel), und meldet die Hostschlüssel-Fingerabdrücke wie bisher. Der Admin kommt so
 nach dem Abbruch der SSH-Verbindung wieder auf den Rechner, sieht aber eine Warnung zum
 Hostschlüssel; die Oberfläche zeigt den neuen Fingerabdruck.
 
@@ -612,7 +621,8 @@ gelöscht. Vorplan mit Problem: Ende ohne Änderung, mit dem Text des Problems.
   gelöscht. Nichts sonst; ein ISO-Start hat die Datei nie. [Spike: dieselbe Logik über ein
   angehängtes `ORDER`; im ISO fest eingebaut, damit das angehängte Archiv nur Daten, nie Code
   trägt.]
-- `serial-getty@ttyS0.service` und `serial-getty@ttyS1.service` maskiert (Hook 0100), Befund 1.
+- `serial-getty@ttyS0.service` und `serial-getty@ttyS1.service` sind seit `release/0.5.0`
+  (`a3198bd6`) im Hook 0100 maskiert (Befund 1); nichts mehr zu tun.
 - `recover --list-tools` und `no-secrets.sh` unverändert gültig; der Test "keine
   Auto-Aktivierung" läuft zusätzlich im Direktstart.
 - Keine neue Datei als Release-Anhang, kein zweites Abbild.
@@ -660,7 +670,7 @@ Gegenüber BM 10 ändern sich nur die Quellen der Antworten:
 | Bestätigung (10.4 Punkt 8) | `confirmErase` aus der SSH-Konsole; eine Platte, die der Plan löschen will und die nicht bestätigt ist, beendet den Lauf vor dem ersten Schreiben (wie unbeaufsichtigt) |
 | Countdown | 30 Sekunden auf allen Konsolen, abbrechbar mit jeder Taste (BM 10.20) |
 | nach dem Restore | Netz (10), cloud-init (11), Suche nach alter Adresse und Warten auf die Entscheidung (12), dann initramfs und Bootloader wie BM 10.15 |
-| Ende | Erfolg: `finish`, Neustart nach 60 Sekunden (`afterSuccess: reboot`). Fehler **vor** dem ersten Schreiben auf eine Platte: Angebot "neu starten" (das System des frischen Rechners ist unberührt). Fehler danach: kein Neustart, Fernzugang bleibt, die Oberfläche sagt "Rechner im Rettungssystem starten oder neu anlegen und erneut versuchen" |
+| Ende | Erfolg: `finish`, Neustart nach 60 Sekunden, abbrechbar mit jeder Taste auf einer Konsole und mit "Abbrechen" in der Oberfläche (Entscheidung 22.11). Fehler **vor** dem ersten Schreiben auf eine Platte: Angebot "neu starten" (das System des frischen Rechners ist unberührt). Fehler danach: kein Neustart, Fernzugang bleibt, die Oberfläche sagt "Rechner im Rettungssystem starten oder neu anlegen und erneut versuchen" |
 
 Ausgabe auf **allen** Konsolen aus `consoles` (Erweiterung des Spiegels, den BM 10.20 für
 `fw_cfg` auf `ttyS0` schon hat): Die Konsole eines Anbieters ist bei dem einen der Bildschirm
@@ -791,8 +801,8 @@ unbekannte Felder ohne Fehler, TS `looseObject`):
 gateway, onlink, dev }], dns: [], hostname, fqdn, cloud: { name, instanceId, region } }`. Für
 Sicherungen ohne `netState` liest `recover` die statischen Adressen aus den Konfigurationsdateien
 der Sicherung (netplan, ifupdown, NetworkManager, networkd, ifcfg); mit DHCP bleibt die alte Adresse
-unbekannt, und die Oberfläche fragt sie ab ("alte öffentliche Adresse"), Vorschlag aus der
-Absenderadresse der letzten Sicherung, falls der Server sie kennt (Offene Frage 9).
+unbekannt, und die Oberfläche fragt sie ab ("alte öffentliche Adresse"; Entscheidung 22.9: keine
+zweite Migration, der Server hält keine Absenderadresse je Sicherung fest).
 
 ## 11. cloud-init im wiederhergestellten System
 
@@ -833,7 +843,8 @@ Modullisten. Ob das geschieht, hängt an zwei Dingen, die `recover` prüft:
 Kein Eingriff in `/var/lib/cloud` (kein Vortäuschen der alten Instanz-ID): Das hinge an der
 inneren Ablage von cloud-init. Die Datei bleibt dauerhaft; die Oberfläche und der Abschluss sagen,
 dass die Anmeldung danach mit den Zugängen des **gesicherten** Systems geht, nicht mit dem
-Schlüssel, der beim Anlegen des neuen Rechners angegeben wurde. **[CI]**: Verhalten auf Debian 12
+Schlüssel, der beim Anlegen des neuen Rechners angegeben wurde; die Checkliste (13, Punkt 11)
+nennt die Datei und wie man sie entfernt (Entscheidung 22.5). **[CI]**: Verhalten auf Debian 12
 (cloud-init 22.4), Ubuntu 22.04 und 24.04, AlmaLinux 9 in O-E1 bis O-E3; **[Maschine]**: mit den
 Datenquellen echter Anbieter.
 
@@ -859,7 +870,7 @@ Datenquellen echter Anbieter.
   einer Zuordnung alt → neu (Vorschlag: alte Adresse → Adresse des Ziels derselben Familie; bei
   NAT die private Adresse des Ziels, weil Dienste nur an Adressen am Rechner binden können).
   Je Datei "ersetzen" oder "lassen". `recover` fragt `current` alle 5 Sekunden ab und wartet
-  höchstens 60 Minuten (Offene Frage 10); ohne Entscheidung bleibt alles, wie es ist, mit Hinweis
+  höchstens 60 Minuten (Entscheidung 22.10); ohne Entscheidung bleibt alles, wie es ist, mit Hinweis
   im Bericht.
 - **Ersetzen:** nur in den bestätigten Dateien, nur die gemeldeten Zeilen, nur die gemeldete
   Adresse; vorher `<datei>.restow-<zeit>` daneben (wie die Fixups, BM 10.13); atomar, mit Rechten,
@@ -885,6 +896,11 @@ Punkt), abhakbar nur im Browser (keine Daten am Server), Texte ohne Herstellerna
    Systeme, die die alte Adresse erlauben.
 8. Anmeldung: mit den Zugängen des gesicherten Systems; neuer SSH-Hostschlüssel der Recovery-
    Umgebung war nur vorübergehend, der Hostschlüssel des Systems ist der alte.
+11. cloud-init darf im wiederhergestellten System nur das Netz einrichten
+    (`/etc/cloud/cloud.cfg.d/99-restow-restored.cfg`, 11.2). Die Datei bleibt dauerhaft; wer
+    cloud-init seine gewohnte Rolle zurückgeben will (neue Benutzer, Schlüssel und Skripte aus den
+    Daten des Anbieters), löscht sie: `rm /etc/cloud/cloud.cfg.d/99-restow-restored.cfg`, danach
+    gilt beim nächsten Start einer neuen Instanz wieder alles.
 9. Bei NAT (keine öffentliche Adresse am Rechner): Dienste, die an die alte öffentliche Adresse
    gebunden waren (Liste aus 12).
 10. Den alten Rechner abschalten, bevor DNS umgestellt ist, wenn beide dieselben Daten schreiben;
@@ -970,8 +986,9 @@ Regel aus.
 - Vorgabe: **derselbe Weg** (Probeladung, kexec in die Recovery-Umgebung). Die Umgebung ist dann
   dieselbe wie überall, mit den Werkzeugversionen des ISO und der Abschaltung der
   Auto-Aktivierung (BM 8.2).
-- Nur wenn auch dort kexec nicht geht: **Direktmodus** (`restow-agent oneshot --direct`,
-  Offene Frage 7): `restow-agent` und `restic` laufen im Rettungssystem selbst, `recover` mit
+- Wenn auch dort kexec nicht geht (Secure Boot): **Direktmodus** (`restow-agent oneshot --direct`,
+  Entscheidung 22.7: der Rückfall für Secure Boot): `restow-agent` und `restic` laufen im
+  Rettungssystem selbst, `recover` mit
   `--i-know-this-is-not-the-iso` und der Quelle `oneshot` ohne Umschalten. Voraussetzungen, die
   der Befehl prüft: alle Programme aus `recover --list-tools`, keine Platte des Rechners
   eingehängt, keine aktivierte VG/md/LUKS auf ihnen. Grenzen, die die Oberfläche nennt: andere
@@ -1019,7 +1036,9 @@ Texte de/en in `packages/i18n/resources/{de,en}/endpoints.json` unter `recovery.
    benutzten Rechners rot; "Vom Server gesehen": Absenderadresse. Vorplan (Zuordnung, Probleme,
    Schrumpfen mit Bestätigung). **Netz danach:** "Netz dieses Rechners übernehmen" (Vorgabe bei
    anderem Netz) | "Bisherige Konfiguration behalten (öffentliche Adresse wurde umgezogen)".
-   Knöpfe "Freigeben", "Ablehnen".
+   Kästchen (alle ohne Vorauswahl): "Verkleinern erlauben", "Secure-Boot-Befunde nur als
+   Warnung", "Fernzugang zur Recovery-Umgebung mit diesen SSH-Schlüsseln" (die Fingerabdrücke aus
+   `authorized_keys` des Rechners daneben). Knöpfe "Freigeben", "Ablehnen".
 5. **Live:** Phasen "Lädt die Recovery-Umgebung", "Schaltet um (die SSH-Verbindung bricht ab)",
    "Recovery-Umgebung gestartet", dann wie BM; SSH-Hostschlüssel, falls Fernzugang an.
 6. **Alte Adresse:** Liste je Datei mit Zeilen, Zuordnung alt → neu, "ersetzen"/"lassen" je Datei,
@@ -1103,29 +1122,36 @@ Treiber braucht nichts Neues außer der Seed-Platte. Dauer je Fall etwa wie E2 (
 ## 20. Meilensteine
 
 Jeder einzeln mergebar, mit Tests und CHANGELOG-Eintrag; ausgeblendet hinter
-`RESTOW_BAREMETAL_PREVIEW` und zusätzlich `RESTOW_BAREMETAL_ONESHOT`, bis O8 fertig ist. Aufwand in
-Personentagen (PT), grob.
+`RESTOW_BAREMETAL_PREVIEW` und zusätzlich `RESTOW_BAREMETAL_ONESHOT`, bis die Oberfläche für 0.5.1
+steht. Aufwand in Personentagen (PT), grob.
 
-| | Inhalt | PT |
-| --- | --- | ---: |
-| **O1** | ISO: `init-bottom/restow-oneshot`, `serial-getty` maskiert (auch als Fehlerbehebung für 0.5.0, Befund 1), CI-Test "Start ohne Medium"; `recover`: Quelle `oneshot` lesen, Konsolen spiegeln, `liveMedium` für `rootfs[…]` | 4 |
-| **O2** | Server: Migration 0105, Ausstellen, `oneshot.sh`-Route, Tausch, ISO-Route der Sitzung, `booted`, Freigabe mit Entscheidungen, Monitor, Audit, Postgres-Tests | 7 |
-| **O3** | `oneshot.sh` und `restow-agent oneshot`: Prüfungen, Erfassen, Tausch, Konsole, ISO laden und prüfen, ISO9660-Leser, cpio im `memfd`, `kexec_file_load`, `systemctl kexec` | 9 |
-| **O4** | `recover` im Modus `oneshot`: Netz der Recovery-Umgebung (neuer Schreiber), `booted`, Entscheidungen statt Fragen, `confirmErase`, Neustart und Fehlerwege | 7 |
-| *Zwischenstand nach O1 bis O4* | *benutzbar für "gleicher Anbieter, Adresse umgezogen" (alte Konfiguration behalten)* | |
-| **O5** | Netz übernehmen (vier Stapel, Sicherung der alten Konfiguration, Hardware-Bindungen), cloud-init-Datei und -Entscheidung, Beleg in der Prüfung | 8 |
-| **O6** | Manifest `netState`, Adresssuche, `ip-scan`/`ip-review`, Ersetzen | 6 |
-| **O7** | Vorplan im Worker, NIC-Treiber als Problem, UEFI → BIOS bei hybridem GPT | 5 |
-| **O8** | Oberfläche und Texte (de, en), Checkliste, Assistent | 6 |
-| **O9** | Ende-zu-Ende O-E1 bis O-E6, CI-Verdrahtung, Prüfungen auf echten Rechnern (19.4) | 6 |
-| | **zusammen** | **58** |
+**0.5.1** (Entscheidung des Maintainers): O1 bis O5, dazu aus O7 UEFI → BIOS bei hybridem GPT
+(Entscheidung 22.6), dazu die Oberfläche, ohne die der Weg nicht benutzbar ist (Befehl-Dialog,
+Freigabe-Seite, Live-Ansicht), so knapp wie möglich.
 
-Reihenfolge O1 → O2 → O3 → O4 → (O5, O6, O7 parallel möglich) → O8 → O9. Die Migration kommt mit
-O2; ändert sich der Entwurf von `oneshot` danach, ändert sich nur das JSON, nicht das Schema.
+| | Inhalt | Release | PT |
+| --- | --- | --- | ---: |
+| **O1** | ISO: `init-bottom/restow-oneshot` samt Hook für das initramfs, CI-Test "Start ohne Medium"; `recover`: Quelle `oneshot` lesen, Konsolen spiegeln, `liveMedium` für `rootfs[…]` (die serielle Konsole ist seit `a3198bd6` behoben) | 0.5.1 | 3 |
+| **O2** | Server: Migration 0105, Ausstellen, `oneshot.sh`-Route, Tausch, ISO-Route der Sitzung, `booted`, Freigabe mit Entscheidungen, Monitor, Audit, Postgres-Tests | 0.5.1 | 7 |
+| **O3** | `oneshot.sh` und `restow-agent oneshot`: Prüfungen, Erfassen, Tausch, Konsole, ISO laden und prüfen, ISO9660-Leser, cpio im `memfd`, `kexec_file_load`, `systemctl kexec` | 0.5.1 | 9 |
+| **O4** | `recover` im Modus `oneshot`: Netz der Recovery-Umgebung (neuer Schreiber), `booted`, Entscheidungen statt Fragen, `confirmErase`, Neustart und Fehlerwege; Direktmodus im Rettungssystem | 0.5.1 | 8 |
+| **O5** | Netz übernehmen (vier Stapel, Sicherung der alten Konfiguration, Hardware-Bindungen), cloud-init-Datei und -Entscheidung, Beleg in der Prüfung; UEFI → BIOS bei hybridem GPT (aus O7) | 0.5.1 | 11 |
+| **O8a** | Oberfläche 0.5.1: Befehl-Dialog, Freigabe-Seite (Prüfzahl, Gemeldetes, Netzwahl, Kästchen), Live-Ansicht der neuen Phasen; Texte de/en | 0.5.1 | 3 |
+| **O6** | Manifest `netState`, Adresssuche, `ip-scan`/`ip-review`, Ersetzen; Abfrage der alten öffentlichen Adresse | 0.5.2 | 6 |
+| **O7** | Vorplan im Worker, NIC-Treiber als Problem (ohne UEFI → BIOS, das in O5 liegt) | 0.5.2 | 3 |
+| **O8b** | Oberfläche: Adressliste, Checkliste, Feinschliff | 0.5.2 | 3 |
+| **O9** | Ende-zu-Ende O-E1 bis O-E6, CI-Verdrahtung; Prüfungen auf echten Rechnern (19.4) | Fälle mit O1 bis O5 in 0.5.1, echte Anbieter 0.5.2 | 6 |
+| | **zusammen** | | **59** |
+
+Reihenfolge O1 → O2 → O3 → O4 → O5 → O8a (0.5.1), dann O6, O7, O8b, O9 (0.5.2). Die Migration
+kommt mit O2; ändert sich der Entwurf von `oneshot` danach, ändert sich nur das JSON, nicht das
+Schema. Bis O6 gibt es keine Suche nach der alten Adresse; die Phase `ip_review` fehlt dann im
+Ablauf, und die Checkliste nennt die Suche von Hand.
 
 ## 21. Befunde im vorhandenen Code
 
-1. **`serial-getty@ttyS0` neben `recover`** (Fehler, betrifft 0.5.0): Die Menüeinträge "serielle
+1. **`serial-getty@ttyS0` neben `recover`** (Fehler in 0.5.0, behoben auf `release/0.5.0` in
+   `a3198bd6`, Hook 0100 maskiert `serial-getty@ttyS0` und `@ttyS1`): Die Menüeinträge "serielle
    Konsole" setzen `console=ttyS0 restow.console=ttyS0`; systemd startet dann `serial-getty@ttyS0`,
    `restow-recover.service` hat nur `Conflicts=getty@tty1.service`. In der Probe gingen Eingaben an
    den Login, und `recover` begann seinen Dialog nach jedem Login-Versuch von vorn (Protokoll
@@ -1158,40 +1184,33 @@ Kein Befund verhindert den Weg: Die Recovery-Sitzung (Tausch, Freigabe, Zugangsd
 trägt ihn ohne neuen Zustand, `recover` hat mit `--answers` schon einen Modus ohne Fragen, und das
 ISO startet ohne Medium.
 
-## 22. Offene Fragen
+## 22. Entscheidungen zu den offenen Fragen des Entwurfs
 
-Der Entwurf schlägt vor und setzt den Vorschlag um, wenn keine andere Entscheidung kommt.
+Der Maintainer hat den Entwurf angenommen und die offenen Fragen so entschieden:
 
-1. **Migration in 0.5.1** wie in Abschnitt 7 (`ADD VALUE 'oneshot'` und eine `jsonb`-Spalte,
-   0105 mit `when` 1794750829758)? Alternative ohne Migration nur mit Admin-Entscheidungen im Feld
-   `hardware` (verworfen, 7).
-2. **Vorplan auf dem Server vor der Freigabe** (6.3; Vorschlag ja): zeigt Probleme vor dem
-   Umschalten und ersetzt die Konsolenfragen durch Entscheidungen in der Oberfläche.
-3. **Fernzugang** zur Recovery-Umgebung mit den `authorized_keys` des frischen Rechners, Vorgabe
-   Ja (8.4)?
-4. **LUKS-Passphrase** an der SSH-Konsole eingeben, nie über den Server (Vorschlag ja, 8.4)?
-5. **cloud-init-Datei dauerhaft** (Vorschlag) oder nur für den ersten Start (eine Unit, die sie
-   danach entfernt)? Dauerhaft ist vorhersehbar; nur einmal ließe bei der nächsten neuen Instanz
-   wieder alles zu.
-6. **UEFI → BIOS bei hybridem GPT** in 0.5.1 (O7, Vorschlag ja) oder später; der volle Umbau bleibt
-   außen vor.
-7. **Direktmodus im Rettungssystem** ohne kexec (17.1): in 0.5.1 (Vorschlag: nur, wenn kexec auch
-   dort scheitert, mit Warnung) oder gar nicht?
-8. **AWS ohne Rettungssystem und mit Secure Boot:** in 0.5.1 nicht unterstützt (Vorschlag), Weg über
-   ein Hilfssystem später (17.3)?
-9. **Alte öffentliche Adresse** für Sicherungen mit DHCP: soll der Server die Absenderadresse des
-   Agenten je Sicherung festhalten (eine Spalte mehr in `endpoint_runs`, dann eine zweite Migration)
-   oder fragt die Oberfläche sie ab (Vorschlag: abfragen, 10.6)?
-10. **Wartezeit der Adressliste** 60 Minuten, danach ohne Ersetzen weiter (Vorschlag), oder warten
-    bis zum Ablauf der Sitzung?
-11. **Neustart nach Erfolg** automatisch nach 60 Sekunden (Vorschlag ja), weil niemand an der
-    Konsole sitzt.
-12. **Code-Form** `OS-…` mit 25 Zeichen (Vorschlag; gleiche Stärke wie `RC-`) und feste 30 Minuten
-    Einlösefrist (Entscheidung) mit Sitzungsdauer 4 bis 48 Stunden, Vorgabe 12.
-13. **Mindest-RAM** 2 GiB hart, Warnung unter 4 GiB (Vorschlag, 15).
-14. **Fehlerbehebung serielle Konsole** (Befund 1) schon als 0.5.0-Nachtrag oder mit O1?
-15. **Anzeichen eines benutzten Rechners** (8.4): Abbruch nur bei eingerichtetem Agenten, sonst
-    Warnungen (Vorschlag)?
+1. **Migration** `0105_recovery_oneshot` wie in Abschnitt 7 (`when` echt zwischen 0104 und
+   1794943124789): ja.
+2. **Vorplan auf dem Server vor der Freigabe** (6.3): ja; umgesetzt in 0.5.2 (O7).
+3. **Fernzugang** zur Recovery-Umgebung mit den `authorized_keys` des frischen Rechners: nur über
+   ein Kästchen in der Freigabe, **Vorgabe aus** (8.4).
+4. **LUKS-Passphrase** nur an der SSH-Konsole, nie über den Server: ja (8.4).
+5. **cloud-init-Datei** bleibt dauerhaft und steht in der Checkliste mit dem Weg, sie zu entfernen
+   (11.2, 13 Punkt 11).
+6. **UEFI → BIOS bei hybridem GPT** in 0.5.1: ja (14, O5).
+7. **Direktmodus im Rettungssystem** ohne kexec: ja, als Rückfall für Secure Boot (17.1).
+8. **AWS ohne Rettungssystem bzw. mit Secure Boot:** in 0.5.1 nicht unterstützt (17.2).
+9. **Alte öffentliche Adresse** bei Sicherungen mit DHCP: Die Oberfläche fragt sie ab, keine
+   zweite Migration (10.6).
+10. **Adressliste** wartet 60 Minuten, danach weiter ohne Ersetzen (12).
+11. **Neustart** 60 Sekunden nach Erfolg, abbrechbar (9.3).
+12. **Code** `OS-…`, Sitzung Vorgabe 12 Stunden, wählbar 4 bis 48 (6.1).
+13. **Arbeitsspeicher:** mindestens 2 GiB, Warnung unter 4 GiB (15).
+14. **Serielle Konsole:** in 0.5.0 behoben (`a3198bd6`), entfällt in O1.
+15. **Falscher Rechner:** Abbruch, wenn auf dem Rechner ein Agent eingerichtet ist, sonst Warnungen
+    (8.4).
+
+Umfang: 0.5.1 = O1 bis O5 mit UEFI → BIOS aus O7 und der knappen Oberfläche (O8a); 0.5.2 = O6, der
+Rest von O7, O8b und die Prüfungen auf echten Rechnern (Abschnitt 20).
 
 ## 23. Entscheidungen
 
@@ -1221,7 +1240,7 @@ Der Entwurf schlägt vor und setzt den Vorschlag um, wenn keine andere Entscheid
 11. Eine Migration in 0.5.1 heißt 0105 mit `when` zwischen 0104 und dem `when` von `0105_databases`
     in 0.6.0; ohne Migration, wenn die Tabellen es sauber tragen.
 
-### 23.B Entscheidungen dieses Entwurfs (Vorschläge)
+### 23.B Entscheidungen dieses Entwurfs (vom Maintainer angenommen)
 
 1. Recovery-Umgebung **aus dem signierten ISO** (Kernel, initrd, squashfs entnommen), kein neuer
    Release-Anhang, kein vom Server entpacktes Abbild (5.1).
