@@ -1,6 +1,7 @@
 package dbprobe
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -73,6 +74,13 @@ func TestPinnedConnectionsGoToTheRunsFirstAddress(t *testing.T) {
 	_, err = OpenPinned(context.Background(), PinnedTarget{Host: "db.example.test", Port: port, AllowUnencrypted: true, Address: "127.0.0.2"}, 5*time.Second, elsewhere)
 	if !errors.As(err, &pe) || pe.Code != CodeInstanceChanged {
 		t.Fatalf("landed elsewhere: %v", err)
+	}
+}
+
+// claim: DB-008
+func TestSessionsAskForUTF8(t *testing.T) {
+	if !bytes.Contains(pgStartup("backup", "app"), []byte("client_encoding\x00UTF8\x00")) {
+		t.Fatal("the startup message does not set client_encoding UTF8")
 	}
 }
 

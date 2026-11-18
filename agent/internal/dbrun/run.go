@@ -43,8 +43,9 @@ type Deps struct {
 	// ReadDump writes a restore run's one dump into w, as the server streams
 	// it (api.Client.StreamDBRunDump). A restore never opens the repository.
 	ReadDump func(ctx context.Context, w io.Writer) error
-	// Trusted checks a program before it runs (default TrustedTool).
-	Trusted func(path string) error
+	// Trusted checks a program before it runs and returns the path to run
+	// (default TrustedTool: links resolved).
+	Trusted func(path string) (string, error)
 }
 
 const connectTimeout = 30 * time.Second
@@ -230,6 +231,9 @@ const staleAfter = 25 * time.Hour
 
 // Backup runs a backup run and returns its report.
 func Backup(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
+	if refused, ok := refusePlatform(); ok {
+		return refused
+	}
 	out := api.DBRunFinish{Status: "failed", Backups: []api.DBRunBackup{}, Notes: []map[string]any{}}
 	SweepStale("", staleAfter, d.now())
 	s, err := newSession(spec)
@@ -346,6 +350,14 @@ func postgresEmpty(ctx context.Context, s *session, d Deps) bool {
 
 func dumpOne(ctx context.Context, s *session, d Deps, r *restic.Runner, tmp, passFile string, max time.Duration, tool string, args []string, listTool, file string, tags []string) (*api.DBRunBackup, error) {
 	started := d.now().UTC()
+	for _, program := range []string{tool, listTool} {
+		if program == "" {
+			continue
+		}
+		if err := recheck(d.Trusted, program); err != nil {
+			return nil, err
+		}
+	}
 	rl, err := s.relay(ctx, d, max)
 	if err != nil {
 		return nil, err
@@ -412,6 +424,9 @@ func ValidName(name string) bool {
 
 // Restore plays a backup into a new database (O3) and returns its report.
 func Restore(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
+	if refused, ok := refusePlatform(); ok {
+		return refused
+	}
 	out := api.DBRunFinish{Status: "failed", Backups: []api.DBRunBackup{}, Notes: []map[string]any{}}
 	SweepStale("", staleAfter, d.now())
 	s, err := newSession(spec)
@@ -511,6 +526,9 @@ func restoreInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSpec, m
 		return err
 	}
 	defer rl.Close()
+	if err := recheck(d.Trusted, tools.Path("pg_restore")); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, tools.Path("pg_restore"), RestoreArgs(name)...) // #nosec G204 -- fixed argument lists
 	cmd.Env = ToolEnv(rl.Dir, rl.Port, s.user, passFile)
 	errs := &tail{}

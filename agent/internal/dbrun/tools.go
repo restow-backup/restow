@@ -23,10 +23,16 @@ import (
 type Tools struct {
 	Major int
 	Dir   string
+	// resolved are the checked programs, links resolved: what runs.
+	resolved map[string]string
 }
 
-// Path is the program's path.
+// Path is the program's path: the checked, resolved one once chosen, never
+// a name through a link someone could point elsewhere after the check.
 func (t Tools) Path(tool string) string {
+	if p, ok := t.resolved[tool]; ok {
+		return p
+	}
 	name := tool
 	if os.PathSeparator == '\\' {
 		name += ".exe"
@@ -85,12 +91,25 @@ func ToolDirs() []string {
 // Administrators and TrustedInstaller may change them) and not writable by
 // group or others. A pg_dump in a folder a user can write (a Homebrew
 // prefix, a PATH entry) would otherwise run as root.
-func TrustedTool(path string) error {
-	if _, err := paths.TrustedDir(filepath.Dir(path), false); err != nil {
-		return err
+// It returns the resolved path, which is what must run.
+func TrustedTool(path string) (string, error) {
+	return paths.TrustedFile(path)
+}
+
+// recheck checks a chosen program again right before it runs: still trusted
+// and still where the choice found it.
+func recheck(trusted func(string) (string, error), path string) error {
+	if trusted == nil {
+		trusted = TrustedTool
 	}
-	_, err := paths.TrustedFile(path)
-	return err
+	resolved, err := trusted(path)
+	if err != nil {
+		return &ToolError{Code: "db_tool_missing", Message: "the program is no longer safe to run: " + err.Error()}
+	}
+	if resolved != path {
+		return &ToolError{Code: "db_tool_missing", Message: "the program " + path + " moved after it was checked"}
+	}
+	return nil
 }
 
 // ChooseTools picks the programs for a server of serverMajor, trusted ones only.
@@ -98,13 +117,14 @@ func ChooseTools(ctx context.Context, serverMajor int, dirs []string) (Tools, er
 	return chooseTrusted(ctx, serverMajor, dirs, nil)
 }
 
-func chooseTrusted(ctx context.Context, serverMajor int, dirs []string, trusted func(string) error) (Tools, error) {
+func chooseTrusted(ctx context.Context, serverMajor int, dirs []string, trusted func(string) (string, error)) (Tools, error) {
 	if trusted == nil {
 		trusted = TrustedTool
 	}
 	type found struct {
-		major int
-		dir   string
+		major    int
+		dir      string
+		resolved map[string]string
 	}
 	var all []found
 	var skipped []string
@@ -120,15 +140,23 @@ func chooseTrusted(ctx context.Context, serverMajor int, dirs []string, trusted 
 		if !complete {
 			continue
 		}
+		resolved := map[string]string{}
 		untrusted := false
 		for _, tool := range []string{"pg_dump", "pg_dumpall", "pg_restore"} {
-			if err := trusted(t.Path(tool)); err != nil {
+			p, err := trusted(t.Path(tool))
+			if err != nil {
 				skipped = append(skipped, err.Error())
 				untrusted = true
 				break
 			}
+			resolved[tool] = p
 		}
 		if untrusted {
+			continue
+		}
+		// From here on only the resolved paths run, checked again right before.
+		t.resolved = resolved
+		if recheck(trusted, t.Path("pg_dump")) != nil {
 			continue
 		}
 		vctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -138,13 +166,13 @@ func chooseTrusted(ctx context.Context, serverMajor int, dirs []string, trusted 
 			continue
 		}
 		if major := ToolMajor(string(out)); major > 0 {
-			all = append(all, found{major, dir})
+			all = append(all, found{major, dir, resolved})
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].major > all[j].major })
 	for _, f := range all {
 		if f.major >= serverMajor {
-			return Tools{Major: f.major, Dir: f.dir}, nil
+			return Tools{Major: f.major, Dir: f.dir, resolved: f.resolved}, nil
 		}
 	}
 	if len(all) == 0 {

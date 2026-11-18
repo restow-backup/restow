@@ -82,10 +82,13 @@ func pgErrorOf(body []byte) *pgError {
 	return e
 }
 
+// pgStartup is the startup message; client_encoding UTF8 keeps the session
+// out of client-only multibyte encodings (SJIS, BIG5, GBK), where a byte of a
+// character could read as a quote or a backslash in an E'…' literal.
 func pgStartup(user, database string) []byte {
 	var body bytes.Buffer
 	body.Write([]byte{0x00, 0x03, 0x00, 0x00})
-	for _, kv := range [][2]string{{"user", user}, {"database", database}, {"application_name", "restow"}} {
+	for _, kv := range [][2]string{{"user", user}, {"database", database}, {"application_name", "restow"}, {"client_encoding", "UTF8"}} {
 		body.Write(cstr(kv[0]))
 		body.Write(cstr(kv[1]))
 	}

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package dbrun
 
 import (
@@ -241,7 +243,7 @@ func TestAgentKeepsNoSnapshotOfAFailedDump(t *testing.T) {
 	spec.Connection.Selection.Mode = "selected"
 	spec.Connection.Selection.Names = []string{source}
 	// The fake programs lie below the temporary folder: let them run here.
-	report := Backup(context.Background(), spec, Deps{Restic: runner, Self: self, ToolDirs: []string{dir}, Trusted: func(string) error { return nil }})
+	report := Backup(context.Background(), spec, Deps{Restic: runner, Self: self, ToolDirs: []string{dir}, Trusted: func(path string) (string, error) { return path, nil }})
 	if report.Status != "failed" || report.Error == nil || report.Error.Code != "db_dump_failed" {
 		t.Fatalf("status %q", report.Status)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -147,5 +148,68 @@ func TestStaleRunFoldersAreSwept(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(base, name)); (err == nil) != want {
 			t.Fatalf("%s: present %v", name, err == nil)
 		}
+	}
+}
+
+// claim: DB-002
+func TestToolsRunByTheirCheckedPathNotThroughALink(t *testing.T) {
+	base := trustedBase(t)
+	real := filepath.Join(base, "real")
+	evil := filepath.Join(base, "evil")
+	for _, dir := range []string{real, evil} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	realMark := fakeTools(t, real)
+	evilMark := fakeTools(t, evil)
+	// The named folder is a link (another user's, where root can hand it over)
+	// to a trusted installation.
+	named := filepath.Join(base, "postgresql@99")
+	if err := os.Symlink(real, named); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		if err := os.Lchown(named, 65534, 65534); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools, err := ChooseTools(context.Background(), 16, []string{named})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tools.Path("pg_dump") != filepath.Join(real, "pg_dump") || tools.Path("pg_restore") != filepath.Join(real, "pg_restore") {
+		t.Fatalf("paths %s %s", tools.Path("pg_dump"), tools.Path("pg_restore"))
+	}
+	// The link is pointed elsewhere after the check: what runs is still the
+	// checked program, never what the link names now.
+	if err := os.Remove(named); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(evil, named); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(realMark)
+	if err := recheck(nil, tools.Path("pg_dump")); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command(tools.Path("pg_dump"), "--version").Run(); err != nil { // #nosec G204 -- the test's own script
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(evilMark); err == nil {
+		t.Fatal("the program behind the swapped link ran")
+	}
+	if _, err := os.Stat(realMark); err != nil {
+		t.Fatal("the checked program did not run")
+	}
+	// A checked program that is changed to a link afterwards fails the recheck.
+	if err := os.Remove(filepath.Join(real, "pg_restore")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(evil, "pg_restore"), filepath.Join(real, "pg_restore")); err != nil {
+		t.Fatal(err)
+	}
+	if err := recheck(nil, tools.Path("pg_restore")); err == nil {
+		t.Fatal("a program swapped for a link passed the recheck")
 	}
 }

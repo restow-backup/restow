@@ -216,27 +216,47 @@ func (c *Client) FetchDBRun(ctx context.Context, runID string) (*DBRunSpec, erro
 	return &out, nil
 }
 
+// dumpBusyRetries and dumpBusyWait: the server takes a restore's dump only
+// while it has a download slot free (429); the agent waits for one.
+var (
+	dumpBusyRetries = 10
+	dumpBusyWait    = 30 * time.Second
+)
+
 // StreamDBRunDump writes the dump of a restore run into w, as the server reads
-// it from the source connection's repository. No retry: the restore starts
-// over as a new run.
+// it from the source connection's repository. A busy server (429) is asked
+// again before anything was written; once bytes flowed, no retry: the
+// restore starts over as a new run.
 func (c *Client) StreamDBRunDump(ctx context.Context, runID string, w io.Writer) error {
 	path := "/agent/v1/databases/runs/" + url.PathEscape(runID) + "/dump"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+path, nil)
-	if err != nil {
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+path, nil)
+		if err != nil {
+			return err
+		}
+		c.decorate(req, false)
+		req.Header.Set("Accept", "application/octet-stream")
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode == http.StatusTooManyRequests && attempt < dumpBusyRetries {
+			_ = resp.Body.Close()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(dumpBusyWait):
+			}
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			return &APIError{Method: http.MethodGet, Path: path, Status: resp.StatusCode, Title: http.StatusText(resp.StatusCode)}
+		}
+		_, err = io.Copy(w, resp.Body)
+		_ = resp.Body.Close()
 		return err
 	}
-	c.decorate(req, false)
-	req.Header.Set("Accept", "application/octet-stream")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return &APIError{Method: http.MethodGet, Path: path, Status: resp.StatusCode, Title: http.StatusText(resp.StatusCode)}
-	}
-	_, err = io.Copy(w, resp.Body)
-	return err
 }
 
 // FinishDBRun reports a run's outcome.
