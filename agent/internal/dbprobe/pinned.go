@@ -24,6 +24,10 @@ type PinnedTarget struct {
 	// Fingerprint is the confirmed certificate (SHA-256, upper-case hex
 	// pairs); empty only for a connection without TLS.
 	Fingerprint string
+	// Address is the IP address the run's first connection reached (its
+	// instance check): set, every later connection goes there, never to
+	// what the name resolves to now. TLS still names Host.
+	Address string
 }
 
 // PinnedConn is a connection after TLS and the certificate check.
@@ -33,6 +37,25 @@ type PinnedConn struct {
 	TLS bool
 	// Fingerprint is the certificate the server showed.
 	Fingerprint string
+	// RemoteAddress is the IP address reached.
+	RemoteAddress string
+}
+
+func remoteIP(c net.Conn) string {
+	if c == nil || c.RemoteAddr() == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(c.RemoteAddr().String())
+	if err != nil {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			return v4.String()
+		}
+		return ip.String()
+	}
+	return host
 }
 
 // PinnedError is why a pinned connection was refused, with its code.
@@ -51,7 +74,28 @@ func OpenPinned(ctx context.Context, target PinnedTarget, timeout time.Duration,
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	address := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
+	dialHost := target.Host
+	fixed := ""
+	if target.Address != "" {
+		ip := net.ParseIP(target.Address)
+		if ip == nil {
+			return nil, &PinnedError{Code: CodeUnreachable, Message: "the run's address is not an IP address"}
+		}
+		if v4 := ip.To4(); v4 != nil {
+			ip = v4
+		}
+		fixed = ip.String()
+		if hostIP := net.ParseIP(target.Host); hostIP != nil {
+			if v4 := hostIP.To4(); v4 != nil {
+				hostIP = v4
+			}
+			if hostIP.String() != fixed {
+				return nil, &PinnedError{Code: CodeInstanceChanged, Message: "The run reached another address than its first connection."}
+			}
+		}
+		dialHost = fixed
+	}
+	address := net.JoinHostPort(dialHost, strconv.Itoa(target.Port))
 	// The connection outlives the connect's own deadline: its context is the
 	// caller's, and only the steps here are bounded by cctx.
 	c, err := openConn(ctx, dial, "tcp", address, timeout)
@@ -61,6 +105,10 @@ func OpenPinned(ctx context.Context, target PinnedTarget, timeout time.Duration,
 	refuse := func(code, message string) (*PinnedConn, error) {
 		c.close()
 		return nil, &PinnedError{Code: code, Message: message}
+	}
+	reached := remoteIP(c.raw)
+	if fixed != "" && reached != "" && reached != fixed {
+		return refuse(CodeInstanceChanged, "The run reached another address than its first connection.")
 	}
 	stopAtConnect := context.AfterFunc(cctx, func() {
 		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
@@ -99,7 +147,7 @@ func OpenPinned(ctx context.Context, target PinnedTarget, timeout time.Duration,
 			return refuse(CodeTLSChanged, "The server shows another TLS certificate than the one confirmed.")
 		}
 	}
-	return &PinnedConn{c: c, TLS: c.tlsUsed, Fingerprint: fingerprint}, nil
+	return &PinnedConn{c: c, TLS: c.tlsUsed, Fingerprint: fingerprint, RemoteAddress: reached}, nil
 }
 
 // SignIn signs in as user to database (SCRAM, MD5 or none, as the probe).

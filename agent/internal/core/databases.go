@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"runtime"
 	"sync"
@@ -34,6 +35,7 @@ type DBHealthReporter interface {
 type DBRunReporter interface {
 	FetchDBRun(ctx context.Context, runID string) (*api.DBRunSpec, error)
 	FinishDBRun(ctx context.Context, runID string, finish api.DBRunFinish) error
+	StreamDBRunDump(ctx context.Context, runID string, w io.Writer) error
 }
 
 // dbRunMax bounds one backup or restore run, whatever the server says.
@@ -68,7 +70,9 @@ func (a *Agent) runDBRun(ctx context.Context, t api.Task) {
 		if err != nil {
 			self = os.Args[0]
 		}
-		deps := dbrun.Deps{Restic: *a.d.Restic, Self: self}
+		deps := dbrun.Deps{Restic: *a.d.Restic, Self: self, ReadDump: func(ctx context.Context, w io.Writer) error {
+			return srv.StreamDBRunDump(ctx, params.RunID, w)
+		}}
 		var report api.DBRunFinish
 		if spec.Kind == "restore" {
 			report = dbrun.Restore(rctx, spec, deps)
@@ -76,7 +80,9 @@ func (a *Agent) runDBRun(ctx context.Context, t api.Task) {
 			report = dbrun.Backup(rctx, spec, deps)
 		}
 		spec.Connection.User, spec.Connection.Password = nil, nil
-		spec.Repository.Password, spec.Repository.RepositoryPassword = "", ""
+		if spec.Repository != nil {
+			spec.Repository.Password, spec.Repository.RepositoryPassword = "", ""
+		}
 		code := ""
 		if report.Error != nil {
 			code = report.Error.Code

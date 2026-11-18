@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -143,8 +144,9 @@ type DBRunConnection struct {
 	} `json:"selection"`
 }
 
-// DBRunRepository is the restic access of a run: the connection's
-// repository through the run's own REST credential.
+// DBRunRepository is the restic access of a backup run: the connection's
+// repository through the run's own REST credential (append only). A restore
+// run gets none: it reads its one dump from the server (StreamDBRunDump).
 type DBRunRepository struct {
 	URL                string `json:"url"`
 	Username           string `json:"username"`
@@ -154,7 +156,6 @@ type DBRunRepository struct {
 
 // DBRunRestore is what a restore run plays back, and under which name.
 type DBRunRestore struct {
-	SnapshotID string `json:"snapshotId"`
 	FileName   string `json:"fileName"`
 	SHA256     string `json:"sha256"`
 	TargetName string `json:"targetName"`
@@ -162,12 +163,12 @@ type DBRunRestore struct {
 
 // DBRunSpec is what GET /agent/v1/databases/runs/:runId returns, once.
 type DBRunSpec struct {
-	RunID              string          `json:"runId"`
-	Kind               string          `json:"kind"`
-	Connection         DBRunConnection `json:"connection"`
-	Repository         DBRunRepository `json:"repository"`
-	Restore            *DBRunRestore   `json:"restore"`
-	MaxDurationSeconds int             `json:"maxDurationSeconds"`
+	RunID              string           `json:"runId"`
+	Kind               string           `json:"kind"`
+	Connection         DBRunConnection  `json:"connection"`
+	Repository         *DBRunRepository `json:"repository"`
+	Restore            *DBRunRestore    `json:"restore"`
+	MaxDurationSeconds int              `json:"maxDurationSeconds"`
 }
 
 // DBRunInstance is what a run found of the instance.
@@ -213,6 +214,29 @@ func (c *Client) FetchDBRun(ctx context.Context, runID string) (*DBRunSpec, erro
 		return nil, err
 	}
 	return &out, nil
+}
+
+// StreamDBRunDump writes the dump of a restore run into w, as the server reads
+// it from the source connection's repository. No retry: the restore starts
+// over as a new run.
+func (c *Client) StreamDBRunDump(ctx context.Context, runID string, w io.Writer) error {
+	path := "/agent/v1/databases/runs/" + url.PathEscape(runID) + "/dump"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base.String()+path, nil)
+	if err != nil {
+		return err
+	}
+	c.decorate(req, false)
+	req.Header.Set("Accept", "application/octet-stream")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return &APIError{Method: http.MethodGet, Path: path, Status: resp.StatusCode, Title: http.StatusText(resp.StatusCode)}
+	}
+	_, err = io.Copy(w, resp.Body)
+	return err
 }
 
 // FinishDBRun reports a run's outcome.

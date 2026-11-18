@@ -40,6 +40,11 @@ type Deps struct {
 	// Dial opens network connections (tests).
 	Dial func(ctx context.Context, network, address string) (net.Conn, error)
 	Now  func() time.Time
+	// ReadDump writes a restore run's one dump into w, as the server streams
+	// it (api.Client.StreamDBRunDump). A restore never opens the repository.
+	ReadDump func(ctx context.Context, w io.Writer) error
+	// Trusted checks a program before it runs (default TrustedTool).
+	Trusted func(path string) error
 }
 
 const connectTimeout = 30 * time.Second
@@ -111,6 +116,11 @@ func (s *session) admin(ctx context.Context, d Deps, database string) (*dbprobe.
 		p.Close()
 		return nil, err
 	}
+	// The run's first connection did the instance check: every later one
+	// (the relays, the other statements) goes to the same address.
+	if s.target.Address == "" && p.RemoteAddress != "" {
+		s.target.Address = p.RemoteAddress
+	}
 	return p, nil
 }
 
@@ -162,6 +172,9 @@ func readFacts(p *dbprobe.PinnedConn) (*facts, error) {
 
 func (d Deps) runner(spec *api.DBRunSpec, tmp string) *restic.Runner {
 	r := d.Restic
+	if spec.Repository == nil {
+		return &r
+	}
 	r.Repo = spec.Repository.URL
 	r.Password = spec.Repository.RepositoryPassword
 	r.RESTUser = spec.Repository.Username
@@ -212,9 +225,13 @@ func randomName() string {
 	return hex.EncodeToString(b)
 }
 
+// staleAfter: a run's folders older than this are left over from a crash.
+const staleAfter = 25 * time.Hour
+
 // Backup runs a backup run and returns its report.
 func Backup(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
 	out := api.DBRunFinish{Status: "failed", Backups: []api.DBRunBackup{}, Notes: []map[string]any{}}
+	SweepStale("", staleAfter, d.now())
 	s, err := newSession(spec)
 	if err != nil {
 		code, msg := codeOf(err, "db_dump_failed")
@@ -244,9 +261,12 @@ func Backup(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
 	if dirs == nil {
 		dirs = ToolDirs()
 	}
-	tools, err := ChooseTools(ctx, f.major, dirs)
+	tools, err := chooseTrusted(ctx, f.major, dirs, d.Trusted)
 	if err != nil {
 		return fail(err, "db_tool_missing")
+	}
+	if spec.Repository == nil {
+		return fail(failf("db_snapshot_failed", "the run has no repository"), "")
 	}
 	tmp, err := PrivateDir("", "restow-db-run-")
 	if err != nil {
@@ -263,7 +283,7 @@ func Backup(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
 	}
 	r := d.runner(spec, tmp)
 	toolVersion := strconv.Itoa(tools.Major)
-	tags := []string{"restow-db", "restow-db-engine=postgresql", "restow-db-connection=" + spec.Connection.ConnectionID}
+	tags := []string{"restow-db", "restow-db-engine=postgresql", "restow-db-connection=" + spec.Connection.ConnectionID, "restow-db-run=" + spec.RunID}
 	failed, done, wanted := 0, 0, 0
 	for _, db := range f.databases {
 		if !selected(spec.Connection, db.name) {
@@ -369,17 +389,31 @@ func dumpOne(ctx context.Context, s *session, d Deps, r *restic.Runner, tmp, pas
 // QuoteIdent is an SQL identifier in double quotes.
 func QuoteIdent(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
-// QuoteLiteral is an SQL string literal.
-func QuoteLiteral(v string) string { return "'" + strings.ReplaceAll(v, "'", "''") + "'" }
+// QuoteLiteral is an SQL string literal in the escape form (E'…'): backslash
+// and quote escaped, so it means the same whatever standard_conforming_strings
+// the server or the role sets. The caller keeps NUL out (ValidName).
+func QuoteLiteral(v string) string {
+	return "E'" + strings.ReplaceAll(strings.ReplaceAll(v, `\`, `\\`), "'", "''") + "'"
+}
 
-// ValidName: a new database's name has at most 63 bytes (O3).
+// ValidName: a new database's name has at most 63 bytes, no control
+// character and no outer blanks (O3).
 func ValidName(name string) bool {
-	return name != "" && len(name) <= 63 && !strings.ContainsRune(name, 0) && strings.TrimSpace(name) == name
+	if name == "" || len(name) > 63 || strings.TrimSpace(name) != name {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // Restore plays a backup into a new database (O3) and returns its report.
 func Restore(ctx context.Context, spec *api.DBRunSpec, d Deps) api.DBRunFinish {
 	out := api.DBRunFinish{Status: "failed", Backups: []api.DBRunBackup{}, Notes: []map[string]any{}}
+	SweepStale("", staleAfter, d.now())
 	s, err := newSession(spec)
 	if err != nil || spec.Restore == nil {
 		if err == nil {
@@ -452,9 +486,12 @@ func restoreInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSpec, m
 	if dirs == nil {
 		dirs = ToolDirs()
 	}
-	tools, err := ChooseTools(ctx, major, dirs)
+	tools, err := chooseTrusted(ctx, major, dirs, d.Trusted)
 	if err != nil {
 		return err
+	}
+	if d.ReadDump == nil {
+		return failf("db_restore_failed", "the agent cannot read the dump from the server")
 	}
 	tmp, err := PrivateDir("", "restow-db-restore-")
 	if err != nil {
@@ -486,8 +523,7 @@ func restoreInto(ctx context.Context, s *session, d Deps, spec *api.DBRunSpec, m
 		return err
 	}
 	hash := sha256.New()
-	r := d.runner(spec, tmp)
-	dumpErr := r.Dump(ctx, spec.Restore.SnapshotID, "/"+spec.Restore.FileName, io.MultiWriter(hash, ignoreClosed{stdin}), 0, restic.DumpOptions{})
+	dumpErr := d.ReadDump(ctx, io.MultiWriter(hash, ignoreClosed{stdin}))
 	_ = stdin.Close()
 	waitErr := cmd.Wait()
 	if dumpErr != nil {

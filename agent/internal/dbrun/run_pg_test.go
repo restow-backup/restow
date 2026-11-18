@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -119,12 +121,15 @@ func TestAgentBacksUpAndRestoresIntoANewDatabase(t *testing.T) {
 		t.Fatalf("restic init: %v %v", err, res.Err())
 	}
 	host, port, user, pass, fp := env.host, env.port, env.user, env.password, env.fingerprint
-	spec := &api.DBRunSpec{RunID: "r1", Kind: "backup", MaxDurationSeconds: 600, Repository: api.DBRunRepository{URL: repo, RepositoryPassword: "repo-pass"}}
+	spec := &api.DBRunSpec{RunID: "r1", Kind: "backup", MaxDurationSeconds: 600, Repository: &api.DBRunRepository{URL: repo, RepositoryPassword: "repo-pass"}}
 	spec.Connection = api.DBRunConnection{ConnectionID: "c1", Engine: "postgresql", Host: &host, Port: &port, AuthMethod: "password", User: &user, Password: &pass, PinnedFingerprintSHA256: &fp}
 	spec.Connection.Selection.Mode = "selected"
 	spec.Connection.Selection.Names = []string{source}
 	deps := Deps{Restic: runner, Self: self}
 	report := Backup(context.Background(), spec, deps)
+	// The restore reads its one dump the way the server streams it (here: restic dump).
+	dumper := runner
+	dumper.Repo, dumper.Password = repo, "repo-pass"
 	if report.Status != "succeeded" || report.Error != nil {
 		t.Fatalf("backup: %+v %+v", report, report.Error)
 	}
@@ -135,13 +140,36 @@ func TestAgentBacksUpAndRestoresIntoANewDatabase(t *testing.T) {
 	if dump.Kind != "database" || dump.Name != source || len(dump.SHA256) != 64 || dump.Objects["TABLE"] != 1 || dump.Objects["TABLE DATA"] != 1 {
 		t.Fatalf("dump %+v", dump)
 	}
+	if len(dump.SnapshotID) != 64 {
+		t.Fatalf("snapshot id %q is not the full one", dump.SnapshotID)
+	}
+	deps.ReadDump = func(ctx context.Context, w io.Writer) error {
+		return dumper.Dump(ctx, dump.SnapshotID, "/"+dump.FileName, w, 0, restic.DumpOptions{})
+	}
+	// Every snapshot names its run (the server checks the report against it).
+	var snapshots []struct {
+		ID   string   `json:"id"`
+		Tags []string `json:"tags"`
+		Host string   `json:"hostname"`
+	}
+	if res, err := dumper.Command(context.Background(), restic.CommandOptions{Name: "snapshots", Args: []string{"snapshots", "--json"}, OnStdoutLine: func(line []byte) {
+		_ = json.Unmarshal(line, &snapshots)
+	}}); err != nil || res.Err() != nil || len(snapshots) != 2 {
+		t.Fatalf("snapshots %v", snapshots)
+	}
+	for _, snap := range snapshots {
+		if snap.Host != "restow-db" || !slices.Contains(snap.Tags, "restow-db-run=r1") {
+			t.Fatalf("snapshot %+v", snap)
+		}
+	}
 
 	// Restore under a new name; the name taken and a wrong certificate are refused.
 	target := "restow_d3_agent_dst_" + s
 	defer env.exec(t, "postgres", "DROP DATABASE IF EXISTS "+QuoteIdent(target)+" WITH (FORCE)")
 	restore := *spec
 	restore.Kind = "restore"
-	restore.Restore = &api.DBRunRestore{SnapshotID: dump.SnapshotID, FileName: dump.FileName, SHA256: dump.SHA256, TargetName: target}
+	restore.Repository = nil
+	restore.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: dump.SHA256, TargetName: target}
 	done := Restore(context.Background(), &restore, deps)
 	if done.Status != "succeeded" || done.TargetOID == nil {
 		t.Fatalf("restore: %+v %+v", done, done.Error)
@@ -151,14 +179,23 @@ func TestAgentBacksUpAndRestoresIntoANewDatabase(t *testing.T) {
 		t.Fatalf("restored rows %v", rows)
 	}
 	taken := restore
-	taken.Restore = &api.DBRunRestore{SnapshotID: dump.SnapshotID, FileName: dump.FileName, SHA256: dump.SHA256, TargetName: source}
+	taken.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: dump.SHA256, TargetName: source}
 	if r := Restore(context.Background(), &taken, deps); r.Error == nil || r.Error.Code != "db_restore_name_taken" {
 		t.Fatalf("name taken: %+v", r.Error)
 	}
+	// The run's own database is dropped by name and OID, even with \' in the
+	// name and a role whose sessions read backslashes as escapes.
+	oldStrings := "restow_d3_agent_old_" + s
+	oldPass := "pw-" + s
+	env.exec(t, "postgres", "CREATE ROLE "+QuoteIdent(oldStrings)+" LOGIN CREATEDB PASSWORD "+QuoteLiteral(oldPass))
+	defer env.exec(t, "postgres", "DROP ROLE IF EXISTS "+QuoteIdent(oldStrings))
+	env.exec(t, "postgres", "ALTER ROLE "+QuoteIdent(oldStrings)+" SET standard_conforming_strings = off")
 	mismatch := restore
-	broken := "restow_d3_agent_bad_" + s
-	mismatch.Restore = &api.DBRunRestore{SnapshotID: dump.SnapshotID, FileName: dump.FileName, SHA256: dump.SHA256[:63] + "0", TargetName: broken}
-	if r := Restore(context.Background(), &mismatch, deps); r.Error == nil || r.Error.Code != "db_backup_mismatch" {
+	mismatch.Connection.User, mismatch.Connection.Password = &oldStrings, &oldPass
+	broken := `restow_d3_agent_b\'d_` + s
+	defer env.exec(t, "postgres", "DROP DATABASE IF EXISTS "+QuoteIdent(broken)+" WITH (FORCE)")
+	mismatch.Restore = &api.DBRunRestore{FileName: dump.FileName, SHA256: dump.SHA256[:63] + "0", TargetName: broken}
+	if r := Restore(context.Background(), &mismatch, deps); r.Error == nil || r.Error.Code != "db_backup_mismatch" || r.TargetOID == nil {
 		t.Fatalf("mismatch: %+v", r.Error)
 	}
 	if rows := env.exec(t, "postgres", "SELECT 1 FROM pg_database WHERE datname = "+QuoteLiteral(broken)); len(rows) != 0 {
@@ -199,11 +236,12 @@ func TestAgentKeepsNoSnapshotOfAFailedDump(t *testing.T) {
 	env.exec(t, "postgres", "CREATE DATABASE "+QuoteIdent(source))
 	defer env.exec(t, "postgres", "DROP DATABASE IF EXISTS "+QuoteIdent(source)+" WITH (FORCE)")
 	host, port, user, pass, fp := env.host, env.port, env.user, env.password, env.fingerprint
-	spec := &api.DBRunSpec{RunID: "r2", Kind: "backup", MaxDurationSeconds: 600, Repository: api.DBRunRepository{URL: repo, RepositoryPassword: "repo-pass"}}
+	spec := &api.DBRunSpec{RunID: "r2", Kind: "backup", MaxDurationSeconds: 600, Repository: &api.DBRunRepository{URL: repo, RepositoryPassword: "repo-pass"}}
 	spec.Connection = api.DBRunConnection{ConnectionID: "c2", Engine: "postgresql", Host: &host, Port: &port, AuthMethod: "password", User: &user, Password: &pass, PinnedFingerprintSHA256: &fp}
 	spec.Connection.Selection.Mode = "selected"
 	spec.Connection.Selection.Names = []string{source}
-	report := Backup(context.Background(), spec, Deps{Restic: runner, Self: self, ToolDirs: []string{dir}})
+	// The fake programs lie below the temporary folder: let them run here.
+	report := Backup(context.Background(), spec, Deps{Restic: runner, Self: self, ToolDirs: []string{dir}, Trusted: func(string) error { return nil }})
 	if report.Status != "failed" || report.Error == nil || report.Error.Code != "db_dump_failed" {
 		t.Fatalf("status %q", report.Status)
 	}

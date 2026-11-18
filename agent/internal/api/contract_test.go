@@ -93,6 +93,7 @@ func TestContractFixturesRoundTrip(t *testing.T) {
 		{"db-health-samples.json", func() any { return &DBHealthSamples{} }, false},
 		// D3: a backup or restore run, once with its credentials, and its report.
 		{"db-run-spec.json", func() any { return &DBRunSpec{} }, false},
+		{"db-run-spec-backup.json", func() any { return &DBRunSpec{} }, false},
 		{"db-run-finish.json", func() any { return &DBRunFinish{} }, false},
 	}
 	for _, c := range cases {

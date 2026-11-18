@@ -37,6 +37,7 @@ const (
 	CodeEngineUnsupported = "db_engine_unsupported"
 	CodeAuthUnsupported   = "db_auth_unsupported"
 	CodeProbeFailed       = "db_probe_failed"
+	CodeInstanceChanged   = "db_instance_changed"
 )
 
 // maxDatabases bounds the databases read from one instance.

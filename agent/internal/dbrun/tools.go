@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/restow-backup/restow/agent/internal/paths"
 )
 
 // The PostgreSQL programs (O2): in D3 only those on this machine, the newest
@@ -77,13 +79,35 @@ func ToolDirs() []string {
 	return out
 }
 
-// ChooseTools picks the programs for a server of serverMajor.
+// TrustedTool checks a program before the agent (root, LocalSystem) runs it,
+// even for --version: the program and every folder above it, as named and
+// where a link leads, must be owned by root (Windows: only SYSTEM,
+// Administrators and TrustedInstaller may change them) and not writable by
+// group or others. A pg_dump in a folder a user can write (a Homebrew
+// prefix, a PATH entry) would otherwise run as root.
+func TrustedTool(path string) error {
+	if _, err := paths.TrustedDir(filepath.Dir(path), false); err != nil {
+		return err
+	}
+	_, err := paths.TrustedFile(path)
+	return err
+}
+
+// ChooseTools picks the programs for a server of serverMajor, trusted ones only.
 func ChooseTools(ctx context.Context, serverMajor int, dirs []string) (Tools, error) {
+	return chooseTrusted(ctx, serverMajor, dirs, nil)
+}
+
+func chooseTrusted(ctx context.Context, serverMajor int, dirs []string, trusted func(string) error) (Tools, error) {
+	if trusted == nil {
+		trusted = TrustedTool
+	}
 	type found struct {
 		major int
 		dir   string
 	}
 	var all []found
+	var skipped []string
 	for _, dir := range dirs {
 		t := Tools{Dir: dir}
 		complete := true
@@ -94,6 +118,17 @@ func ChooseTools(ctx context.Context, serverMajor int, dirs []string) (Tools, er
 			}
 		}
 		if !complete {
+			continue
+		}
+		untrusted := false
+		for _, tool := range []string{"pg_dump", "pg_dumpall", "pg_restore"} {
+			if err := trusted(t.Path(tool)); err != nil {
+				skipped = append(skipped, err.Error())
+				untrusted = true
+				break
+			}
+		}
+		if untrusted {
 			continue
 		}
 		vctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -113,7 +148,14 @@ func ChooseTools(ctx context.Context, serverMajor int, dirs []string) (Tools, er
 		}
 	}
 	if len(all) == 0 {
-		return Tools{}, &ToolError{Code: "db_tool_missing", Message: "pg_dump, pg_dumpall and pg_restore were not found on this machine. Install the PostgreSQL client programs of the server's major version or newer."}
+		msg := "pg_dump, pg_dumpall and pg_restore were not found on this machine. Install the PostgreSQL client programs of the server's major version or newer."
+		if len(skipped) > 0 {
+			if len(skipped) > 3 {
+				skipped = append(skipped[:3], fmt.Sprintf("%d more", len(skipped)-3))
+			}
+			msg += " Skipped as not safe to run: " + strings.Join(skipped, "; ")
+		}
+		return Tools{}, &ToolError{Code: "db_tool_missing", Message: msg}
 	}
 	var majors []string
 	var nums []int
