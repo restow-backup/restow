@@ -107,6 +107,14 @@ function components() {
         "https://go.dev/LICENSE. Linked into restow-agent, the endpoint agent that is built from agent/ and served to endpoints, and into the restic release binary.",
     },
     {
+      name: "PostgreSQL client programs",
+      version: "18",
+      license: "PostgreSQL",
+      file: "licenses/postgresql-LICENSE",
+      description:
+        "https://www.postgresql.org. pg_dump, pg_dumpall and pg_restore of the newest major version, with libpq, installed unmodified from the PGDG archive (apt.postgresql.org, package postgresql-client-18) into the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 11).",
+    },
+    {
       name: "shadcn/ui",
       version: "",
       license: "MIT",

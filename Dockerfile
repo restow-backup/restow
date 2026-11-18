@@ -287,6 +287,26 @@ FROM base AS runtime-base
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
+# The PostgreSQL client programs (pg_dump, pg_dumpall, pg_restore) of the newest major version
+# for the database runs of the Restow server (docs/DATABASES.md 11, 16 "D3"): from the PGDG
+# archive (apt.postgresql.org), whose signing key is kept in the repository
+# (scripts/docker/pgdg-ACCC4CF8.asc, fingerprint B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC
+# 4CF8) and checked here, never fetched at build time. Only the client package, no server.
+ARG PG_CLIENT_MAJOR=18
+ARG PGDG_FINGERPRINT=B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+COPY scripts/docker/pgdg-ACCC4CF8.asc /etc/apt/keyrings/pgdg.asc
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates gpg; \
+    test "$(gpg --show-keys --with-colons /etc/apt/keyrings/pgdg.asc | awk -F: '$1 == "fpr" { print $10; exit }')" = "$PGDG_FINGERPRINT"; \
+    apt-get purge -y --auto-remove gpg; \
+    codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"; \
+    echo "deb [signed-by=/etc/apt/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "postgresql-client-${PG_CLIENT_MAJOR}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    pg_dump --version; \
+    test -x "/usr/lib/postgresql/${PG_CLIENT_MAJOR}/bin/pg_restore"
 ENV NODE_ENV=production \
     ROLE=api
 WORKDIR /prod

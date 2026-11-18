@@ -51,6 +51,8 @@ import { pathToFileURL } from "node:url";
  *                                "true" lets the health checks of every database connection the
  *                                Restow server runs reach loopback and private networks; otherwise
  *                                only connections a provider admin approved (docs/DATABASES.md 4.2)
+ *   DB_CONCURRENCY               database backup and restore runs of the server at once
+ *                                (queue `db`, default 2; docs/DATABASES.md 4.2)
  *   RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR
  *                                the outbound budget of the server's health checks: checks to
  *                                public targets per tenant and hour (default 600); beyond it a

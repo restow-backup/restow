@@ -1,6 +1,6 @@
 # Datenbanken (Entwurf für 0.6.0)
 
-Stand: Stufen D1 und D2 umgesetzt, D3 entschieden (Abschnitt 16), D4 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
+Stand: Stufen D1 bis D3 umgesetzt (Abschnitt 16), D4 bis D7 offen. Ziel ist Restow 0.6.0 für den Modus
 Sicherung, 0.6.x für Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores
 (November 2026):
 
@@ -857,6 +857,63 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   Argumentliste; der Download liest den Dump aus dem Repository, die Restore-Anleitung ist Text
   ohne Geheimnis. Keine neuen Alarme in D3 (die der Bewertung kommen mit D6); nach der ersten
   Sicherung ist eine Datenbank "ungeprüft".
+
+### D3 (umgesetzt)
+
+- **Relais** (O1): packages/core `databases/relay.ts` (Worker) und agent `internal/dbrun`
+  (Agent). Die Verbindung öffnet der gehärtete Client aus D1 (`openPinnedPostgres` bzw.
+  `dbprobe.OpenPinned`), dann reicht ein Unix-Socket (Verzeichnis 0700 in `/dev/shm`, Socket
+  0600, genau ein Client, danach sofort gelöscht) die Bytes an das Programm durch, mit Gegendruck
+  bzw. festen Puffern, Ende mit jeder Seite, nach 10 Minuten Leerlauf, ohne Client nach 60
+  Sekunden und spätestens nach 12 Stunden. Während der Anmeldung bietet das Relais dem Programm
+  SCRAM ohne Kanalbindung an: libpq lehnt `SCRAM-SHA-256-PLUS` auf einem Socket ohne TLS ab; das
+  Zertifikat hält das Relais fest. Das Programm bekommt eine eigene Umgebung (Socket, Benutzer,
+  `PGPASSFILE`), keine Variable des Workers oder Agenten.
+- **Programme** (O2): Worker-Image mit `postgresql-client-18` aus dem PGDG-Archiv, Schlüssel im
+  Repository (`scripts/docker/pgdg-ACCC4CF8.asc`), Fingerabdruck beim Bau geprüft; die Schicht
+  ist unkomprimiert etwa 74 MB groß, davon etwa 47 MB Perl (Abhängigkeit von
+  `postgresql-client-common`). Der Agent nimmt die Programme aus `/usr/lib/postgresql/*/bin`,
+  `/usr/pgsql-*/bin`, Homebrew und `PATH`.
+- **Sicherung:** Planung im Worker (eine Minute, Zeitplan der Verbindung, mindestens 15 Minuten,
+  `db_run_overlap`), Läufe des Servers in der Queue `db` (`DB_CONCURRENCY`, Vorgabe 2), Läufe eines
+  Agenten als Aufgabe `db_backup`. Je Lauf: Instanz über die festgehaltene Verbindung prüfen
+  (bestätigte Instanz, nie Restows eigene), Datenbankzeilen nachführen, je ausgewählter
+  Datenbank `restic backup --stdin-from-command --stdin-filename postgresql/<name>.pgdump` mit
+  `db-stream` (Worker: `apps/worker databases/db-stream.ts`, Agent: `restow-agent db-stream`),
+  dazu `postgresql/globals.sql` aus `pg_dumpall --globals-only` (ohne Kennwort-Hashes, wenn
+  `pg_authid` nicht lesbar ist). `postgres` wird übersprungen, wenn es leer ist
+  (`db_database_empty`). Objekte zählt `pg_restore --list` aus demselben Datenstrom.
+- **Repository:** `db/<verbindung>/` auf dem primären Speicherziel des Mandanten, Kennwort im
+  Geheimnisspeicher (`database_repository`), `restic init` einmal (Worker bzw. API beim Abruf
+  eines Agenten-Laufs). Agenten schreiben über `/agent/db/restic/:connectionId` mit dem Token des
+  Laufs: anhängend für eine Sicherung, lesend für einen Restore.
+- **Aufbewahrung:** einmal am Tag je Verbindung durch den Worker, je Datenbank und für die
+  globalen Objekte getrennt, nach dem Ende der gemeldeten Läufe datiert; vergessen wird nur, was
+  ein Lauf meldete (`pruned`), danach `restic prune`.
+- **Restore** (O3): `POST /api/v1/databases/:id/restore` (Administratoren, auditiert) mit Sicherung,
+  Zielverbindung derselben Engine und Name; der Ausführer des Ziels führt ihn aus. Vor dem
+  Anlegen: Rechte (`CREATEDB`), Name frei; der SHA-256 des Datenstroms wird mit der Sicherung
+  verglichen (`db_backup_mismatch`).
+- **Download und Anleitung:** `GET …/:id/backups/:backupId/download` liest die Datei aus dem
+  Repository (auditiert), `…/restore-guide` ist Text mit `createdb`- und `pg_restore`-Befehlen,
+  ohne Geheimnis. Die Datenbankseite zeigt die Sicherungen mit diesen Aktionen.
+- **Bewertung:** Mit einer Sicherung ist eine Datenbank "ungeprüft" (`unverified`), bis D6 prüft.
+
+### Abweichungen und Grenzen von D3
+
+- **Aufbewahrung:** die Vorgabe der Rechner (30 Tage, 12 Wochen, 12 Monate); eine Regel je
+  Verbindung (`retention_policy_id`) wird noch nicht gelesen.
+- **Speicherziel:** nur das primäre Ziel; Kopie-Ziele, verschobene Repositories und Speicher,
+  der nur einmal beschrieben werden kann, behandeln die Datenbank-Repositories noch nicht wie die
+  der Freigaben (D7).
+- **Download im Browser:** die Datei wird im Speicher des Browsers gesammelt, bevor sie gespeichert
+  wird; sehr große Dumps besser über die Anleitung und einen Restore holen.
+- **Agent ohne Programme:** ohne `pg_dump` auf dem Rechner scheitert der Lauf mit
+  `db_tool_missing`; das Paket `restow-agent-dbtools` kommt mit D7.
+- **Test des Agenten gegen echtes PostgreSQL:** läuft nur mit `RESTOW_TEST_DATABASE_TLS_URL`, die der
+  Job agent nicht setzt; dieselben Wege belegen die Suiten von Worker und API gegen den TLS-Server
+  der CI.
+- **Globale Objekte:** werden gesichert, aber nicht automatisch eingespielt (O3).
 
 ### Nahtstellen für D3 bis D7
 

@@ -364,12 +364,15 @@ jobs:
           test "$licenses" = "Apache-2.0 AND GPL-2.0-only AND LGPL-3.0-only AND BSD-2-Clause-Patent"
 
       - name: The images carry their tools
-        # restic and the standalone restore tool must be in both application images, the
-        # agent binaries with their checksums must sit where the api serves them from
-        # (when agent/ exists in this commit).
+        # restic, the standalone restore tool and the PostgreSQL client programs must be in both
+        # application images, the agent binaries with their checksums must sit where the api
+        # serves them from (when agent/ exists in this commit).
         run: |
           for image in restow:ci restow-community:ci; do
             docker run --rm --entrypoint restow-restore "$image" --help > /dev/null
+            # The PostgreSQL client programs of the server's database runs (docs/DATABASES.md 11).
+            docker run --rm --entrypoint sh "$image" -c \
+              'set -eu; for tool in pg_dump pg_dumpall pg_restore; do /usr/lib/postgresql/*/bin/$tool --version; done' 
             if [ -f agent/go.mod ]; then
               docker run --rm --entrypoint restic "$image" version
               docker run --rm --entrypoint sh "$image" -c \

@@ -108,6 +108,25 @@ private repository.
     change, another certificate); the database page shows its size and growth per day. Session API
     `GET /api/v1/databases/connections/:id/health` and `GET /api/v1/databases/:id/health`; a
     connection's `healthIntervalMinutes` is changed with `PATCH`.
+- Backups and restores of PostgreSQL databases (docs/DATABASES.md, stage D3 of 0.6.0):
+  - Every enabled connection is backed up on its schedule (at least every 15 minutes), by the
+    Restow server (queue `db`, `DB_CONCURRENCY`) or by the agent chosen as its executor: one restic
+    snapshot per database (`pg_dump --format=custom --compress=0` through
+    `restic backup --stdin-from-command`, so a dump that fails never becomes a backup) and the
+    instance's roles and tablespaces once (`pg_dumpall --globals-only`), with SHA-256, size and
+    the objects counted, in the connection's own repository `db/<connection>`.
+  - `pg_dump` and `pg_restore` reach the server only through a relay of the executor: Restow's
+    hardened client connects (address rules, never Restow's own database, TLS and the confirmed
+    certificate before any sign-in) and hands the program a Unix socket of its own (one client,
+    0700, removed afterwards); the password goes to it in a `PGPASSFILE` in memory, never on a
+    command line or in its environment.
+  - Restore always into a new database, on the same or another connection of the tenant
+    (`POST /api/v1/databases/:id/restore`, audited): refused without `CREATEDB` or when the name
+    is taken; when it fails, only the database the run created is dropped. Download of the dump
+    and a restore guide without secrets; "Back up now" on the database page.
+  - Retention per database decided by the server from the runs' reports (30 daily, 12 weekly,
+    12 monthly). The application images carry `postgresql-client-18` from the PGDG archive (key
+    pinned in the repository). Migration 0109 (`database_runs`, `database_backups`).
 - Monthly billing close (Service Provider; integration API contract 1.11.0, additive): every
   tenant's billed quantities (protected mailboxes, stored data, servers, clients, VMs,
   containers, file shares) are sampled once a day, counted exactly like `GET /provider/billing`,

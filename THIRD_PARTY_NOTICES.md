@@ -33,6 +33,14 @@ https://go.dev/LICENSE. Linked into restow-agent, the endpoint agent that is bui
 - Copyright: `Copyright 2009 The Go Authors.`
 - License text: [text 11](#text-11)
 
+### PostgreSQL client programs 18
+
+https://www.postgresql.org. pg_dump, pg_dumpall and pg_restore of the newest major version, with libpq, installed unmodified from the PGDG archive (apt.postgresql.org, package postgresql-client-18) into the application images; the worker runs them as separate processes for the database runs of the Restow server (docs/DATABASES.md 11).
+
+- License: PostgreSQL
+- Copyright: no copyright line in the package; no author in package.json
+- License text: [text 110](#text-110)
+
 ### msgreader test files
 
 https://github.com/HiraokaHyperTools/msgreader. The Outlook .msg files in packages/core/src/mailfiles/testdata/ are copies from the test folder of the msgreader project (one is derived from another by damaging a few bytes). They are test data only, but they travel inside the src folder of @restow/core into the image; packages/core/src/mailfiles/testdata/README.md lists them.
@@ -296,7 +304,7 @@ Source: https://github.com/go-ole/go-ole (tag v1.3.0). Only in the restic binary
 
 - License: MIT
 - Copyright: `Copyright © 2013-2017 Yasuhiro Matsumoto, <mattn.jp@gmail.com>`
-- License text: [text 122](#text-122)
+- License text: [text 123](#text-123)
 
 ### github.com/golang-jwt/jwt/v5 v5.3.1
 
@@ -473,7 +481,7 @@ Source: https://github.com/pkg/sftp (tag v1.13.10).
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) 2013, Dave Cheney`
-- License text: [text 113](#text-113)
+- License text: [text 114](#text-114)
 
 ### github.com/pkg/xattr v0.4.12
 
@@ -483,7 +491,7 @@ Source: https://github.com/pkg/xattr (tag v0.4.12). Only in the restic binary fo
 - Copyright:
   - `Copyright (c) 2012 Dave Cheney. All rights reserved.`
   - `Copyright (c) 2014 Kuba Podgórski. All rights reserved.`
-- License text: [text 110](#text-110)
+- License text: [text 111](#text-111)
 
 ### github.com/restic/chunker v0.4.0
 
@@ -491,7 +499,7 @@ Source: the Go module github.com/restic/chunker v0.4.0.
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>`
-- License text: [text 111](#text-111)
+- License text: [text 112](#text-112)
 
 ### github.com/rs/xid v1.6.0
 
@@ -635,7 +643,7 @@ Source: https://github.com/yaml/go-yaml (tag v3.0.4).
   - `Copyright (c) 2006-2011 Kirill Simonov`
   - `Copyright (c) 2011-2019 Canonical Ltd`
   - `Copyright 2011-2016 Canonical Ltd.`
-- License text: [text 2](#text-2), [text 124](#text-124)
+- License text: [text 2](#text-2), [text 125](#text-125)
 - Notice file: [text 75](#text-75)
 
 ### golang.org/x/crypto v0.52.0
@@ -2009,7 +2017,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 David Mark Clements`
-- License text: [text 121](#text-121)
+- License text: [text 122](#text-122)
 
 ### b4a 1.9.0
 
@@ -2114,7 +2122,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013-2024 Brian J. Brennan`
-- License text: [text 119](#text-119)
+- License text: [text 120](#text-120)
 
 ### buffer-from 1.1.2
 
@@ -2126,7 +2134,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2017 Aditya Yadav, http://netroy.in`
-- License text: [text 123](#text-123)
+- License text: [text 124](#text-124)
 
 ### chai 6.3.0
 
@@ -2245,7 +2253,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright 2010-2021 Mike Bostock`
   - `Copyright 2001 Robert Penner`
-- License text: [text 112](#text-112)
+- License text: [text 113](#text-113)
 
 ### d3-format 3.1.2
 
@@ -2319,13 +2327,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2025 Michael Mclaughlin`
-- License text: [text 117](#text-117)
+- License text: [text 118](#text-118)
 
 ### decimal.js-light 2.5.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 Michael Mclaughlin`
-- License text: [text 116](#text-116)
+- License text: [text 117](#text-117)
 
 ### deepmerge-ts 8.0.2
 
@@ -2474,7 +2482,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2024 Viva Republica, Inc.`
   - `Copyright OpenJS Foundation and other contributors <https://openjsf.org/>`
 - License text: [text 1](#text-1)
-- Notice file: [text 125](#text-125)
+- Notice file: [text 126](#text-126)
 
 ### esbuild 0.25.12
 
@@ -2668,7 +2676,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2008 Fair Oaks Labs, Inc.`
-- License text: [text 114](#text-114)
+- License text: [text 115](#text-115)
 
 ### imapflow 1.7.8
 
@@ -2686,7 +2694,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) Isaac Z. Schlueter`
-- License text: [text 115](#text-115)
+- License text: [text 116](#text-116)
 
 ### internmap 2.0.3
 
@@ -3000,7 +3008,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Andrew Kelley`
-- License text: [text 120](#text-120)
+- License text: [text 121](#text-121)
 
 ### pg 8.23.1
 
@@ -3443,7 +3451,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 James Halliday (mail@substack.net)`
-- License text: [text 118](#text-118)
+- License text: [text 119](#text-119)
 
 ### smart-buffer 4.2.0
 
@@ -3790,7 +3798,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2025 Colin McDonnell`
 - License text: [text 1](#text-1)
 
-## License texts (125)
+## License texts (126)
 
 ### Text 1
 
@@ -11238,6 +11246,36 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 Used by 1 entry.
 
 ```text
+PostgreSQL Database Management System
+(also known as Postgres, formerly known as Postgres95)
+
+Portions Copyright (c) 1996-2025, The PostgreSQL Global Development Group
+
+Portions Copyright (c) 1994, The Regents of the University of California
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose, without fee, and without a written agreement
+is hereby granted, provided that the above copyright notice and this
+paragraph and the following two paragraphs appear in all copies.
+
+IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY FOR
+DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING
+LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS
+DOCUMENTATION, EVEN IF THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATIONS TO
+PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+```
+
+### Text 111
+
+Used by 1 entry.
+
+```text
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
 met:
@@ -11262,7 +11300,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 111
+### Text 112
 
 Used by 1 entry.
 
@@ -11289,7 +11327,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 112
+### Text 113
 
 Used by 1 entry.
 
@@ -11320,7 +11358,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 113
+### Text 114
 
 Used by 1 entry.
 
@@ -11333,7 +11371,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 114
+### Text 115
 
 Used by 1 entry.
 
@@ -11349,7 +11387,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 115
+### Text 116
 
 Used by 1 entry.
 
@@ -11369,7 +11407,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 116
+### Text 117
 
 Used by 1 entry.
 
@@ -11396,7 +11434,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 117
+### Text 118
 
 Used by 1 entry.
 
@@ -11423,7 +11461,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 118
+### Text 119
 
 Used by 1 entry.
 
@@ -11452,7 +11490,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 119
+### Text 120
 
 Used by 1 entry.
 
@@ -11476,7 +11514,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 120
+### Text 121
 
 Used by 1 entry.
 
@@ -11504,7 +11542,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 121
+### Text 122
 
 Used by 1 entry.
 
@@ -11530,7 +11568,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 122
+### Text 123
 
 Used by 1 entry.
 
@@ -11556,7 +11594,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 123
+### Text 124
 
 Used by 1 entry.
 
@@ -11570,7 +11608,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 124
+### Text 125
 
 Used by 1 entry.
 
@@ -11621,7 +11659,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 125
+### Text 126
 
 Used by 1 entry.
 
