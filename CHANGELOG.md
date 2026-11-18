@@ -8,6 +8,26 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Added
+
+- Bare metal onto a fresh machine without ISO (docs/BAREMETAL-ONESHOT.md, 0.5.1), first stages;
+  not usable yet and hidden until the web interface follows.
+  - O1: the recovery ISO starts without its medium, the way the command on a fresh machine will
+    start it with kexec: the ISO's kernel, its initrd with the live file system and the session
+    data appended as one uncompressed archive, and `live-media=/restow/medium`. A new script in
+    the ISO's initramfs (`init-bottom/restow-oneshot`) hands the session data to the live system
+    (`/run/restow-oneshot`, 0700/0600) and leaves nothing of it in the initramfs. `recover` reads
+    it only with `restow.oneshot=1` on the kernel command line, from a root-owned file with these
+    modes, refuses anything that does not fit (a code, options in an SSH key, an `http://`
+    instance outside QEMU, unknown fields) and redacts the session secret and the passphrase in
+    its log; its output also goes to every console of the fresh machine. The agent reads the
+    kernel, the initrd and the live file system out of the ISO itself (ISO 9660 with Rock Ridge,
+    checked against the image's own checksum list) and builds the initrd (`restow-agent
+    oneshot-payload`, hidden, for the CI). The CI job of the ISO starts it that way in QEMU and
+    checks what arrives (`scripts/recovery-e2e/oneshot-boot.mjs`).
+
 ## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until

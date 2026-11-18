@@ -15,6 +15,9 @@ type CmdlineOptions struct {
 	Keymap string
 	// AnswersMedia is restow.answers=media.
 	AnswersMedia bool
+	// Oneshot is restow.oneshot=1: the recovery kernel was started with kexec
+	// by the command of a oneshot restore (docs/BAREMETAL-ONESHOT.md 8.6).
+	Oneshot bool
 }
 
 // ParseCmdline reads the restow.* parameters of a kernel command line.
@@ -36,6 +39,8 @@ func ParseCmdline(s string) CmdlineOptions {
 			}
 		case "restow.answers":
 			o.AnswersMedia = v == "media"
+		case "restow.oneshot":
+			o.Oneshot = v == "1"
 		}
 	}
 	return o

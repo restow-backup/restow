@@ -90,6 +90,19 @@ grep -q '^AUTO -all' "$root/etc/mdadm/mdadm.conf" || problem "mdadm.conf assembl
 [ "$(readlink "$root/etc/systemd/system-generators/systemd-gpt-auto-generator")" = /dev/null ] ||
   problem "systemd-gpt-auto-generator is not masked"
 
+# The hand-over of a oneshot restore is in the initramfs and runs at init-bottom
+# (docs/BAREMETAL-ONESHOT.md 9.1), read with the image's own lsinitramfs.
+mkdir -p "$root/tmp"
+if xorriso -osirrox on -indev "$iso" -extract /live/initrd.img "$root/tmp/rr-initrd.img" >/dev/null 2>&1; then
+  chroot "$root" lsinitramfs /tmp/rr-initrd.img >"$work/initramfs-list" 2>/dev/null ||
+    problem "lsinitramfs cannot read the ISO's initrd"
+  grep -qx 'scripts/init-bottom/restow-oneshot' "$work/initramfs-list" ||
+    problem "the initramfs lacks scripts/init-bottom/restow-oneshot"
+  rm -f "$root/tmp/rr-initrd.img"
+else
+  problem "cannot read /live/initrd.img from $iso"
+fi
+
 # Nothing of the build: the two builds of one version are equal bit for bit.
 leftovers=$(rr_build_leftovers "$root") ||
   problem "build leftovers in the image: $(echo "$leftovers" | tr '\n' ' ')"

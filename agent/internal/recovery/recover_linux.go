@@ -260,6 +260,37 @@ func Main(o MainOptions) int {
 	}
 	defer lf.Close()
 	logBuf := &LogBuffer{File: lf}
+	vendor, _ := os.ReadFile("/sys/class/dmi/id/sys_vendor")
+	isQEMU := strings.TrimSpace(string(vendor)) == "QEMU"
+	var oneshot *OneshotData
+	if cl.Oneshot {
+		if o.AnswersFile != "" {
+			fmt.Fprintln(o.Stderr, "restow.oneshot=1 and --answers exclude each other")
+			return 2
+		}
+		b, err := ReadOneshotFile(OneshotPath)
+		if err == nil {
+			oneshot, err = LoadOneshotData(b, isQEMU)
+		}
+		if err != nil {
+			fmt.Fprintln(out, err)
+			return 2
+		}
+		oneshot.RegisterSecrets()
+		mainConsole := console
+		if mainConsole == "" || mainConsole == "-" {
+			mainConsole = "/dev/tty1"
+		}
+		if ms := openMirrors(mainConsole, oneshot.Consoles); len(ms) > 0 {
+			ws := []io.Writer{out}
+			for _, m := range ms {
+				defer m.Close()
+				ws = append(ws, m)
+			}
+			out = io.MultiWriter(ws...)
+			logBuf.File = io.MultiWriter(append([]io.Writer{lf}, ws[1:]...)...)
+		}
+	}
 	// In a QEMU machine with answers on fw_cfg (the recovery lab, CI) the default menu entry
 	// shows recover on tty1 only: protocol and screen also go to the first serial port, which
 	// the lab records, so a run that stops before it reaches the instance says why.
@@ -268,7 +299,7 @@ func Main(o MainOptions) int {
 		if w := qemuSerialMirror(); w != nil {
 			defer w.Close()
 			mirror = w
-			logBuf.File = io.MultiWriter(lf, w)
+			logBuf.File = io.MultiWriter(logBuf.File, w)
 		}
 	}
 	exe := CmdExec{Runner: cmdrun.ExecRunner{OwnProcessGroup: true}, Log: logBuf.Add}
@@ -277,10 +308,14 @@ func Main(o MainOptions) int {
 		uiOut = io.MultiWriter(out, mirror)
 	}
 	ui := &UI{In: in, Out: uiOut, Lang: LangEN, Serial: strings.HasPrefix(console, "/dev/ttyS")}
-	answers, err := loadAnswers(context.Background(), o.AnswersFile, cl, exe)
-	if err != nil {
-		ui.Raw(err.Error())
-		return 2
+	var answers *Answers
+	if oneshot == nil {
+		// A oneshot restore takes its answers from its session data only.
+		answers, err = loadAnswers(context.Background(), o.AnswersFile, cl, exe)
+		if err != nil {
+			ui.Raw(err.Error())
+			return 2
+		}
 	}
 	resticBin := o.ResticBin
 	if resticBin == "" {
@@ -288,7 +323,7 @@ func Main(o MainOptions) int {
 	}
 	env := &LinuxEnv{Exec: exe, ResticBin: resticBin, RunDir: paths.RecoveryRunDir, TargetRoot: paths.RecoveryTargetRoot,
 		Self: "/proc/self/exe", Log: logBuf.Add, Console: tty}
-	r := &Recover{UI: ui, Env: env, Answers: answers, Cmdline: cl, Version: buildinfo.Version, PlanOnly: o.PlanOnly, PlanOut: o.Stdout, Log: logBuf}
+	r := &Recover{UI: ui, Env: env, Answers: answers, Oneshot: oneshot, Cmdline: cl, Version: buildinfo.Version, PlanOnly: o.PlanOnly, PlanOut: o.Stdout, Log: logBuf}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sigs := make(chan os.Signal, 2)

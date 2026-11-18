@@ -454,5 +454,31 @@ grep -q 'is in no binary index of the snapshot' "$sources" && ok || fail "source
 refuse "sources.sh --check needs --out" sh "$sources" --check
 says "sources.sh --check needs --out" "--out <dir> is needed"
 
+# --- the hand-over of a oneshot restore (docs/BAREMETAL-ONESHOT.md 9.1) -------------------------
+
+oneshot="$WORK/config/includes.chroot/etc/initramfs-tools/scripts/init-bottom/restow-oneshot"
+[ -x "$oneshot" ] && ok || fail "restow-oneshot is not executable (initramfs-tools runs only executable scripts)"
+sed -n 2p "$oneshot" | grep -qx '# SPDX-License-Identifier: GPL-3.0-or-later' && ok || fail "restow-oneshot has no SPDX line"
+[ -z "$(sh "$oneshot" prereqs)" ] && ok || fail "restow-oneshot names prerequisites"
+r="$tmp/oneshot-root"
+mkdir -p "$r/restow"
+printf '{"format":"restow-oneshot-v1"}' >"$r/restow/oneshot.json"
+expect "restow-oneshot hands the data over" sh "$oneshot" --root "$r"
+[ "$(cat "$r/run/restow-oneshot/oneshot.json")" = '{"format":"restow-oneshot-v1"}' ] && ok || fail "restow-oneshot: the data did not arrive"
+[ "$(stat -c %a "$r/run/restow-oneshot/oneshot.json")" = 600 ] && ok || fail "restow-oneshot: the data is not 0600"
+[ "$(stat -c %a "$r/run/restow-oneshot")" = 700 ] && ok || fail "restow-oneshot: the folder is not 0700"
+[ ! -e "$r/restow/oneshot.json" ] && ok || fail "restow-oneshot: the data stayed in the initramfs"
+[ ! -e "$r/run/restow-oneshot/oneshot.json.new" ] && ok || fail "restow-oneshot: a temporary file stayed"
+r="$tmp/oneshot-none"
+mkdir -p "$r"
+expect "restow-oneshot without data" sh "$oneshot" --root "$r"
+[ ! -e "$r/run" ] && ok || fail "restow-oneshot made /run/restow-oneshot without data (a start from the ISO)"
+r="$tmp/oneshot-link"
+mkdir -p "$r/restow"
+printf 'secret' >"$tmp/outside"
+ln -s "$tmp/outside" "$r/restow/oneshot.json"
+expect "restow-oneshot with a link" sh "$oneshot" --root "$r"
+[ ! -e "$r/run/restow-oneshot" ] && ok || fail "restow-oneshot followed a link"
+
 printf '%s passed, %s failed\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

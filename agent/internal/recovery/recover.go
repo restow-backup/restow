@@ -68,6 +68,9 @@ type Recover struct {
 	UI      *UI
 	Env     FlowEnv
 	Answers *Answers
+	// Oneshot is the session data of a oneshot restore (restow.oneshot=1;
+	// docs/BAREMETAL-ONESHOT.md 9.2), or nil.
+	Oneshot *OneshotData
 	Cmdline CmdlineOptions
 	// Version is the ISO's version (restow-agent version --short).
 	Version  string
