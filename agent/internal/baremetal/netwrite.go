@@ -815,10 +815,25 @@ func CheckTakeover(p *NetPlan, n *TakeoverNet) []string {
 	}
 	for _, ifc := range n.Interfaces {
 		for _, a := range ifc.Static {
+			want, wantNet, err := net.ParseCIDR(a)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("address %q", a))
+				continue
+			}
+			wantOnes, _ := wantNet.Mask.Size()
 			count := 0
 			for _, c := range written {
-				if strings.Contains(string(c.Content), a) {
-					count++
+				// The addresses in the file, parsed: 10.0.2.15/32 is not
+				// 10.0.2.15/320, and 2001:db8::7/64 is 2001:db8:0::7/64.
+				for _, tok := range reCIDRToken.FindAllString(string(c.Content), -1) {
+					ip, n, err := net.ParseCIDR(tok)
+					if err != nil {
+						continue
+					}
+					if ones, _ := n.Mask.Size(); ip.Equal(want) && ones == wantOnes {
+						count++
+						break
+					}
 				}
 			}
 			if count != 1 {
@@ -828,6 +843,8 @@ func CheckTakeover(p *NetPlan, n *TakeoverNet) []string {
 	}
 	return problems
 }
+
+var reCIDRToken = regexp.MustCompile(`[0-9A-Fa-f.:]+/[0-9]{1,3}\b`)
 
 func checkINI(s string) error {
 	section := false

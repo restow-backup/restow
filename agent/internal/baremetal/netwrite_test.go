@@ -323,4 +323,15 @@ func TestCheckTakeoverFindsMistakes(t *testing.T) {
 	if probs := CheckTakeover(p, n); len(probs) != 2 || !strings.Contains(probs[1], "2 written files") {
 		t.Fatalf("%v", probs)
 	}
+	// Parsed, not a substring: /320 or another prefix is not the address.
+	p.Changes = []NetChange{{Path: "/etc/network/interfaces.d/restow", Content: []byte("address 203.0.113.7/320\naddress 203.0.113.7/24\n"), Rule: "network_config"}}
+	if probs := CheckTakeover(p, n); len(probs) != 1 || !strings.Contains(probs[0], "0 written files") {
+		t.Fatalf("%v", probs)
+	}
+	// The same address in another spelling counts.
+	v6 := &TakeoverNet{Interfaces: []TakeoverIface{{Name: "eth0", MAC: "52:54:00:aa:bb:cc", Static: []string{"2001:db8:0::7/64"}}}}
+	p.Changes = []NetChange{{Path: "/etc/netplan/60-restow.yaml", Content: []byte(`- "2001:db8::7/64"`), Rule: "network_config"}}
+	if probs := CheckTakeover(p, v6); len(probs) != 0 {
+		t.Fatalf("%v", probs)
+	}
 }

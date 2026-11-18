@@ -161,8 +161,8 @@ func TestOneshotRecoverRestoresAndRestarts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(o.env.target, "etc/netplan/50-cloud-init.yaml")); err == nil {
 		t.Error("the old netplan file stays")
 	}
-	if !strings.Contains(read("etc/restow/network-before-restore/etc/netplan/50-cloud-init.yaml"), "52:54:00:12:34:56") ||
-		!strings.Contains(read("etc/restow/network-before-restore/README"), o.f.sessionID) {
+	if !strings.Contains(read("etc/restow/network-before-restore/"+o.f.sessionID+"/etc/netplan/50-cloud-init.yaml"), "52:54:00:12:34:56") ||
+		!strings.Contains(read("etc/restow/network-before-restore/README"), o.f.sessionID+"/") {
 		t.Error("the old configuration was not kept")
 	}
 	if ci := read("etc/cloud/cloud.cfg.d/99-restow-restored.cfg"); !strings.Contains(ci, "network: {config: disabled}") || !strings.Contains(ci, "ssh_deletekeys: false") {

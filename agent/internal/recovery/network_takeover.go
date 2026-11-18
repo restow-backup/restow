@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -97,89 +98,168 @@ func (t *NetworkTakeover) header() string {
 		"# The configuration from before the restore is in %s.\n", t.Now.UTC().Format(time.RFC3339), t.SessionID, NetworkBackupDir)
 }
 
-// Apply plans and carries out the takeover on the restored system: every
-// file it changes or puts aside is copied to NetworkBackupDir first (with
-// its mode), nothing is deleted without that copy. It returns the changes
-// for the report; Problems holds what the check of the written files found.
+var reBackupID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+// BackupDir is the folder of this restore below NetworkBackupDir (an
+// earlier restore keeps its own).
+func (t *NetworkTakeover) BackupDir() string {
+	id := t.SessionID
+	if !reBackupID.MatchString(id) {
+		id = t.Now.UTC().Format("20060102T150405Z")
+	}
+	return path.Join(NetworkBackupDir, id)
+}
+
+// saved is a file as it was before the takeover.
+type saved struct {
+	existed bool
+	data    []byte
+	mode    fs.FileMode
+}
+
+// Apply plans and carries out the takeover on the restored system, so
+// that the system keeps a working configuration whatever fails:
+//
+//  1. every path is checked first; one that is no plain file (a link, a
+//     folder) stops the takeover before anything is touched;
+//  2. every file that is there is copied, with its mode, to BackupDir;
+//  3. the new files are written and read back, and checked (10.5);
+//  4. only then the old files are put aside.
+//
+// Any error from step 3 on puts every touched path back as it was (from
+// the copies) and removes what was new. It returns the changes for the
+// report.
 func (t *NetworkTakeover) Apply(rf Rootfs) ([]api.RecoveryFixupChange, error) {
 	p, err := baremetal.PlanTakeover(rootfsNetFS{rf}, t.Net, t.OldMACs, t.OldNames, t.Takeover, t.header())
 	if err != nil {
 		return nil, err
 	}
 	t.Plan = p
-	changes := append([]baremetal.NetChange(nil), p.Changes...)
-	// What is put aside goes first, then what is written (the same path
-	// can be both: /etc/network/interfaces).
-	sort.SliceStable(changes, func(i, j int) bool { return changes[i].Remove && !changes[j].Remove })
-	var out []api.RecoveryFixupChange
-	backedUp := map[string]bool{}
-	backup := func(p string) (string, error) {
-		if backedUp[p] {
-			return path.Join(NetworkBackupDir, p), nil
+	before := map[string]saved{}
+	var paths []string
+	for _, c := range p.Changes {
+		if _, ok := before[c.Path]; ok {
+			continue
 		}
-		st, err := rf.Lstat(p)
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", nil
+		st, err := rf.Lstat(c.Path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			before[c.Path] = saved{}
+		case err != nil:
+			return nil, err
+		case !st.Mode().IsRegular():
+			return nil, fmt.Errorf("%s is no plain file (%s); the network was left as restored", c.Path, st.Mode().Type())
+		default:
+			data, err := rf.ReadFile(c.Path, 16<<20)
+			if err != nil {
+				return nil, err
+			}
+			before[c.Path] = saved{existed: true, data: data, mode: st.Mode().Perm()}
 		}
-		if err != nil {
-			return "", err
-		}
-		if !st.Mode().IsRegular() {
-			return "", fmt.Errorf("%s is no plain file; the takeover leaves it", p)
-		}
-		data, err := rf.ReadFile(p, 16<<20)
-		if err != nil {
-			return "", err
-		}
-		dst := path.Join(NetworkBackupDir, p)
-		if err := rf.MkdirAll(path.Dir(dst), 0o700); err != nil {
-			return "", err
-		}
-		if err := rf.WriteFileAtomic(dst, data, st.Mode().Perm(), 0, 0, ""); err != nil {
-			return "", err
-		}
-		backedUp[p] = true
-		return dst, nil
+		paths = append(paths, c.Path)
 	}
-	if err := rf.MkdirAll(NetworkBackupDir, 0o700); err != nil {
+	dir := t.BackupDir()
+	if err := rf.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	_ = rf.Chmod(NetworkBackupDir, 0o700)
-	for _, c := range changes {
-		b, err := backup(c.Path)
-		if err != nil {
-			return out, err
+	_ = rf.Chmod(dir, 0o700)
+	backups := map[string]string{}
+	for _, pth := range paths {
+		b := before[pth]
+		if !b.existed {
+			continue
 		}
+		dst := path.Join(dir, pth)
+		if err := rf.MkdirAll(path.Dir(dst), 0o700); err != nil {
+			return nil, err
+		}
+		if err := rf.WriteFileAtomic(dst, b.data, b.mode, 0, 0, ""); err != nil {
+			return nil, err
+		}
+		backups[pth] = dst
+	}
+	touched := map[string]bool{}
+	rollback := func(cause error) error {
+		var errs []error
+		for pth := range touched {
+			b := before[pth]
+			if b.existed {
+				errs = append(errs, rf.WriteFileAtomic(pth, b.data, b.mode, 0, 0, ""))
+			} else if err := rf.Remove(pth); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		}
+		if err := errors.Join(errs...); err != nil {
+			return fmt.Errorf("%w; putting the files back failed too: %v", cause, err)
+		}
+		return fmt.Errorf("%w; the network was left as restored", cause)
+	}
+	var out []api.RecoveryFixupChange
+	written := map[string]bool{}
+	for _, c := range p.Changes {
 		if c.Remove {
-			if b == "" {
-				continue
-			}
-			if err := rf.Remove(c.Path); err != nil {
-				return out, err
-			}
-			out = append(out, api.RecoveryFixupChange{Path: c.Path, Rule: c.Rule + "_set_aside", Backup: b})
 			continue
 		}
 		if _, err := rf.Lstat(path.Dir(c.Path)); err != nil {
 			if err := rf.MkdirAll(path.Dir(c.Path), 0o755); err != nil {
-				return out, err
+				return nil, rollback(err)
 			}
 		}
+		touched[c.Path] = true
 		if err := rf.WriteFileAtomic(c.Path, c.Content, c.Mode, 0, 0, ""); err != nil {
-			return out, err
+			return nil, rollback(err)
 		}
-		out = append(out, api.RecoveryFixupChange{Path: c.Path, Rule: c.Rule, Backup: b})
+		if got, err := rf.ReadFile(c.Path, 16<<20); err != nil || string(got) != string(c.Content) {
+			return nil, rollback(fmt.Errorf("%s does not read back as written", c.Path))
+		}
+		written[c.Path] = true
+		out = append(out, api.RecoveryFixupChange{Path: c.Path, Rule: c.Rule, Backup: backups[c.Path]})
 	}
+	if t.Takeover {
+		if problems := baremetal.CheckTakeover(p, t.Net); len(problems) > 0 {
+			return nil, rollback(fmt.Errorf("the written network files did not pass their check: %s", strings.Join(problems, "; ")))
+		}
+	}
+	for _, c := range p.Changes {
+		if !c.Remove || written[c.Path] || !before[c.Path].existed {
+			continue
+		}
+		touched[c.Path] = true
+		if err := rf.Remove(c.Path); err != nil {
+			return nil, rollback(err)
+		}
+		out = append(out, api.RecoveryFixupChange{Path: c.Path, Rule: c.Rule + "_set_aside", Backup: backups[c.Path]})
+	}
+	for pth := range written {
+		if before[pth].existed {
+			out = append(out, api.RecoveryFixupChange{Path: pth, Rule: "network_old_config_set_aside", Backup: backups[pth]})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	readme := fmt.Sprintf("Restow restored this system onto a new machine on %s (recovery %s).\n"+
 		"Below this folder are the files the restore changed or took away, with their paths\n"+
 		"and modes, as they were before. To go back to one, copy it to its place again.\n"+
 		"Network stack: %s. cloud-init brings up the network: %v.\n",
 		t.Now.UTC().Format(time.RFC3339), t.SessionID, p.Stack, p.CloudInitNetwork)
-	if err := rf.WriteFileAtomic(path.Join(NetworkBackupDir, "README"), []byte(readme), 0o600, 0, 0, ""); err != nil {
+	if err := rf.WriteFileAtomic(path.Join(dir, "README"), []byte(readme), 0o600, 0, 0, ""); err != nil {
 		return out, err
 	}
-	if t.Takeover {
-		t.Problems = baremetal.CheckTakeover(p, t.Net)
-	}
+	t.writeIndex(rf)
 	return out, nil
+}
+
+// writeIndex lists the folders of every restore at the top of
+// NetworkBackupDir.
+func (t *NetworkTakeover) writeIndex(rf Rootfs) {
+	names, _ := rf.ReadDir(NetworkBackupDir)
+	var b strings.Builder
+	b.WriteString("The network configuration as it was before each restore by Restow, one folder per\nrecovery (its README says when):\n\n")
+	sort.Strings(names)
+	for _, n := range names {
+		if st, err := rf.Lstat(path.Join(NetworkBackupDir, n)); err == nil && st.IsDir() {
+			b.WriteString("  " + n + "/\n")
+		}
+	}
+	_ = rf.WriteFileAtomic(path.Join(NetworkBackupDir, "README"), []byte(b.String()), 0o600, 0, 0, "")
 }
