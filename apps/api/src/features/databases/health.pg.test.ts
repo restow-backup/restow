@@ -466,9 +466,10 @@ describe.skipIf(!testDatabaseAdminUrl)(
           startedAt: minutesAgo(35),
           serverVersion: "16.5",
         },
+        // Three days back: always another UTC day than 25 hours back, whatever the time of day.
         {
           ...base,
-          at: new Date(now.getTime() - 2 * 86_400_000),
+          at: new Date(now.getTime() - 3 * 86_400_000),
           okChecks: 1,
           sizes: { [database?.id as string]: 1000 },
         },
