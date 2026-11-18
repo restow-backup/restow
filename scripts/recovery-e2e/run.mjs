@@ -517,14 +517,17 @@ async function measureSpki(port, servername) {
  * published nowhere, and the run reaches no release host.
  */
 export function e2eOverlay(agentDir, isoDir, version) {
-  // The image links /usr/local/bin/restic into /srv/agent/<its own version>/ (Dockerfile,
+  // The image links /usr/local/bin/restic and the worker's restore planner
+  // (/usr/local/lib/restow/restow-agent) into /srv/agent/<its own version>/ (Dockerfile,
   // agent-dist), and the test agent folder replaces /srv/agent with the build under test. A
-  // release run hands in a build of another version than the image's 0.0.0-dev, so the link
-  // would point nowhere; api and worker get the restic of the build under test instead.
+  // release run hands in a build of another version than the image's 0.0.0-dev, so the links
+  // would point nowhere; api and worker get the restic, the worker the planner of the build
+  // under test instead (release runs 44324733895 and 44369958329).
   if (!/^[0-9A-Za-z.+-]+$/.test(version ?? "")) {
     throw new Error(`not a version: ${version}`);
   }
   const restic = `/srv/agent/${version}/linux-amd64/restic`;
+  const planner = `/srv/agent/${version}/linux-amd64/restow-agent`;
   return [
     "# The recovery end-to-end overlay (scripts/recovery-e2e/run.mjs): the test agent folder",
     "# and the ISO under test as the worker's drop folder.",
@@ -537,6 +540,7 @@ export function e2eOverlay(agentDir, isoDir, version) {
     "  worker:",
     "    environment:",
     `      RESTIC_BINARY: ${restic}`,
+    `      RESTOW_PLANNER_BIN: ${planner}`,
     "      RESTOW_RECOVERY_ISO_DIR: /srv/recovery-iso",
     '      RESTOW_RECOVERY_ISO_FETCH: "false"',
     "    volumes:",
