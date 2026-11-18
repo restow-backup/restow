@@ -103,11 +103,11 @@ check_signature() { # <key file> <fingerprint> <signature> <file>
   test "$(awk -F: '$1 == "fpr" { print $10; exit }' "$work/key.colons")" = "$2"
   gpg --dearmor <"$1" >"$work/key.gpg"
   gpgv --keyring "$work/key.gpg" --status-fd 1 "$3" "$4" >"$work/verify.status" 2>/dev/null || true
-  grep -Eq '^\[GNUPG:\] (GOODSIG|EXPKEYSIG) ' "$work/verify.status" &&
-    test "$(awk '$2 == "VALIDSIG" { print $NF }' "$work/verify.status")" = "$2" || {
+  if ! grep -Eq '^\[GNUPG:\] (GOODSIG|EXPKEYSIG) ' "$work/verify.status" ||
+    [ "$(awk '$2 == "VALIDSIG" { print $NF }' "$work/verify.status")" != "$2" ]; then
     echo "$4: the signature does not check against $1" >&2
     exit 1
-  }
+  fi
   rm -f "$work/key.colons" "$work/key.gpg" "$work/verify.status"
 }
 

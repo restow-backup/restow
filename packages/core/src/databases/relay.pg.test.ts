@@ -131,7 +131,9 @@ describe.skipIf(!url)("the pinning relay against a real PostgreSQL with TLS [DB-
         .digest("hex"),
     );
     expect(stats.objects).toMatchObject({ TABLE: 1, "TABLE DATA": 1, VIEW: 1 });
-    expect((await dumping.relay.ended).reason).toBe("client_closed");
+    // pg_dump ends with Terminate, upon which the server closes too: which close the relay sees
+    // first is a race (CI run 44409162907 saw the server's).
+    expect(["client_closed", "server_closed"]).toContain((await dumping.relay.ended).reason);
 
     await session.query(`CREATE DATABASE ${pgQuoteIdent(TARGET)} TEMPLATE template0`);
     const restoring = await openPgRelay({ target: target(), network, maxDurationMs: 120_000 });
