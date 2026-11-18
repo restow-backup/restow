@@ -65,17 +65,18 @@ import {
   writePgPassFile,
 } from "@restow/core";
 import {
+  DATABASE_RUN_AGENT_FETCH_MS,
   type Database,
   type DatabaseConnection,
   type DatabaseRun,
   databaseBackups,
   databaseConnections,
   databaseRuns,
-  databases,
-  endpointTasks,
+  insertDatabaseRunTx,
+  recordInstanceDatabasesTx,
   secrets,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   PgSecretReader,
   type TenantKeyringCache,
@@ -100,7 +101,7 @@ export const DATABASE_RUN_QUEUE_OPTIONS = {
 /** Shortest schedule (5.1: at least every 15 minutes). */
 export const DB_BACKUP_MIN_INTERVAL_MINUTES = 15;
 /** An agent run nobody fetched in this time fails (`db_runner_offline`). */
-const AGENT_FETCH_DEADLINE_MS = 60 * MINUTE_MS;
+const AGENT_FETCH_DEADLINE_MS = DATABASE_RUN_AGENT_FETCH_MS;
 /** A run that never ended fails after this. */
 const RUN_MAX_MS = 24 * 60 * MINUTE_MS;
 /** One dump, one restore: the relay's hard deadline. */
@@ -161,75 +162,17 @@ export class DatabaseRunFailure extends Error {
 // Planning
 // ---------------------------------------------------------------------------
 
-/** Insert a run unless one of the connection is active; null (and a note on it) when one is. */
+/** Plan a run (packages/db `insertDatabaseRunTx`); the connection's executor runs a backup. */
 export async function insertDatabaseRun(
   db: Database,
   connection: Pick<DatabaseConnection, "id" | "tenantId" | "executorKind" | "executorEndpointId">,
-  input: Partial<
-    Pick<
-      DatabaseRun,
-      "kind" | "trigger" | "requestedBy" | "sourceBackupId" | "targetConnectionId" | "targetName"
-    >
-  >,
+  input: Parameters<typeof insertDatabaseRunTx>[3],
   now: Date,
+  executor: Pick<DatabaseConnection, "executorKind" | "executorEndpointId"> = connection,
 ): Promise<DatabaseRun | null> {
-  return withTenantTx(db, connection.tenantId, async (tx) => {
-    const [active] = await tx
-      .select()
-      .from(databaseRuns)
-      .where(
-        and(
-          eq(databaseRuns.connectionId, connection.id),
-          inArray(databaseRuns.status, ["queued", "running"]),
-        ),
-      )
-      .limit(1)
-      .for("update");
-    if (active) {
-      if ((input.trigger ?? "schedule") === "schedule") {
-        // 4.3: a due run while the previous one still runs is dropped, visibly.
-        await tx
-          .update(databaseRuns)
-          .set({
-            notes: sql`${databaseRuns.notes} || ${JSON.stringify([{ code: "db_run_overlap", at: now.toISOString() }])}::jsonb`,
-          })
-          .where(eq(databaseRuns.id, active.id));
-      }
-      return null;
-    }
-    const [run] = await tx
-      .insert(databaseRuns)
-      .values({
-        tenantId: connection.tenantId,
-        connectionId: connection.id,
-        kind: input.kind ?? "backup",
-        trigger: input.trigger ?? "schedule",
-        executorKind: connection.executorKind,
-        executorEndpointId:
-          connection.executorKind === "agent" ? connection.executorEndpointId : null,
-        requestedBy: input.requestedBy ?? null,
-        sourceBackupId: input.sourceBackupId ?? null,
-        targetConnectionId: input.targetConnectionId ?? null,
-        targetName: input.targetName ?? null,
-        createdAt: now,
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (!run) {
-      return null;
-    }
-    if (connection.executorKind === "agent" && connection.executorEndpointId) {
-      await tx.insert(endpointTasks).values({
-        tenantId: connection.tenantId,
-        endpointId: connection.executorEndpointId,
-        kind: run.kind === "restore" ? "db_restore" : "db_backup",
-        params: { runId: run.id },
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + AGENT_FETCH_DEADLINE_MS),
-      });
-    }
-    return run;
-  });
+  return withTenantTx(db, connection.tenantId, (tx) =>
+    insertDatabaseRunTx(tx, connection, executor, input, now),
+  );
 }
 
 export interface DatabaseRunsSummary {
@@ -699,60 +642,16 @@ async function dumpOne(
   }
 }
 
-/** Record the databases the instance has now (3.3): new OID, new row; gone, dropped. */
-async function recordDatabases(
+/** Record the databases the instance has now (packages/db `recordInstanceDatabasesTx`). */
+function recordDatabases(
   deps: DatabaseRunDeps,
   connection: DatabaseConnection,
   instanceKey: string,
   found: { name: string; oid: string }[],
 ): Promise<Map<string, string>> {
-  return withTenantTx(deps.db, connection.tenantId, async (tx) => {
-    const rows = await tx
-      .select()
-      .from(databases)
-      .where(and(eq(databases.connectionId, connection.id), isNull(databases.droppedAt)));
-    const ids = new Map<string, string>();
-    const now = deps.now();
-    for (const database of found) {
-      const match =
-        rows.find((row) => row.name === database.name && row.identity === database.oid) ??
-        rows.find((row) => row.name === database.name && row.identity === null);
-      if (match) {
-        ids.set(database.name, match.id);
-        await tx
-          .update(databases)
-          .set({ identity: database.oid, instanceKey, lastSeenAt: now, updatedAt: now })
-          .where(eq(databases.id, match.id));
-        continue;
-      }
-      const [created] = await tx
-        .insert(databases)
-        .values({
-          tenantId: connection.tenantId,
-          connectionId: connection.id,
-          name: database.name,
-          identity: database.oid,
-          instanceKey,
-          firstSeenAt: now,
-          lastSeenAt: now,
-        })
-        .onConflictDoNothing()
-        .returning({ id: databases.id });
-      if (created) {
-        ids.set(database.name, created.id);
-      }
-    }
-    const kept = new Set(ids.values());
-    for (const row of rows) {
-      if (!kept.has(row.id) && (row.instanceKey === null || row.instanceKey === instanceKey)) {
-        await tx
-          .update(databases)
-          .set({ droppedAt: now, updatedAt: now })
-          .where(eq(databases.id, row.id));
-      }
-    }
-    return ids;
-  });
+  return withTenantTx(deps.db, connection.tenantId, (tx) =>
+    recordInstanceDatabasesTx(tx, connection, instanceKey, found, deps.now()),
+  );
 }
 
 function selected(connection: DatabaseConnection, name: string): boolean {

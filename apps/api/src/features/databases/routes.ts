@@ -1,9 +1,20 @@
+import { Readable } from "node:stream";
 import { type Context, Hono } from "hono";
+import { z } from "zod";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { connectionHealth, databaseSizeHistory, healthRangeSchema } from "./health.js";
+import {
+  downloadBackup,
+  listBackups,
+  listRuns,
+  requestBackup,
+  requestRestore,
+  restoreGuide,
+  restoreRequestSchema,
+} from "./runs.js";
 import {
   createConnectionSchema,
   idParamSchema,
@@ -45,10 +56,18 @@ import {
  *   POST   /connections/:id/test                 test the stored connection
  *   GET    /connections/:id/health?from&to       its health history (D2: availability, response
  *                                                time, connections, events)
+ *   GET    /connections/:id/runs                 its backup and restore runs (D3)
  *   GET    /:id                                  one database
  *   GET    /:id/health?from&to                   its size day by day (D2)
+ *   POST   /:id/backup                           "Jetzt sichern": a run of its connection (D3)
+ *   GET    /:id/backups                          its backups (D3)
+ *   POST   /:id/restore                          into a new database, here or elsewhere (D3)
+ *   GET    /:id/backups/:backupId/download       the dump file from the repository (D3)
+ *   GET    /:id/backups/:backupId/restore-guide  the restore guide as text (D3)
  */
 export const databasesRoutes = new Hono<TenantEnv>();
+
+const backupParamSchema = z.object({ id: z.string().uuid(), backupId: z.string().uuid() });
 
 const admin = requireTenant("tenant_admin");
 const reader = requireTenant("tenant_restore");
@@ -124,6 +143,46 @@ databasesRoutes.get("/:id/health", reader, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const range = parseOrProblem(healthRangeSchema, c.req.query());
   return c.json(await databaseSizeHistory(db, c.get("tenantId"), id, range));
+});
+
+databasesRoutes.get("/connections/:id/runs", reader, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await listRuns(db, c.get("tenantId"), id));
+});
+
+databasesRoutes.post("/:id/backup", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await requestBackup(db, c.get("tenantId"), id, contextOf(c)), 202);
+});
+
+databasesRoutes.get("/:id/backups", reader, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  return c.json(await listBackups(db, c.get("tenantId"), id));
+});
+
+databasesRoutes.post("/:id/restore", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, restoreRequestSchema);
+  return c.json(await requestRestore(db, c.get("tenantId"), id, input, contextOf(c)), 202);
+});
+
+databasesRoutes.get("/:id/backups/:backupId/download", reader, async (c) => {
+  const { id, backupId } = parseOrProblem(backupParamSchema, c.req.param());
+  const file = await downloadBackup(db, c.get("tenantId"), id, backupId, contextOf(c));
+  c.header("content-type", "application/octet-stream");
+  c.header("content-length", String(file.bytes));
+  c.header(
+    "content-disposition",
+    `attachment; filename="${file.fileName.replace(/[^\w.-]/g, "_")}"`,
+  );
+  c.header("cache-control", "no-store");
+  return c.body(Readable.toWeb(file.stream) as ReadableStream);
+});
+
+databasesRoutes.get("/:id/backups/:backupId/restore-guide", reader, async (c) => {
+  const { id, backupId } = parseOrProblem(backupParamSchema, c.req.param());
+  c.header("content-type", "text/plain; charset=utf-8");
+  return c.body(await restoreGuide(db, c.get("tenantId"), id, backupId));
 });
 
 databasesRoutes.get("/:id", reader, async (c) => {

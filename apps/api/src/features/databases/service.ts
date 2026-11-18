@@ -33,6 +33,7 @@ import {
   type DatabaseConnectionCheck,
   type DatabaseProbe,
   type DatabaseSelection,
+  databaseBackups,
   databaseConnections,
   databaseProbes,
   databases,
@@ -41,7 +42,7 @@ import {
   endpointTasks,
   type ProtectedDatabase,
 } from "@restow/db";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, max, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
@@ -696,10 +697,28 @@ export interface DatabaseDto {
   firstSeenAt: string;
 }
 
+/** The newest active backup of each database (D3), by database id. */
+async function lastBackupsOf(tx: Transaction, ids: readonly string[]): Promise<Map<string, Date>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+  const rows = await tx
+    .select({ id: databaseBackups.databaseId, at: max(databaseBackups.finishedAt) })
+    .from(databaseBackups)
+    .where(and(inArray(databaseBackups.databaseId, [...ids]), eq(databaseBackups.status, "active")))
+    .groupBy(databaseBackups.databaseId);
+  return new Map(
+    rows
+      .filter((row) => row.id && row.at)
+      .map((row) => [row.id as string, new Date(row.at as Date)]),
+  );
+}
+
 function databaseDto(
   row: ProtectedDatabase,
   connection: DatabaseConnection,
   now: Date,
+  lastBackup: Date | null = null,
 ): DatabaseDto {
   const excluded =
     !connection.enabled || row.droppedAt !== null || isExcluded(connection.selection, row.name);
@@ -724,14 +743,14 @@ function databaseDto(
     accessible: row.accessible,
     excluded,
     droppedAt: row.droppedAt?.toISOString() ?? null,
-    // Backups (D3) and checks (D6) feed these.
-    lastBackupAt: null,
+    // Backups (D3) feed the first; checks (D6) the second: a backed-up database is unverified.
+    lastBackupAt: lastBackup?.toISOString() ?? null,
     lastCheckAt: null,
     reachable,
     reachability: health.reachability,
     rating: rateDatabase({
       excluded,
-      lastBackupAt: null,
+      lastBackupAt: lastBackup,
       lastGreenCheckAt: null,
       lastCheckRed: false,
       intervalMinutes: connection.schedule.intervalMinutes,
@@ -1811,9 +1830,13 @@ export async function getConnection(
       ? (executors.get(connection.executorEndpointId) ?? null)
       : null;
     const bands = await healthBands(tx, tenantId, [connection.id], now);
+    const backedUp = await lastBackupsOf(
+      tx,
+      rows.map((row) => row.id),
+    );
     return {
       ...connectionDto(connection, executor, rows.filter((row) => !row.droppedAt).length, now),
-      databases: rows.map((row) => databaseDto(row, connection, now)),
+      databases: rows.map((row) => databaseDto(row, connection, now, backedUp.get(row.id) ?? null)),
       band: bands.get(connection.id) ?? [],
     };
   });
@@ -2135,8 +2158,12 @@ export async function listDatabases(
       [...new Set(rows.map((row) => row.connection.id))],
       now,
     );
+    const backedUp = await lastBackupsOf(
+      tx,
+      rows.map((row) => row.database.id),
+    );
     const list = rows.map((row) => ({
-      ...databaseDto(row.database, row.connection, now),
+      ...databaseDto(row.database, row.connection, now, backedUp.get(row.database.id) ?? null),
       band: bands.get(row.connection.id) ?? [],
     }));
     list.sort(
@@ -2174,8 +2201,9 @@ export async function getDatabase(
     const executor = row.connection.executorEndpointId
       ? (executors.get(row.connection.executorEndpointId) ?? null)
       : null;
+    const backedUp = await lastBackupsOf(tx, [row.database.id]);
     return {
-      ...databaseDto(row.database, row.connection, now),
+      ...databaseDto(row.database, row.connection, now, backedUp.get(row.database.id) ?? null),
       connection: connectionDto(
         row.connection,
         executor,

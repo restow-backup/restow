@@ -147,7 +147,9 @@ export interface AgentTask {
     | "sql_verify"
     | "sql_inventory"
     | "db_probe"
-    | "db_health";
+    | "db_health"
+    | "db_backup"
+    | "db_restore";
   params: Record<string, unknown>;
 }
 
@@ -756,7 +758,10 @@ export async function heartbeat(
           task.kind === "update_config" ||
           task.kind === "uninstall" ||
           task.kind === "sql_inventory" ||
-          task.kind === "db_probe",
+          task.kind === "db_probe" ||
+          // Databases D3: the agent fetches the run once and reports to it.
+          task.kind === "db_backup" ||
+          task.kind === "db_restore",
       )
       .map((task) => task.id);
     for (const task of waiting) {

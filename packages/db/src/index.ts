@@ -41,6 +41,7 @@ export {
 } from "./concurrent-setup.js";
 // The health checks of database connections (docs/DATABASES.md 8): one judged check, the hours.
 export * from "./database-health.js";
+export * from "./database-runs.js";
 // Reporting a failed query without its SQL text and bound parameters.
 export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
 // Process liveness: heartbeat writer and the status /readyz reports.

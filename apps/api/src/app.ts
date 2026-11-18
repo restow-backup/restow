@@ -38,6 +38,7 @@ import { clusterRoutes } from "./features/cluster/routes.js";
 import { mountPath as dashboardMountPath } from "./features/dashboard/meta.js";
 import { dashboardRoutes } from "./features/dashboard/routes.js";
 import { mountPath as databasesMountPath } from "./features/databases/constants.js";
+import { DATABASE_RESTIC_PATH, databaseResticRoutes } from "./features/databases/restic-route.js";
 import { databasesRoutes } from "./features/databases/routes.js";
 import { mountPath as directoryMountPath } from "./features/directory/meta.js";
 import { directoryRoutes } from "./features/directory/routes.js";
@@ -266,6 +267,7 @@ export function buildApp() {
   // repositories (per-run credentials) and the node installer.
   app.route(PVE_NODE_API_PATH, pveNodeRoutes);
   app.route(PVE_RESTIC_PATH, pveResticRoutes);
+  app.route(DATABASE_RESTIC_PATH, databaseResticRoutes);
   app.get(`${INSTALL_PATH}/pve.sh`, pveInstallScript);
   app.route(INSTALL_PATH, installRoutes);
   // Microsoft Graph change notifications for the archive capture (docs/MICROSOFT.md): no

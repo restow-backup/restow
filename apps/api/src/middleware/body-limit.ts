@@ -111,6 +111,8 @@ export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
   { method: "*", path: /^\/agent\/restic\//, limit: null },
   // The same for the container repositories of Proxmox VE guests.
   { method: "*", path: /^\/agent\/pve\/restic\//, limit: null },
+  // ... and of database connections, written and read by an agent's run (docs/DATABASES.md 4.4).
+  { method: "*", path: /^\/agent\/db\/restic\//, limit: null },
   // ... and of file shares, written by the runners on the internal network (docs/FILESHARES.md 5.3).
   { method: "*", path: /^\/internal\/file-shares\/restic\//, limit: null },
   // Up to 500 per-file problems of a runner at once (paths up to 4 KiB each).

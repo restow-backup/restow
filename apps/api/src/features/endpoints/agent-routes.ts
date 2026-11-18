@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { guardBrowserRequest } from "../../middleware/session.js";
@@ -9,6 +10,7 @@ import {
   agentHealthSamplesSchema,
   agentReportHealth,
 } from "../databases/health.js";
+import { agentFetchRun, agentFinishRun } from "../databases/runs.js";
 import { healthTaskParamSchema, probeParamSchema } from "../databases/schemas.js";
 import { agentFetchProbe, agentFinishProbe } from "../databases/service.js";
 import { type AgentEnv, authFailures, requireAgent } from "./agent-auth.js";
@@ -23,6 +25,9 @@ import {
   startRun,
 } from "./agent-service.js";
 import { instanceUrl } from "./instance-url.js";
+
+const runParamSchema = z.object({ runId: z.string().uuid() });
+
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
   type EnrollInput,
@@ -152,6 +157,21 @@ agentRoutes.post("/databases/probes/:probeId/result", async (c) => {
   const { probeId } = parseOrProblem(probeParamSchema, c.req.param());
   const raw: unknown = await c.req.json().catch(() => null);
   await agentFinishProbe(db, c.get("agent"), probeId, raw);
+  return c.body(null, 204);
+});
+
+// Databases D3 (docs/DATABASES.md 4.3): a backup or restore run, once with its credentials.
+agentRoutes.get("/databases/runs/:runId", async (c) => {
+  const { runId } = parseOrProblem(runParamSchema, c.req.param());
+  const instance = await instanceUrl(c);
+  c.header("cache-control", "no-store");
+  return c.json(await agentFetchRun(db, c.get("agent"), runId, instance.url));
+});
+
+agentRoutes.post("/databases/runs/:runId/finish", async (c) => {
+  const { runId } = parseOrProblem(runParamSchema, c.req.param());
+  const raw: unknown = await c.req.json().catch(() => null);
+  await agentFinishRun(db, c.get("agent"), runId, raw);
   return c.body(null, 204);
 });
 
