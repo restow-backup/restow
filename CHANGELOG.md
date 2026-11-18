@@ -134,19 +134,24 @@ private repository.
     instance's users and grants once (`<engine>/users.sql`, for administrators only, never
     restored automatically). Tables of a non-transactional engine (MyISAM, Aria, MEMORY) are
     reported as a notice; the objects are counted from the statement headers only.
-  - The programs reach the server only through a relay that signs them in: Restow's hardened
-    client opens the connection (address rules, TLS and the confirmed certificate), the program
-    gets the server's own greeting over a Unix socket of its own, and TLS starts with the
-    program's login; without TLS (an agent's "connect unencrypted") the relay does the RSA step
-    of `caching_sha2_password` itself and refuses any method that would send the password in
-    clear. User and password go to the program in an option file (0600, in memory), never on a
-    command line or in its environment.
+  - The programs reach the server only through a relay that signs them in: once the program has
+    connected to a Unix socket of its own, Restow's hardened client opens the connection (address
+    rules, TLS and the confirmed certificate), the program gets the server's own greeting, and
+    TLS starts with the program's login; without TLS (an agent's "connect unencrypted") the relay
+    refuses the full sign-in of `caching_sha2_password` (`db_tls_missing`, use TLS) and any method
+    that would send the password in clear. No LOAD DATA LOCAL: the relay and the client's option
+    file switch local files off. User and password go to the program in an option file (0600, in
+    memory), never on a command line or in its environment.
   - Restore always into a new schema with the source's character set and collation, stopping at
     the first error; the DEFINER clauses of the dump programs' view, routine, trigger and event
-    headers are removed on the way (never in data), the new schema's events are switched off,
-    and when the run fails only a schema carrying its marker table is dropped. A restoring user
-    who lacks a right (also a trigger or routine while the binary log is on) gets
-    `db_permission_missing`.
+    headers are removed on the way (never in data), every event is created disabled (and switched
+    off once more at the end), a header the filter cannot check stops the restore
+    (`db_restore_unchecked`), and when the run fails only a schema carrying its marker table is
+    dropped. The run reports how many objects run with the restoring user's rights (routines and
+    views with SQL SECURITY DEFINER, triggers, events); a restore user of its own is recommended.
+    A restoring user who lacks a right (also a trigger or routine while the binary log is on)
+    gets `db_permission_missing`. The restore guide runs the client in binary mode and without
+    its commands that reach the file system.
   - The rights matrix asks for `SHOW_ROUTINE` on MySQL 8.0.20 and later and, for check and
     restore, for `CREATE VIEW`, `SHOW VIEW`, `TRIGGER` and `EVENT`.
   - The application images carry MySQL 8.4's `mysqldump`, `mysql` and `mysqlbinlog` in

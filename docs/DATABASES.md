@@ -525,7 +525,7 @@ Unabhängig von den Läufen prüft der Ausführer jede Verbindung leicht und reg
   `db_engine_changed`, `db_instance_changed`, `db_target_is_restow`, `db_private_network`,
   `db_tls_changed`, `db_tls_missing`, `db_dump_failed`, `db_snapshot_failed`, `db_tool_missing`,
   `db_tool_too_old`, `db_no_space`, `db_restore_name_taken`, `db_restore_failed`,
-  `db_backup_mismatch`, `db_verify_no_space`, `db_verify_timeout`, `db_runner_offline`,
+  `db_backup_mismatch`, `db_restore_unchecked`, `db_verify_no_space`, `db_verify_timeout`, `db_runner_offline`,
   `db_pitr_slot_unbounded`, `db_pitr_gap`, `db_warm_copy_name_taken`. Hinweise:
   `db_nontransactional_tables`, `db_version_untested`, `db_too_large_to_verify`, `db_run_overlap`,
   `db_run_slow`.
@@ -987,11 +987,11 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   (`mysql_native_password`, `caching_sha2_password`, MariaDB `client_ed25519`). Über einen
   Unix-Socket sendet es für die volle Anmeldung von `caching_sha2_password` das Kennwort im
   Klartext; mit TLS nach oben reicht das Relais es im TLS weiter. **Ohne TLS nach oben** (nur über
-  einen Agenten mit "unverschlüsselt verbinden") fängt das Relais genau diesen Schritt ab und
-  verschlüsselt das Kennwort selbst mit dem RSA-Schlüssel des Servers (wie der D1-Client); jedes
-  andere Verfahren, das dann Klartext verlangen würde (`mysql_clear_password`,
-  `sha256_password`, PAM, GSSAPI), beendet das Relais vor der Weitergabe mit
-  `db_auth_unsupported`. Begrenzt wie der Filter von PostgreSQL (64 KiB je Nachricht, Frist).
+  einen Agenten mit "unverschlüsselt verbinden") beendet das Relais genau diesen Schritt mit
+  `db_tls_missing` und dem Hinweis, TLS zu verwenden (geändert nach der Prüfung von D4, siehe
+  "D4 (umgesetzt)"); jedes andere Verfahren, das dann Klartext verlangen würde
+  (`mysql_clear_password`, `sha256_password`, PAM, GSSAPI), beendet das Relais vor der Weitergabe
+  mit `db_auth_unsupported`. Begrenzt wie der Filter von PostgreSQL (64 KiB je Nachricht, Frist).
   Die Programme verbinden sich mit `--protocol=SOCKET --socket=<relais>`; Benutzer und Kennwort
   stehen in der Optionsdatei (3.2).
 - **M2 Programme aus den Quellen der Hersteller, festgelegt.** Worker-Image: MariaDB-Client aus
@@ -1042,16 +1042,23 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
 
 - **Relais** (M1): `openMysqlRelay` in packages/core `databases/relay.ts` (Worker) und
   `OpenMysqlRelay` in agent `internal/dbrun` (Agent), auf demselben Kern wie das Relais von D3
-  (Socket 0700/0600 in `/dev/shm`, ein Client, Fristen). Die Verbindung öffnet
+  (Socket 0700/0600 in `/dev/shm`, ein Client, Fristen). Die Verbindung zum Server öffnet das
+  Relais erst, wenn sich das Programm mit dem Socket verbunden hat (ein Server beendet eine
+  Verbindung ohne Anmeldung nach `connect_timeout`, Vorgabe 10 Sekunden), mit
   `openPinnedMysql` bzw. `dbprobe.OpenPinnedMysql` (Adressregeln, erste Adresse des Laufs, Engine
-  aus der Begrüßung, `db_engine_changed`, `db_tls_missing`). Die SSLRequest baut das Relais aus den
+  aus der Begrüßung, `db_engine_changed`, `db_tls_missing`); was den Server ablehnt, beendet das
+  Relais mit diesem Grund. Die SSLRequest baut das Relais aus den
   ersten 32 Bytes des Anmeldepakets des Programms: MySQL und MariaDB behalten die Fähigkeiten der
   SSLRequest für die ganze Sitzung, eine eigene SSLRequest mit anderen Schaltern (etwa ohne
   `CLIENT_DEPRECATE_EOF`) brächte das Programm aus dem Tritt. Erst danach beginnt TLS mit dem
   bestätigten Fingerabdruck; ein anderes Zertifikat beendet das Relais mit `db_tls_changed`, bevor
   das Anmeldepaket gesendet ist. Eine SSLRequest des Programms selbst, Kompression und
-  `mysql_clear_password` lehnt das Relais ab; ohne TLS nach oben verschlüsselt es den Klartext der
-  vollen Anmeldung von `caching_sha2_password` mit dem RSA-Schlüssel des Servers (RSA-OAEP).
+  `mysql_clear_password` lehnt das Relais ab. Ohne TLS nach oben endet die volle Anmeldung von
+  `caching_sha2_password` mit `db_tls_missing`: wie der Client von MySQL ohne
+  `--get-server-public-key` holt das Relais den RSA-Schlüssel des Servers nicht über eine
+  unverschlüsselte Verbindung (die schnelle Anmeldung mit dem Cache des Servers und
+  `mysql_native_password` gehen). In Begrüßung und Anmeldepaket löscht das Relais
+  `CLIENT_LOCAL_FILES`.
 - **Programme** (M2): MariaDB 11.8 aus dem Archiv von MariaDB (`deb.mariadb.org/11.8`, Schlüssel
   `scripts/docker/mariadb-C74CD1D8.asc`, Fingerabdruck beim Bau geprüft), weil das Basis-Image
   (`node:22-slim`, Debian bookworm) 10.11 bringt; der Bau nimmt Debians Paket, sobald die Basis
@@ -1068,7 +1075,10 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   wie D3.
 - **Anmeldung der Programme:** Benutzer, Kennwort, Socket und `protocol=SOCKET` stehen in einer
   Optionsdatei (0600, im privaten Ordner des Laufs), die das Programm als erstes Argument
-  bekommt; `HOME` ist derselbe Ordner. Feste Argumentlisten: `mysqlDumpArgs`,
+  bekommt; `HOME` ist derselbe Ordner. Die Gruppe `[mysql]` der Datei setzt `local-infile=0`
+  für den Client des Restores (`mysql` und `mariadb` lesen sie); die Dump-Programme haben diese
+  Option nicht und verweigern eine Anfrage des Servers nach einer lokalen Datei (geprüft mit
+  `mysqldump` 8.4 und `mariadb-dump` 10.11 gegen einen Testserver). Feste Argumentlisten: `mysqlDumpArgs`,
   `mariadbUsersArgs`, `mysqlRestoreArgs` (packages/core `databases/mysql-tools.ts`, gleich im
   Agenten).
 - **Sicherung** (M3, M4): je ausgewähltes Schema `<engine>/<name>.sql` mit
@@ -1087,13 +1097,30 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   Lauf-ID>`. Fehler beim Anlegen: 1007 ist `db_restore_name_taken`, 1044 und 1227
   `db_permission_missing`; bricht der Client ab, ist ein Fehler 1044, 1142, 1227, 1370 oder 1419
   (Routine oder Trigger bei eingeschaltetem Binärlog ohne `SUPER` und ohne
-  `log_bin_trust_function_creators`) ebenfalls `db_permission_missing`. Der Lauf meldet
-  `definersRemoved` und `eventsDisabled`.
+  `log_bin_trust_function_creators`) ebenfalls `db_permission_missing`. **Ereignisse** legt der
+  Restore nie eingeschaltet an: der Filter setzt im Kopf jedes Ereignisses jedes `ENABLE` vor
+  `DO` (außerhalb von Anführungszeichen) auf `DISABLE` und fügt `DISABLE` ein, wo der Kopf keinen
+  Zustand nennt; `event_scheduler` ist bei MySQL 8 eingeschaltet, ein eingeschaltetes Ereignis
+  liefe sonst schon vor dem Abschalten am Ende mit den Rechten des einspielenden Benutzers. Das
+  Abschalten am Ende bleibt als zweite Sicherung. **Lange Kopfzeilen:** eine Zeile über 64 KiB
+  beurteilt der Filter an ihren ersten 64 KiB + 1 Byte, wie auch immer die Blöcke fallen; ist sie
+  der Kopf einer Routine, eines Triggers, eines Ereignisses oder die DEFINER-Zeile einer Sicht,
+  muss die Form darin vollständig sein und wird darin umgeschrieben, sonst bricht der Restore
+  mit `db_restore_unchecked` ab (der Client wird beendet, bevor er Gehaltenes ausführt, und das
+  Schema des Laufs gelöscht); dasselbe gilt für einen Ereigniskopf, in dem `DO` nicht zu finden
+  ist. Der Lauf meldet `definersRemoved`, `eventsDisabled` und `definerRights`: wie viele Objekte
+  mit den Rechten ihres Definers laufen (Routinen und Sichten mit `SQL SECURITY DEFINER`,
+  Trigger, Ereignisse), nach dem Restore also mit denen des einspielenden Benutzers. Restow
+  empfiehlt deshalb für Restores einen eigenen Benutzer mit genau den Rechten der Prüfung und
+  des Restores (3.2), keinen Administrator; die Anleitung sagt das ebenso.
 - **Rechte-Matrix** (3.2): Sicherung auf MySQL ab 8.0.20 zusätzlich `SHOW_ROUTINE`, das auch ein
   globales `SELECT` oder `CREATE ROUTINE`, `ALTER ROUTINE` oder `EXECUTE` am Ort der Routine
   ersetzt; Prüfung und Restore zusätzlich `CREATE VIEW`, `SHOW VIEW`, `TRIGGER`, `EVENT`.
 - **Download, Anleitung, Seite:** wie D3; die Anleitung nennt `CREATE DATABASE` mit Zeichensatz
-  und Sortierung, den Client mit `--database`, die Definer und das Abschalten der Ereignisse. Die
+  und Sortierung, den Client mit `--database --binary-mode` und ohne seine Befehle, die das
+  Dateisystem erreichen (MySQL `--skip-system-command` ab Client 8.4.3, MariaDB `--sandbox` ab
+  10.6.18, 10.11.8 und 11.4.2), die Definer mit der Empfehlung eines eigenen Restore-Benutzers
+  und das Abschalten der Ereignisse. Die
   Seite schlägt den Namen nach den Regeln von M3 vor und bietet `users.sql` wie `globals.sql`
   nur Administratoren an.
 - **CI:** `scripts/ci/start-mysql-tls.sh` startet MySQL 8.4 und 8.0, MariaDB 11.8 und 10.6 mit
