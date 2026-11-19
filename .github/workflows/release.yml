@@ -1080,8 +1080,11 @@ jobs:
           cp deploy/install/install.sh assets/install.sh
           (cd assets && sha256sum install.sh > install.sh.sha256)
 
+          # GitHub takes at most 125,000 characters of release text; the part appended below
+          # (images, digests, the released line, agent and ISO) has some 8,000.
           node scripts/ci/release-notes.mjs --version "$VERSION" --channel "$CHANNEL" \
-            --smoke-report assets/smoke-report.md --out notes.md
+            --smoke-report assets/smoke-report.md --out notes.md \
+            --max-chars 110000 --changelog-url "https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/CHANGELOG.md"
           verdict() { sed -n 's/^- Verdict: //p' "$1"; }
           {
             echo
@@ -1153,6 +1156,12 @@ jobs:
             echo
             echo "docker-compose.yml and env.example are the release stack (deploy/release/), docker-compose.worker.yml the stack of a worker node on another host (install.sh --join); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md
+
+          chars="$(wc -m < notes.md)"
+          if [ "$chars" -gt 125000 ]; then
+            echo "::error::The release notes have $chars characters; GitHub takes at most 125,000."
+            exit 1
+          fi
 
           (cd assets && sha256sum -- * > SHA256SUMS)
           cat assets/SHA256SUMS

@@ -8,6 +8,18 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- Release: the publish job of 0.5.0 stopped at GitHub's limit for a release text (125,000
+  characters; the notes had 264,000) after everything else was done, and the release was
+  published by hand with shortened notes. `scripts/ci/release-notes.mjs --max-chars` now points
+  to CHANGELOG.md at the tag for the longest sections, never Summary, Breaking Changes, Security,
+  Upgrade Notes, Known Issues or Verification, until the notes fit with room for the workflow's
+  own part (images, digests, the `released:` line the updater reads); the workflow checks the
+  final length before it signs the checksums.
+
 ## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until
