@@ -8,6 +8,28 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- OneDrive and SharePoint libraries: a snapshot now records the version of the options its
+  delta link was asked with (`deltaVersion`, `DRIVE_DELTA_VERSION` = 2, the
+  `Prefer: deltashowsharingchanges` of 0.5.0). When a later release changes those options, the
+  next run reads the drive in full once instead of meeting a 410 first; snapshots of 0.5.0 and
+  0.5.1 count as version 2 and go on incrementally. Users, groups and mail folders: a delta whose
+  resync URL is refused as well now starts once more from the initial URL, as the drive delta
+  does since 0.5.1.
+
+### Changed
+
+- Tests: the Graph fake refuses a drive delta link asked with other `Prefer` options than the
+  ones it was issued with, the way Graph does (410 `resyncRequired`, the `Location` refused
+  too); an `[upgrade]` test backs up a OneDrive the way 0.4.x did and then the way this release
+  does; `packages/core/src/graph/delta-options.test.ts` holds the options of every delta stream
+  with their version, so a change of them fails until it comes with a new version and an
+  upgrade test (docs/TESTING.md, "Regeln"). The OneDrive failure of 0.5.0 fails each of the
+  three.
+
 ## [0.5.1] - 2026-11-20
 
 Beta release. Run it alongside your existing backups, not as your only one, until

@@ -107,10 +107,66 @@ async function readBody(init: RequestInit | undefined): Promise<string | Uint8Ar
   return new Uint8Array(await new Response(body as ResponseBody).arrayBuffer());
 }
 
+/**
+ * What Graph does with the links of a drive delta (`/root/delta`), which the routes alone do not
+ * show: a link counts only with the options of the request it came from. A `token` that answered a
+ * request without `Prefer: deltashowsharingchanges` is refused with 410 `resyncRequired` when a
+ * later request sends that header (or the other way round), and the resync URL named in the 410's
+ * `Location` is bound to the old options too, so it is refused as well. Restow 0.5.0 started to
+ * send the header and every OneDrive kept failing on the links 0.4.x had stored; a fake that took
+ * any link with any header could not show it. Tokens the routes hand out are recorded with the
+ * request's `Prefer`; a token no response named (a test's hard-coded start) binds to nothing.
+ */
+class DriveDeltaContract {
+  private readonly prefer = new Map<string, string>();
+
+  /** The answer Graph would give instead of the route's, or null to let the route answer. */
+  refusal(url: URL, headers: Record<string, string>): FixtureResponse | null {
+    const token = url.searchParams.get("token");
+    if (!url.pathname.endsWith("/root/delta") || token === null) {
+      return null;
+    }
+    const issuedWith = this.prefer.get(token);
+    const prefer = headers.prefer ?? "";
+    if (issuedWith === undefined || issuedWith === prefer) {
+      return null;
+    }
+    const resync = `${token}-resync`;
+    this.prefer.set(resync, issuedWith);
+    const location = new URL(url.href);
+    location.searchParams.set("token", resync);
+    return {
+      status: 410,
+      headers: { location: location.href },
+      json: graphError(
+        "resyncRequired",
+        "Resync required. Replace any local items with the server's version (including deletes) if you're sure that the service was up to date with your local changes when you last sync'd. Upload any local changes that the server doesn't know about.",
+      ),
+    };
+  }
+
+  /** Records the tokens of a delta page with the options of the request that produced it. */
+  record(url: URL, headers: Record<string, string>, fixture: FixtureResponse): void {
+    if (!url.pathname.endsWith("/root/delta") || fixture.status !== 200) {
+      return;
+    }
+    const json = fixture.json as Record<string, unknown> | undefined;
+    for (const key of ["@odata.nextLink", "@odata.deltaLink"]) {
+      const link = json?.[key];
+      if (typeof link !== "string") continue;
+      const token = new URL(link, url.href).searchParams.get("token");
+      if (token !== null) {
+        this.prefer.set(token, headers.prefer ?? "");
+      }
+    }
+  }
+}
+
 /** Build a fake Graph from routes. Unmatched requests answer 404 with a Graph error body. */
 export function createFakeGraph(routes: FixtureRoute[]): FakeGraph {
   const calls: RecordedCall[] = [];
   const counters = new Map<FixtureRoute, number>();
+  const driveDelta = new DriveDeltaContract();
 
   const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(
@@ -133,6 +189,17 @@ export function createFakeGraph(routes: FixtureRoute[]): FakeGraph {
     };
     calls.push(call);
 
+    const refused = method === "GET" ? driveDelta.refusal(url, headers) : null;
+    if (refused) {
+      return toResponse(refused);
+    }
+    const answer = (fixture: FixtureResponse): Response => {
+      if (method === "GET") {
+        driveDelta.record(url, headers, fixture);
+      }
+      return toResponse(fixture);
+    };
+
     const route = routes.find(
       (r) => (r.method ?? "GET").toUpperCase() === method && matches(r.url, url),
     );
@@ -146,16 +213,16 @@ export function createFakeGraph(routes: FixtureRoute[]): FakeGraph {
     counters.set(route, index + 1);
     const respond = route.respond;
     if (typeof respond === "function") {
-      return toResponse(respond(call, index));
+      return answer(respond(call, index));
     }
     if (Array.isArray(respond)) {
       const fixture = respond[Math.min(index, respond.length - 1)];
       if (!fixture) {
         throw new Error("Fixture route has an empty response sequence");
       }
-      return toResponse(fixture);
+      return answer(fixture);
     }
-    return toResponse(respond);
+    return answer(respond);
   }) as unknown as typeof fetch;
 
   return {
