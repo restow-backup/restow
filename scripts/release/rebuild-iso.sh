@@ -100,7 +100,9 @@ rm -rf "$out/agent-dist" "$out/iso" "$out/agent-SHA256SUMS"
 
 run=$(gh run list -R "$repo" --workflow release.yml --branch "$tag" --limit 1 \
   --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"' 2>/dev/null) || run=''
-[ -n "$run" ] && [ "$run" != "null null" ] || die "no run of release.yml for $tag in $repo"
+if [ -z "$run" ] || [ "$run" = "null null" ]; then
+  die "no run of release.yml for $tag in $repo"
+fi
 run_id=${run%% *}
 [ "${run#* }" = "$commit" ] || die "the release run $run_id of $tag built ${run#* }, not $commit"
 echo "Release run:  $run_id ($tag, $(printf '%.7s' "$commit"))"
