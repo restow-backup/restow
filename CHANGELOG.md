@@ -1281,6 +1281,11 @@ Breaking Changes and Upgrade Notes before you update.
 
 ### Fixed
 
+- Release build: the image build checked the signed agent (`agent/prebuilt`) against the whole
+  signed `SHA256SUMS`, whose line of the recovery ISO names no file of the image, and stopped
+  there. Every other file is still checked against it. The recovery ISO is now built the same on
+  a host started with UEFI and one started with BIOS (mdadm's initramfs hook adds `efivarfs` only
+  on the former; `integrations/recovery/README.md`, "Reproducible build").
 - Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
   ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
   taint mode, and the storage plugin handed the archive directory from restow-pve to

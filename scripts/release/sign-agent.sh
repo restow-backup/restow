@@ -4,9 +4,9 @@
 # (agent/README.md, "Release signing").
 #
 #   scripts/release/sign-agent.sh --keygen <path>        create the key pair (once)
-#   scripts/release/sign-agent.sh <tag> --key <path> [--iso <path>] [--repo <owner/name>] [--yes]
+#   scripts/release/sign-agent.sh <tag> --key <path> [--iso <path> | --iso-sha256 <hex>] [--repo <owner/name>] [--yes]
 #                                                        sign the agent of a release
-#   scripts/release/sign-agent.sh recovery-v<v>.<n> --key <path> --iso <path> [--repo <owner/name>] [--yes]
+#   scripts/release/sign-agent.sh recovery-v<v>.<n> --key <path> --iso <path> | --iso-sha256 <hex> [--repo <owner/name>] [--yes]
 #                                                        sign a rebuild of the recovery ISO of
 #                                                        release <v> (docs/BAREMETAL.md 26.13)
 #
@@ -15,6 +15,9 @@
 #                       (docs/BAREMETAL.md 8.5). Needed when agent-SHA256SUMS lists
 #                       recovery/restow-recovery_<version>_amd64.iso: the script
 #                       signs only when the SHA-256 of this file equals that line
+#   --iso-sha256 <hex>  instead of --iso: the SHA-256 of the ISO rebuilt on another
+#                       machine, as scripts/release/rebuild-iso.sh printed it there
+#                       (the signing machine need not hold the ISO, nor build it)
 #   --repo <owner/name> the GitHub repository that holds the release (default:
 #                       the repository of the clone this script lives in, as
 #                       `gh repo view` reports it, else restow-backup/restow)
@@ -49,6 +52,8 @@
 # folder> --version <version> --out <dir>) on a Docker host of your own. Then
 # pass the ISO it wrote with --iso. A runner that produced the same tampered
 # ISO twice is caught here, because this host builds it a third time.
+# scripts/release/rebuild-iso.sh <tag> does all of that on a Linux amd64 Docker host
+# (it needs no signing key) and prints the SHA-256 to pass here with --iso-sha256.
 #
 # Signing a rebuild of the recovery ISO (tag recovery-v<v>.<n>, the workflow
 # recovery-rebuild.yml; docs/BAREMETAL.md 26.13, docs/CI.md):
@@ -59,7 +64,7 @@
 #      `<sha256>  release/agent-SHA256SUMS` that binds the rebuild to release v<v>;
 #   2. this script refuses any other content, checks that release v<v> is published,
 #      that its agent-SHA256SUMS carries a valid signature of the release key and has
-#      exactly the hash of the binding line, compares the ISO rebuilt here (--iso, always
+#      exactly the hash of the binding line, compares the ISO rebuilt here (--iso or --iso-sha256, always
 #      needed: check out the tag and run integrations/recovery/build.sh with --rebuild
 #      <n> and the linux-amd64 agent of v<v>, see docs/CI.md), signs recovery-SHA256SUMS
 #      with the same key in the same namespace, uploads recovery-SHA256SUMS.sig and
@@ -224,23 +229,32 @@ iso_line() {
   sed -n 's#^\([0-9a-fA-F]\{64\}\)[ *][ *]*recovery/\([^/ ]*\)$#\1 \2#p' "$1" | head -n 1
 }
 
-# With an ISO line in the list, the locally rebuilt ISO must be given and match it.
+# With an ISO line in the list, the rebuilt ISO (or the SHA-256 of one rebuilt on
+# another machine) must be given and match it.
 check_iso() {
   sums="$1"
   iso="$2"
+  iso_sha="${3:-}"
   line=$(iso_line "$sums")
   if [ -z "$line" ]; then
-    [ -z "$iso" ] || die "--iso was given, but $sums_name lists no recovery ISO"
+    [ -z "$iso$iso_sha" ] || die "--iso or --iso-sha256 was given, but $sums_name lists no recovery ISO"
     return 0
   fi
   want=$(lower "${line%% *}")
   name=${line#* }
-  [ -n "$iso" ] || die "$sums_name lists recovery/$name; rebuild it from the tag and pass it with --iso <path> (see --help)"
-  [ -f "$iso" ] || die "the ISO $iso does not exist"
-  have=$(sha256_of "$iso")
+  [ -n "$iso$iso_sha" ] ||
+    die "$sums_name lists recovery/$name; rebuild it from the tag and pass it with --iso <path> or --iso-sha256 <hex> (see --help)"
+  if [ -n "$iso_sha" ]; then
+    have=$(lower "$iso_sha")
+    from="given with --iso-sha256"
+  else
+    [ -f "$iso" ] || die "the ISO $iso does not exist"
+    have=$(sha256_of "$iso")
+    from=$iso
+  fi
   echo "Recovery ISO:   recovery/$name"
   echo "    CI builds:  $want"
-  echo "    rebuilt:    $have ($iso)"
+  echo "    rebuilt:    $have ($from)"
   [ "$have" = "$want" ] ||
     die "the ISO rebuilt here differs from the one the CI built; not signed (compare them with diffoscope)"
 }
@@ -251,6 +265,7 @@ sign() {
   yes="$3"
   repo="$4"
   iso="${5:-}"
+  iso_sha="${6:-}"
   [ -n "$key" ] || die "give the private key: $0 $tag --key <path>"
   [ -f "$key" ] || die "the private key $key does not exist"
   case "$tag" in
@@ -264,7 +279,8 @@ sign() {
     recovery-v*)
       rebuild=$(rebuild_of_tag "$tag") ||
         die "$tag is not a rebuild tag (expected recovery-v<version>.<n>, such as recovery-v0.5.0.1)"
-      [ -n "$iso" ] || die "a rebuild is signed only with the ISO rebuilt here: --iso <path> (see --help)"
+      [ -n "$iso$iso_sha" ] ||
+        die "a rebuild is signed only with the ISO rebuilt from the tag: --iso <path> or --iso-sha256 <hex> (see --help)"
       sums_name=recovery-SHA256SUMS
       workflow=recovery-rebuild.yml
       ;;
@@ -316,7 +332,7 @@ sign() {
     # shellcheck disable=SC2086 # "<version> <n>", split on purpose
     check_rebuild_sums "$sums" $rebuild
   fi
-  check_iso "$sums" "$iso"
+  check_iso "$sums" "$iso" "$iso_sha"
   what="this agent release"
   [ -z "$rebuild" ] || what="this rebuild of the recovery ISO"
   if [ "$yes" != yes ]; then
@@ -368,6 +384,7 @@ case "${1:-}" in
     key="${RESTOW_AGENT_SIGNING_KEY:-}"
     repo=''
     iso=''
+    iso_sha=''
     yes=no
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -390,6 +407,12 @@ case "${1:-}" in
           iso="$2"
           shift
           ;;
+        --iso-sha256)
+          [ $# -ge 2 ] || die "--iso-sha256 needs the SHA-256 of the rebuilt ISO"
+          printf '%s' "$2" | grep -Eqx '[0-9a-fA-F]{64}' || die "--iso-sha256 takes 64 hex digits, not '$2'"
+          iso_sha="$2"
+          shift
+          ;;
         --yes) yes=yes ;;
         -*)
           printf 'error: unknown option %s\n\n' "$1" >&2
@@ -407,6 +430,7 @@ case "${1:-}" in
       usage >&2
       exit 2
     fi
-    sign "$tag" "$key" "$yes" "$repo" "$iso"
+    [ -z "$iso" ] || [ -z "$iso_sha" ] || die "give either --iso or --iso-sha256, not both"
+    sign "$tag" "$key" "$yes" "$repo" "$iso" "$iso_sha"
     ;;
 esac
