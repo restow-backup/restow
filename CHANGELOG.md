@@ -8,6 +8,20 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- OneDrive and SharePoint libraries: every backup after the update to 0.5.0 failed with "Graph
+  GET …/root/delta?… failed with 410 (resyncRequired)". 0.5.0 asks every delta page for sharing
+  changes (`Prefer: deltashowsharingchanges`); Graph refuses a delta link stored without that
+  header, and the resync URL it names in the 410's `Location` as well. The walk gave up after
+  that second 410 and kept the old link, so each run failed the same way. It now starts once more
+  from the plain delta URL, which carries no token Graph could refuse: the first run after the
+  update reads the drive in full, the next ones continue with a link that asks for sharing
+  changes. Until then, "Back up now › Full backup" on an affected OneDrive or library gets past
+  it (a run still retrying from a checkpoint is cancelled first).
+
 ## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until
