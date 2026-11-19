@@ -298,7 +298,9 @@ function MachinePicker({
           />
         </div>
       </CardHeader>
-      <CardContent className="max-h-64 overflow-y-auto p-0 xl:max-h-[40rem]">
+      {/* From xl on the list reaches down to the window's bottom edge, like the restore points
+          and the folder list beside it; below xl the columns stack and it stays short. */}
+      <CardContent className="max-h-64 overflow-y-auto p-0 xl:max-h-[max(24rem,calc(100dvh-20rem))]">
         {nothing ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">
             {withPve ? t("fileRestore.noMatchWithContainers") : t("fileRestore.noMatch")}

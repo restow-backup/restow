@@ -8,6 +8,17 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- File restore and the restore points of a machine, a container or a file share: the list of
+  machines stopped at 40rem and the list of restore points at 34rem, so on a tall window (1440p)
+  both scrolled with half the window empty below them. From `xl` (machines) and `lg` (restore
+  points) on they now reach down to the window's bottom edge like the folder list beside them,
+  at least 24rem and 20rem; on narrower windows, where the columns stack, they stay as short as
+  before.
+
 ## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until
