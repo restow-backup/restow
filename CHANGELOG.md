@@ -21,6 +21,15 @@ private repository.
   update reads the drive in full, the next ones continue with a link that asks for sharing
   changes. Until then, "Back up now › Full backup" on an affected OneDrive or library gets past
   it (a run still retrying from a checkpoint is cancelled first).
+- Ransomware signals: the amount of change of a machine, a file share or a Proxmox VE container
+  counted every file restic's summary called changed, also files whose owner, mode or ctime alone
+  changed. A deploy that ran `chown -R` over 2,500 unchanged documents raised "Suspicious backup"
+  with 2,867 new or changed files where the activity report of the same run had 11. The file
+  count now takes the new files and the files with new content of the activity report
+  (`restic diff`), and restic's summary only where a run has no report; a count is compared with
+  the object's earlier counts of the same kind (docs/RANSOMWARE.md, "Signals per kind of
+  object"). Earlier runs are counted the same way when they serve as the baseline, so no
+  migration is needed. Bytes added and the other signals are unchanged.
 
 ## [0.5.0] - 2026-11-18
 
