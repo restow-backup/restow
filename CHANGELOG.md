@@ -8,7 +8,30 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.5.1] - 2026-11-20
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.1 is a hotfix of 0.5.0: after the update to 0.5.0 every backup of a OneDrive or a
+SharePoint library failed with "410 (resyncRequired)", and this release fixes it. It also stops a
+`chown -R` over a data folder from raising "Suspicious backup", lets the file restore columns use
+the full height of a tall window, and keeps the release text within GitHub's limit. No database
+migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
 
 ### Fixed
 
@@ -43,6 +66,39 @@ private repository.
   points) on they now reach down to the window's bottom edge like the folder list beside them,
   at least 24rem and 20rem; on narrower windows, where the columns stack, they stay as short as
   before.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.0 stays. Pull the images of 0.5.1 and restart as for any update.
+
+- The first backup of each OneDrive and SharePoint library after the update reads the drive in
+  full, once (the stored delta link of 0.4.x cannot be used with 0.5.0's request for sharing
+  changes). It takes longer than an incremental run; deduplication keeps the storage it adds
+  small. The runs after it are incremental again.
+- A "Suspicious backup" that 0.5.0 raised for a change of owner or mode alone stays as it is:
+  check it as the alert says and mark it as a false alarm, which releases the retention hold.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these fixes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.1: the OneDrive and Graph tests of `@restow/core` (228), among
+them two new ones that replay a stored link and its resync URL both refused with 410 and fail
+with the fix taken out; the ransomware tests of `@restow/core` (46) and the suspicion tests of
+the worker against PostgreSQL 16 (22); the web tests of machines, restores and the kit (834)
+and the web build; the CI script tests (198) and the install script's test (790); the release
+check (`scripts/ci/check-release.mjs --tag v0.5.1`). The CI ran green on each of the four
+branches merged here.
 
 ## [0.5.0] - 2026-11-18
 
