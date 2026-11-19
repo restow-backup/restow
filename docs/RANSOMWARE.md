@@ -222,12 +222,23 @@ a used-up quota refuses fails as usual.
 
 | Object | Amount of change | Deletions, renames, names | Entropy | Compression, deduplication |
 | --- | --- | --- | --- | --- |
-| Machine (server, client) | files new + changed, bytes added (restic summary) | agent 0.4.0 and newer (`restic diff`) | agent 0.4.0 and newer (files on disk) | compression from agent 0.4.x on, deduplication always |
-| File share | files new + changed, bytes added (runner statistics) | runner 0.4.0 and newer (`restic diff` against the parent) | runner 0.4.0 and newer (files on the share) | yes |
+| Machine (server, client) | files new + changed (content, from the activity report; else the restic summary), bytes added | agent 0.4.0 and newer (`restic diff`) | agent 0.4.0 and newer (files on disk) | compression from agent 0.4.x on, deduplication always |
+| File share | files new + changed (content, from the activity report; else the runner statistics), bytes added | runner 0.4.0 and newer (`restic diff` against the parent) | runner 0.4.0 and newer (files on the share) | yes |
 | Proxmox VE container | bytes added; files new + changed from nodes 0.4.0 on | not available | not available | from nodes 0.4.x on |
 | Proxmox VE VM | bytes uploaded (changed blocks) | not available | not available | yes (server side, every node) |
 | OneDrive, SharePoint site | items written, bytes added | OneDrive: yes (delta items: new, changed, gone, renamed) | OneDrive: yes (first downloads) | yes |
 | Mailbox, IMAP account | items written, bytes added | not available | not available | yes |
+
+Files new and changed of a restic run (machine, file share, container) count content from 0.5.1
+on: the new files and the files with new content of the activity report (`restic diff`, modifier
+`+`, `M` or `T`). restic's own summary also counts a file whose owner, mode or ctime alone
+changed, so a `chown -R` or `chmod -R` over a data folder (a deploy script, for instance) looked
+like thousands of changed files and set the signal off. A run without a report (the diff failed,
+an agent before 0.4.0) still counts restic's summary, and the file count compares like with like:
+a content count with the object's earlier content counts, a summary count with its earlier summary
+counts, and with fewer than the minimum of either with every earlier run. The counts are taken
+from each run's stored statistics when it is judged, so the history of an object counts content
+as well. Bytes added are not touched by a change of metadata and stay as they were.
 
 A signal that has no data says **not available**, never "clean": an older agent that sends no
 activity report, a first backup (there is nothing to compare with), a previous snapshot that
