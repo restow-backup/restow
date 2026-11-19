@@ -9,6 +9,13 @@
  * URL in the `Location` header), signalling `reset` so the caller discards
  * what earlier pages of the same walk produced. Every page asks for sharing
  * changes too ({@link DRIVE_DELTA_HEADERS}).
+ *
+ * The URL of the `Location` header can answer 410 itself: a delta link stored
+ * before 0.5.0, which did not yet send `Prefer: deltashowsharingchanges`, is
+ * refused with `resyncRequired`, and so is the resync URL Graph hands out for
+ * it. The walk then starts once more from the plain delta URL, which carries no
+ * token Graph could refuse. 0.5.0 gave up after the second 410 and kept the old
+ * link, so every later run of the drive failed the same way.
  */
 import type { GraphClient } from "../../graph/client.js";
 import type { DeltaMode } from "../../graph/delta.js";
@@ -58,8 +65,10 @@ export async function* walkDriveDelta(
   let url = options.start.url ?? initialUrl;
   let mode: DeltaMode = options.start.url === null ? "initial" : options.start.mode;
   let reset = false;
-  // One restart per walk. A checkpointed resync may itself start from a page
-  // link that has expired, so the guard counts restarts rather than the mode.
+  // At most two restarts per walk: to the Location of the first 410 (or the
+  // plain delta URL), and when that answers 410 as well, to the plain delta URL.
+  // A checkpointed resync may itself start from a page link that has expired, so
+  // the guard counts restarts rather than the mode.
   let restarts = 0;
 
   for (;;) {
@@ -91,15 +100,23 @@ export async function* walkDriveDelta(
       }
       throw new Error(`delta walk of drive ${options.driveId} ended without a delta link`);
     } catch (error) {
-      if (!isGone(error) || restarts >= 1) {
+      if (!isGone(error)) {
+        throw error;
+      }
+      let nextUrl: string;
+      if (restarts === 0) {
+        nextUrl = error.headers.location ?? initialUrl;
+      } else if (restarts === 1 && url !== initialUrl) {
+        nextUrl = initialUrl;
+      } else {
         throw error;
       }
       restarts += 1;
-      const nextUrl = error.headers.location ?? initialUrl;
       options.onResync?.({ nextUrl, discardedPages: pages });
       url = nextUrl;
       mode = "resync";
-      reset = pages > 0;
+      // Pages of an earlier attempt still need discarding when this one yielded none.
+      reset = reset || pages > 0;
     }
   }
 }
