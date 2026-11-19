@@ -103,8 +103,9 @@ if [ -n "$initrd" ] && chroot "$root" unmkinitramfs "$initrd" /tmp/restow-initrd
   found=0
   for modules in $(find "$root/tmp/restow-initrd" -path '*conf/modules' | LC_ALL=C sort); do
     found=1
-    [ "$(tail -n 1 "$modules")" = efivarfs ] && [ "$(grep -cx efivarfs "$modules")" = 1 ] ||
+    if [ "$(tail -n 1 "$modules")" != efivarfs ] || [ "$(grep -cx efivarfs "$modules")" != 1 ]; then
       problem "${modules#"$root/tmp/restow-initrd/"} of the initramfs does not end with efivarfs once: $(tr '\n' ' ' <"$modules")"
+    fi
   done
   [ "$found" = 1 ] || problem "the initramfs has no conf/modules"
   find "$root/tmp/restow-initrd" -path '*etc/restow-efivarfs' | grep -q . ||
