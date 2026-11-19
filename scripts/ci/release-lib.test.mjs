@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   buildReleaseNotes,
   dockerTags,
   findChangelogSection,
+  fitReleaseNotes,
   isCalendarDate,
   parseSmokeReport,
   parseTag,
@@ -209,4 +211,88 @@ test("buildReleaseNotes keeps the sections that follow Verification", () => {
     /### Verification\n\nRelease pipeline, 2026-09-30:\n\n\| table \|\n\n### Afterword\n\nA\./,
   );
   assert.ok(!notes.includes("To be filled"));
+});
+
+const CHANGELOG_URL = "https://github.com/restow-backup/restow/blob/v1.0.0/CHANGELOG.md";
+
+test("fitReleaseNotes leaves notes that fit alone", () => {
+  const notes = "Restow 1.0.0.\n\n### Added\n\n- one\n";
+  assert.deepEqual(fitReleaseNotes(notes, { maxChars: 1000, changelogUrl: CHANGELOG_URL }), {
+    notes,
+    shortened: [],
+  });
+});
+
+test("fitReleaseNotes points to CHANGELOG.md for the longest sections, never the kept ones", () => {
+  const long = (n) => Array.from({ length: n }, (_, i) => `- entry ${i}`).join("\n");
+  const notes = [
+    "Restow 1.0.0.",
+    "",
+    "### Summary",
+    "",
+    long(50),
+    "",
+    "### Added",
+    "",
+    long(300),
+    "",
+    "### Changed",
+    "",
+    long(100),
+    "",
+    "### Fixed",
+    "",
+    long(400),
+    "",
+    "### Upgrade Notes",
+    "",
+    long(200),
+    "",
+    "### Images",
+    "",
+    `restow: sha256:${"a".repeat(64)}`,
+    "released: 2026-11-19T10:43:00+01:00",
+    "",
+  ].join("\n");
+  const { notes: fitted, shortened } = fitReleaseNotes(notes, {
+    maxChars: 6000,
+    changelogUrl: CHANGELOG_URL,
+  });
+  assert.deepEqual(shortened, ["Fixed", "Added"]);
+  assert.ok([...fitted].length <= 6000);
+  assert.match(
+    fitted,
+    /### Fixed\n\nThe full list is too long .*"Fixed" in \[CHANGELOG\.md\]\(https:\/\/github\.com\/restow-backup\/restow\/blob\/v1\.0\.0\/CHANGELOG\.md\)/,
+  );
+  assert.ok(fitted.includes(long(200)), "Upgrade Notes stay whole");
+  assert.ok(fitted.includes(long(100)), "Changed stays while the text fits without it");
+  assert.match(fitted, /^restow: sha256:a{64}$/m);
+  assert.match(fitted, /^released: 2026-11-19T10:43:00\+01:00$/m);
+  assert.throws(
+    () => fitReleaseNotes(notes, { maxChars: 500, changelogUrl: CHANGELOG_URL }),
+    /more than 500/,
+  );
+});
+
+test("the notes of 0.5.0 fit with room for the workflow's own part", () => {
+  const changelog = readFileSync(new URL("../../CHANGELOG.md", import.meta.url), "utf8");
+  const section = findChangelogSection(changelog, "0.5.0");
+  const notes = buildReleaseNotes({
+    version: "0.5.0",
+    section,
+    date: "2026-11-19",
+    channel: "beta",
+  });
+  assert.ok([...notes].length > 125_000, "0.5.0's notes were too long for GitHub");
+  const fitted = fitReleaseNotes(notes, { maxChars: 110_000, changelogUrl: CHANGELOG_URL });
+  assert.ok([...fitted.notes].length <= 110_000);
+  for (const title of [
+    "Summary",
+    "Breaking Changes",
+    "Security",
+    "Upgrade Notes",
+    "Known Issues",
+  ]) {
+    assert.ok(!fitted.shortened.includes(title), `${title} is kept`);
+  }
 });

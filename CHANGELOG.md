@@ -8,6 +8,98 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.5.1] - 2026-11-20
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.1 is a hotfix of 0.5.0: after the update to 0.5.0 every backup of a OneDrive or a
+SharePoint library failed with "410 (resyncRequired)", and this release fixes it. It also stops a
+`chown -R` over a data folder from raising "Suspicious backup", lets the file restore columns use
+the full height of a tall window, and keeps the release text within GitHub's limit. No database
+migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- OneDrive and SharePoint libraries: every backup after the update to 0.5.0 failed with "Graph
+  GET …/root/delta?… failed with 410 (resyncRequired)". 0.5.0 asks every delta page for sharing
+  changes (`Prefer: deltashowsharingchanges`); Graph refuses a delta link stored without that
+  header, and the resync URL it names in the 410's `Location` as well. The walk gave up after
+  that second 410 and kept the old link, so each run failed the same way. It now starts once more
+  from the plain delta URL, which carries no token Graph could refuse: the first run after the
+  update reads the drive in full, the next ones continue with a link that asks for sharing
+  changes. Until then, "Back up now › Full backup" on an affected OneDrive or library gets past
+  it (a run still retrying from a checkpoint is cancelled first).
+- Ransomware signals: the amount of change of a machine, a file share or a Proxmox VE container
+  counted every file restic's summary called changed, also files whose owner, mode or ctime alone
+  changed. A deploy that ran `chown -R` over 2,500 unchanged documents raised "Suspicious backup"
+  with 2,867 new or changed files where the activity report of the same run had 11. The file
+  count now takes the new files and the files with new content of the activity report
+  (`restic diff`), and restic's summary only where a run has no report; a count is compared with
+  the object's earlier counts of the same kind (docs/RANSOMWARE.md, "Signals per kind of
+  object"). Earlier runs are counted the same way when they serve as the baseline, so no
+  migration is needed. Bytes added and the other signals are unchanged.
+- Release: the publish job of 0.5.0 stopped at GitHub's limit for a release text (125,000
+  characters; the notes had 264,000) after everything else was done, and the release was
+  published by hand with shortened notes. `scripts/ci/release-notes.mjs --max-chars` now points
+  to CHANGELOG.md at the tag for the longest sections, never Summary, Breaking Changes, Security,
+  Upgrade Notes, Known Issues or Verification, until the notes fit with room for the workflow's
+  own part (images, digests, the `released:` line the updater reads); the workflow checks the
+  final length before it signs the checksums.
+- File restore and the restore points of a machine, a container or a file share: the list of
+  machines stopped at 40rem and the list of restore points at 34rem, so on a tall window (1440p)
+  both scrolled with half the window empty below them. From `xl` (machines) and `lg` (restore
+  points) on they now reach down to the window's bottom edge like the folder list beside them,
+  at least 24rem and 20rem; on narrower windows, where the columns stack, they stay as short as
+  before.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.0 stays. Pull the images of 0.5.1 and restart as for any update.
+
+- The first backup of each OneDrive and SharePoint library after the update reads the drive in
+  full, once (the stored delta link of 0.4.x cannot be used with 0.5.0's request for sharing
+  changes). It takes longer than an incremental run; deduplication keeps the storage it adds
+  small. The runs after it are incremental again.
+- A "Suspicious backup" that 0.5.0 raised for a change of owner or mode alone stays as it is:
+  check it as the alert says and mark it as a false alarm, which releases the retention hold.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these fixes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.1: the OneDrive and Graph tests of `@restow/core` (228), among
+them two new ones that replay a stored link and its resync URL both refused with 410 and fail
+with the fix taken out; the ransomware tests of `@restow/core` (46) and the suspicion tests of
+the worker against PostgreSQL 16 (22); the web tests of machines, restores and the kit (834)
+and the web build; the CI script tests (198) and the install script's test (790); the release
+check (`scripts/ci/check-release.mjs --tag v0.5.1`). The CI ran green on each of the four
+branches merged here.
+
 ## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until

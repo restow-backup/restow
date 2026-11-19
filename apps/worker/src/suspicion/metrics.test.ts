@@ -21,11 +21,37 @@ describe("the numbers of a run, per kind", () => {
         activity,
       }),
     ).toMatchObject({
-      itemsChanged: 15,
+      itemsChanged: 3,
+      itemsBasis: "content",
       itemsTotal: 900,
       bytesAdded: 2048,
       activity: { v: 1, added: 3, removed: 1 },
     });
+    expect(endpointRunMetrics({ filesNew: 10, filesChanged: 5 })).toMatchObject({
+      itemsChanged: 15,
+      itemsBasis: "summary",
+    });
+  });
+
+  it("counts files with new content, not a chown -R over a data folder", () => {
+    // A deploy set owner and mode of 2,512 unchanged documents; restic's summary
+    // counted 2,867 changed files, the activity report 2 new and 9 rewritten.
+    const stats = {
+      filesNew: 2,
+      filesChanged: 2_865,
+      activity: { v: 1, added: 2, modified: 9, removed: 0, renamed: 0, extensions: [], names: [] },
+    };
+    for (const metrics of [
+      endpointRunMetrics(stats),
+      fileShareRunMetrics(stats),
+      pveRunMetrics("ct", {
+        resticFilesNew: 2,
+        resticFilesChanged: 2_865,
+        activity: stats.activity,
+      }),
+    ]) {
+      expect(metrics).toMatchObject({ itemsChanged: 11, itemsBasis: "content" });
+    }
   });
 
   it("leaves out what an older agent or an empty run did not report", () => {
@@ -45,6 +71,7 @@ describe("the numbers of a run, per kind", () => {
     expect(fileShareRunMetrics({ files: 300, filesNew: 2, filesChanged: 1, dataAdded: 7 })).toEqual(
       {
         itemsChanged: 3,
+        itemsBasis: "summary",
         itemsTotal: 300,
         bytesAdded: 7,
         activity: null,

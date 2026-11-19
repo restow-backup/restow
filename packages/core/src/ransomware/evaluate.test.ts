@@ -231,6 +231,43 @@ describe("judging a restore point", () => {
     expect(result.signals.deletions).toBe("clear");
   });
 
+  it("compares a file count of content changes with the earlier content counts", () => {
+    // Ordinary days counted from the activity report (a dozen new or rewritten files), and one
+    // day restic's summary only: its 2,800 files are a chown -R, not new content.
+    const content = Array.from({ length: 10 }, (_, i) =>
+      run(10 + (i % 3), 50 * 1024 ** 2, { itemsBasis: "content" }),
+    );
+    const summary = Array.from({ length: 6 }, () =>
+      run(2_800, 50 * 1024 ** 2, { itemsBasis: "summary" }),
+    );
+    const mixed = [...content.slice(0, 5), ...summary, ...content.slice(5)];
+
+    // A content run is judged against the content runs only, never the summary's 2,800.
+    const encrypting = evaluateSuspicion({
+      current: run(3_000, 50 * 1024 ** 2, { itemsBasis: "content" }),
+      history: mixed,
+      settings,
+    });
+    expect(encrypting.findings[0]).toMatchObject({ code: "change_rate_items", baseline: 11 });
+
+    // A run without a report (summary) is judged against the summary runs, so its own chown
+    // noise does not fire against the low content counts.
+    const noReport = evaluateSuspicion({
+      current: run(2_900, 50 * 1024 ** 2, { itemsBasis: "summary" }),
+      history: mixed,
+      settings,
+    });
+    expect(noReport.signals.changeRate).toBe("clear");
+
+    // Too few runs of its own kind: every run counts, as before.
+    const fewSummary = evaluateSuspicion({
+      current: run(2_900, 50 * 1024 ** 2, { itemsBasis: "summary" }),
+      history: [...content, summary[0] as RunMetrics],
+      settings,
+    });
+    expect(fewSummary.findings.map((f) => f.code)).toEqual(["change_rate_items"]);
+  });
+
   it("judges objects without file counts by their bytes alone", () => {
     const vm = Array.from({ length: 10 }, (_, i) => ({
       itemsChanged: null,
