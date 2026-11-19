@@ -90,6 +90,31 @@ grep -q '^AUTO -all' "$root/etc/mdadm/mdadm.conf" || problem "mdadm.conf assembl
 [ "$(readlink "$root/etc/systemd/system-generators/systemd-gpt-auto-generator")" = /dev/null ] ||
   problem "systemd-gpt-auto-generator is not masked"
 
+# efivarfs in the initramfs on every build host (hooks/zz-restow-efivarfs; mdadm's hook adds it
+# only on a host started with UEFI, and the build hosts must agree bit for bit): the module once,
+# as the last line of conf/modules, and the hook's mark, unpacked with the image's own
+# unmkinitramfs.
+initrd=''
+for file in "$root"/boot/initrd.img-*; do
+  [ -f "$file" ] && initrd="/boot/${file##*/}"
+done
+rm -rf "$root/tmp/restow-initrd"
+if [ -n "$initrd" ] && chroot "$root" unmkinitramfs "$initrd" /tmp/restow-initrd >/dev/null 2>&1; then
+  found=0
+  for modules in $(find "$root/tmp/restow-initrd" -path '*conf/modules' | LC_ALL=C sort); do
+    found=1
+    [ "$(tail -n 1 "$modules")" = efivarfs ] && [ "$(grep -cx efivarfs "$modules")" = 1 ] ||
+      problem "${modules#"$root/tmp/restow-initrd/"} of the initramfs does not end with efivarfs once: $(tr '\n' ' ' <"$modules")"
+  done
+  [ "$found" = 1 ] || problem "the initramfs has no conf/modules"
+  find "$root/tmp/restow-initrd" -path '*etc/restow-efivarfs' | grep -q . ||
+    problem "the initramfs was made without hooks/zz-restow-efivarfs (no etc/restow-efivarfs)"
+  find "$root/tmp/restow-initrd" -name 'efivarfs.ko*' | grep -q . || problem "the initramfs has no efivarfs module"
+else
+  problem "cannot unpack the initramfs ${initrd:-(none in /boot)}"
+fi
+rm -rf "$root/tmp/restow-initrd"
+
 # Nothing of the build: the two builds of one version are equal bit for bit.
 leftovers=$(rr_build_leftovers "$root") ||
   problem "build leftovers in the image: $(echo "$leftovers" | tr '\n' ' ')"

@@ -65,6 +65,14 @@ the ISO can be rebuilt bit for bit. The CI builds it twice, on two different run
 images with a different time zone and umask, and compares the SHA-256; only when both
 are equal does the release list it in its signed checksums.
 
+The build container sees the host's `/sys`, and a package hook can ask it while the
+initramfs is made: mdadm's hook force-loads `efivarfs` only on a host started with UEFI
+(Debian bug 962844), so the GitHub runners (UEFI) and a host started with BIOS made
+different initramfs images (the maintainer's third build of 0.5.0). The initramfs hook
+`config/includes.chroot/etc/initramfs-tools/hooks/zz-restow-efivarfs` runs after mdadm's
+and puts the module in on every host, once and as the last line of `conf/modules`, and
+leaves `etc/restow-efivarfs` in the initramfs; `test/check-image.sh` checks both.
+
 ## Check
 
 - `test/unit.sh`: the self-tests of the shell helpers (no root, no Docker).
