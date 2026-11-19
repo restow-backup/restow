@@ -46,7 +46,10 @@
 #                  against its pinned SHA-256. A release build takes the agent
 #                  the release workflow built and the maintainer signed instead
 #                  (agent/prebuilt/, see agent/README.md "Release signing"), after
-#                  checking the signature against agent/release-signing.pub
+#                  checking the signature against agent/release-signing.pub and
+#                  every file against the signed SHA256SUMS; its one line of the
+#                  recovery ISO (recovery/restow-recovery_<v>_amd64.iso) names no
+#                  file of the image (the instance fetches the ISO on demand)
 #   agent-dist  -> lays the result out as /srv/agent/<version>/<os>-<arch>/ with
 #                  a SHA256SUMS file per directory, next to the install scripts
 #                  (/srv/agent/install); the api serves them, so an instance
@@ -152,7 +155,9 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
       [ -f SHA256SUMS.sig ] || { echo "restow: agent/prebuilt/SHA256SUMS is not signed" >&2; exit 1; }; \
       printf 'restow-agent-release %s\n' "$(grep '^ssh-ed25519 ' /src/agent/release-signing.pub | cut -d ' ' -f 1-2)" > /tmp/allowed_signers; \
       ssh-keygen -Y verify -f /tmp/allowed_signers -I restow-agent-release -n restow-agent-release -s SHA256SUMS.sig < SHA256SUMS; \
-      sha256sum -c SHA256SUMS; \
+      grep -Ev '^[0-9a-f]{64}  recovery/restow-recovery_[0-9A-Za-z.+-]+_amd64[.]iso$' SHA256SUMS > /tmp/agent-sums; \
+      test -s /tmp/agent-sums; \
+      sha256sum -c /tmp/agent-sums; \
       chmod 0755 ./*/restow-agent ./*/restic; \
       if [ -f ./linux-amd64/restow-pve ]; then chmod 0755 ./linux-amd64/restow-pve; fi; \
       cp -R . /out/; \
