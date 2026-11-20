@@ -26,6 +26,7 @@ mdadm --detail --scan >"$root/etc/mdadm/mdadm.conf"
 chroot_mount "$root"
 install_e2e_units "$root" e1b-ubuntu2204
 finish_root "$root"
+ubuntu_modules_extra "$root"
 in_root "$root" update-initramfs -u -k all
 for disk in "$a" "$b"; do in_root "$root" grub-install --target=i386-pc "$disk"; done
 printf 'GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"\n' >>"$root/etc/default/grub"

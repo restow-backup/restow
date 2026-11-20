@@ -90,8 +90,8 @@ mkfs_ext4() {
 # (CI runs 44776793551, wip/052-alert-bundle). A read that brings nothing for 60 seconds now
 # fails, wget tries twice more, and a failure ends in the attempts above. A download that only
 # crawls passes that limit (P2 in CI run 44787090202), so the Ubuntu machines take
-# linux-image-virtual: the same signed kernel and its modules, without linux-firmware (several
-# hundred MB, of no use in QEMU) and the microcode.
+# linux-image-virtual: the same signed kernel and its modules, without linux-firmware (475 MB
+# in noble, of no use in QEMU) and the microcode; ubuntu_modules_extra adds what QEMU needs.
 bootstrap() {
   suite="$1"
   root="$2"
@@ -141,6 +141,26 @@ ubuntu_updates() {
   in_root "$root" apt-get update -q >/dev/null || fdie "apt-get update of $suite-updates failed"
   in_root "$root" apt-get -y -q -o Dpkg::Options::=--force-confold dist-upgrade >/dev/null ||
     fdie "the upgrade from $suite-updates failed"
+}
+
+# linux-image-virtual leaves out Ubuntu's linux-modules-extra, and with it qemu_fw_cfg, through
+# which restow-e2e-enroll reads the instance and its token: without it the machine starts and
+# never enrolls (P2 and O-E1 in CI run 44797153253). Installed for the newest kernel, the one
+# GRUB starts.
+#   ubuntu_modules_extra <root>   (after chroot_mount and the last kernel upgrade)
+ubuntu_modules_extra() {
+  root="$1"
+  kver=""
+  for dir in "$root"/lib/modules/*/; do
+    [ -d "$dir" ] || continue
+    kver="$(printf '%s\n%s\n' "$kver" "$(basename "$dir")" | sed '/^$/d' | sort -V | tail -n 1)"
+  done
+  [ -n "$kver" ] || fdie "no kernel below $root/lib/modules"
+  in_root "$root" apt-get update -q >/dev/null || fdie "apt-get update before linux-modules-extra failed"
+  in_root "$root" apt-get install -y -q --no-install-recommends "linux-modules-extra-$kver" >/dev/null ||
+    fdie "linux-modules-extra-$kver did not install"
+  [ -n "$(find "$root/lib/modules/$kver" -name 'qemu_fw_cfg.ko*' -print -quit)" ] ||
+    fdie "linux-modules-extra-$kver has no qemu_fw_cfg"
 }
 
 # Bind the API file systems for work inside <root>, and undo it.
