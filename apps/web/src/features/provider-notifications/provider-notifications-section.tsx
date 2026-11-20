@@ -60,7 +60,8 @@ import {
  * list, cannot be removed and always get the critical events and failed deliveries; an owner
  * can make further recipients mandatory, so an alert never ends with nobody. Each recipient
  * chooses per severity whether mail comes at once or in an hourly or daily digest; critical
- * events always come at once. Below the list, the summary reports across tenants (Business).
+ * events never wait for a digest (mail sent at once is bundled for a few minutes, 0.5.2). Below
+ * the list, the summary reports across tenants (Business).
  *
  * Administrators of the provider team keep the list; only owners mark recipients mandatory, and
  * only owners change the address of a mandatory recipient or remove it.
