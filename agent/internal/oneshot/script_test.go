@@ -60,6 +60,12 @@ func runScript(t *testing.T, code string, args []string, edit func(root string))
 // hash of the list served).
 func runScriptPinned(t *testing.T, code string, args []string, edit func(root string), pinned string) scriptRun {
 	t.Helper()
+	return runScriptEnv(t, code, args, edit, pinned, nil)
+}
+
+// runScriptEnv runs it with more environment variables.
+func runScriptEnv(t *testing.T, code string, args []string, edit func(root string), pinned string, env []string) scriptRun {
+	t.Helper()
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("oneshot.sh runs on x86_64 Linux")
 	}
@@ -86,13 +92,23 @@ func runScriptPinned(t *testing.T, code string, args []string, edit func(root st
 	write(filepath.Join(root, "install/agent/0.5.1/linux-amd64/restic"), restic, 0o644)
 	sums := sumHex([]byte(agent)) + "  linux-amd64/restow-agent\n" + sumHex([]byte(restic)) + "  linux-amd64/restic\n"
 	write(filepath.Join(root, "install/agent/0.5.1/SHA256SUMS"), sums, 0o644)
+	// As strict as curl about its arguments: one URL, and the options
+	// oneshot.sh uses with their values; anything else is curl's exit 3.
 	curl := `#!/bin/sh
-out=''; url=''; prev=''
-for a in "$@"; do
-  [ "$prev" = -o ] && out=$a
-  case "$a" in http://*) url=$a ;; esac
-  prev=$a
+out=''; url=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift 2 ;;
+    --cacert) echo "$2" >>"$FAKE_OUT/cacert.log"; shift 2 ;;
+    --retry|--retry-delay|--connect-timeout|--max-time|--proto) shift 2 ;;
+    -fsSL|--tlsv1.2) shift ;;
+    *)
+      case "$1" in http://*) ;; *) echo "curl: (3) URL using bad/illegal format or missing URL: $1" >&2; exit 3 ;; esac
+      [ -z "$url" ] || { echo "curl: a second URL: $1" >&2; exit 3; }
+      url=$1; shift ;;
+  esac
 done
+[ -n "$out" ] || { echo "curl: no -o" >&2; exit 2; }
 echo "$url" >>"$FAKE_OUT/curl.log"
 f="$FAKE_ROOT${url#http://instance.test}"
 [ -f "$f" ] || exit 22
@@ -115,6 +131,7 @@ cp "$f" "$out"
 	if code != "" {
 		cmd.Env = append(cmd.Env, "RESTOW_ONESHOT_CODE="+code)
 	}
+	cmd.Env = append(cmd.Env, env...)
 	b, err := cmd.CombinedOutput()
 	exit := 0
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -238,5 +255,28 @@ func TestOneshotScriptDirectModeChecksRestic(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(r.out, "argv")); err == nil {
 			t.Errorf("%s: the agent ran", name)
 		}
+	}
+}
+
+// The CA of a private instance goes to every download, with the URL as the
+// one URL of curl (O-E2 in CI run 44797153253: the target file went along as
+// a second URL, and every download failed with curl's exit 3).
+func TestOneshotScriptDownloadsWithTheCAFile(t *testing.T) {
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, []byte("not a certificate, the fake curl does not read it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := runScriptEnv(t, "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS", nil, nil, "", []string{"RESTOW_CA_FILE=" + ca})
+	if r.code != 4 {
+		t.Fatalf("exit %d (the agent's 4 passed on):\n%s", r.code, r.output)
+	}
+	downloads, _ := os.ReadFile(filepath.Join(r.out, "curl.log"))
+	cas, _ := os.ReadFile(filepath.Join(r.out, "cacert.log"))
+	n := strings.Count(string(downloads), "\n")
+	if n == 0 || strings.Count(string(cas), ca+"\n") != n {
+		t.Errorf("downloads %q, CA files %q", downloads, cas)
+	}
+	if env, _ := os.ReadFile(filepath.Join(r.out, "env")); !strings.Contains(string(env), "RESTOW_CA_FILE="+ca) {
+		t.Errorf("the agent does not get the CA file: %s", env)
 	}
 }

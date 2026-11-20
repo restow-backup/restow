@@ -69,13 +69,16 @@ trap 'exit 130' INT TERM HUP
 
 fetch() {
   # fetch <url> <file>
+  url=$1
+  file=$2
+  set --
   if [ -n "$CA_FILE" ]; then
-    set -- "$1" "$2" --cacert "$CA_FILE"
+    set -- --cacert "$CA_FILE"
   fi
   if [ -n "$ALLOW_HTTP" ]; then
-    curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 -o "$2" "$@"
+    curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 -o "$file" "$@" "$url"
   else
-    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 -o "$2" "$@"
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 -o "$file" "$@" "$url"
   fi
 }
 
