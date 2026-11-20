@@ -8,17 +8,27 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.5.2] - 2026-11-20
 
-### Fixed
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
 
-- OneDrive and SharePoint libraries: a snapshot now records the version of the options its
-  delta link was asked with (`deltaVersion`, `DRIVE_DELTA_VERSION` = 2, the
-  `Prefer: deltashowsharingchanges` of 0.5.0). When a later release changes those options, the
-  next run reads the drive in full once instead of meeting a 410 first; snapshots of 0.5.0 and
-  0.5.1 count as version 2 and go on incrementally. Users, groups and mail folders: a delta whose
-  resync URL is refused as well now starts once more from the initial URL, as the drive delta
-  does since 0.5.1.
+### Summary
+
+Restow 0.5.2 bundles alert mails: a weekly restore check that rated dozens of SharePoint sites red
+sent one mail per site, now the alerts that come in close together arrive in one mail per
+recipient, at most one every 30 minutes; signs of an attack still go out at once. It also records
+which options a OneDrive or SharePoint delta link was asked with, so a later change of them reads
+the drive in full once instead of failing with 410 as 0.5.0 did, and tests the state a previous
+release stored. Dependencies are updated. No database migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
 
 ### Changed
 
@@ -39,6 +49,56 @@ private repository.
   with their version, so a change of them fails until it comes with a new version and an
   upgrade test (docs/TESTING.md, "Regeln"). The OneDrive failure of 0.5.0 fails each of the
   three.
+
+- Dependencies (Dependabot #108, #109, #110): better-auth and its passkey plugin 1.7.25, hono
+  4.13.19 and @hono/node-server 2.1.8, nodemailer 10.6.0, mailparser 3.14.5, smtp-server 3.21.6,
+  sanitize-html 2.18.2, @aws-sdk/client-s3 3.1170.0, @tanstack/react-query 5.107.1,
+  react-hook-form 7.92.0, react-resizable-panels 4.24.0, lucide-react 1.73.0, commander 15.1.0;
+  for the build vite 8.3.8, tailwindcss 4.3.5, @vitejs/plugin-react 6.3.0, biome 2.6.7; in CI
+  docker/login-action 4.8.0. The journal test of a report whose parse runs over its time limit
+  now sets a limit of 50 ms: mailparser 3.14.5 decodes its 24 MB in a few hundred
+  milliseconds.
+
+### Fixed
+
+- OneDrive and SharePoint libraries: a snapshot now records the version of the options its
+  delta link was asked with (`deltaVersion`, `DRIVE_DELTA_VERSION` = 2, the
+  `Prefer: deltashowsharingchanges` of 0.5.0). When a later release changes those options, the
+  next run reads the drive in full once instead of meeting a 410 first; snapshots of 0.5.0 and
+  0.5.1 count as version 2 and go on incrementally. Users, groups and mail folders: a delta whose
+  resync URL is refused as well now starts once more from the initial URL, as the drive delta
+  does since 0.5.1.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.1 stays. Pull the images of 0.5.2 and restart as for any update.
+
+- Alert mails that go out at once now arrive up to five minutes later than before, and at most one
+  every 30 minutes per recipient (docs/NOTIFICATIONS.md, "Bundled alert mails"). Webhooks and the
+  bell are unchanged. Hourly and daily digests are unchanged.
+- OneDrive and SharePoint libraries go on incrementally: the snapshots of 0.5.0 and 0.5.1 count as
+  the current delta options.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these changes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.2: the full test suite of the API against PostgreSQL 16 on the
+alert bundling branch (4658), among them six new tests of bundled alert mails and two of the
+bundle's mail text; the tests of the reports, updates and provider notifications of the API on
+this branch (444); the Graph, OneDrive and report tests of `@restow/core` (293); the journal receiver tests of `ee/api` with mailparser 3.14.5, five runs in a row;
+the install script's test (790); the release check (`scripts/ci/check-release.mjs --tag
+v0.5.2`). The CI ran green on both branches merged here.
 
 ## [0.5.1] - 2026-11-20
 
