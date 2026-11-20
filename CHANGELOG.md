@@ -58,6 +58,8 @@ None.
   docker/login-action 4.8.0. The journal test of a report whose parse runs over its time limit
   now sets a limit of 50 ms: mailparser 3.14.5 decodes its 24 MB in a few hundred
   milliseconds.
+- Tests: the run drawer's test of the live channel no longer depends on the machine's speed (its
+  detail poll runs on a test clock).
 
 ### Fixed
 
@@ -98,7 +100,9 @@ alert bundling branch (4658), among them six new tests of bundled alert mails an
 bundle's mail text; the tests of the reports, updates and provider notifications of the API on
 this branch (444); the Graph, OneDrive and report tests of `@restow/core` (293); the journal receiver tests of `ee/api` with mailparser 3.14.5, five runs in a row;
 the install script's test (790); the release check (`scripts/ci/check-release.mjs --tag
-v0.5.2`). The CI ran green on both branches merged here.
+v0.5.2`); the web tests (5103), among them the run drawer's test of the live channel, which
+failed on busy machines when the drawer's 4 s poll fell into it and now keeps that interval on a
+clock of its own (with a 4.5 s wait it fails as in CI without the change, and passes with it).
 
 ## [0.5.1] - 2026-11-20
 
