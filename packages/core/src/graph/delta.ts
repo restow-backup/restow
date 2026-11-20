@@ -127,6 +127,9 @@ export async function* syncDelta<T>(
   let url = stored ?? options.initialUrl;
   let mode: DeltaMode = stored ? "incremental" : "initial";
   let reset = false;
+  // A resync that started from a URL Graph named (the 410's Location) gets one more chance from
+  // the initial URL, which carries no link Graph could refuse (backup/onedrive/delta.ts, 0.5.1).
+  let triedInitialAfterResync = false;
 
   for (;;) {
     let pages = 0;
@@ -147,11 +150,22 @@ export async function* syncDelta<T>(
       // A 400 is only blamed on the sync state when it came for a stored link: the
       // initial URL carries none, and retrying it would just loop.
       const gone = isGone(error);
-      if (!needsResync(error) || mode === "resync" || (!gone && mode === "initial")) {
+      const retryInitial =
+        mode === "resync" && gone && url !== options.initialUrl && !triedInitialAfterResync;
+      if (
+        !needsResync(error) ||
+        (mode === "resync" && !retryInitial) ||
+        (!gone && mode === "initial")
+      ) {
         throw error;
       }
       await options.store.delete(options.key);
-      const nextUrl = error.headers.location ?? options.initialUrl;
+      if (retryInitial) {
+        triedInitialAfterResync = true;
+      }
+      const nextUrl = retryInitial
+        ? options.initialUrl
+        : (error.headers.location ?? options.initialUrl);
       const reason: ResyncReason = gone ? "gone" : "invalidSyncState";
       options.onResync?.({ key: options.key, reason, nextUrl });
       url = nextUrl;

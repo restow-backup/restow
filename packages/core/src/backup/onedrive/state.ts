@@ -19,6 +19,17 @@ import type { DeltaStart } from "./delta.js";
 
 export const ENGINE_NAME = "onedrive";
 
+/**
+ * The options a drive delta is asked with ({@link DRIVE_DELTA_HEADERS}, the URL of
+ * driveDeltaUrl), as a number. Graph binds a delta link to the options of the request it came
+ * from and refuses it with 410 `resyncRequired` once they change: 1 is every release before
+ * 0.5.0 (no `Prefer`), 2 is `Prefer: deltashowsharingchanges` (0.5.0). A previous manifest with
+ * another version is enumerated in full once ({@link planRun}, reason
+ * `delta-options-changed`), unchanged content is reused. Bump it with every change of those
+ * options; packages/core/src/graph/delta-options.test.ts holds it to that.
+ */
+export const DRIVE_DELTA_VERSION = 2;
+
 /** The engine's part of a committed manifest's `state`. */
 export interface OneDriveManifestState {
   readonly engine: typeof ENGINE_NAME;
@@ -27,6 +38,8 @@ export interface OneDriveManifestState {
   readonly rootId: string | null;
   /** Continue the next incremental run from here. */
   readonly deltaLink: string;
+  /** {@link DRIVE_DELTA_VERSION} the delta link was built with (absent before 0.5.2: read as 2). */
+  readonly deltaVersion: number;
   /** How the run that produced this manifest enumerated the drive. */
   readonly mode: DeltaMode;
   /** Item ids the run could not read; the next run fetches them again before its delta. */
@@ -100,6 +113,10 @@ export function readManifestState(
     driveId,
     rootId: typeof state.rootId === "string" ? state.rootId : null,
     deltaLink: state.deltaLink,
+    // Absent on every state before 0.5.2. Most come from 0.5.0 or 0.5.1 and were built with
+    // version 2; the few links of 0.4.x left are refused by Graph and the walk falls back to a
+    // full enumeration (delta.ts). Counting them all as 1 would read every drive in full again.
+    deltaVersion: typeof state.deltaVersion === "number" ? state.deltaVersion : 2,
     mode: isMode(state.mode) ? state.mode : "initial",
     retry: stringList(state.retry),
     fullResyncRequired: state.fullResyncRequired === true,
@@ -157,7 +174,8 @@ export type RunReason =
   | "first-run"
   | "full-requested"
   | "retry-overflow"
-  | "versions-enabled";
+  | "versions-enabled"
+  | "delta-options-changed";
 
 /** How a run proceeds, decided once up front from options, cursor and previous state. */
 export interface RunPlan {
@@ -218,7 +236,9 @@ export function planRun(input: {
         ? "retry-overflow"
         : backfillVersions
           ? "versions-enabled"
-          : null;
+          : previous.deltaVersion !== DRIVE_DELTA_VERSION
+            ? "delta-options-changed"
+            : null;
   if (fullReason !== null || previous === null) {
     // A full enumeration sees every item, so nothing is left to retry separately.
     return {

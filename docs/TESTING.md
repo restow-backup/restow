@@ -176,5 +176,15 @@ Postgres-Service bereit und setzt die Variable.
   Stand "Abweichung".
 - Kein Merge ohne grüne Stufen 1 bis 3 und 5.
 - Jeder Bug bekommt zuerst einen Test, der ihn reproduziert.
+- Gespeicherter Zustand ist eine Schnittstelle zur Vorversion. Wer die Optionen einer
+  Delta-Abfrage ändert (`$select`, `Prefer`), ändert die gespeicherten Links mit: Graph bindet
+  einen Link an die Optionen der Abfrage, aus der er stammt, und lehnt ihn danach mit 410 ab
+  (0.5.0: jedes OneDrive scheiterte an den Links aus 0.4.x). Der Wächter
+  `packages/core/src/graph/delta-options.test.ts` hält die Optionen jedes Stroms mit ihrer
+  Version fest; eine Änderung braucht eine neue Version, die die gespeicherten Links vor dem
+  nächsten Lauf verwirft (`DRIVE_DELTA_VERSION`, `MAIL_SELECT_VERSION`), und einen
+  `[upgrade]`-Test, der den Strom einmal mit den alten und einmal mit den neuen Optionen laufen
+  lässt. Die Graph-Attrappe (`createFakeGraph`) lehnt einen Drive-Delta-Link mit fremden
+  `Prefer`-Optionen ab wie Graph, samt der Resync-URL aus dem `Location`-Kopf.
 - Live-Tests dürfen nur gegen den Dev-Tenant laufen; Kundendaten nie in Tests.
 - Testdaten enthalten keine echten Personen (Faker mit festem Seed).
