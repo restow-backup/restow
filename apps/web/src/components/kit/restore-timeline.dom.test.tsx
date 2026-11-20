@@ -161,8 +161,13 @@ describe("RestoreTimeline", () => {
     expect(october1).not.toBeNull();
     await act(async () => {
       october1?.click();
-      await new Promise((resolve) => requestAnimationFrame(resolve));
     });
+    // The popover hands the focus over when it has closed: wait for that, not for a fixed time.
+    for (let step = 0; step < 100 && document.activeElement?.textContent !== "07:05sep28"; step++) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
     expect(container.querySelector("[aria-live]")?.textContent).toBe(
       "No restore point on Thursday, October 1. Showing Monday, September 28, the nearest earlier day.",
     );
