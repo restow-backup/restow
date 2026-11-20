@@ -8,6 +8,11 @@
  *               its activity report
  *   pve_guest   a container: restic's bytes added (and file counts and an activity report from
  *               a node that sends them); a VM: the bytes it uploaded (changed blocks)
+ *
+ * The files new and changed of a restic run come from its activity report where it has one: new
+ * files and files with new content (`restic diff`, docs/RANSOMWARE.md). restic's summary also
+ * counts a file whose owner, mode or ctime alone changed, so a `chown -R` over a data folder
+ * looked like thousands of changed files (0.5.1). Without a report the summary counts.
  *   m365        the items a mailbox, OneDrive or IMAP backup wrote and the bytes it stored; a
  *               OneDrive backup's activity report
  *
@@ -23,7 +28,7 @@
  *                            itself does not compress)
  *               dedup        new chunk bytes / bytes chunked
  */
-import { parseActivityReport, type RunMetrics } from "@restow/core";
+import { type ActivityReport, parseActivityReport, type RunMetrics } from "@restow/core";
 
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -49,6 +54,19 @@ function quotient(part: unknown, whole: unknown): number | null {
   return p === null || w === null || w <= 0 ? null : Math.round((p / w) * 10_000) / 10_000;
 }
 
+/** The files new and changed of a restic run: the activity report's, else the summary's. */
+function changedFiles(
+  activity: ActivityReport | null,
+  filesNew: unknown,
+  filesChanged: unknown,
+): Pick<RunMetrics, "itemsChanged" | "itemsBasis"> {
+  if (activity) {
+    return { itemsChanged: activity.added + activity.modified, itemsBasis: "content" };
+  }
+  const itemsChanged = sum(filesNew, filesChanged);
+  return itemsChanged === null ? { itemsChanged } : { itemsChanged, itemsBasis: "summary" };
+}
+
 type DataShape = Pick<RunMetrics, "newBytes" | "compressionRatio" | "dedupRatio">;
 
 /** A restic summary: compression packed / added, deduplication added / processed. */
@@ -72,11 +90,12 @@ function chunkShape(bytesIn: unknown, bytesNew: unknown, sampled: unknown, compr
 /** A machine's backup run (`endpoint_runs.stats`). */
 export function endpointRunMetrics(stats: unknown): RunMetrics {
   const s = record(stats);
+  const activity = parseActivityReport(s.activity);
   return {
-    itemsChanged: sum(s.filesNew, s.filesChanged),
+    ...changedFiles(activity, s.filesNew, s.filesChanged),
     itemsTotal: num(s.totalFilesProcessed),
     bytesAdded: num(s.dataAdded),
-    activity: parseActivityReport(s.activity),
+    activity,
     ...resticShape(s.dataAdded, s.dataAddedPacked, s.totalBytesProcessed),
   };
 }
@@ -84,11 +103,12 @@ export function endpointRunMetrics(stats: unknown): RunMetrics {
 /** A file share's backup run (`file_share_runs.stats`, the runner's statistics). */
 export function fileShareRunMetrics(stats: unknown): RunMetrics {
   const s = record(stats);
+  const activity = parseActivityReport(s.activity);
   return {
-    itemsChanged: sum(s.filesNew, s.filesChanged),
+    ...changedFiles(activity, s.filesNew, s.filesChanged),
     itemsTotal: num(s.files) ?? num(s.totalFilesProcessed),
     bytesAdded: num(s.dataAdded),
-    activity: parseActivityReport(s.activity),
+    activity,
     ...resticShape(s.dataAdded, s.dataAddedPacked, s.totalBytesProcessed),
   };
 }
@@ -97,11 +117,12 @@ export function fileShareRunMetrics(stats: unknown): RunMetrics {
 export function pveRunMetrics(kind: string, stats: unknown): RunMetrics {
   const s = record(stats);
   if (kind === "ct") {
+    const activity = parseActivityReport(s.activity);
     return {
-      itemsChanged: sum(s.resticFilesNew, s.resticFilesChanged),
+      ...changedFiles(activity, s.resticFilesNew, s.resticFilesChanged),
       itemsTotal: num(s.resticFilesTotal),
       bytesAdded: num(s.resticBytesAdded),
-      activity: parseActivityReport(s.activity),
+      activity,
       ...resticShape(s.resticBytesAdded, s.resticBytesAddedPacked, s.resticTotalBytes),
     };
   }

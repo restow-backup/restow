@@ -8,7 +8,7 @@
  * is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { MAX_REPORT_ATTEMPTS } from "@restow/core";
+import { ALERT_BUNDLE_SPACING_MINUTES, MAX_REPORT_ATTEMPTS } from "@restow/core";
 import {
   createDb,
   type Database,
@@ -76,6 +76,11 @@ describe.skipIf(!testDatabaseAdminUrl)(
       notifier: async () => notifier,
       now: () => clock,
     });
+
+    /** Past the hold and the spacing of bundled alert mails (0.5.2): what is queued is due. */
+    const pastBundling = () => {
+      clock = new Date(clock.getTime() + (ALERT_BUNDLE_SPACING_MINUTES + 1) * 60_000);
+    };
 
     beforeAll(async () => {
       const url = await recreateDatabase(testDatabaseAdminUrl as string, DATABASE);
@@ -444,7 +449,8 @@ describe.skipIf(!testDatabaseAdminUrl)(
         expect(held).toHaveLength(2);
         expect(held.every((row: ReportDelivery) => row.digest === "hourly")).toBe(true);
         expect(held[0]?.nextAttemptAt.toISOString()).toBe("2026-09-30T11:00:00.000Z");
-        // The others go at once.
+        // The others go at once, bundled after a few minutes.
+        pastBundling();
         await mod.dispatcher.dispatchOnce(deps());
         expect(notifier.sent.map((m) => m.to)).not.toContain("ops@contoso.example");
         expect(notifier.sent.map((m) => m.to)).toContain("adhoc@contoso.example");
@@ -484,8 +490,136 @@ describe.skipIf(!testDatabaseAdminUrl)(
       });
     });
 
+    describe("bundled alert mails (0.5.2)", () => {
+      const at = (time: string) => {
+        clock = new Date(`2026-09-30T${time}:00.000Z`);
+      };
+      const adhoc = () => notifier.sent.filter((mail) => mail.to === "adhoc@contoso.example");
+
+      it("holds alert mails for a few minutes and sends a wave as one", async () => {
+        for (const name of ["Site A", "Site B", "Site C"]) {
+          await raise("verify.red", { protectedObjectId: randomUUID(), objectName: name });
+        }
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toEqual([]);
+        // The webhook is not held: it gets every alert at once.
+        const hooks = (await rows()).filter((row: ReportDelivery) => row.channel === "webhook");
+        expect(hooks.map((row: ReportDelivery) => row.status)).toEqual(["sent", "sent", "sent"]);
+        at("10:19");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toEqual([]);
+        at("10:21");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toHaveLength(1);
+        expect(adhoc()[0]?.subject).toBe("[Contoso] Restore check failed: 3 objects");
+        for (const name of ["Site A", "Site B", "Site C"]) {
+          expect(adhoc()[0]?.text).toContain(name);
+        }
+        const sent = (await rows()).filter(
+          (row: ReportDelivery) => row.recipient === "adhoc@contoso.example",
+        );
+        expect(sent.map((row: ReportDelivery) => row.status)).toEqual(["sent", "sent", "sent"]);
+        expect(new Set(sent.map((row: ReportDelivery) => row.digestGroup)).size).toBe(1);
+      });
+
+      it("keeps the next mail to the same recipient for the spacing, then sends what came", async () => {
+        await raise("verify.red", { protectedObjectId: randomUUID(), objectName: "Site A" });
+        at("10:21");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toHaveLength(1);
+        at("10:25");
+        await raise("backup.failed", { protectedObjectId: randomUUID(), objectName: "Alice" });
+        at("10:40");
+        await raise("backup.failed", { protectedObjectId: randomUUID(), objectName: "Bob" });
+        at("10:46");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toHaveLength(1);
+        at("10:52");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toHaveLength(2);
+        expect(adhoc()[1]?.subject).toBe("[Contoso] Backup failed: 2 objects");
+        expect(adhoc()[1]?.text).toContain("Alice");
+        expect(adhoc()[1]?.text).toContain("Bob");
+      });
+
+      it("sends a lone alert as the ordinary alert mail", async () => {
+        await raise("backup.failed", { protectedObjectId: randomUUID(), objectName: "Alice" });
+        at("10:21");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toHaveLength(1);
+        expect(adhoc()[0]?.subject).toContain("Alice");
+        expect(adhoc()[0]?.subject).not.toContain("objects");
+      });
+
+      it("sends an urgent event at once and takes the waiting alerts along", async () => {
+        const [rule] = await owner.select().from(reportRules).where(eq(reportRules.name, "Errors"));
+        await owner
+          .update(reportRules)
+          .set({ events: [...(rule?.events ?? []), "backup.suspicious"] })
+          .where(eq(reportRules.name, "Errors"));
+        try {
+          await raise("verify.red", { protectedObjectId: randomUUID(), objectName: "Site A" });
+          at("10:16");
+          await raise("backup.suspicious", {
+            protectedObjectId: randomUUID(),
+            objectName: "File server",
+          });
+          await mod.dispatcher.dispatchOnce(deps());
+          expect(adhoc()).toHaveLength(1);
+          // The urgent one leads the subject, the restore check rides along.
+          expect(adhoc()[0]?.subject).toMatch(/^\[Contoso\] Suspicious backup/);
+          expect(adhoc()[0]?.text).toContain("File server");
+          expect(adhoc()[0]?.text).toContain("Site A");
+          // ... and it is not held by the spacing either.
+          at("10:17");
+          await raise("backup.suspicious", { protectedObjectId: randomUUID(), objectName: "NAS" });
+          await mod.dispatcher.dispatchOnce(deps());
+          expect(adhoc()).toHaveLength(2);
+          expect(adhoc()[1]?.subject).toContain("NAS");
+        } finally {
+          await owner
+            .update(reportRules)
+            .set({ events: rule?.events ?? [] })
+            .where(eq(reportRules.name, "Errors"));
+        }
+      });
+
+      it("sends a test from the rule editor at once", async () => {
+        await owner.insert(reportDeliveries).values({
+          tenantId: contoso,
+          ruleName: "Errors",
+          kind: "event",
+          event: "backup.failed",
+          payload: { event: "backup.failed", test: true, details: { objectName: "Test" } },
+          channel: "email",
+          recipient: "adhoc@contoso.example",
+          status: "pending",
+          nextAttemptAt: clock,
+          createdAt: clock,
+        });
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(adhoc()).toHaveLength(1);
+      });
+
+      it("bundles the provider's recipients across tenants as well", async () => {
+        await raise("verify.red", { protectedObjectId: randomUUID(), objectName: "Site A" });
+        await raise("verify.red", { protectedObjectId: randomUUID(), objectName: "Site B" });
+        await mod.fanout.fanOutOnce(providerDb, clock);
+        await mod.dispatcher.dispatchOnce(deps());
+        const olivia = () => notifier.sent.filter((mail) => mail.to === "olivia@msp.example");
+        expect(olivia()).toEqual([]);
+        at("10:21");
+        await mod.dispatcher.dispatchOnce(deps());
+        expect(olivia()).toHaveLength(1);
+        // The provider's mail speaks the installation's language.
+        expect(olivia()[0]?.subject).toBe("Restow: Restore-Prüfung nicht bestanden: 2 Objekte");
+        expect(olivia()[0]?.text).toContain("Contoso");
+      });
+    });
+
     describe("delivery failures", () => {
       async function dispatchAll() {
+        pastBundling();
         await mod.dispatcher.dispatchOnce(deps());
       }
 
@@ -811,7 +945,8 @@ describe.skipIf(!testDatabaseAdminUrl)(
           expect((await rows()).filter((row: ReportDelivery) => row.tenantId === null)).toEqual([]);
           // The tenant's own rules fail as until 0.4, without an alert about the transport.
           await owner.update(reportDeliveries).set({ attempts: MAX_REPORT_ATTEMPTS - 1 });
-          await mod.dispatcher.dispatchOnce(quiet);
+          pastBundling();
+          await mod.dispatcher.dispatchOnce({ ...quiet, now: () => clock });
           const failed = (await rows()).filter(
             (row: ReportDelivery) => row.channel === "email" && row.status === "failed",
           );

@@ -110,6 +110,7 @@
         "scripts/recovery-e2e/no-autoactivation.mjs",
         "scripts/recovery-e2e/run.mjs",
         "scripts/recovery-e2e/run.test.mjs",
+        "scripts/release/rebuild-iso.sh",
         "scripts/release/sign-agent.sh"
       ]
     }

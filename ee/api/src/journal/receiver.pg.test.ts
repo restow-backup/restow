@@ -392,8 +392,10 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
 
   it("archives a hostile report byte for byte, flagged, when its parse runs over the time limit", async () => {
     // The envelope text is quoted-printable made of soft line breaks, which mailparser up to 3.9.28
-    // decoded in time that grew with the square of its length (later versions are linear, but 24 MB
-    // still take seconds): seconds to minutes on the event loop before.
+    // decoded in time that grew with the square of its length: seconds to minutes on the event loop
+    // before. Later versions are linear, and 3.14.5 decodes these 24 MB in a few hundred
+    // milliseconds, so the limit here is far below that: what is proven is the path of a parse that
+    // runs over its limit, whichever parser version makes it slow.
     const hostile = reportWithEnvelope(
       ["Content-Type: text/plain", "Content-Transfer-Encoding: quoted-printable"],
       "=\r\n=3D".repeat(4_000_000),
@@ -401,7 +403,7 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
     const { value: result, ticks } = await ticking(() =>
       receiveJournalReport(tenantId, hostile, {
         ...hostileDeps("07"),
-        parseLimits: { timeoutMs: 1000 },
+        parseLimits: { timeoutMs: 50 },
       }),
     );
     const record = stored(result);

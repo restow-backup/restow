@@ -438,6 +438,27 @@ grep -qx 'systemctl mask serial-getty@ttyS0.service serial-getty@ttyS1.service >
   "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "no login prompt on the serial consoles"
 grep -q 'ssh_host_' "$WORK/config/hooks/live/9900-restow-clean.hook.chroot" && ok || fail "host keys removed"
 
+# efivarfs in the initramfs on every build host (mdadm's hook adds it only on a host started
+# with UEFI): after mdadm's hook, once, as the last line of conf/modules.
+efihook="$WORK/config/includes.chroot/etc/initramfs-tools/hooks/zz-restow-efivarfs"
+[ -x "$efihook" ] && ok || fail "the efivarfs initramfs hook is not executable"
+[ "$(sh "$efihook" prereqs)" = mdadm ] && ok || fail "the efivarfs hook runs after mdadm's"
+# shellcheck disable=SC2016 # the stub replaces the line that sources initramfs-tools
+sed 's#^\. /usr/share/initramfs-tools/hook-functions$#manual_add_modules() { echo "$1" >>"$DESTDIR/added"; }#' \
+  "$efihook" >"$tmp/efihook"
+grep -q '^manual_add_modules() {' "$tmp/efihook" && ok || fail "the efivarfs hook sources hook-functions differently"
+for case in 'raid1 efivarfs dm-mod|raid1 dm-mod efivarfs ' 'raid1 dm-mod|raid1 dm-mod efivarfs ' '|efivarfs '; do
+  before=${case%%|*}
+  rm -rf "$tmp/destdir"
+  mkdir -p "$tmp/destdir/conf"
+  for module in $before; do echo "$module" >>"$tmp/destdir/conf/modules"; done
+  DESTDIR="$tmp/destdir" sh "$tmp/efihook" && ok || fail "the efivarfs hook failed with: $before"
+  [ "$(tr '\n' ' ' <"$tmp/destdir/conf/modules")" = "${case#*|}" ] && ok ||
+    fail "conf/modules after the efivarfs hook ($before): $(tr '\n' ' ' <"$tmp/destdir/conf/modules")"
+  [ "$(cat "$tmp/destdir/added")" = efivarfs ] && ok || fail "the efivarfs hook adds the module"
+  [ -s "$tmp/destdir/etc/restow-efivarfs" ] && ok || fail "the efivarfs hook leaves its mark"
+done
+
 # --- the source bundle (sources.sh) -------------------------------------------------------------
 
 # The binaries of the lock are looked up in the archives the ISO installs from: main with

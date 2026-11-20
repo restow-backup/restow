@@ -89,6 +89,19 @@ export function deliveryModeFor(
   return completeDeliveryModes(modes)[severity];
 }
 
+/**
+ * Alert mails that go out at once are bundled per recipient (0.5.2): the first waits this long,
+ * so the alerts of one wave (a weekly restore check of every site, a storage outage) arrive in
+ * one mail instead of one each.
+ */
+export const ALERT_BUNDLE_HOLD_MINUTES = 5;
+
+/**
+ * After a bundled alert mail, the next one to the same recipient goes out this much later at the
+ * earliest, with every alert that came in meanwhile. Urgent events skip it (catalog.ts).
+ */
+export const ALERT_BUNDLE_SPACING_MINUTES = 30;
+
 const DAILY_DIGEST = parseCron("0 7 * * *");
 
 /**

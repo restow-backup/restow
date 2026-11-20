@@ -237,7 +237,7 @@ describe("ProviderNotificationsSection", () => {
       cell("Suspicious backup (signs of ransomware) for Ops")?.getAttribute("aria-checked"),
     ).toBe("false");
     expect(document.querySelector("[data-slot=critical-note]")?.textContent).toContain(
-      "Critical events always come at once",
+      "Critical events never wait for the hourly or daily digest",
     );
   });
 

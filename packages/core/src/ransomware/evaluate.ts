@@ -36,9 +36,22 @@ export function isSuspicionObjectKind(value: string): value is SuspicionObjectKi
 }
 
 /** The numbers of one backup run, as far as its kind has them (null: unknown). */
+/**
+ * What `itemsChanged` of a restic run counts: `content` the new files and the files with new
+ * content of the activity report (`restic diff`), `summary` restic's own summary, which also
+ * counts a file whose metadata alone changed (owner, mode, ctime: a `chown -R` over a data
+ * folder). Absent for the kinds without restic (VMs, mailboxes, OneDrive, SharePoint).
+ */
+export type ItemsBasis = "content" | "summary";
+
 export interface RunMetrics {
-  /** New plus changed files (mail and OneDrive: items written). */
+  /**
+   * New plus changed files (mail and OneDrive: items written). A restic run counts the files
+   * with new content when it has an activity report (`itemsBasis`).
+   */
   itemsChanged: number | null;
+  /** What `itemsChanged` counts; absent: the kind has one count only. */
+  itemsBasis?: ItemsBasis;
   /** Files (items) in the restore point. */
   itemsTotal: number | null;
   /** Bytes the run added to the repository. */
@@ -175,6 +188,25 @@ interface Judged {
   findings: SuspicionFinding[];
 }
 
+/**
+ * The runs a change rate is compared with. The file count compares like with like: a run that
+ * counted content changes with the earlier runs that did, a run with restic's summary only (no
+ * activity report: the diff failed, a first run after a gap) with the earlier summary runs, so
+ * neither a `chown -R` in the summary nor the lower content counts tip the other over. With too
+ * few runs of its own kind it takes every run, as before 0.5.1.
+ */
+function baselineRunsOf(
+  current: RunMetrics,
+  history: readonly RunMetrics[],
+  code: SuspicionFindingCode,
+  settings: RansomwareSettings,
+): readonly RunMetrics[] {
+  const recent = history.slice(0, settings.baselineRuns);
+  if (code !== "change_rate_items" || current.itemsBasis === undefined) return recent;
+  const same = recent.filter((m) => m.itemsBasis === current.itemsBasis);
+  return same.length >= settings.minBaselineRuns ? same : recent;
+}
+
 function changeRate(
   current: RunMetrics,
   history: readonly RunMetrics[],
@@ -200,8 +232,7 @@ function changeRate(
   ];
   for (const [code, value, pick, floor] of measures) {
     if (value === null) continue;
-    const past = history
-      .slice(0, settings.baselineRuns)
+    const past = baselineRunsOf(current, history, code, settings)
       .map(pick)
       .filter((v): v is number => v !== null);
     if (past.length < settings.minBaselineRuns) {

@@ -222,7 +222,13 @@ export function RestoreTimeline<T>({
         ref={scroller}
         aria-label={label}
         onKeyDown={onKeyDown}
-        className={cn("relative max-h-80 overflow-y-auto lg:max-h-[34rem]", className)}
+        // From lg on as tall as the window allows (what sits above the list: the page header,
+        // the card's title and the jump bar), at least 20rem; a fixed 34rem left a 1440p
+        // window half empty.
+        className={cn(
+          "relative max-h-80 overflow-y-auto lg:max-h-[max(20rem,calc(100dvh-22rem))]",
+          className,
+        )}
       >
         {days.map((day) => {
           const headingId = `${baseId}-heading-${day.key}`;

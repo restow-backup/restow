@@ -116,6 +116,194 @@ private repository.
     from the recovery environment's report; after a success a checklist of what remains outside
     the machine. The restart after the success can only be stopped at the machine's console.
 
+## [0.5.2] - 2026-11-20
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.2 bundles alert mails: a weekly restore check that rated dozens of SharePoint sites red
+sent one mail per site, now the alerts that come in close together arrive in one mail per
+recipient, at most one every 30 minutes; signs of an attack still go out at once. It also records
+which options a OneDrive or SharePoint delta link was asked with, so a later change of them reads
+the drive in full once instead of failing with 410 as 0.5.0 did, and tests the state a previous
+release stored. Dependencies are updated. No database migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
+
+### Changed
+
+- Alert mails are bundled per recipient: an alert mail that goes out at once (the recipient's mode
+  is "immediately", or the event is critical such as `verify.red`) waits five minutes, and the
+  next one to the same address at least 30 minutes after the last; then everything waiting for
+  that address goes out in one mail ("Restore check failed: 6 objects", with the list). A weekly
+  restore check that rated dozens of SharePoint sites red used to send one mail per site.
+  Signs of an attack (`backup.suspicious`, `endpoint.suspicious_snapshot`), the bare metal
+  recovery events, the freed disk reserve and failed deliveries still go out at once and take the
+  waiting alerts along. Webhooks, the bell and test sends are not held (docs/NOTIFICATIONS.md,
+  "Bundled alert mails").
+
+- Tests: the Graph fake refuses a drive delta link asked with other `Prefer` options than the
+  ones it was issued with, the way Graph does (410 `resyncRequired`, the `Location` refused
+  too); an `[upgrade]` test backs up a OneDrive the way 0.4.x did and then the way this release
+  does; `packages/core/src/graph/delta-options.test.ts` holds the options of every delta stream
+  with their version, so a change of them fails until it comes with a new version and an
+  upgrade test (docs/TESTING.md, "Regeln"). The OneDrive failure of 0.5.0 fails each of the
+  three.
+
+- Dependencies (Dependabot #108, #109, #110): better-auth and its passkey plugin 1.7.25, hono
+  4.13.19 and @hono/node-server 2.1.8, nodemailer 10.6.0, mailparser 3.14.5, smtp-server 3.21.6,
+  sanitize-html 2.18.2, @aws-sdk/client-s3 3.1170.0, @tanstack/react-query 5.107.1,
+  react-hook-form 7.92.0, react-resizable-panels 4.24.0, lucide-react 1.73.0, commander 15.1.0;
+  for the build vite 8.3.8, tailwindcss 4.3.5, @vitejs/plugin-react 6.3.0, biome 2.6.7; in CI
+  docker/login-action 4.8.0. The journal test of a report whose parse runs over its time limit
+  now sets a limit of 50 ms: mailparser 3.14.5 decodes its 24 MB in a few hundred
+  milliseconds.
+- Tests: the run drawer's test of the live channel no longer depends on the machine's speed (its
+  detail poll runs on a test clock).
+
+### Fixed
+
+- OneDrive and SharePoint libraries: a snapshot now records the version of the options its
+  delta link was asked with (`deltaVersion`, `DRIVE_DELTA_VERSION` = 2, the
+  `Prefer: deltashowsharingchanges` of 0.5.0). When a later release changes those options, the
+  next run reads the drive in full once instead of meeting a 410 first; snapshots of 0.5.0 and
+  0.5.1 count as version 2 and go on incrementally. Users, groups and mail folders: a delta whose
+  resync URL is refused as well now starts once more from the initial URL, as the drive delta
+  does since 0.5.1.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.1 stays. Pull the images of 0.5.2 and restart as for any update.
+
+- Alert mails that go out at once now arrive up to five minutes later than before, and at most one
+  every 30 minutes per recipient (docs/NOTIFICATIONS.md, "Bundled alert mails"). Webhooks and the
+  bell are unchanged. Hourly and daily digests are unchanged.
+- OneDrive and SharePoint libraries go on incrementally: the snapshots of 0.5.0 and 0.5.1 count as
+  the current delta options.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these changes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.2: the full test suite of the API against PostgreSQL 16 on the
+alert bundling branch (4658), among them six new tests of bundled alert mails and two of the
+bundle's mail text; the tests of the reports, updates and provider notifications of the API on
+this branch (444); the Graph, OneDrive and report tests of `@restow/core` (293); the journal receiver tests of `ee/api` with mailparser 3.14.5, five runs in a row;
+the install script's test (790); the release check (`scripts/ci/check-release.mjs --tag
+v0.5.2`); the web tests (5103), among them the run drawer's test of the live channel, which
+failed on busy machines when the drawer's 4 s poll fell into it and now keeps that interval on a
+clock of its own (with a 4.5 s wait it fails as in CI without the change, and passes with it).
+
+## [0.5.1] - 2026-11-20
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.1 is a hotfix of 0.5.0: after the update to 0.5.0 every backup of a OneDrive or a
+SharePoint library failed with "410 (resyncRequired)", and this release fixes it. It also stops a
+`chown -R` over a data folder from raising "Suspicious backup", lets the file restore columns use
+the full height of a tall window, and keeps the release text within GitHub's limit. No database
+migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- OneDrive and SharePoint libraries: every backup after the update to 0.5.0 failed with "Graph
+  GET …/root/delta?… failed with 410 (resyncRequired)". 0.5.0 asks every delta page for sharing
+  changes (`Prefer: deltashowsharingchanges`); Graph refuses a delta link stored without that
+  header, and the resync URL it names in the 410's `Location` as well. The walk gave up after
+  that second 410 and kept the old link, so each run failed the same way. It now starts once more
+  from the plain delta URL, which carries no token Graph could refuse: the first run after the
+  update reads the drive in full, the next ones continue with a link that asks for sharing
+  changes. Until then, "Back up now › Full backup" on an affected OneDrive or library gets past
+  it (a run still retrying from a checkpoint is cancelled first).
+- Ransomware signals: the amount of change of a machine, a file share or a Proxmox VE container
+  counted every file restic's summary called changed, also files whose owner, mode or ctime alone
+  changed. A deploy that ran `chown -R` over 2,500 unchanged documents raised "Suspicious backup"
+  with 2,867 new or changed files where the activity report of the same run had 11. The file
+  count now takes the new files and the files with new content of the activity report
+  (`restic diff`), and restic's summary only where a run has no report; a count is compared with
+  the object's earlier counts of the same kind (docs/RANSOMWARE.md, "Signals per kind of
+  object"). Earlier runs are counted the same way when they serve as the baseline, so no
+  migration is needed. Bytes added and the other signals are unchanged.
+- Release: the publish job of 0.5.0 stopped at GitHub's limit for a release text (125,000
+  characters; the notes had 264,000) after everything else was done, and the release was
+  published by hand with shortened notes. `scripts/ci/release-notes.mjs --max-chars` now points
+  to CHANGELOG.md at the tag for the longest sections, never Summary, Breaking Changes, Security,
+  Upgrade Notes, Known Issues or Verification, until the notes fit with room for the workflow's
+  own part (images, digests, the `released:` line the updater reads); the workflow checks the
+  final length before it signs the checksums.
+- File restore and the restore points of a machine, a container or a file share: the list of
+  machines stopped at 40rem and the list of restore points at 34rem, so on a tall window (1440p)
+  both scrolled with half the window empty below them. From `xl` (machines) and `lg` (restore
+  points) on they now reach down to the window's bottom edge like the folder list beside them,
+  at least 24rem and 20rem; on narrower windows, where the columns stack, they stay as short as
+  before.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.0 stays. Pull the images of 0.5.1 and restart as for any update.
+
+- The first backup of each OneDrive and SharePoint library after the update reads the drive in
+  full, once (the stored delta link of 0.4.x cannot be used with 0.5.0's request for sharing
+  changes). It takes longer than an incremental run; deduplication keeps the storage it adds
+  small. The runs after it are incremental again.
+- A "Suspicious backup" that 0.5.0 raised for a change of owner or mode alone stays as it is:
+  check it as the alert says and mark it as a false alarm, which releases the retention hold.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these fixes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.1: the OneDrive and Graph tests of `@restow/core` (228), among
+them two new ones that replay a stored link and its resync URL both refused with 410 and fail
+with the fix taken out; the ransomware tests of `@restow/core` (46) and the suspicion tests of
+the worker against PostgreSQL 16 (22); the web tests of machines, restores and the kit (834)
+and the web build; the CI script tests (198) and the install script's test (790); the release
+check (`scripts/ci/check-release.mjs --tag v0.5.1`). The CI ran green on each of the four
+branches merged here.
+
 ## [0.5.0] - 2026-11-18
 
 Beta release. Run it alongside your existing backups, not as your only one, until
@@ -1389,6 +1577,11 @@ Breaking Changes and Upgrade Notes before you update.
 
 ### Fixed
 
+- Release build: the image build checked the signed agent (`agent/prebuilt`) against the whole
+  signed `SHA256SUMS`, whose line of the recovery ISO names no file of the image, and stopped
+  there. Every other file is still checked against it. The recovery ISO is now built the same on
+  a host started with UEFI and one started with BIOS (mdadm's initramfs hook adds `efivarfs` only
+  on the former; `integrations/recovery/README.md`, "Reproducible build").
 - Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
   ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
   taint mode, and the storage plugin handed the archive directory from restow-pve to

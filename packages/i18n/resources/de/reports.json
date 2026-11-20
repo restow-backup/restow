@@ -943,12 +943,18 @@
     "tenantHeading": "{tenant}",
     "hourly": "Stündliche Sammelmail",
     "daily": "Tägliche Sammelmail",
-    "footer": "Sie erhalten diese Sammelmail, weil Ihre Benachrichtigungseinstellungen in {appName} diese Benachrichtigungen sammeln. Kritische Ereignisse werden immer sofort gesendet.",
+    "bundle": "Sammelmail",
+    "footer": "Sie erhalten diese Sammelmail, weil Ihre Benachrichtigungseinstellungen in {appName} diese Benachrichtigungen sammeln. Kritische Ereignisse warten nie auf diese Sammelmail.",
+    "bundleFooter": "Alarme, die kurz nacheinander eintreffen, fasst {appName} zu einer Mail zusammen: Die erste wartet fünf Minuten, danach kommt höchstens alle {minutes} Minuten eine. Hinweise auf einen Angriff gehen sofort hinaus.",
     "level": {
       "error": "Fehler",
       "warning": "Warnung",
       "info": "Hinweis"
-    }
+    },
+    "bundleSubject": "{summary}",
+    "bundleSubjectProvider": "{appName}: {summary}",
+    "bundleSummary": "{event}: {count, plural, one {# Objekt} other {# Objekte}}",
+    "bundleSummaryMixed": "{event}: {count, plural, one {# Objekt} other {# Objekte}} und weitere Alarme"
   },
   "customer": {
     "title": "Monatsbericht",

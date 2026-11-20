@@ -60,6 +60,7 @@ import {
 import type { DriveSourceProbe } from "./source.js";
 import {
   checkpointState,
+  DRIVE_DELTA_VERSION,
   ENGINE_NAME,
   type OneDriveCursor,
   type OneDriveManifestState,
@@ -747,6 +748,7 @@ export class DriveBackupRun {
       driveId: this.driveId,
       rootId: this.tree.rootId,
       deltaLink: outcome.deltaLink,
+      deltaVersion: DRIVE_DELTA_VERSION,
       mode: outcome.mode,
       retry: [...this.retryIds],
       fullResyncRequired: this.retryOverflow,

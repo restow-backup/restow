@@ -280,6 +280,76 @@ export function buildReleaseNotes({ version, section, smokeSummary, date, channe
   return `${header}${body}\n`;
 }
 
+/** GitHub takes no release text longer than this (characters). */
+export const GITHUB_RELEASE_BODY_MAX = 125_000;
+
+/** Sections a release text never shortens: what an operator must read before the update. */
+const KEPT_SECTIONS = new Set([
+  "Summary",
+  "Breaking Changes",
+  "Security",
+  "Upgrade Notes",
+  "Known Issues",
+  "Verification",
+]);
+
+/**
+ * Release notes that fit `maxChars` (characters, as GitHub counts them): when `notes` is longer,
+ * the longest sections other than {@link KEPT_SECTIONS} become one line that points to the
+ * section in CHANGELOG.md at `changelogUrl`, longest first, until the text fits. 0.5.0's notes had
+ * 264,000 characters and the publish job stopped at GitHub's limit. Returns `{ notes, shortened }`
+ * (the titles replaced) or throws when even that is not enough.
+ */
+export function fitReleaseNotes(notes, { maxChars, changelogUrl }) {
+  const length = (text) => [...text].length;
+  if (length(notes) <= maxChars) {
+    return { notes, shortened: [] };
+  }
+  const lines = notes.split("\n");
+  const starts = lines
+    .map((line, index) => (/^### (.+?)\s*$/.test(line) ? index : -1))
+    .filter((index) => index >= 0);
+  const sections = starts.map((from, i) => {
+    const to = i + 1 < starts.length ? starts[i + 1] : lines.length;
+    const title = /^### (.+?)\s*$/.exec(lines[from])[1];
+    return { title, from, to, size: length(lines.slice(from, to).join("\n")) };
+  });
+  const candidates = sections
+    .filter((section) => !KEPT_SECTIONS.has(section.title))
+    .sort((a, b) => b.size - a.size);
+  const replaced = new Set();
+  const render = () => {
+    const out = [];
+    let index = 0;
+    for (const section of sections) {
+      out.push(...lines.slice(index, section.from));
+      if (replaced.has(section.title)) {
+        out.push(
+          lines[section.from],
+          "",
+          `The full list is too long for a GitHub release (its text takes at most ${GITHUB_RELEASE_BODY_MAX.toLocaleString("en-US")} characters): see the section "${section.title}" in [CHANGELOG.md](${changelogUrl}) at the tag.`,
+          "",
+        );
+      } else {
+        out.push(...lines.slice(section.from, section.to));
+      }
+      index = section.to;
+    }
+    out.push(...lines.slice(index));
+    return out.join("\n");
+  };
+  for (const section of candidates) {
+    replaced.add(section.title);
+    const fitted = render();
+    if (length(fitted) <= maxChars) {
+      return { notes: fitted, shortened: [...replaced] };
+    }
+  }
+  throw new Error(
+    `the release notes have ${length(render())} characters with every long section shortened, more than ${maxChars}`,
+  );
+}
+
 function compareVersions(left, right) {
   return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
 }
