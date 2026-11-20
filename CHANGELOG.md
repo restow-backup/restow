@@ -8,12 +8,29 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [Unreleased]
+## [0.5.3-rc.1] - 2026-11-20
+
+Pre-release for testing on real machines. Not for production; the stable release is 0.5.2.
+
+### Summary
+
+Restow 0.5.3-rc.1 brings bare metal recovery onto a fresh machine without the recovery ISO: a
+command run in a root shell of a new server (for example a rented one that cannot start an ISO)
+switches it into the recovery environment, after a release in the web interface, and restores
+the whole machine there. It is a preview, off unless `RESTOW_BAREMETAL_PREVIEW` and the new
+`RESTOW_BAREMETAL_ONESHOT` are both `true`; this pre-release is for the tests on real hardware
+(UEFI and BIOS) before 0.5.3. One database migration adds a column; nothing else changes for an
+installation that leaves the switch off.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
 
 ### Added
 
-- Bare metal onto a fresh machine without ISO (docs/BAREMETAL-ONESHOT.md, 0.5.1), first stages;
-  not usable yet and hidden until the web interface follows.
+- Bare metal onto a fresh machine without ISO (docs/BAREMETAL-ONESHOT.md), a preview behind
+  `RESTOW_BAREMETAL_PREVIEW` and `RESTOW_BAREMETAL_ONESHOT` (both off by default); in the
+  bare metal wizard of a machine, "Onto a fresh machine (link)". Built in these stages:
   - O1: the recovery ISO starts without its medium, the way the command on a fresh machine will
     start it with kexec: the ISO's kernel, its initrd with the live file system and the session
     data appended as one uncompressed archive, and `live-media=/restow/medium`. A new script in
@@ -124,6 +141,54 @@ private repository.
     (off) and the six-digit match number, required. The session's steps count as started only
     from the recovery environment's report; after a success a checklist of what remains outside
     the machine. The restart after the success can only be stopped at the machine's console.
+
+### Changed
+
+- Tests: the end-to-end source machines of Ubuntu install `linux-image-virtual` with
+  `linux-modules-extra` for the newest kernel instead of `linux-image-generic`, and debootstrap
+  gives up a download that brings nothing for 60 seconds and tries again: the 475 MB of
+  `linux-firmware` from a slow mirror held E2 and P2 until their time limit.
+
+### Fixed
+
+- The restore timeline's "Jump to date" now gives the focus to the entry it found every time:
+  the entry took the focus in a frame of its own while the closing calendar handed it back to its
+  button in a timer, and whichever ran last won (under load, the button).
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images, a new agent and a new recovery ISO. One database migration (0105) adds the recovery
+kind `oneshot` and a nullable column `endpoint_recoveries.oneshot` without a default, so no
+table is rewritten. New optional variable `RESTOW_BAREMETAL_ONESHOT` (api, empty = off);
+the `docker-compose.yml` of 0.5.2 stays.
+
+- This is a pre-release: the updater offers it only on the update channel `beta` (`stable` leaves
+  it out), and its images carry only the tag `0.5.3-rc.1`, not `beta`.
+- The command on a fresh machine downloads the agent of this release from the instance; the
+  agents of existing machines need no update for anything else in this release.
+
+### Known Issues
+
+- The command on a fresh machine has run end to end only in QEMU (O-E1: Ubuntu 24.04 with LUKS2
+  and LVM onto a UEFI machine with a /32 and an on-link gateway; O-E2: Debian 12 with md RAID1
+  onto a BIOS machine with two disks and DHCP). Real providers and real hardware are what this
+  pre-release is for (docs/BAREMETAL-ONESHOT.md 19.4).
+- The cases O-E3 to O-E6 are defined but not run yet.
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on wip/053-oneshot (CI run 44808973282, workflow_dispatch, all recovery jobs):
+the recovery ISO built twice and bit for bit equal; the end-to-end cases E1, E2, P1, P2, O-E1
+and O-E2 in QEMU/KVM passed. O-E1 and O-E2 run the command as the web interface shows it on a
+Debian 12 cloud image, release the session over the API with its match code, and boot the
+restored disks on the fresh machine; their first runs found that `oneshot.sh` handed curl the
+target file as a second URL, so every download failed, fixed in this release. The installer
+test (790) on release/0.5.3.
 
 ## [0.5.2] - 2026-11-20
 
