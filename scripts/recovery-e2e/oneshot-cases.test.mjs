@@ -26,6 +26,16 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 
 describe("oneshot cases (docs/BAREMETAL-ONESHOT.md 19.3)", () => {
+  it("gives every disk a serial QEMU takes (apps/worker/src/lab/qemu.ts SERIAL)", () => {
+    const source = readFileSync(join(repo, "apps/worker/src/lab/qemu.ts"), "utf8");
+    const rule = new RegExp(/const SERIAL = \/(.+)\/;/.exec(source)[1]);
+    for (const testCase of ONESHOT_CASES) {
+      for (const disk of testCase.fresh.disks) {
+        assert.match(disk.serial, rule, `${testCase.id} ${disk.serial}`);
+      }
+    }
+  });
+
   it("has the six cases of the design, O-E1 and O-E2 per pull request", () => {
     assert.deepEqual(
       ONESHOT_CASES.map((item) => item.id),

@@ -80,7 +80,7 @@ export const ONESHOT_CASES = Object.freeze([
     fresh: {
       image: "debian12-genericcloud",
       firmware: "uefi",
-      disks: [{ serial: "restow-oneshot-target0", size: GiB(24), bus: "scsi" }],
+      disks: [{ serial: "restow-os-target0", size: GiB(24), bus: "scsi" }],
       network: HETZNER_LIKE,
     },
     release: { decision: "approve", networkMode: "takeover", remoteAccess: false },
@@ -105,8 +105,8 @@ export const ONESHOT_CASES = Object.freeze([
       // Two disks: a oneshot restore maps the disks itself, and a disk of the backup it cannot
       // place fails the plan (the ISO case E1 names the missing one in its answers instead).
       disks: [
-        { serial: "restow-oneshot-target0", size: GiB(12), bus: "virtio" },
-        { serial: "restow-oneshot-target1", size: GiB(12), bus: "virtio" },
+        { serial: "restow-os-target0", size: GiB(12), bus: "virtio" },
+        { serial: "restow-os-target1", size: GiB(12), bus: "virtio" },
       ],
       network: { kind: "dhcp" },
     },
@@ -123,7 +123,7 @@ export const ONESHOT_CASES = Object.freeze([
     fresh: {
       image: "ubuntu2404-cloud",
       firmware: "uefi-sb",
-      disks: [{ serial: "restow-oneshot-target0", size: GiB(24), bus: "virtio" }],
+      disks: [{ serial: "restow-os-target0", size: GiB(24), bus: "virtio" }],
       network: { kind: "dhcp" },
     },
     // No release: the command ends before it asks for one.
@@ -153,7 +153,7 @@ export const ONESHOT_CASES = Object.freeze([
     fresh: {
       image: "debian12-genericcloud",
       firmware: "bios",
-      disks: [{ serial: "restow-oneshot-target0", size: GiB(16), bus: "virtio" }],
+      disks: [{ serial: "restow-os-target0", size: GiB(16), bus: "virtio" }],
       network: HETZNER_LIKE,
     },
     release: { decision: "approve", networkMode: "takeover", remoteAccess: false },
@@ -169,7 +169,7 @@ export const ONESHOT_CASES = Object.freeze([
     fresh: {
       image: "debian12-genericcloud",
       firmware: "uefi",
-      disks: [{ serial: "restow-oneshot-target0", size: GiB(24), bus: "scsi" }],
+      disks: [{ serial: "restow-os-target0", size: GiB(24), bus: "scsi" }],
       network: HETZNER_LIKE,
     },
     release: { decision: "reject" },
@@ -190,7 +190,7 @@ export const ONESHOT_CASES = Object.freeze([
     fresh: {
       image: "rescue-iso",
       firmware: "bios",
-      disks: [{ serial: "restow-oneshot-target0", size: GiB(12), bus: "virtio" }],
+      disks: [{ serial: "restow-os-target0", size: GiB(12), bus: "virtio" }],
       network: { kind: "dhcp" },
       rescue: true,
     },
