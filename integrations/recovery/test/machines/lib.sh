@@ -168,6 +168,14 @@ install_e2e_units() {
   cat >"$root/usr/local/sbin/restow-e2e-boot" <<'SCRIPT'
 #!/bin/sh
 sum=$(sha256sum /var/lib/restow-e2e/marker | cut -d ' ' -f 1)
+# What a restore onto a fresh machine did to the network (scripts/recovery-e2e oneshot cases):
+# whether the old configuration was put aside, and the static IPv4 addresses the active one has.
+before=no
+[ -d /etc/restow/network-before-restore ] && before=yes
+static=$(cat /etc/netplan/*.yaml /etc/systemd/network/*.network /etc/network/interfaces \
+  /etc/network/interfaces.d/* 2>/dev/null |
+  grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}' | sort -u | tr '\n' ' ')
+printf 'E2E-NET before=%s static=%s\n' "$before" "${static:-none}" >/dev/ttyS0
 printf 'E2E-BOOT %s %s\n' "$(cat /etc/hostname)" "$sum" >/dev/ttyS0
 SCRIPT
   cat >"$root/usr/local/sbin/restow-e2e-enroll" <<'SCRIPT'

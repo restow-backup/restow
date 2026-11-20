@@ -15,12 +15,17 @@
  *   5. boot the restored disks on another controller and expect
  *      "E2E-BOOT <hostname> <sha256 of the marker>" on the serial console.
  *
+ * The oneshot cases (O-E1, O-E2; oneshot-cases.mjs, docs/BAREMETAL-ONESHOT.md 19.3) replace 4
+ * and 5 with a fresh machine from a pinned cloud image that runs the command of the restore onto
+ * a fresh machine itself (cloud-init), the release over the API with the match code, and the
+ * restored disks booted with the fresh machine's MAC (runOneshotCase).
+ *
  * The boot probe cases (P1 to P3, cases.mjs) replace 4 and 5 with the recovery lab: its
  * container (the image of this checkout, Dockerfile target lab) runs next to the test instance
  * with /dev/kvm, "Probe now" plans the probe, and the machine's bare metal state and its newest
  * probe report must say what the case expects (docs/BAREMETAL.md 12.3).
  *
- *   node scripts/recovery-e2e/run.mjs --iso <iso> --agent-dist <dir> [--cases per-pr|nightly|all|E1,E2]
+ *   node scripts/recovery-e2e/run.mjs --iso <iso> --agent-dist <dir> [--cases per-pr|nightly|all|E1,E2|O-E1]
  *
  * Needs KVM, qemu-system-x86_64, qemu-img, OVMF and virt-fw-vars (python3-virt-firmware),
  * Docker with compose, ssh-keygen and Node 22. See --help.
@@ -31,14 +36,18 @@ import {
   chmodSync,
   copyFileSync,
   cpSync,
+  createWriteStream,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { connect } from "node:tls";
 import { fileURLToPath } from "node:url";
@@ -59,6 +68,15 @@ import {
   typeSerial,
   waitForSerial,
 } from "./lib/qemu.mjs";
+import {
+  FRESH_MAC,
+  freshSeed,
+  judgeOneshot,
+  netEvidence,
+  oneshotAnswers,
+  releaseBody,
+  selectOneshotCases,
+} from "./oneshot-cases.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const FACTORY = join(repoRoot, "integrations/recovery/test/machines");
@@ -136,8 +154,25 @@ export function parseArgs(argv) {
     options.version ??= versionOfIso(options.iso);
   }
   // Fails early on a typo in --cases.
-  options.selected = options.help || options.pinImages ? [] : selectCases(options.cases);
+  options.selected = options.help || options.pinImages ? [] : selectRunCases(options.cases);
   return options;
+}
+
+/**
+ * The cases of --cases: the ISO and probe cases of cases.mjs (per-pr, nightly, all or ids), and
+ * oneshot cases by their ids (O-E1, ...), which none of the keywords selects yet.
+ */
+export function selectRunCases(filter) {
+  const ids = (filter ?? "per-pr")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const oneshot = ids.filter((id) => /^o-e\d/i.test(id));
+  const rest = ids.filter((id) => !/^o-e\d/i.test(id));
+  return [
+    ...(rest.length > 0 || oneshot.length === 0 ? selectCases(rest.join(",") || filter) : []),
+    ...(oneshot.length > 0 ? selectOneshotCases(oneshot.join(",")) : []),
+  ];
 }
 
 /** The version in restow-recovery_<v>_amd64.iso. */
@@ -535,8 +570,13 @@ export function e2eOverlay(agentDir, isoDir, version) {
     "  api:",
     "    environment:",
     `      RESTIC_BINARY: ${restic}`,
+    // A oneshot session fetches the ISO from the api (recovery-oneshot.ts, oneshotIso): the same
+    // drop folder, or the exchange offers none and the command ends with oneshot.no_iso.
+    "      RESTOW_RECOVERY_ISO_DIR: /srv/recovery-iso",
+    '      RESTOW_RECOVERY_ISO_FETCH: "false"',
     "    volumes:",
     `      - ${agentDir}:/srv/agent:ro`,
+    `      - ${isoDir}:/srv/recovery-iso:ro`,
     "  worker:",
     "    environment:",
     `      RESTIC_BINARY: ${restic}`,
@@ -593,6 +633,8 @@ async function startInstance(options, workDir, agentDir) {
     RESTOW_APP_DOMAIN: host,
     RESTOW_EDGE_TLS: "internal",
     RESTOW_BAREMETAL_PREVIEW: "true",
+    // The restore onto a fresh machine (oneshot cases); its routes are off without it.
+    RESTOW_BAREMETAL_ONESHOT: "true",
     ...lab,
     ...(options.image ? { RESTOW_IMAGE: options.image, RESTOW_UPDATER_IMAGE: options.image } : {}),
     ...(options.webImage ? { RESTOW_WEB_IMAGE: options.webImage } : {}),
@@ -1411,8 +1453,248 @@ async function runProbeCase(testCase, context) {
   return { id: testCase.id, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
+/** The line recover shows once the restore is written and the disks are closed (oneshot). */
+export const ONESHOT_REBOOT_COUNTDOWN =
+  /The restored system starts in \d+ seconds|Das wiederhergestellte System startet in \d+ Sekunden/;
+
+/**
+ * A cloud image of images.json in the run's folder, checked against its pinned SHA-256 (a null
+ * hash is refused: `--pin-images` and the maintainer's comparison with the distribution's
+ * checksum file come first).
+ */
+async function cloudImage(name, workDir) {
+  const images = JSON.parse(readFileSync(new URL("./images.json", import.meta.url), "utf8"));
+  const image = images[name];
+  if (!image?.sha256) throw new Error(`${name}: no pinned image in images.json`);
+  const file = join(workDir, "images", `${name}.qcow2`);
+  if (existsSync(file) && sha256File(file) === image.sha256) return file;
+  mkdirSync(dirname(file), { recursive: true });
+  const response = await fetch(image.url);
+  if (!response.ok || !response.body) throw new Error(`${image.url}: ${response.status}`);
+  const part = `${file}.part`;
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(part));
+  const hash = sha256File(part);
+  if (hash !== image.sha256) {
+    rmSync(part, { force: true });
+    throw new Error(`${name}: ${image.url} has SHA-256 ${hash}, images.json pins ${image.sha256}`);
+  }
+  renameSync(part, file);
+  return file;
+}
+
+/**
+ * A restore onto a fresh machine (oneshot-cases.mjs): the source case's machine is built and
+ * backed up as for the ISO cases; a oneshot code is issued; a fresh machine starts from the
+ * pinned cloud image (its first disk an overlay of it) with a NoCloud seed that runs the
+ * command; once the command has redeemed the code and loaded the recovery kernel on trial
+ * (checks.kexec "ok"), the session is released with the match code the API shows; the restore
+ * runs in the same machine after the switch; once recover counts down to the restart, the
+ * restored disks boot anew with the fresh machine's MAC and firmware variables, and the source's
+ * marker and its E2E-NET line judge the result.
+ */
+async function runOneshotCase(testCase, context) {
+  const started = Date.now();
+  const sourceCase = CASES.find((item) => item.id === testCase.source.case);
+  if (!sourceCase) throw new Error(`${testCase.id}: only sources of cases.mjs run so far`);
+  context.passphrase = sourceCase.source.passphrase
+    ? `e2e-${randomBytes(9).toString("hex")}`
+    : undefined;
+  const source = await sourceMachine(sourceCase, context);
+  const dir = join(context.workDir, testCase.id);
+  mkdirSync(dir, { recursive: true });
+  const tenantId = context.tenantId;
+  const issued = await (await api(context)).post(
+    `/api/v1/endpoints/${source.endpoint.id}/recovery-codes`,
+    { kind: "oneshot", validityHours: 4, snapshotId: source.snapshotId },
+    { tenantId },
+  );
+  const recoveryPath = `/api/v1/endpoints/${source.endpoint.id}/recoveries/${issued.id}`;
+  const firmware = testCase.fresh.firmware;
+  const base = await cloudImage(testCase.fresh.image, context.workDir);
+  const disks = testCase.fresh.disks.map((disk) => ({
+    ...disk,
+    file: join(dir, `${disk.serial}.qcow2`),
+  }));
+  for (const [index, disk] of disks.entries()) {
+    if (index === 0) {
+      // The fresh machine's system disk: the cloud image, grown to the case's size.
+      await runAsync("qemu-img", [
+        "create",
+        "-q",
+        "-f",
+        "qcow2",
+        "-F",
+        "qcow2",
+        "-b",
+        base,
+        disk.file,
+        disk.size,
+      ]);
+    } else {
+      await createDisk(runAsync, disk.file, disk.size);
+    }
+  }
+  const varsFile = firmware === "bios" ? undefined : join(dir, "fresh-vars.fd");
+  if (varsFile) await createVars(runAsync, varsFile, firmware, context.dbx);
+  const seedDir = join(dir, "seed");
+  const seed = join(dir, "seed.iso");
+  mkdirSync(seedDir, { recursive: true, mode: 0o700 });
+  try {
+    const files = freshSeed(testCase, {
+      instanceUrl: context.instanceUrl,
+      code: issued.code,
+      caPem: readFileSync(context.caFile, "utf8"),
+      sumsSha256: context.sumsSha256,
+      answers: oneshotAnswers(testCase, { passphrase: context.passphrase }),
+    });
+    for (const [name, content] of Object.entries(files)) {
+      writeFileSync(join(seedDir, name), content, { mode: 0o600 });
+    }
+    sh("xorriso", [
+      "-as",
+      "mkisofs",
+      "-quiet",
+      "-o",
+      seed,
+      "-V",
+      "cidata",
+      "-J",
+      "-r",
+      ...Object.keys(files).map((name) => join(seedDir, name)),
+    ]);
+  } finally {
+    rmSync(seedDir, { recursive: true, force: true });
+  }
+  const log = join(dir, "fresh.log");
+  const fresh = launch({
+    name: `${testCase.id}-fresh`,
+    firmware,
+    varsFile,
+    disks,
+    extraDisks: [seed],
+    serialLog: log,
+    qmpSocket: join(dir, "fresh.qmp"),
+    mac: FRESH_MAC,
+  });
+  let freshEnded = null;
+  fresh.exited.then((code) => {
+    freshEnded = code;
+  });
+  const console_ = () => (existsSync(log) ? readFileSync(log, "utf8") : "");
+  const commandEnded = () => {
+    const ended = /E2E-ONESHOT-EXIT (\d+)/.exec(console_());
+    if (ended) {
+      const tail = console_().split("\n").slice(-40).join("\n");
+      throw new Error(`${testCase.id}: the command ended with exit code ${ended[1]}:\n${tail}`);
+    }
+    if (freshEnded !== null) {
+      throw new Error(`${testCase.id}: the fresh machine's QEMU ended (${freshEnded})`);
+    }
+  };
+  const client = await api(context);
+  let final;
+  try {
+    const waiting = await waitUntil(
+      "the command to redeem the code and load the recovery kernel on trial",
+      async () => {
+        commandEnded();
+        const recovery = await client.get(recoveryPath, { tenantId });
+        if (isFinal(recovery.status)) {
+          throw new Error(
+            `${testCase.id}: the session ended as ${recovery.status} before its release`,
+          );
+        }
+        const checks = recovery.oneshot?.reported?.checks;
+        if (checks?.kexec === "failed") {
+          throw new Error(
+            `${testCase.id}: the test load failed: ${checks.kexecError ?? "no reason"}`,
+          );
+        }
+        return recovery.status === "pending_approval" && checks?.kexec === "ok" ? recovery : null;
+      },
+      { timeoutMs: 30 * 60_000, intervalMs: 10_000 },
+    );
+    console.log(
+      `${testCase.id}: the command waits for the release (match code ${waiting.matchCode}, mode ${waiting.oneshot?.reported?.checks?.mode ?? "?"})`,
+    );
+    // Releasing needs a sign-in from the last 10 minutes (assertRecentSignIn).
+    await (await api(context)).post(
+      `${recoveryPath}/approve`,
+      releaseBody(testCase, waiting.matchCode),
+      { tenantId },
+    );
+    final = await waitUntil(
+      "the end of the recovery",
+      async () => {
+        const recovery = await client.get(recoveryPath, { tenantId });
+        if (isFinal(recovery.status)) return recovery;
+        if (freshEnded !== null) {
+          throw new Error(
+            `${testCase.id}: the fresh machine's QEMU ended (${freshEnded}) during the restore`,
+          );
+        }
+        return null;
+      },
+      { timeoutMs: 3 * 60 * 60_000, intervalMs: 15_000 },
+    );
+    const diagnosis = await recoveryDiagnosis(client, tenantId, recoveryPath).catch(
+      (error) => `no diagnosis (${error.message})`,
+    );
+    writeFileSync(join(dir, `recovery-${issued.id}.log`), `${diagnosis}\n`);
+    if (final.status !== testCase.expect.result) {
+      throw new Error(
+        `${testCase.id}: the recovery ended ${final.status}: ${diagnosis.split("\n").slice(-60).join("\n")}`,
+      );
+    }
+    if (final.verification?.format !== "restow-verify-v1") {
+      throw new Error(`${testCase.id}: recover sent no verification report`);
+    }
+    // recover posts the end before it flushes and closes the disks; its countdown to the
+    // restart comes after that.
+    await waitForSerial(log, ONESHOT_REBOOT_COUNTDOWN, { timeoutMs: 10 * 60_000, machine: fresh });
+  } finally {
+    await qmp(join(dir, "fresh.qmp"), "quit").catch(() => undefined);
+    fresh.child.kill("SIGKILL");
+    rmSync(seed, { force: true });
+  }
+  const restoredLog = join(dir, "restored.log");
+  const machine = launch({
+    name: `${testCase.id}-restored`,
+    firmware,
+    varsFile,
+    disks: firmware === "bios" ? withBiosBootDisk(disks, final.verification) : disks,
+    serialLog: restoredLog,
+    serialSocket: join(dir, "restored-serial.sock"),
+    qmpSocket: join(dir, "restored.qmp"),
+    mac: FRESH_MAC,
+  });
+  try {
+    const pattern = bootPattern(source.hostname, source.markerSha256);
+    if (needsPassphraseAtBoot(sourceCase.source)) {
+      await bootThroughPassphrase({
+        id: `${testCase.id} restored`,
+        log: restoredLog,
+        serialSocket: join(dir, "restored-serial.sock"),
+        qmpSocket: join(dir, "restored.qmp"),
+        machine,
+        passphrase: context.passphrase,
+        pattern,
+      });
+    } else {
+      await waitForSerial(restoredLog, pattern, { timeoutMs: 15 * 60_000, machine });
+    }
+  } finally {
+    await qmp(join(dir, "restored.qmp"), "quit").catch(() => undefined);
+    machine.child.kill("SIGKILL");
+  }
+  const failures = judgeOneshot(testCase, netEvidence(readFileSync(restoredLog, "utf8")));
+  if (failures.length > 0) throw new Error(`${testCase.id}: ${failures.join("; ")}`);
+  return { id: testCase.id, seconds: Math.round((Date.now() - started) / 1000) };
+}
+
 async function runCase(testCase, context) {
   if (testCase.probe) return runProbeCase(testCase, context);
+  if (testCase.fresh) return runOneshotCase(testCase, context);
   const started = Date.now();
   context.passphrase = testCase.source.passphrase
     ? (testCase.source.passphraseText ?? `e2e-${randomBytes(9).toString("hex")}`)
@@ -1475,6 +1757,8 @@ async function main() {
     iso: resolve(options.iso),
     dbx: options.dbx,
     instanceUrl: instance.stack.publicUrl,
+    // The list the run signed: the command checks the ISO against exactly it (oneshot cases).
+    sumsSha256: sha256File(join(agentDir, options.version, "SHA256SUMS")),
   };
   const results = [];
   let failed = 0;

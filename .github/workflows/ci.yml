@@ -1151,8 +1151,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # E1 and E2, and the boot probes P1 (green) and P2 (red, the emergency target).
-        case: [E1, E2, P1, P2]
+        # E1 and E2, the boot probes P1 (green) and P2 (red, the emergency target), and the
+        # restore onto a fresh machine without an ISO, O-E1 (UEFI, a /32 with an on-link
+        # gateway) and O-E2 (BIOS, DHCP) (docs/BAREMETAL-ONESHOT.md 19.3).
+        case: [E1, E2, P1, P2, O-E1, O-E2]
     permissions:
       contents: read
     steps:

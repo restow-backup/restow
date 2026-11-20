@@ -103,6 +103,15 @@ private repository.
     takeover is all or nothing (checked, written, read back and verified before anything old is
     put aside, rolled back on any error) and keeps the files of each restore in a folder of its
     own; oneshot.sh accepts `--direct` only in that exact form.
+  - O9, first part: the end-to-end cases O-E1 and O-E2 run in CI next to E1 and E2
+    (`scripts/recovery-e2e`, `--cases O-E1,O-E2`). A fresh machine starts from a pinned Debian 12
+    cloud image with cloud-init, runs the command as the UI shows it, the session is released
+    over the API with its match code, and the restored disks must boot there: O-E1 restores E2's
+    source (Ubuntu 24.04, LUKS2 and LVM) onto a UEFI machine with a /32 and an on-link gateway,
+    O-E2 E1's source (Debian 12, md RAID1) onto a BIOS machine with two disks and DHCP; both
+    check that the old network was put aside, O-E1 that the fresh machine's address is in the
+    active configuration. The test instance now hands the API the ISO under test too (a oneshot
+    session fetches it there) and runs with `RESTOW_BAREMETAL_ONESHOT=true`.
   - O8a: the minimal interface. In the bare metal wizard, beside the recovery ISO, "Onto a fresh
     machine (link)" appears only when the capabilities say both switches are on
     (`baremetalOneshot`). Its dialog issues the command once with a copy button, the redeem

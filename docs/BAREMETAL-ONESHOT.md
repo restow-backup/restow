@@ -1119,6 +1119,20 @@ serielle Konsole des wiederhergestellten Systems.
 | O-E5 | E2-Quelle | wie O-E1, Admin lehnt die Freigabe ab | nichts geändert, Rechner startet wie vorher |
 | O-E6 | E1-Quelle | Rechner, der aus einem "Rettungssystem" startet (das ISO selbst mit `systemd.mask=restow-recover.service` als Ersatz) | 17.1 mit kexec aus dem Rettungssystem |
 
+**Stand 0.5.3:** O-E1 und O-E2 laufen (`scripts/recovery-e2e/run.mjs`, `runOneshotCase`), mit
+Abweichungen von der Tabelle: Der Code steht im cloud-init-Seed statt in `fw_cfg` (ob der Debian-
+Cloud-Kernel `qemu_fw_cfg` hat, ist offen; der Seed lebt nur im Lauf). O-E1 hat kein IPv6: QEMUs
+Benutzernetz sendet Router Advertisements, eine zweite IPv6-Standardroute lehnt der Befehl ab
+(`several_default_routes`). Die Quellen der Factory haben weder cloud-init noch sshd, nginx und
+`/etc/hosts` mit alter Adresse kommen mit O6; geprüft werden deshalb `E2E-BOOT`, die weggelegte
+alte Netzkonfiguration und (O-E1) die statische Adresse des frischen Rechners in der aktiven
+Konfiguration (Zeile `E2E-NET` der Boot-Marke). O-E2 hat zwei Platten: Ein `oneshot`-Lauf ordnet
+die Platten selbst zu, eine Platte der Sicherung, die er nicht unterbringt, lässt den Plan
+scheitern (die ISO-Probe E1 nennt die fehlende in ihren Antworten). E1 nutzt `systemd-networkd`,
+nicht ifupdown. Der Neustart ins wiederhergestellte System läuft nicht im selben QEMU: Sobald
+`recover` den Countdown zeigt, startet der Treiber die Platten neu mit MAC und Firmware-Variablen
+des frischen Rechners.
+
 O-E1 und O-E2 je PR mit Änderungen an `agent/internal/{baremetal,recovery}`, `agent/install/oneshot.sh`,
 `integrations/recovery`, Recovery-API; O-E3 bis O-E6 nachts. kexec in einer KVM-Maschine geht; der
 Treiber braucht nichts Neues außer der Seed-Platte. Dauer je Fall etwa wie E2 (10 bis 20 Minuten).
