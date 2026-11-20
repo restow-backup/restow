@@ -84,6 +84,11 @@ mkfs_ext4() {
 # ("Couldn't download packages") would end the case. So up to five attempts, each from an
 # emptied target that keeps the packages already downloaded (debootstrap validates and reuses
 # them), with the end of debootstrap.log on the console after a failure.
+#
+# debootstrap downloads with wget, which waits forever on a connection that stops sending: a
+# download of Ubuntu's linux-firmware that stalled held E2 and P2 until the case's 40 minutes
+# (CI runs 44776793551, wip/052-alert-bundle). A read that brings nothing for 60 seconds now
+# fails, wget tries twice more, and a failure ends in the attempts above.
 bootstrap() {
   suite="$1"
   root="$2"
@@ -91,6 +96,9 @@ bootstrap() {
   keyring="$4"
   shift 4
   include="systemd-sysv,udev,kmod,ca-certificates,curl,openssh-client,fdisk,$(printf '%s' "$*" | tr ' ' ',')"
+  WGETRC=/run/restow-factory-wgetrc
+  printf 'read_timeout = 60\nconnect_timeout = 30\ndns_timeout = 30\ntries = 3\nwaitretry = 10\n' >"$WGETRC"
+  export WGETRC
   attempt=1
   while :; do
     say "debootstrap $suite, attempt $attempt of 5"
