@@ -520,7 +520,7 @@
     "summaryReports": "Summary reports",
     "summaryLocked": "Daily, weekly and monthly reports:",
     "delivery": "How mail arrives",
-    "criticalNote": "Critical events always come at once.",
+    "criticalNote": "Critical events never wait for the digest. Alerts that come in close together arrive bundled, at most one mail every 30 minutes; signs of an attack at once.",
     "failing": "Mail fails since {since}: {reason}"
   }
 }

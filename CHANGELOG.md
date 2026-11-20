@@ -8,6 +8,20 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Changed
+
+- Alert mails are bundled per recipient: an alert mail that goes out at once (the recipient's mode
+  is "immediately", or the event is critical such as `verify.red`) waits five minutes, and the
+  next one to the same address at least 30 minutes after the last; then everything waiting for
+  that address goes out in one mail ("Restore check failed: 6 objects", with the list). A weekly
+  restore check that rated dozens of SharePoint sites red used to send one mail per site.
+  Signs of an attack (`backup.suspicious`, `endpoint.suspicious_snapshot`), the bare metal
+  recovery events, the freed disk reserve and failed deliveries still go out at once and take the
+  waiting alerts along. Webhooks, the bell and test sends are not held (docs/NOTIFICATIONS.md,
+  "Bundled alert mails").
+
 ## [0.5.1] - 2026-11-20
 
 Beta release. Run it alongside your existing backups, not as your only one, until

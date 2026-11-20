@@ -520,7 +520,7 @@
     "summaryReports": "Zusammenfassungen",
     "summaryLocked": "Tages-, Wochen- und Monatsberichte:",
     "delivery": "Wie Mails ankommen",
-    "criticalNote": "Kritische Ereignisse kommen immer sofort.",
+    "criticalNote": "Kritische Ereignisse kommen nie in die Sammelmail. Alarme, die kurz nacheinander eintreffen, kommen gebündelt, höchstens alle 30 Minuten eine Mail; Hinweise auf einen Angriff sofort.",
     "failing": "Mail scheitert seit {since}: {reason}"
   }
 }
