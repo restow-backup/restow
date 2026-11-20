@@ -1,6 +1,6 @@
 import { configureProductName } from "@restow/i18n";
 import { afterEach, describe, expect, it } from "vitest";
-import { renderAlert } from "./render.js";
+import { renderAlert, renderDigest } from "./render.js";
 
 afterEach(() => {
   configureProductName(null);
@@ -478,5 +478,50 @@ describe("renderAlert", () => {
     expect(future.text).not.toContain("failures:");
     expect(alert({ failure: "nonsense" }).text).not.toContain("Cause");
     expect(alert({ failure: { code: 7 } }).text).not.toContain("Cause");
+  });
+});
+
+describe("renderDigest as a bundle of alert mails (0.5.2)", () => {
+  const item = (event: string, target: string, outdated = false) => ({
+    tenantName: "Kanzlei",
+    event,
+    level: "error" as const,
+    occurredAt: "2026-11-20T10:53:00.000Z",
+    target,
+    outdated,
+  });
+  const bundle = (items: ReturnType<typeof item>[]) =>
+    renderDigest({
+      language: "de",
+      audience: "tenant",
+      tenantName: "Kanzlei",
+      window: "bundle",
+      windowStart: "2026-11-20T10:53:00.000Z",
+      windowEnd: "2026-11-20T10:58:00.000Z",
+      items,
+    });
+
+  it("names the kind of alert and how many in the subject", () => {
+    const mail = bundle([
+      item("verify.red", "Teamwebsite"),
+      item("verify.red", "All Company"),
+      item("verify.red", "Newsletter"),
+    ]);
+    expect(mail.subject).toBe("[Kanzlei] Restore-Prüfung nicht bestanden: 3 Objekte");
+    expect(mail.text).toContain("Sammelmail");
+    expect(mail.text).toContain("höchstens alle 30 Minuten");
+    for (const name of ["Teamwebsite", "All Company", "Newsletter"]) {
+      expect(mail.text).toContain(name);
+    }
+  });
+
+  it("says when there are other alerts, and words an outdated backup as such", () => {
+    const mail = bundle([
+      item("verify.red", "Teamwebsite", true),
+      item("verify.red", "All Company", true),
+      item("backup.failed", "Lucas"),
+    ]);
+    expect(mail.subject).toBe("[Kanzlei] Sicherung zu alt: 2 Objekte und weitere Alarme");
+    expect(mail.text).not.toContain("Restore-Prüfung nicht bestanden");
   });
 });

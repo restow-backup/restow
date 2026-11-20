@@ -22,6 +22,16 @@ private repository.
 
 ### Changed
 
+- Alert mails are bundled per recipient: an alert mail that goes out at once (the recipient's mode
+  is "immediately", or the event is critical such as `verify.red`) waits five minutes, and the
+  next one to the same address at least 30 minutes after the last; then everything waiting for
+  that address goes out in one mail ("Restore check failed: 6 objects", with the list). A weekly
+  restore check that rated dozens of SharePoint sites red used to send one mail per site.
+  Signs of an attack (`backup.suspicious`, `endpoint.suspicious_snapshot`), the bare metal
+  recovery events, the freed disk reserve and failed deliveries still go out at once and take the
+  waiting alerts along. Webhooks, the bell and test sends are not held (docs/NOTIFICATIONS.md,
+  "Bundled alert mails").
+
 - Tests: the Graph fake refuses a drive delta link asked with other `Prefer` options than the
   ones it was issued with, the way Graph does (410 `resyncRequired`, the `Location` refused
   too); an `[upgrade]` test backs up a OneDrive the way 0.4.x did and then the way this release
