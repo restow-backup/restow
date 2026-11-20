@@ -20,7 +20,7 @@ mdadm --create /dev/md0 --run --level=1 --raid-devices=2 --metadata=1.2 "$(part 
 mkfs_ext4 ubuntu2204 /dev/md0 root
 root=/mnt/e2e
 mkdir -p "$root" && mount /dev/md0 "$root"
-bootstrap jammy "$root" "$FACTORY_MIRROR" ubuntu-archive-keyring.gpg linux-image-generic grub-pc mdadm initramfs-tools
+bootstrap jammy "$root" "$FACTORY_MIRROR" ubuntu-archive-keyring.gpg linux-image-virtual grub-pc mdadm initramfs-tools
 fstab_uuid /dev/md0 / ext4 errors=remount-ro 1 >"$root/etc/fstab"
 mdadm --detail --scan >"$root/etc/mdadm/mdadm.conf"
 chroot_mount "$root"

@@ -27,7 +27,7 @@ root=/mnt/e2e
 mkdir -p "$root" && mount /dev/vg0/root "$root"
 mkdir -p "$root/boot" "$root/home" && mount "$(part "$d" 2)" "$root/boot" && mount /dev/vg0/home "$root/home"
 mkdir -p "$root/boot/efi" && mount "$(part "$d" 1)" "$root/boot/efi"
-bootstrap noble "$root" "$FACTORY_MIRROR" ubuntu-archive-keyring.gpg linux-image-generic grub-efi-amd64-signed shim-signed   cryptsetup cryptsetup-initramfs lvm2 initramfs-tools netplan.io
+bootstrap noble "$root" "$FACTORY_MIRROR" ubuntu-archive-keyring.gpg linux-image-virtual grub-efi-amd64-signed shim-signed   cryptsetup cryptsetup-initramfs lvm2 initramfs-tools netplan.io
 {
   fstab_uuid /dev/vg0/root / ext4 errors=remount-ro 1
   fstab_uuid "$(part "$d" 2)" /boot ext4 defaults 2

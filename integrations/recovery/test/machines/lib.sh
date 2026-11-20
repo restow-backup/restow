@@ -88,7 +88,10 @@ mkfs_ext4() {
 # debootstrap downloads with wget, which waits forever on a connection that stops sending: a
 # download of Ubuntu's linux-firmware that stalled held E2 and P2 until the case's 40 minutes
 # (CI runs 44776793551, wip/052-alert-bundle). A read that brings nothing for 60 seconds now
-# fails, wget tries twice more, and a failure ends in the attempts above.
+# fails, wget tries twice more, and a failure ends in the attempts above. A download that only
+# crawls passes that limit (P2 in CI run 44787090202), so the Ubuntu machines take
+# linux-image-virtual: the same signed kernel and its modules, without linux-firmware (several
+# hundred MB, of no use in QEMU) and the microcode.
 bootstrap() {
   suite="$1"
   root="$2"
