@@ -943,12 +943,18 @@
     "tenantHeading": "{tenant}",
     "hourly": "Hourly digest",
     "daily": "Daily digest",
-    "footer": "You receive this digest because your notification settings in {appName} collect these notifications. Critical events are always sent at once.",
+    "bundle": "Bundled alerts",
+    "footer": "You receive this digest because your notification settings in {appName} collect these notifications. Critical events never wait for this digest.",
+    "bundleFooter": "{appName} bundles alerts that come in close together into one mail: the first waits five minutes, after that at most one mail every {minutes} minutes. Signs of an attack go out at once.",
     "level": {
       "error": "Error",
       "warning": "Warning",
       "info": "Notice"
-    }
+    },
+    "bundleSubject": "{summary}",
+    "bundleSubjectProvider": "{appName}: {summary}",
+    "bundleSummary": "{event}: {count, plural, one {# object} other {# objects}}",
+    "bundleSummaryMixed": "{event}: {count, plural, one {# object} other {# objects}} and other alerts"
   },
   "customer": {
     "title": "Monthly report",

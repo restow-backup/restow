@@ -253,6 +253,26 @@ export function isFloorReportEvent(event: string): boolean {
 }
 
 /**
+ * The events whose mail must not wait a minute (0.5.2): signs of an attack or of a stolen recovery
+ * code, the freed disk reserve, a failed delivery. Every other alert mail that goes out at once is
+ * held briefly and bundled per recipient (rules.ts, ALERT_BUNDLE_HOLD_MINUTES); these skip the
+ * hold and the spacing, and take the alerts already waiting for the same recipient along.
+ */
+export const URGENT_REPORT_EVENTS: readonly ReportEvent[] = [
+  "backup.suspicious",
+  "endpoint.suspicious_snapshot",
+  "endpoint.recovery.started",
+  "endpoint.recovery_code.rejected",
+  "endpoint.rebound",
+  "installation.disk_reserve_released",
+  DELIVERY_FAILED_EVENT,
+];
+
+export function isUrgentReportEvent(event: string): boolean {
+  return (URGENT_REPORT_EVENTS as readonly string[]).includes(event);
+}
+
+/**
  * Events about the installation, not about one tenant's data. They are raised
  * once for the whole installation and reach the rules of every tenant that
  * lists them, but only provider administrators may put them into a rule (a

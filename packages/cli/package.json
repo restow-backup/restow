@@ -1,6 +1,6 @@
 {
   "name": "@restow/cli",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "description": "restow-restore: the standalone restore tool. Reconstructs files from a Restow chunk store and a snapshot manifest without a running Restow server.",
@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@restow/core": "workspace:*",
-    "commander": "^15.0.0"
+    "commander": "^15.1.0"
   },
   "devDependencies": {
     "tsx": "^4.19.2"

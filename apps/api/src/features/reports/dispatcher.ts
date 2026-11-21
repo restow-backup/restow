@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { MAX_REPORT_ATTEMPTS, monthPeriod, nextAttemptAfter } from "@restow/core";
+import {
+  ALERT_BUNDLE_HOLD_MINUTES,
+  ALERT_BUNDLE_SPACING_MINUTES,
+  MAX_REPORT_ATTEMPTS,
+  monthPeriod,
+  nextAttemptAfter,
+  URGENT_REPORT_EVENTS,
+} from "@restow/core";
 import {
   type Database,
   notifications,
@@ -50,7 +57,11 @@ import "./hooks.js";
  *      lease, so several API processes never send the same row twice and a crashed one only
  *      delays it), renders them in the rule's or tenant's language and brand and sends them:
  *      e-mail through the installation's mail transport (Settings), the bell as an in-app
- *      notification, a webhook as a signed delivery the worker's webhook dispatcher sends,
+ *      notification, a webhook as a signed delivery the worker's webhook dispatcher sends.
+ *      Alert mails that go out at once are bundled per recipient (0.5.2): one waits
+ *      ALERT_BUNDLE_HOLD_MINUTES after it was queued, and ALERT_BUNDLE_SPACING_MINUTES after the
+ *      recipient's last alert mail; then every alert waiting for that recipient goes out in one
+ *      mail. An urgent event (URGENT_REPORT_EVENTS) waits for neither and takes the others along,
  *   4. raises `notification.delivery_failed` for a mail that finally failed (delivery-failure.ts),
  *   5. prunes, once an hour, the fanned-out events and the retired logos.
  *
@@ -103,20 +114,53 @@ export type Outcome =
       permanent?: boolean;
     };
 
-/** Claim the due rows (attempt counted, lease set); digest rows wait for their digest. */
+/**
+ * The rows of `alias` that are alert mails sent at once and bundled per recipient: e-mail, an
+ * event, no digest, no test send from the rule editor.
+ */
+function bundledMail(alias: string) {
+  const a = sql.raw(alias);
+  return sql`(${a}.channel = 'email' AND ${a}.kind = 'event' AND ${a}.digest IS NULL
+    AND coalesce(${a}.payload->>'test', '') <> 'true')`;
+}
+
+/**
+ * Claim the due rows (attempt counted, lease set); digest rows wait for their digest. A bundled
+ * alert mail waits too: until it was queued ALERT_BUNDLE_HOLD_MINUTES ago, and while the same
+ * recipient (of the same tenant, or of the provider) got an alert mail within the last
+ * ALERT_BUNDLE_SPACING_MINUTES. An urgent event waits for neither.
+ */
 export async function claimDue(db: Database, now: Date): Promise<ReportDelivery[]> {
+  const heldSince = new Date(now.getTime() - ALERT_BUNDLE_HOLD_MINUTES * 60_000);
+  const spacedSince = new Date(now.getTime() - ALERT_BUNDLE_SPACING_MINUTES * 60_000);
+  const urgent = sql.join(
+    URGENT_REPORT_EVENTS.map((event) => sql`${event}`),
+    sql`, `,
+  );
   const result = await db.execute<Record<string, unknown>>(sql`
     UPDATE report_deliveries
        SET attempts = attempts + 1,
            lease_until = ${new Date(now.getTime() + LEASE_SECONDS * 1000)},
            updated_at = ${now}
      WHERE id IN (
-       SELECT id FROM report_deliveries
-        WHERE status = 'pending'
-          AND digest IS NULL
-          AND next_attempt_at <= ${now}
-          AND (lease_until IS NULL OR lease_until < ${now})
-        ORDER BY next_attempt_at
+       SELECT d.id FROM report_deliveries d
+        WHERE d.status = 'pending'
+          AND d.digest IS NULL
+          AND d.next_attempt_at <= ${now}
+          AND (d.lease_until IS NULL OR d.lease_until < ${now})
+          AND NOT (
+            ${bundledMail("d")}
+            AND coalesce(d.event, '') NOT IN (${urgent})
+            AND (
+              d.created_at > ${heldSince}
+              OR EXISTS (
+                SELECT 1 FROM report_deliveries s
+                 WHERE ${bundledMail("s")}
+                   AND s.status = 'sent'
+                   AND s.sent_at > ${spacedSince}
+                   AND s.tenant_id IS NOT DISTINCT FROM d.tenant_id
+                   AND lower(btrim(s.recipient)) = lower(btrim(d.recipient)))))
+        ORDER BY d.next_attempt_at
         LIMIT ${CLAIM_BATCH}
         FOR UPDATE SKIP LOCKED)
     RETURNING id`);
@@ -538,25 +582,113 @@ async function afterMail(
   }
 }
 
-/** One pass: claim, send, record. Returns how many rows were handled. */
+/** Send one claimed row on its own, record the outcome and what follows a mail. */
+async function deliverOne(deps: DispatcherDeps, delivery: ReportDelivery): Promise<void> {
+  let outcome: Outcome;
+  try {
+    outcome = await deliver(deps, delivery);
+  } catch (error) {
+    outcome = { status: "retry", error: error instanceof Error ? error.message : String(error) };
+  }
+  const at = (deps.now ?? (() => new Date()))();
+  const final = await recordOutcome(deps.providerDb, delivery, outcome, at);
+  await afterMail(deps, delivery, outcome, final, at);
+  deps.log?.(outcome.status === "retry" ? "warn" : "info", "report delivery", {
+    deliveryId: delivery.id,
+    channel: delivery.channel,
+    status: final,
+  });
+}
+
+/** The recipient a bundled alert mail goes to, with its scope (a tenant, or the provider). */
+function bundleKeyOf(delivery: ReportDelivery): string | null {
+  const recipient = delivery.recipient?.trim().toLowerCase();
+  if (
+    !recipient ||
+    delivery.channel !== "email" ||
+    delivery.kind !== "event" ||
+    delivery.digest ||
+    delivery.payload?.test === true
+  ) {
+    return null;
+  }
+  return `${delivery.tenantId ?? ""}\u0000${recipient}`;
+}
+
+/**
+ * Lease the other alert mails waiting for the recipient of `first` (held or not), so they go out
+ * in its mail. Rows another process leased, and rows waiting for a retry, stay out.
+ */
+async function leaseBundle(
+  db: Database,
+  first: ReportDelivery,
+  now: Date,
+): Promise<ReportDelivery[]> {
+  const recipient = first.recipient?.trim().toLowerCase() ?? "";
+  const result = await db.execute<{ id: string }>(sql`
+    UPDATE report_deliveries
+       SET attempts = attempts + 1,
+           lease_until = ${new Date(now.getTime() + LEASE_SECONDS * 1000)},
+           updated_at = ${now}
+     WHERE id IN (
+       SELECT id FROM report_deliveries d
+        WHERE d.status = 'pending'
+          AND ${bundledMail("d")}
+          AND d.tenant_id IS NOT DISTINCT FROM ${first.tenantId}::uuid
+          AND lower(btrim(d.recipient)) = ${recipient}
+          AND d.next_attempt_at <= ${now}
+          AND (d.lease_until IS NULL OR d.lease_until < ${now})
+        FOR UPDATE SKIP LOCKED)
+    RETURNING id`);
+  const ids = result.rows.map((row) => String(row.id));
+  if (ids.length === 0) return [];
+  return db.select().from(reportDeliveries).where(inArray(reportDeliveries.id, ids));
+}
+
+/**
+ * One pass: claim, send, record. Alert mails to the same recipient go out together, with the
+ * ones still held for that recipient; a single one is an ordinary alert mail. Returns how many
+ * claimed rows were handled.
+ */
 export async function dispatchOnce(deps: DispatcherDeps): Promise<number> {
   const now = (deps.now ?? (() => new Date()))();
   const claimed = await claimDue(deps.providerDb, now);
+  const bundles = new Map<string, ReportDelivery[]>();
   for (const delivery of claimed) {
-    let outcome: Outcome;
-    try {
-      outcome = await deliver(deps, delivery);
-    } catch (error) {
-      outcome = { status: "retry", error: error instanceof Error ? error.message : String(error) };
+    const key = bundleKeyOf(delivery);
+    if (!key) {
+      await deliverOne(deps, delivery);
+      continue;
     }
-    const at = (deps.now ?? (() => new Date()))();
-    const final = await recordOutcome(deps.providerDb, delivery, outcome, at);
-    await afterMail(deps, delivery, outcome, final, at);
-    deps.log?.(outcome.status === "retry" ? "warn" : "info", "report delivery", {
-      deliveryId: delivery.id,
-      channel: delivery.channel,
-      status: final,
-    });
+    const list = bundles.get(key) ?? [];
+    list.push(delivery);
+    bundles.set(key, list);
+  }
+  for (const rows of bundles.values()) {
+    const first = rows[0] as ReportDelivery;
+    try {
+      rows.push(...(await leaseBundle(deps.providerDb, first, now)));
+    } catch (error) {
+      deps.log?.("error", "report bundle could not collect its rows", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (rows.length === 1) {
+      await deliverOne(deps, first);
+      continue;
+    }
+    try {
+      await sendCollected(
+        deps,
+        { tenantId: first.tenantId, recipient: first.recipient?.trim() ?? "", window: "bundle" },
+        rows,
+        now,
+      );
+    } catch (error) {
+      deps.log?.("error", "report bundle failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
   return claimed.length;
 }
@@ -569,6 +701,13 @@ interface DigestGroup {
   tenantId: string | null;
   recipient: string;
   digest: "hourly" | "daily";
+}
+
+/** Rows that go out in one mail: a due digest, or a bundle of alert mails (dispatchOnce). */
+interface CollectedGroup {
+  tenantId: string | null;
+  recipient: string;
+  window: "hourly" | "daily" | "bundle";
 }
 
 /** The groups of digest rows that are due: one per tenant (or the provider), address and window. */
@@ -630,6 +769,7 @@ function digestItem(delivery: ReportDelivery, tenantName: string | null): Digest
     target,
     // The service named with the object (0.5.0), as in the alert mail.
     objectKind: objectName && typeof details.objectKind === "string" ? details.objectKind : null,
+    outdated: details.redReason === "outdated",
   };
 }
 
@@ -637,6 +777,22 @@ function digestItem(delivery: ReportDelivery, tenantName: string | null): Digest
 async function sendDigest(deps: DispatcherDeps, group: DigestGroup, now: Date): Promise<number> {
   const leased = await leaseDigest(deps.providerDb, group, now);
   if (leased.length === 0) return 0;
+  await sendCollected(
+    deps,
+    { tenantId: group.tenantId, recipient: group.recipient, window: group.digest },
+    leased,
+    now,
+  );
+  return leased.length;
+}
+
+/** Send leased rows of one recipient in one mail and record the outcome on each of them. */
+async function sendCollected(
+  deps: DispatcherDeps,
+  group: CollectedGroup,
+  leased: readonly ReportDelivery[],
+  now: Date,
+): Promise<void> {
   const rows: ReportDelivery[] = [];
   for (const delivery of leased) {
     if (await channelSwitchedOff(deps.providerDb, delivery)) {
@@ -650,7 +806,12 @@ async function sendDigest(deps: DispatcherDeps, group: DigestGroup, now: Date): 
       rows.push(delivery);
     }
   }
-  if (rows.length === 0) return leased.length;
+  if (rows.length === 0) return;
+  if (group.window === "bundle" && rows.length === 1) {
+    // Only one alert left: it goes out as the ordinary alert mail, with all its details.
+    await deliverOne(deps, rows[0] as ReportDelivery);
+    return;
+  }
   const first = rows[0] as ReportDelivery;
   const tenant = group.tenantId ? await tenantRow(deps.providerDb, group.tenantId) : null;
   const language: SupportedLanguage = group.tenantId
@@ -680,7 +841,7 @@ async function sendDigest(deps: DispatcherDeps, group: DigestGroup, now: Date): 
     language,
     audience: group.tenantId ? "tenant" : "provider",
     tenantName: tenant?.name ?? null,
-    window: group.digest,
+    window: group.window,
     windowStart: windowStart.toISOString(),
     windowEnd: now.toISOString(),
     items,
@@ -731,10 +892,9 @@ async function sendDigest(deps: DispatcherDeps, group: DigestGroup, now: Date): 
   await afterMail(deps, first, outcome, final, now);
   deps.log?.(outcome.status === "retry" ? "warn" : "info", "report digest", {
     rows: rows.length,
-    digest: group.digest,
+    digest: group.window,
     status: final,
   });
-  return leased.length;
 }
 
 /** One pass over the due digests; returns how many rows were handled. */

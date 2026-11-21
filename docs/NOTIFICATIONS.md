@@ -54,8 +54,9 @@ stopped), `scrub.corrupt`, `verify.red`, `backup.unusually_large` (a run held be
 storage, docs/STORAGE.md "Unusually large runs"), `installation.disk_low` and
 `installation.disk_reserve_released` (the emergency disk reserve was freed, docs/DATABASE.md
 "Disk full").
-They are always sent at once (never held for a digest), always reach the floor, and always appear
-in the bell: the bell's column can no longer switch them off.
+They are never held for a digest, always reach the floor, and always appear in the bell: the
+bell's column can no longer switch them off. Like every alert mail sent at once, they are bundled
+for a few minutes (see "Bundled alert mails"); only the urgent events skip that.
 
 `backup.unusually_large_notice` is not one of them: a backup run that wrote far more than usual
 and went on, because its object's size check only warns (the default). Nothing stopped, so it is
@@ -72,12 +73,38 @@ daily digest.
   provider's recipients and for a tenant without one: the zone chosen in the setup wizard or
   under Installation › Server, else `RESTOW_TIME_ZONE`, else `TZ`; the same whether the worker
   or the API raised the alert).
-- Critical events and failed deliveries are always sent at once.
+- Critical events and failed deliveries are never held for a digest (they are bundled like every
+  alert mail sent at once, see below).
 - Digests are for e-mail only. Webhooks and the bell always get every alert at once. Summary and
   customer reports are never collected.
 
 One digest mail lists the alerts grouped by tenant and severity, at most 200 lines and the number
 of the rest. The delivery log shows a held row as "Waiting for the digest" with the time it goes out.
+
+## Bundled alert mails
+
+Since 0.5.2, an alert mail that goes out at once (the recipient's mode for its severity is
+"immediately", or the event is critical) is not sent the moment it is queued. A weekly restore
+check of every SharePoint site, or one storage outage, raises dozens of alerts within minutes;
+each used to be a mail of its own.
+
+- The first alert for a recipient waits five minutes (`ALERT_BUNDLE_HOLD_MINUTES`).
+- After an alert mail, the next one to the same recipient goes out 30 minutes later at the
+  earliest (`ALERT_BUNDLE_SPACING_MINUTES`).
+- Then every alert waiting for that recipient goes out in one mail: its subject names the most
+  frequent kind of alert and the count ("Restore check failed: 6 objects"), its body lists each
+  alert like a digest. A single waiting alert is sent as the ordinary alert mail with all its
+  details.
+- The key is the address within its scope: a tenant's rules for that tenant, the provider's
+  recipients across tenants (`packages/core` reports/rules.ts, `apps/api` reports/dispatcher.ts).
+- Urgent events wait for neither and take the alerts already waiting for that recipient along:
+  `backup.suspicious`, `endpoint.suspicious_snapshot`, `endpoint.recovery.started`,
+  `endpoint.recovery_code.rejected`, `endpoint.rebound`, `installation.disk_reserve_released`
+  and `notification.delivery_failed` (`URGENT_REPORT_EVENTS`).
+- Webhooks, the bell and test sends from the rule editor are never held.
+
+The delivery log shows a waiting row as pending; the rows sent together share one group, like a
+digest's.
 
 ## Delivery failures
 

@@ -312,6 +312,18 @@ describe("the run drawer opened by an address", () => {
 
 describe("the drawer is live", () => {
   it("moves with the channel: the numbers of a running run change without a request", async () => {
+    // Without an open channel a running run's detail is polled every 4 s (useRunDetail): on a
+    // busy machine that poll used to land inside this test and count as the request it rules out.
+    // The interval runs on a clock of its own here; the count-up below keeps the real one.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      await movesWithTheChannel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  async function movesWithTheChannel() {
     const page = await open(RUN_IDS.mailRunning);
     const before = page.requests.filter((request) => request.path.startsWith("/history/")).length;
     expect(section("progress")?.textContent).toContain("40 %");
@@ -341,7 +353,7 @@ describe("the drawer is live", () => {
     expect(page.requests.filter((request) => request.path.startsWith("/history/")).length).toBe(
       before,
     );
-  });
+  }
 
   it("shows what the agent is reading while an agent run runs", async () => {
     await open(RUN_IDS.agentRunning);

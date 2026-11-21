@@ -159,6 +159,34 @@ describe("syncDelta", () => {
     expect(items.map((i) => i.id)).toEqual(["01ROOT", "01REPORT"]);
   });
 
+  it("starts from the initial URL when the Location of the 410 is refused as well", async () => {
+    // What Graph does with a link built with other options: the resync URL it names in the 410
+    // is bound to the old options too (0.5.0's OneDrive failure).
+    const graph = createFakeGraph([
+      {
+        url: /token=OLD$/,
+        respond: {
+          status: 410,
+          headers: { Location: "https://x/root/delta?token=OLD-resync" },
+          json: graphError("resyncRequired"),
+        },
+      },
+      { url: /token=OLD-resync/, respond: { status: 410, json: graphError("resyncRequired") } },
+      { url: /root\/delta$/, respond: { status: 200, json: driveFixture.resyncPage } },
+    ]);
+    const store = new RecordDeltaTokenStore({ k: "https://x/root/delta?token=OLD" });
+    const { items, summary } = await collectDelta<{ id: string }>({
+      client: graph.client(),
+      store,
+      key: "k",
+      initialUrl: "/drives/b!drive1/root/delta",
+    });
+    expect(items.map((i) => i.id)).toEqual(["01ROOT", "01REPORT"]);
+    expect(summary.mode).toBe("resync");
+    expect(graph.calls).toHaveLength(3);
+    expect(store.record.k).toContain("DELTA3");
+  });
+
   it("does not loop when the full enumeration itself answers 410", async () => {
     const graph = createFakeGraph([
       { url: /delta/, respond: { status: 410, json: graphError("SyncStateNotFound") } },

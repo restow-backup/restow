@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SnapshotCheckpoint } from "../../engine/types.js";
 import {
   checkpointState,
+  DRIVE_DELTA_VERSION,
   ENGINE_NAME,
   type OneDriveCursor,
   type OneDriveManifestState,
@@ -24,6 +25,7 @@ const previous: OneDriveManifestState = {
   driveId: DRIVE,
   rootId: "01ROOT",
   deltaLink: "https://graph/delta?token=DELTA1",
+  deltaVersion: DRIVE_DELTA_VERSION,
   mode: "initial",
   retry: ["01BROKEN"],
   fullResyncRequired: false,
@@ -68,6 +70,7 @@ describe("readManifestState", () => {
       driveId: DRIVE,
       rootId: null,
       deltaLink: "d",
+      deltaVersion: 2,
       mode: "initial",
       retry: [],
       fullResyncRequired: false,
@@ -99,6 +102,21 @@ describe("checkpoint state", () => {
     expect(readCheckpointDeletions(state, "b!other")).toEqual([]);
     expect(readCheckpointDeletions({ ...previous }, DRIVE)).toEqual([]);
     expect(readCheckpointDeletions(undefined, DRIVE)).toEqual([]);
+  });
+});
+
+describe("the version of the delta options", () => {
+  it("reads a state of 0.5.0 or 0.5.1 (no stamp) as built with the options of 0.5.0", () => {
+    const { deltaVersion: _stamp, ...before052 } = previous;
+    expect(readManifestState({ ...before052 }, DRIVE)?.deltaVersion).toBe(2);
+    expect(
+      planRun({
+        full: false,
+        includeVersions: false,
+        resume: null,
+        previous: readManifestState({ ...before052 }, DRIVE),
+      }).reason,
+    ).toBe("incremental");
   });
 });
 
@@ -136,6 +154,10 @@ describe("planRun", () => {
         reason: "retry-overflow",
       },
       { input: { ...base, includeVersions: true, previous }, reason: "versions-enabled" },
+      {
+        input: { ...base, previous: { ...previous, deltaVersion: DRIVE_DELTA_VERSION - 1 } },
+        reason: "delta-options-changed",
+      },
     ] as const;
     for (const { input, reason } of cases) {
       const plan = planRun(input);
