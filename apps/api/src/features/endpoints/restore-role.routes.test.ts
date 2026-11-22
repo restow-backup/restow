@@ -427,3 +427,29 @@ describe("a restore operator on a Proxmox VE guest's files", () => {
     expect(pveFiles.browseContainerFiles).not.toHaveBeenCalled();
   });
 });
+
+describe("the capabilities of the installation for machines", () => {
+  it("name the restore onto a fresh machine only with both switches on", async () => {
+    const { config } = await import("../../config.js");
+    const before = { preview: config.baremetalPreview, oneshot: config.baremetalOneshot };
+    try {
+      for (const [preview, oneshot, want] of [
+        [true, true, true],
+        [true, false, false],
+        [false, true, false],
+      ] as const) {
+        config.baremetalPreview = preview;
+        config.baremetalOneshot = oneshot;
+        const response = await call("GET", "/endpoints/capabilities");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          baremetalPreview: preview,
+          baremetalOneshot: want,
+        });
+      }
+    } finally {
+      config.baremetalPreview = before.preview;
+      config.baremetalOneshot = before.oneshot;
+    }
+  });
+});

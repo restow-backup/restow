@@ -39,6 +39,18 @@ type vectors struct {
 		SPKISHA256 string `json:"spkiSha256"`
 		SPKICheck  string `json:"spkiCheck"`
 	} `json:"spkiCheck"`
+	OneshotNormalize []struct {
+		Input      string  `json:"input"`
+		Normalized *string `json:"normalized"`
+		Display    *string `json:"display"`
+	} `json:"oneshotNormalize"`
+	OneshotProof []struct {
+		Origin        string `json:"origin"`
+		Code          string `json:"code"`
+		CodeProof     string `json:"codeProof"`
+		CodeHash      string `json:"codeHash"`
+		RecoveryProof string `json:"recoveryProof"`
+	} `json:"oneshotProof"`
 }
 
 func loadVectors(t *testing.T) vectors {
@@ -278,6 +290,38 @@ func TestPunycodeRFC3492Samples(t *testing.T) {
 		got, err := punycodeEncode(string(c.input))
 		if err != nil || got != c.want {
 			t.Errorf("%s: %q %v, want %q", c.name, got, err, c.want)
+		}
+	}
+}
+
+func TestOneshotCodeVectors(t *testing.T) {
+	v := loadVectors(t)
+	if len(v.OneshotNormalize) == 0 || len(v.OneshotProof) == 0 {
+		t.Fatal("no oneshot vectors")
+	}
+	for _, c := range v.OneshotNormalize {
+		got, err := NormalizeOneshotCode(c.Input)
+		if c.Normalized == nil {
+			if err == nil {
+				t.Errorf("%q: accepted as %q", c.Input, got)
+			}
+			continue
+		}
+		if err != nil || got != *c.Normalized {
+			t.Errorf("%q: %q, %v; want %q", c.Input, got, err, *c.Normalized)
+			continue
+		}
+		if FormatOneshotCode(got) != *c.Display {
+			t.Errorf("%q: shown as %q, want %q", c.Input, FormatOneshotCode(got), *c.Display)
+		}
+	}
+	for _, c := range v.OneshotProof {
+		p := OneshotCodeProof(c.Origin, c.Code)
+		if p != c.CodeProof || HashCodeProof(p) != c.CodeHash {
+			t.Errorf("%s: proof %s", c.Origin, p)
+		}
+		if CodeProof(c.Origin, c.Code) != c.RecoveryProof || c.RecoveryProof == c.CodeProof {
+			t.Errorf("%s: the recovery proof of the same code must differ", c.Origin)
 		}
 	}
 }

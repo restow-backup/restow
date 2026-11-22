@@ -83,6 +83,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdSnapshotExec(rest, stdout, stderr)
 	case "recover":
 		return cmdRecover(rest, stdout, stderr)
+	case "oneshot":
+		// Hidden until the web interface offers it (0.5.1): started by oneshot.sh.
+		return cmdOneshot(rest, stdout, stderr)
+	case "oneshot-payload":
+		// Hidden: the kexec payload of a oneshot restore, into files (CI).
+		return cmdOneshotPayload(rest, stdout, stderr)
 	case "chroot-exec":
 		// Hidden: the isolation helper recover itself starts.
 		return cmdChrootExec(rest, stderr)

@@ -280,6 +280,10 @@ func (pl *planner) checkFirmwareMode() {
 	if src == dst {
 		return
 	}
+	if pl.uefiToBIOS() {
+		// The warning names the target disk once it is mapped (checkBIOS4Kn).
+		return
+	}
 	both := false
 	if src == "bios" {
 		biosBoot, esp := false, false
@@ -300,6 +304,36 @@ func (pl *planner) checkFirmwareMode() {
 	}
 }
 
+// hybridDisks are the GPT disks of the source with a BIOS boot partition
+// and an ESP (the hybrid layout of cloud images).
+func (pl *planner) hybridDisks() []string {
+	var out []string
+	for _, d := range pl.l.Disks {
+		if d.Table == nil || d.Table.Type != "gpt" {
+			continue
+		}
+		biosBoot, esp := false, false
+		for _, p := range d.Table.Partitions {
+			t := strings.ToLower(p.Type)
+			biosBoot = biosBoot || t == gptBIOSBoot
+			esp = esp || t == gptESP
+		}
+		if biosBoot && esp {
+			out = append(out, d.ID)
+		}
+	}
+	return out
+}
+
+// uefiToBIOS: a UEFI system starts on a BIOS target when its disk is a
+// hybrid GPT disk, it boots with GRUB, and the snapshot has GRUB's modules
+// for BIOS (docs/BAREMETAL-ONESHOT.md 14, decision 22.6); GRUB for BIOS is
+// then installed into the BIOS boot partition.
+func (pl *planner) uefiToBIOS() bool {
+	return pl.l.Firmware.Mode == "uefi" && pl.t.Firmware.Mode == "bios" && pl.l.Bootloader.Kind == "grub" &&
+		pl.f != nil && pl.f.GrubBIOS != nil && *pl.f.GrubBIOS && len(pl.hybridDisks()) > 0
+}
+
 // checkBIOS4Kn: BIOS does not start from a disk with 4096-byte sectors.
 func (pl *planner) checkBIOS4Kn() {
 	if pl.t.Firmware.Mode != "bios" {
@@ -311,11 +345,15 @@ func (pl *planner) checkBIOS4Kn() {
 		if a == nil || a.Target == nil || a.Action == ActionMissing {
 			continue
 		}
-		boot := d.BootCode == "grub" || hasString(pl.l.Bootloader.BIOSDisks, d.ID)
+		switched := pl.uefiToBIOS() && hasString(pl.hybridDisks(), d.ID)
+		boot := d.BootCode == "grub" || hasString(pl.l.Bootloader.BIOSDisks, d.ID) || switched
 		if !boot {
 			continue
 		}
 		td := pl.mp.targets[*a.Target]
+		if switched {
+			pl.add(newFinding(WarnFirmwareModeSwitched, td.ID, "target", td.ID))
+		}
 		bootTargets = append(bootTargets, td.ID)
 		if td.LogicalSectorSize >= 4096 {
 			pl.add(newFinding(ProblemBIOS4Kn, td.ID, "target", td.ID))
@@ -1810,7 +1848,7 @@ func (pl *planner) postSteps() {
 		}
 		for _, d := range l.Disks {
 			a := pl.mp.assign[d.ID]
-			if a == nil || a.Action != ActionErase || (d.BootCode != "grub" && !hasString(l.Bootloader.BIOSDisks, d.ID)) {
+			if a == nil || a.Action != ActionErase || (d.BootCode != "grub" && !hasString(l.Bootloader.BIOSDisks, d.ID) && !(pl.uefiToBIOS() && hasString(pl.hybridDisks(), d.ID))) {
 				continue
 			}
 			dev := pl.devPath(DiskRef(d.ID))

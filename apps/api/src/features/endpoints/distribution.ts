@@ -78,6 +78,8 @@ export const INSTALL_SCRIPTS = {
   "windows.ps1": "windows.ps1",
   // The node installer for Proxmox VE (restow-pve, features/pve).
   "pve.sh": "pve.sh",
+  // Bare metal onto a fresh machine without an ISO (docs/BAREMETAL-ONESHOT.md 8.1, 0.5.1).
+  "oneshot.sh": "oneshot.sh",
 } as const;
 export type InstallScriptName = keyof typeof INSTALL_SCRIPTS;
 

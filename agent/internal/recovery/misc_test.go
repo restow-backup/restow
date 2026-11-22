@@ -186,6 +186,14 @@ func TestReadManifestAndFacts(t *testing.T) {
 	if _, err := baremetal.ParseFacts(mustJSON(t, f)); err != nil {
 		t.Errorf("facts invalid: %v", err)
 	}
+	// A UEFI system: GRUB's BIOS modules are looked for (UEFI to BIOS on a hybrid disk).
+	if f.GrubBIOS == nil || *f.GrubBIOS {
+		t.Errorf("grub for BIOS %v", f.GrubBIOS)
+	}
+	rr.files["/usr/lib/grub/i386-pc/modinfo.sh"] = []byte("grub_target_cpu=i386\n")
+	if f3, _, _ := GatherFacts(context.Background(), rr, m, "snap", nil); f3.GrubBIOS == nil || !*f3.GrubBIOS {
+		t.Error("the BIOS modules of GRUB were not found")
+	}
 	f2, _, _ := GatherFacts(context.Background(), rr, m, "snap", map[string]api.RecoveryRestoreSize{"/": {Bytes: 1, Files: 2, Inodes: 3}})
 	if f2.RestoreSizes["/"].Inodes != 3 {
 		t.Error("server sizes not used")

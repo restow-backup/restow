@@ -24,7 +24,8 @@ func cmdRecover(args []string, stdout, stderr io.Writer) int {
 	logFile := fs.String("log", "", "log file (default /run/restow-recovery/log/recover.log)")
 	listTools := fs.Bool("list-tools", false, "list the programs recover calls and their Debian packages")
 	resticBin := fs.String("restic", "", "restic binary (default /usr/lib/restow-recovery/restic)")
-	notISO := fs.Bool("i-know-this-is-not-the-iso", false, "run outside the recovery ISO (tests)")
+	notISO := fs.Bool("i-know-this-is-not-the-iso", false, "run outside the recovery ISO (tests, the direct mode of a oneshot restore)")
+	oneshotFile := fs.String("oneshot", "", "session data of a oneshot restore in the provider's rescue system (started by restow-agent oneshot --direct)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: restow-agent recover [--console <tty>] [--answers <file>] [--plan-only] [--log <file>] [--restic <path>] [--list-tools]")
 		fs.PrintDefaults()
@@ -43,5 +44,5 @@ func cmdRecover(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	return recovery.Main(recovery.MainOptions{Console: *console, AnswersFile: *answers, PlanOnly: *planOnly, LogFile: *logFile,
-		ResticBin: *resticBin, NotISO: *notISO, Stdin: os.Stdin, Stdout: stdout, Stderr: stderr})
+		ResticBin: *resticBin, NotISO: *notISO, OneshotFile: *oneshotFile, Stdin: os.Stdin, Stdout: stdout, Stderr: stderr})
 }

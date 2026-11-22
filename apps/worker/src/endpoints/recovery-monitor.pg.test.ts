@@ -363,4 +363,62 @@ describe.skipIf(!adminUrl)("bare metal recovery in the worker", () => {
       .where(sql`${notifications.details}->>'recoveryId' = ${ranOut}`);
     expect(alert?.message).toContain("expired before the session was released");
   });
+
+  it("fails a released oneshot restore whose recovery environment did not report back in 30 minutes (docs/BAREMETAL-ONESHOT.md 6.5)", async () => {
+    const id = await machine();
+    const oneshot = async (approvedAgo: number, booted: boolean) => {
+      const [row] = await owner
+        .insert(endpointRecoveries)
+        .values({
+          tenantId,
+          endpointId: id,
+          kind: "oneshot",
+          status: "active",
+          codeHash: randomBytes(32).toString("hex"),
+          issuedAt: new Date(clock.getTime() - HOUR),
+          expiresAt: new Date(clock.getTime() + 10 * HOUR),
+          usedAt: new Date(clock.getTime() - HOUR),
+          approvedAt: new Date(clock.getTime() - approvedAgo),
+          oneshot: {
+            validityHours: 12,
+            ...(booted
+              ? {
+                  booted: {
+                    at: clock.toISOString(),
+                    hardware: {
+                      firmware: "bios",
+                      secureBoot: null,
+                      ramBytes: 1,
+                      disks: [],
+                      nics: [],
+                    },
+                  },
+                }
+              : {}),
+          },
+        })
+        .returning();
+      return row?.id as string;
+    };
+    const silent = await oneshot(31 * MINUTE, false);
+    const young = await oneshot(10 * MINUTE, false);
+    const booted = await oneshot(2 * HOUR, true);
+    expect(await expireRecoveries(deps, clock)).toMatchObject({ expired: 0, failed: 1 });
+    expect(await statusOf(silent)).toBe("failed");
+    expect(await statusOf(young)).toBe("active");
+    expect(await statusOf(booted)).toBe("active");
+    const entries = await expiredAudits(silent);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.details).toMatchObject({
+      from: "active",
+      to: "failed",
+      reason: "oneshot_no_boot",
+    });
+    const [alert] = await owner
+      .select()
+      .from(notifications)
+      .where(sql`${notifications.details}->>'recoveryId' = ${silent}`);
+    expect(alert?.message).toContain("did not report from the recovery environment");
+    expect(await expireRecoveries(deps, clock)).toMatchObject({ failed: 0 });
+  });
 });

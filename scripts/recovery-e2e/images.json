@@ -19,5 +19,10 @@
     "url": "https://geo.mirror.pkgbuild.com/images/v20261115.625457/Arch-Linux-x86_64-cloudimg-20261115.625457.qcow2",
     "checksums": "https://geo.mirror.pkgbuild.com/images/v20261115.625457/Arch-Linux-x86_64-cloudimg-20261115.625457.qcow2.SHA256",
     "sha256": "dbd02830f6eb0fe07ef6e5edaddbae8b577ce4296d9e79118904704cce0a1f60"
+  },
+  "debian12-genericcloud": {
+    "url": "https://cloud.debian.org/images/cloud/bookworm/20261117-2665/debian-12-genericcloud-amd64-20261117-2665.qcow2",
+    "checksums": "https://cloud.debian.org/images/cloud/bookworm/20261117-2665/SHA512SUMS",
+    "sha256": "b94ebc662796cbd4fd1f5053ce63b59ebc56e034f8f550689713c0cae493310e"
   }
 }

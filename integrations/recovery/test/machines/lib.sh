@@ -84,6 +84,14 @@ mkfs_ext4() {
 # ("Couldn't download packages") would end the case. So up to five attempts, each from an
 # emptied target that keeps the packages already downloaded (debootstrap validates and reuses
 # them), with the end of debootstrap.log on the console after a failure.
+#
+# debootstrap downloads with wget, which waits forever on a connection that stops sending: a
+# download of Ubuntu's linux-firmware that stalled held E2 and P2 until the case's 40 minutes
+# (CI runs 44776793551, wip/052-alert-bundle). A read that brings nothing for 60 seconds now
+# fails, wget tries twice more, and a failure ends in the attempts above. A download that only
+# crawls passes that limit (P2 in CI run 44787090202), so the Ubuntu machines take
+# linux-image-virtual: the same signed kernel and its modules, without linux-firmware (475 MB
+# in noble, of no use in QEMU) and the microcode; ubuntu_modules_extra adds what QEMU needs.
 bootstrap() {
   suite="$1"
   root="$2"
@@ -91,6 +99,9 @@ bootstrap() {
   keyring="$4"
   shift 4
   include="systemd-sysv,udev,kmod,ca-certificates,curl,openssh-client,fdisk,$(printf '%s' "$*" | tr ' ' ',')"
+  WGETRC=/run/restow-factory-wgetrc
+  printf 'read_timeout = 60\nconnect_timeout = 30\ndns_timeout = 30\ntries = 3\nwaitretry = 10\n' >"$WGETRC"
+  export WGETRC
   attempt=1
   while :; do
     say "debootstrap $suite, attempt $attempt of 5"
@@ -132,6 +143,26 @@ ubuntu_updates() {
     fdie "the upgrade from $suite-updates failed"
 }
 
+# linux-image-virtual leaves out Ubuntu's linux-modules-extra, and with it qemu_fw_cfg, through
+# which restow-e2e-enroll reads the instance and its token: without it the machine starts and
+# never enrolls (P2 and O-E1 in CI run 44797153253). Installed for the newest kernel, the one
+# GRUB starts.
+#   ubuntu_modules_extra <root>   (after chroot_mount and the last kernel upgrade)
+ubuntu_modules_extra() {
+  root="$1"
+  kver=""
+  for dir in "$root"/lib/modules/*/; do
+    [ -d "$dir" ] || continue
+    kver="$(printf '%s\n%s\n' "$kver" "$(basename "$dir")" | sed '/^$/d' | sort -V | tail -n 1)"
+  done
+  [ -n "$kver" ] || fdie "no kernel below $root/lib/modules"
+  in_root "$root" apt-get update -q >/dev/null || fdie "apt-get update before linux-modules-extra failed"
+  in_root "$root" apt-get install -y -q --no-install-recommends "linux-modules-extra-$kver" >/dev/null ||
+    fdie "linux-modules-extra-$kver did not install"
+  [ -n "$(find "$root/lib/modules/$kver" -name 'qemu_fw_cfg.ko*' -print -quit)" ] ||
+    fdie "linux-modules-extra-$kver has no qemu_fw_cfg"
+}
+
 # Bind the API file systems for work inside <root>, and undo it.
 chroot_mount() {
   for dir in dev dev/pts proc sys run; do
@@ -168,6 +199,14 @@ install_e2e_units() {
   cat >"$root/usr/local/sbin/restow-e2e-boot" <<'SCRIPT'
 #!/bin/sh
 sum=$(sha256sum /var/lib/restow-e2e/marker | cut -d ' ' -f 1)
+# What a restore onto a fresh machine did to the network (scripts/recovery-e2e oneshot cases):
+# whether the old configuration was put aside, and the static IPv4 addresses the active one has.
+before=no
+[ -d /etc/restow/network-before-restore ] && before=yes
+static=$(cat /etc/netplan/*.yaml /etc/systemd/network/*.network /etc/network/interfaces \
+  /etc/network/interfaces.d/* 2>/dev/null |
+  grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}' | sort -u | tr '\n' ' ')
+printf 'E2E-NET before=%s static=%s\n' "$before" "${static:-none}" >/dev/ttyS0
 printf 'E2E-BOOT %s %s\n' "$(cat /etc/hostname)" "$sum" >/dev/ttyS0
 SCRIPT
   cat >"$root/usr/local/sbin/restow-e2e-enroll" <<'SCRIPT'

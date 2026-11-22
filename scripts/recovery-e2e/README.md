@@ -31,3 +31,19 @@ node scripts/recovery-e2e/run.mjs --iso out/restow-recovery_0.5.0_amd64.iso \
   `agent/internal/recovery/testdata/hw/qemu-e2e.json`).
 - `node --test scripts/recovery-e2e/run.test.mjs` tests the answers file, the case filter and
   the QEMU command lines without KVM.
+- `oneshot-cases.mjs`: the cases O-E1 to O-E6 of the restore onto a fresh machine without an
+  ISO (docs/BAREMETAL-ONESHOT.md 19.3). O-E1 and O-E2 run (`--cases O-E1,O-E2`, in CI next to E1
+  and E2); the others are definitions until their driver parts follow. A oneshot case builds and
+  backs up its source case's machine, issues a oneshot code, starts a fresh machine from the
+  pinned Debian 12 cloud image (`images.json`; its first disk an overlay of the image) with a
+  NoCloud seed (`cidata`) that runs the command as the UI shows it, with `--answers`, the
+  instance's CA and `RESTOW_SHA256SUMS_SHA256` of the run's list; it releases the session over
+  the API with the match code once the command has loaded the recovery kernel on trial, waits
+  for the end and for recover's restart countdown, boots the restored disks with the fresh
+  machine's MAC and judges them by `E2E-BOOT` and the `E2E-NET` line of the factory's boot
+  marker (the old network put aside, the fresh machine's static address in the active
+  configuration). The code is in the seed, not in fw_cfg: the Debian cloud kernel is not known
+  to have qemu_fw_cfg; the seed exists for the run only. `oneshot-cases.test.mjs` keeps the
+  definitions consistent with the source cases, the answers format of `restow-agent oneshot`, the
+  release body of the API and recover's texts. `oneshot-boot.mjs` is the CI test "start without
+  medium" of the ISO (job `recovery-iso`).

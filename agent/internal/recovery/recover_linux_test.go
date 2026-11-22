@@ -53,6 +53,12 @@ type testEnv struct {
 	onExecutor func()
 	// wipeErr fails the wipe of a device of an identity conflict.
 	wipeErr error
+	// netFiles are the networkd files of a oneshot restore.
+	netFiles []NetworkFile
+	// wrote is the mark of the writing (a restart of recover finds it);
+	// markErr fails setting it.
+	wrote   bool
+	markErr error
 }
 
 func (e *testEnv) note(s string) { e.mu.Lock(); e.actions = append(e.actions, s); e.mu.Unlock() }
@@ -170,6 +176,31 @@ func (e *testEnv) EnableRemote(ctx context.Context) (string, []api.RecoverySSHHo
 	return "", nil, fmt.Errorf("no remote access in this test")
 }
 func (e *testEnv) RemoteKeys(ctx context.Context, keys []string) error { return nil }
+
+// OneshotEnv of the test: the network files and the keys are noted.
+func (e *testEnv) OneshotNetwork(ctx context.Context, files []NetworkFile) error {
+	e.mu.Lock()
+	e.netFiles = append(e.netFiles, files...)
+	e.mu.Unlock()
+	e.note(fmt.Sprintf("network files %d", len(files)))
+	return nil
+}
+func (e *testEnv) EnableRemoteKeys(ctx context.Context, keys []string) ([]api.RecoverySSHHostKey, error) {
+	e.note(fmt.Sprintf("remote keys %d", len(keys)))
+	return []api.RecoverySSHHostKey{{Type: "ssh-ed25519", Fingerprint: "SHA256:" + strings.Repeat("A", 43)}}, nil
+}
+func (e *testEnv) ForgetOneshot() error { e.note("forget oneshot"); return nil }
+func (e *testEnv) MarkWriting() error {
+	e.note("mark writing")
+	if e.markErr != nil {
+		return e.markErr
+	}
+	e.mu.Lock()
+	e.wrote = true
+	e.mu.Unlock()
+	return nil
+}
+func (e *testEnv) WritingStarted() bool { e.mu.Lock(); defer e.mu.Unlock(); return e.wrote }
 
 // chownless lets the flow run without root: owners are not changed.
 type chownless struct{ *DirRootfs }

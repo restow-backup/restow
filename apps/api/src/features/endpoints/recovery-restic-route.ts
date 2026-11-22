@@ -56,6 +56,11 @@ export async function resolveRecoveryCredential(
   ) {
     return { ok: false, reason: "expired" };
   }
+  // A oneshot session reads only from its recovery environment, after it reported back
+  // (docs/BAREMETAL-ONESHOT.md 6.4).
+  if (access.kind === "oneshot" && !access.oneshot?.booted) {
+    return { ok: false, reason: "invalid" };
+  }
   const decision = rate.consume(sessionId, now);
   if (!decision.allowed) {
     throw new ProblemError(429, "Too many requests", {

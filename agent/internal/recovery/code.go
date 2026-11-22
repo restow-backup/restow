@@ -309,6 +309,57 @@ func CodeProof(origin, norm string) string {
 	return sha256Hex(proofPrefix + origin + ":" + norm)
 }
 
+// Oneshot codes (docs/BAREMETAL-ONESHOT.md 6.1): the code of the command
+// on a fresh machine. Same alphabet and length, shown as OS-XXXXX-...; the
+// proof has its own prefix, so a oneshot code opens nothing at the ISO's
+// exchange and a recovery code nothing at the command's.
+const (
+	oneshotCodePrefix  = "OS"
+	oneshotProofPrefix = "restow-oneshot-code:"
+)
+
+// NormalizeOneshotCode turns a oneshot code as given into its 25 symbols:
+// the OS prefix is taken off before O reads as 0; a recovery code (RC) is
+// refused.
+func NormalizeOneshotCode(input string) (string, error) {
+	var b strings.Builder
+	for _, r := range input {
+		if unicode.IsSpace(r) || r == '-' {
+			continue
+		}
+		if r > unicode.MaxASCII {
+			return "", ErrInvalidCode
+		}
+		b.WriteRune(unicode.ToUpper(r))
+	}
+	s := b.String()
+	if len(s) == CodeLength+len(oneshotCodePrefix) {
+		if !strings.HasPrefix(s, oneshotCodePrefix) {
+			return "", ErrInvalidCode
+		}
+		s = s[len(oneshotCodePrefix):]
+	}
+	if len(s) != CodeLength {
+		return "", ErrInvalidCode
+	}
+	return NormalizeCode(s)
+}
+
+// FormatOneshotCode shows a normalized code as OS-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX.
+func FormatOneshotCode(norm string) string {
+	f := FormatCode(norm)
+	if f == norm {
+		return norm
+	}
+	return oneshotCodePrefix + strings.TrimPrefix(f, codePrefix)
+}
+
+// OneshotCodeProof is what the command sends: hex(SHA-256("restow-oneshot-code:"
+// || origin || ":" || code)), for the origin it connects to.
+func OneshotCodeProof(origin, norm string) string {
+	return sha256Hex(oneshotProofPrefix + origin + ":" + norm)
+}
+
 // HashCodeProof is the value the instance stores: hex(SHA-256(codeProof)).
 func HashCodeProof(proof string) string { return sha256Hex(proof) }
 

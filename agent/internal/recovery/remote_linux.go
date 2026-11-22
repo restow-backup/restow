@@ -140,6 +140,40 @@ func (r *Remote) UseKeys(ctx context.Context, keys []string) error {
 	return nil
 }
 
+// EnableKeys starts sshd with exactly these keys and no password (a
+// oneshot restore whose release allowed remote access, with the keys of
+// root of the fresh machine the admin saw); the password of root is locked.
+func (r *Remote) EnableKeys(ctx context.Context, keys []string) ([]api.RecoverySSHHostKey, error) {
+	var b strings.Builder
+	for _, k := range keys {
+		if _, err := ParseAuthorizedKey(k); err != nil {
+			return nil, err
+		}
+		b.WriteString(strings.TrimSpace(k) + "\n")
+	}
+	if b.Len() == 0 {
+		return nil, errors.New("no key")
+	}
+	if _, err := r.Exec.Run(ctx, RunSpec{Argv: []string{"ssh-keygen", "-A"}, Timeout: time.Minute}); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(r.dir(), 0o700); err != nil {
+		return nil, err
+	}
+	ak := filepath.Join(r.dir(), "authorized_keys")
+	if err := os.WriteFile(ak, []byte(b.String()), 0o600); err != nil {
+		return nil, err
+	}
+	_, _ = r.Exec.Run(ctx, RunSpec{Argv: []string{"chpasswd", "-e"}, Stdin: []byte("root:!\n"), Timeout: time.Minute})
+	if err := r.start(SSHDConfig(false, ak)); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.keys = true
+	r.mu.Unlock()
+	return r.HostKeys(ctx)
+}
+
 func (r *Remote) start(config string) error {
 	if err := os.MkdirAll(r.dir(), 0o700); err != nil {
 		return err

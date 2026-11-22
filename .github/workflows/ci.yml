@@ -171,6 +171,8 @@ jobs:
           scripts/smoke/run.test.mjs
           scripts/smoke/lib/*.test.mjs
           scripts/recovery-e2e/run.test.mjs
+          scripts/recovery-e2e/oneshot-boot.test.mjs
+          scripts/recovery-e2e/oneshot-cases.test.mjs
 
       - name: Test
         # Root script builds the library packages first (consumers resolve their
@@ -1028,6 +1030,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # docs/BAREMETAL-ONESHOT.md 19.2: the live system started like a oneshot restore starts it
+      # (kernel, initrd with the appended live file system and session data, the agent's command
+      # line; built by restow-agent oneshot-payload from this ISO) gets its session data and runs
+      # without a medium.
+      - name: Start without medium (oneshot restore, QEMU/KVM)
+        run: |
+          set -euo pipefail
+          node scripts/recovery-e2e/oneshot-boot.mjs \
+            --iso "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" \
+            --agent "$RUNNER_TEMP/agent-dist/linux-amd64/restow-agent" --work-dir "$RUNNER_TEMP/oneshot-boot"
+
+      - name: Keep the serial log of the start without medium
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-oneshot-boot-logs
+          path: ${{ runner.temp }}/oneshot-boot/serial.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Keep the ISO and its hash
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1129,8 +1151,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # E1 and E2, and the boot probes P1 (green) and P2 (red, the emergency target).
-        case: [E1, E2, P1, P2]
+        # E1 and E2, the boot probes P1 (green) and P2 (red, the emergency target), and the
+        # restore onto a fresh machine without an ISO, O-E1 (UEFI, a /32 with an on-link
+        # gateway) and O-E2 (BIOS, DHCP) (docs/BAREMETAL-ONESHOT.md 19.3).
+        case: [E1, E2, P1, P2, O-E1, O-E2]
     permissions:
       contents: read
     steps:

@@ -187,5 +187,65 @@
    "spkiSha256": "0000000000000000000000000000000000000000000000000000000000000000",
    "spkiCheck": "AAAA-AAAA-AAAA-AAAA"
   }
+ ],
+ "oneshotNormalize": [
+  {
+   "input": "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS",
+   "normalized": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "display": "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+  },
+  {
+   "input": "os 7k3qx m9p2d h4tnv 8wrbc j6fas",
+   "normalized": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "display": "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+  },
+  {
+   "input": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "normalized": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "display": "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS"
+  },
+  {
+   "input": "OS-OA1B2-C3D4E-F5G6H-J7K8M-N9POQ",
+   "normalized": "0A1B2C3D4EF5G6HJ7K8MN9P0Q",
+   "display": "OS-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q"
+  },
+  {
+   "input": "RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS",
+   "normalized": null,
+   "display": null
+  },
+  {
+   "input": "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FAY",
+   "normalized": null,
+   "display": null
+  },
+  {
+   "input": "OS-7K3QX-M9P2D-H4TNV-8WRBC-J6FA",
+   "normalized": null,
+   "display": null
+  }
+ ],
+ "oneshotProof": [
+  {
+   "origin": "https://restow.firma.de",
+   "code": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "codeProof": "d82050dd2a11d1bb3cb1907a952490a04b25c6f95edbef51c3d8b11a6da67213",
+   "codeHash": "d974fcb012a5589464d88db75a1614df1c9923262246df3fe711056f7575d05c",
+   "recoveryProof": "61568a617301ffbaa5adccc54fa56a88dbc8dd4159bbe9b1404d22bda549942c"
+  },
+  {
+   "origin": "https://restow-firma.de",
+   "code": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "codeProof": "8f960c5ca4e41611858a10712b8af71bc1765c88bb291b1b0cf790538a1555e2",
+   "codeHash": "a9b126855b3b837df0ae67b6fb3aaf464b3fd8e572dad684e7339e192804d532",
+   "recoveryProof": "0d83242afb7070b9b2cc5d2e31af6beca769d83687a8ae429af26d8a74c61b8f"
+  },
+  {
+   "origin": "http://10.0.2.2:8080",
+   "code": "7K3QXM9P2DH4TNV8WRBCJ6FAS",
+   "codeProof": "1638b92f30f40d5ffdc522991324e7ee657f3897e1edcaea5c450ae6b2eff971",
+   "codeHash": "da347d6fb3a2f596ca6485e150cfccd6c144d70ffe8ba71d2e1efd0cf66fae39",
+   "recoveryProof": "5814421423ef99965b163281e55bc1441d634f4bc263a7a2f48e63c8757c6ecb"
+  }
  ]
 }

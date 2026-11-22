@@ -1,9 +1,16 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   canonicalOrigin,
+  DEFAULT_ONESHOT_SESSION_HOURS,
+  DEFAULT_RECOVERY_VALIDITY_HOURS,
+  formatOneshotCode,
   formatRecoveryCode,
   generateRecoveryCode,
   hashRecoveryCodeProof,
   MAX_RECOVERY_VALIDITY_HOURS,
+  MIN_ONESHOT_SESSION_HOURS,
+  ONESHOT_REDEEM_MS,
+  oneshotCodeProof,
   parseRecoveryVerification,
   RECOVERY_APPROVAL_TIMEOUT_MS,
   RECOVERY_OPEN_LIMIT,
@@ -18,6 +25,8 @@ import {
   type Endpoint,
   type EndpointRecovery,
   type EndpointRecoveryHardware,
+  type EndpointRecoveryKind,
+  type EndpointRecoveryOneshot,
   type EndpointRecoveryStatus,
   endpointLayouts,
   endpointRecoveries,
@@ -33,11 +42,18 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { raiseTenantEvent } from "./alerts.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
+import { isSafeOrigin } from "./distribution.js";
 import { instanceTls } from "./instance-tls.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { recoveryIsoState } from "./recovery-iso.js";
 import { forgetRecoverySession, holdForRecovery } from "./recovery-session-cache.js";
-import type { IssueRecoveryCodeInput } from "./schemas.js";
+import type { ApproveOneshotInput, IssueRecoveryCodeInput } from "./schemas.js";
+
+/**
+ * The kinds of recoveries an operator issues, follows and ends: codes for the ISO and oneshot codes
+ * for a fresh machine (docs/BAREMETAL-ONESHOT.md). The lab's boot probes are the worker's.
+ */
+export const OPERATOR_RECOVERY_KINDS: readonly EndpointRecoveryKind[] = ["code", "oneshot"];
 
 /**
  * Recovery codes, the admin's side (docs/BAREMETAL.md 9.2, 9.4, 9.9): issue a code for one Linux
@@ -61,6 +77,7 @@ export type BaremetalUnavailableReason =
   | "unsupported"
   | "iso_unverified"
   | "preview_off"
+  | "oneshot_off"
   | "snapshot_unknown";
 
 function notAvailable(reason: BaremetalUnavailableReason, detail: string): ProblemError {
@@ -122,7 +139,7 @@ export async function activeRecoveriesOf(
         inArray(endpointRecoveries.endpointId, [...endpointIds]),
         inArray(endpointRecoveries.status, [...RUNNING_RECOVERY_STATES]),
         // A boot probe of the lab is no recovery of the machine (docs/BAREMETAL.md 12.3).
-        eq(endpointRecoveries.kind, "code"),
+        inArray(endpointRecoveries.kind, [...OPERATOR_RECOVERY_KINDS]),
       ),
     )
     .orderBy(desc(endpointRecoveries.issuedAt));
@@ -174,7 +191,7 @@ export function hardwareSummaryOf(
 /** One code and its session as the web app sees it: never the code, its hash or a secret hash. */
 export interface RecoveryDto {
   id: string;
-  kind: "code";
+  kind: "code" | "oneshot";
   status: EndpointRecoveryStatus;
   issuedAt: string;
   expiresAt: string;
@@ -195,6 +212,8 @@ export interface RecoveryDto {
   cancelRequestedAt: string | null;
   phase: string | null;
   hardwareSummary: RecoveryHardwareSummary | null;
+  /** Kind `oneshot`: when the recovery environment reported back after the switch. */
+  bootedAt: string | null;
 }
 
 export interface RecoveryDetailDto extends RecoveryDto {
@@ -211,12 +230,30 @@ export interface RecoveryDetailDto extends RecoveryDto {
   warnings: { code: string; message: string }[];
   /** `next`: the cursor of the next page (`logAfter`), or null. */
   log: { items: { id: string; at: string; lines: string[] }[]; next: string | null };
+  /**
+   * Kind `oneshot` (docs/BAREMETAL-ONESHOT.md 6.4): what the command on the fresh machine reported
+   * (`reported`, `booted`) apart from what the admin decided (`decided`); null for other kinds.
+   */
+  oneshot: {
+    validityHours: number;
+    reported: EndpointRecoveryOneshot["reported"] | null;
+    decided: EndpointRecoveryOneshot["decided"] | null;
+    booted: EndpointRecoveryOneshot["booted"] | null;
+    isoDownloads: number;
+  } | null;
 }
 
 export interface IssuedRecoveryCodeDto {
   id: string;
+  kind: "code" | "oneshot";
   /** Shown once, never stored. */
   code: string;
+  /**
+   * Kind `oneshot`: the command to paste on the fresh machine (shown once, carries the code), and
+   * how long its session lasts from the issue; null for codes of the ISO.
+   */
+  command: string | null;
+  sessionValidityHours: number | null;
   expiresAt: string;
   instanceOrigin: string;
   instanceOriginConfigured: boolean;
@@ -247,7 +284,7 @@ export function toRecoveryDto(row: EndpointRecovery, names: Map<string, string>)
   const person = (id: string | null) => (id ? { id, name: names.get(id) ?? "" } : null);
   return {
     id: row.id,
-    kind: "code",
+    kind: row.kind === "oneshot" ? "oneshot" : "code",
     status: row.status,
     issuedAt: row.issuedAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
@@ -268,6 +305,7 @@ export function toRecoveryDto(row: EndpointRecovery, names: Map<string, string>)
     cancelRequestedAt: iso(row.cancelRequestedAt),
     phase: row.progress?.phase ?? null,
     hardwareSummary: hardwareSummaryOf(row.hardware),
+    bootedAt: row.oneshot?.booted?.at ?? null,
   };
 }
 
@@ -413,7 +451,7 @@ async function loadRecovery(
         eq(endpointRecoveries.endpointId, endpointId),
         eq(endpointRecoveries.id, recoveryId),
         // The sessions of the lab's boot probes are the worker's, never an operator's to change.
-        eq(endpointRecoveries.kind, "code"),
+        inArray(endpointRecoveries.kind, [...OPERATOR_RECOVERY_KINDS]),
       ),
     )
     .limit(1);
@@ -440,7 +478,7 @@ export async function issueRecoveryCode(
   database: Database,
   tenantId: string,
   endpointId: string,
-  input: IssueRecoveryCodeInput,
+  issueInput: Omit<IssueRecoveryCodeInput, "kind"> & { kind?: IssueRecoveryCodeInput["kind"] },
   actor: EndpointActor,
   instance: { url: string; configured: boolean },
   now: Date = new Date(),
@@ -449,6 +487,26 @@ export async function issueRecoveryCode(
     throw notAvailable(
       "preview_off",
       "Bare metal recovery is a preview this installation has not switched on.",
+    );
+  }
+  const kind = issueInput.kind ?? "code";
+  const input = {
+    ...issueInput,
+    kind,
+    validityHours:
+      issueInput.validityHours ??
+      (kind === "oneshot" ? DEFAULT_ONESHOT_SESSION_HOURS : DEFAULT_RECOVERY_VALIDITY_HOURS),
+  };
+  const oneshot = input.kind === "oneshot";
+  if (oneshot && (input.validityHours < MIN_ONESHOT_SESSION_HOURS || !input.requireApproval)) {
+    throw new ProblemError(422, "Not a oneshot code", {
+      detail: `A oneshot code always needs the release, and its session lasts ${MIN_ONESHOT_SESSION_HOURS} to ${MAX_RECOVERY_VALIDITY_HOURS} hours.`,
+    });
+  }
+  if (oneshot && !appConfig.baremetalOneshot) {
+    throw notAvailable(
+      "oneshot_off",
+      "Bare metal onto a fresh machine is not switched on in this installation (RESTOW_BAREMETAL_ONESHOT).",
     );
   }
   const { snapshot } = await withTenantTx(database, tenantId, async (tx) => {
@@ -488,11 +546,25 @@ export async function issueRecoveryCode(
       detail: "The public address of this installation is not configured.",
     });
   }
+  if (oneshot && !isSafeOrigin(origin)) {
+    // The command is pasted into a shell: the address goes into it between single quotes.
+    throw new ProblemError(503, "Instance address unusable", {
+      type: ENDPOINT_PROBLEMS.instanceUrlUnsafe,
+      detail:
+        "The public address of this installation cannot be written into a shell command. Set an address of scheme, host and port only (Settings, or RESTOW_PUBLIC_URL).",
+    });
+  }
   // Outside the transaction: the connection may take its five seconds.
   const spki = appConfig.publicTlsSpki ?? (await instanceTls.measure(origin, { timeoutMs: 5000 }));
   const code = generateRecoveryCode();
-  const codeHash = hashRecoveryCodeProof(recoveryCodeProof(origin, code));
-  const expiresAt = new Date(now.getTime() + input.validityHours * 60 * 60 * 1000);
+  // A oneshot code is redeemable for 30 minutes; the exchange moves the expiry to the end of its
+  // session (validityHours from the issue, docs/BAREMETAL-ONESHOT.md 6.1).
+  const codeHash = hashRecoveryCodeProof(
+    oneshot ? oneshotCodeProof(origin, code) : recoveryCodeProof(origin, code),
+  );
+  const expiresAt = new Date(
+    now.getTime() + (oneshot ? ONESHOT_REDEEM_MS : input.validityHours * 60 * 60 * 1000),
+  );
   const row = await withTenantTx(database, tenantId, async (tx) => {
     // Serialise issuing for the machine, so two requests cannot both pass the limit.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`recovery:${endpointId}`}))`);
@@ -502,7 +574,7 @@ export async function issueRecoveryCode(
       .where(
         and(
           eq(endpointRecoveries.endpointId, endpointId),
-          eq(endpointRecoveries.kind, "code"),
+          inArray(endpointRecoveries.kind, [...OPERATOR_RECOVERY_KINDS]),
           inArray(endpointRecoveries.status, [...OPEN_RECOVERY_STATES]),
           gt(endpointRecoveries.expiresAt, now),
         ),
@@ -519,17 +591,19 @@ export async function issueRecoveryCode(
       .values({
         tenantId,
         endpointId,
-        kind: "code",
+        kind: input.kind,
         status: "issued",
         codeHash,
         instanceOrigin: origin,
         spkiSha256: spki,
-        requireApproval: input.requireApproval,
+        // A oneshot code always waits for its release (docs/BAREMETAL-ONESHOT.md 5.2).
+        requireApproval: oneshot || input.requireApproval,
         snapshotId: snapshot.id,
         issuedAt: now,
         expiresAt,
         createdBy: actor.userId,
         updatedAt: now,
+        ...(oneshot ? { oneshot: { validityHours: input.validityHours } } : {}),
       })
       .returning();
     if (!created) {
@@ -542,20 +616,24 @@ export async function issueRecoveryCode(
       endpointId,
       details: {
         recoveryId: created.id,
-        kind: "code",
+        kind: input.kind,
         validityHours: input.validityHours,
         expiresAt: expiresAt.toISOString(),
         snapshotId: snapshot.id,
-        requireApproval: input.requireApproval,
+        requireApproval: oneshot || input.requireApproval,
         instanceOrigin: origin,
         spkiCheck: spkiCheckOf(spki),
       },
     });
     return created;
   });
+  const shown = oneshot ? formatOneshotCode(code) : formatRecoveryCode(code);
   return {
     id: row.id,
-    code: formatRecoveryCode(code),
+    kind: input.kind,
+    code: shown,
+    command: oneshot ? oneshotCommand(origin, shown) : null,
+    sessionValidityHours: oneshot ? input.validityHours : null,
     expiresAt: row.expiresAt.toISOString(),
     instanceOrigin: origin,
     instanceOriginConfigured: instance.configured,
@@ -598,7 +676,7 @@ export async function revokeRecoveryCode(
       actor,
       action: ENDPOINT_AUDIT_ACTIONS.recoveryCodeRevoked,
       endpointId,
-      details: { recoveryId, kind: "code" },
+      details: { recoveryId, kind: current.kind },
     });
     return dtoOf(tx, row);
   });
@@ -623,6 +701,13 @@ export async function extendRecoveryCode(
     const current = await loadRecovery(tx, endpointId, recoveryId, { forUpdate: true });
     if (!OPEN_RECOVERY_STATES.includes(current.status) || current.expiresAt <= now) {
       throw stateConflict(current.status, "Only an open code or session can be extended.");
+    }
+    if (current.kind === "oneshot" && current.status === "issued") {
+      // The 30 minutes to redeem it stay; its session is extended once it runs.
+      throw stateConflict(
+        current.status,
+        "A code for a fresh machine is redeemable for 30 minutes only; issue a new one. Its session can be extended once it runs.",
+      );
     }
     const ceiling = current.issuedAt.getTime() + MAX_RECOVERY_VALIDITY_HOURS * 60 * 60 * 1000;
     const wanted = Math.max(current.expiresAt.getTime(), now.getTime() + validityHours * 3600_000);
@@ -668,7 +753,10 @@ export async function listRecoveries(
       .select()
       .from(endpointRecoveries)
       .where(
-        and(eq(endpointRecoveries.endpointId, endpointId), eq(endpointRecoveries.kind, "code")),
+        and(
+          eq(endpointRecoveries.endpointId, endpointId),
+          inArray(endpointRecoveries.kind, [...OPERATOR_RECOVERY_KINDS]),
+        ),
       )
       .orderBy(desc(endpointRecoveries.issuedAt))
       .limit(50);
@@ -730,6 +818,16 @@ export async function getRecovery(
       verification: parseRecoveryVerification(row.verification),
       warnings: row.warnings ?? [],
       log: { items, next: more ? logCursorOf(items.at(-1)) : null },
+      oneshot:
+        row.kind === "oneshot" && row.oneshot
+          ? {
+              validityHours: row.oneshot.validityHours,
+              reported: row.oneshot.reported ?? null,
+              decided: row.oneshot.decided ?? null,
+              booted: row.oneshot.booted ?? null,
+              isoDownloads: row.oneshot.isoDownloads ?? 0,
+            }
+          : null,
     };
   });
 }
@@ -783,9 +881,63 @@ export async function failUnapproved(
 }
 
 /**
+ * Why a oneshot session cannot be released yet (docs/BAREMETAL-ONESHOT.md 6.3, 8.4), or null: the
+ * command must have shown that it can switch (a test load of the kernel with kexec), or run in the
+ * rescue system itself, and the machine must not carry an enrolled agent. All of it is what the
+ * machine reported; the admin sees it before releasing.
+ */
+export function oneshotNotReadyReason(
+  oneshot: EndpointRecoveryOneshot | null,
+): "not_reported" | "kexec_not_tried" | "kexec_failed" | "agent_enrolled" | null {
+  const checks = oneshot?.reported?.checks as
+    | { mode?: unknown; kexec?: unknown; inUse?: unknown }
+    | undefined;
+  if (!checks) return "not_reported";
+  if (Array.isArray(checks.inUse) && checks.inUse.includes("agent_enrolled")) {
+    return "agent_enrolled";
+  }
+  if (checks.mode === "direct") return null;
+  if (checks.kexec === "ok") return null;
+  return checks.kexec === "failed" ? "kexec_failed" : "kexec_not_tried";
+}
+
+/**
+ * The command a oneshot code is shown with (docs/BAREMETAL-ONESHOT.md 6.1, 8.1), for a root shell.
+ * The code goes into the environment of `sh`, which only root reads, never onto a command line,
+ * which every user of the machine reads (and sudo logs). The origin must be safe in a shell.
+ */
+export function oneshotCommand(origin: string, shownCode: string): string {
+  if (!isSafeOrigin(origin) || !/^OS-[0-9A-Z-]+$/.test(shownCode)) {
+    throw new TypeError("unsafe origin or code for a shell command");
+  }
+  return `curl -fsSL '${origin}/install/oneshot.sh' | RESTOW_ONESHOT_CODE='${shownCode}' sh`;
+}
+
+/** Whether the restore onto a fresh machine is switched on (both flags). */
+export function oneshotEnabled(): boolean {
+  return appConfig.baremetalPreview && appConfig.baremetalOneshot;
+}
+
+/** The decisions of a release as they are kept: the match code is a check, no decision. */
+function decisionsOf(answers: ApproveOneshotInput): Omit<ApproveOneshotInput, "matchCode"> {
+  const { matchCode: _matchCode, ...decisions } = answers;
+  return decisions;
+}
+
+/** Whether the match code an admin typed is the session's (constant time). */
+export function sameMatchCode(typed: string, sessionSecretHash: string | null): boolean {
+  if (!sessionSecretHash) return false;
+  const want = Buffer.from(recoveryMatchCode(sessionSecretHash));
+  const got = Buffer.from(typed.replace(/\s/g, ""));
+  return got.length === want.length && timingSafeEqual(got, want);
+}
+
+/**
  * Release a session that waits (9.4): `pending_approval` -> `active`. The repository's shared
  * maintenance lock is held for the transition, so no prune runs while the session starts to read
- * (9.5, 9.7). After the 30 minutes the session has failed instead.
+ * (9.5, 9.7). After the 30 minutes the session has failed instead. A oneshot session needs the
+ * admin's answers (`answers`, docs/BAREMETAL-ONESHOT.md 6.3) and a machine that is ready; a code
+ * of the ISO takes none.
  */
 export async function approveRecovery(
   database: Database,
@@ -793,6 +945,7 @@ export async function approveRecovery(
   endpointId: string,
   recoveryId: string,
   actor: EndpointActor,
+  answers: ApproveOneshotInput | null = null,
   now: Date = new Date(),
 ): Promise<RecoveryDto> {
   const result = await withTenantTx(database, tenantId, async (tx) => {
@@ -805,17 +958,68 @@ export async function approveRecovery(
         "Only a session that waits for its release can be released.",
       );
     }
+    if (current.kind === "oneshot") {
+      if (!oneshotEnabled()) {
+        throw notAvailable(
+          "oneshot_off",
+          "Bare metal onto a fresh machine is not switched on in this installation (RESTOW_BAREMETAL_ONESHOT).",
+        );
+      }
+      if (!answers) {
+        throw new ProblemError(422, "Answers missing", {
+          detail:
+            "Releasing a session for a fresh machine needs the answers: networkMode, and whether shrinking, Secure Boot findings as warnings and remote access are allowed.",
+        });
+      }
+      const reason = oneshotNotReadyReason(current.oneshot);
+      if (reason) {
+        throw new ProblemError(409, "The machine is not ready", {
+          type: ENDPOINT_PROBLEMS.oneshotNotReady,
+          detail:
+            reason === "agent_enrolled"
+              ? "The machine carries an enrolled Restow agent: it is no fresh machine."
+              : reason === "kexec_failed"
+                ? "The machine cannot switch into the recovery environment (kexec failed). Start its rescue system and run the command there."
+                : "The command on the machine has not checked yet whether it can switch into the recovery environment.",
+          extensions: { reason },
+        });
+      }
+      if (!sameMatchCode(answers.matchCode, current.sessionSecretHash)) {
+        // Audited outside this transaction, which ends with the refusal.
+        return { ended: null, mismatch: true as const };
+      }
+    } else if (answers) {
+      throw new ProblemError(422, "No answers for this kind", {
+        detail: "Only a session for a fresh machine takes answers on its release.",
+      });
+    }
     if (current.usedAt && now.getTime() - current.usedAt.getTime() > RECOVERY_APPROVAL_TIMEOUT_MS) {
       await failUnapproved(tx, current, endpointName(endpoint), now);
-      return { ended: "not_approved" as const };
+      return { ended: "not_approved" as const, mismatch: false as const };
     }
     if (current.expiresAt <= now) {
       // The code ran out while the session waited: it can no longer be released.
       await failUnapproved(tx, current, endpointName(endpoint), now, "expired");
-      return { ended: "expired" as const };
+      return { ended: "expired" as const, mismatch: false as const };
     }
-    return { ended: null };
+    return { ended: null, mismatch: false as const };
   });
+  if (result.mismatch) {
+    await withTenantTx(database, tenantId, (tx) =>
+      auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryMatchCodeMismatch,
+        endpointId,
+        details: { recoveryId },
+      }),
+    );
+    throw new ProblemError(422, "Wrong match code", {
+      type: ENDPOINT_PROBLEMS.recoveryMatchCodeMismatch,
+      detail:
+        "The match code is not the one the machine shows on its console. Compare it there: a machine that shows another number is not the one you mean to release.",
+    });
+  }
   if (result.ended) {
     forgetRecoverySession(recoveryId);
     throw sessionEnded(
@@ -836,7 +1040,20 @@ export async function approveRecovery(
       assertNotRemoved({ removedAt: machine?.removedAt ?? null });
       const [row] = await tx
         .update(endpointRecoveries)
-        .set({ status: "active", approvedAt: now, approvedBy: actor.userId, updatedAt: now })
+        .set({
+          status: "active",
+          approvedAt: now,
+          approvedBy: actor.userId,
+          updatedAt: now,
+          ...(answers
+            ? {
+                // Only this route writes `decided`; the machine's reports never touch it.
+                oneshot: sql`coalesce(${endpointRecoveries.oneshot}, '{}'::jsonb) || jsonb_build_object('decided', ${JSON.stringify(
+                  { ...decisionsOf(answers), at: now.toISOString(), by: actor.userId },
+                )}::jsonb)`,
+              }
+            : {}),
+        })
         .where(
           and(
             eq(endpointRecoveries.id, recoveryId),
@@ -857,6 +1074,7 @@ export async function approveRecovery(
         details: {
           recoveryId,
           matchCode: row.sessionSecretHash ? recoveryMatchCode(row.sessionSecretHash) : null,
+          ...(answers ? { kind: "oneshot", answers } : {}),
         },
       });
       return dtoOf(tx, row);

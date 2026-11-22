@@ -294,6 +294,11 @@ func (h *HardwareCollector) liveMedium(ctx context.Context) string {
 		return ""
 	}
 	src := strings.TrimSpace(string(res.Output))
+	if !strings.HasPrefix(src, "/dev/") {
+		// Started without a medium (a oneshot restore: a folder of the
+		// initramfs, rootfs[/restow/medium]): no disk to keep out.
+		return ""
+	}
 	if r, err := filepath.EvalSymlinks(src); err == nil {
 		src = r
 	}

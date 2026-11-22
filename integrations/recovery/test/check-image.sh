@@ -90,6 +90,18 @@ grep -q '^AUTO -all' "$root/etc/mdadm/mdadm.conf" || problem "mdadm.conf assembl
 [ "$(readlink "$root/etc/systemd/system-generators/systemd-gpt-auto-generator")" = /dev/null ] ||
   problem "systemd-gpt-auto-generator is not masked"
 
+# The hand-over of a oneshot restore is in the initramfs and runs at init-bottom
+# (docs/BAREMETAL-ONESHOT.md 9.1), read with the image's own lsinitramfs.
+mkdir -p "$root/tmp"
+if xorriso -osirrox on -indev "$iso" -extract /live/initrd.img "$root/tmp/rr-initrd.img" >/dev/null 2>&1; then
+  chroot "$root" lsinitramfs /tmp/rr-initrd.img >"$work/initramfs-list" 2>/dev/null ||
+    problem "lsinitramfs cannot read the ISO's initrd"
+  grep -qx 'scripts/init-bottom/restow-oneshot' "$work/initramfs-list" ||
+    problem "the initramfs lacks scripts/init-bottom/restow-oneshot"
+  rm -f "$root/tmp/rr-initrd.img"
+else
+  problem "cannot read /live/initrd.img from $iso"
+fi
 # efivarfs in the initramfs on every build host (hooks/zz-restow-efivarfs; mdadm's hook adds it
 # only on a host started with UEFI, and the build hosts must agree bit for bit): the module once,
 # as the last line of conf/modules, and the hook's mark, unpacked with the image's own

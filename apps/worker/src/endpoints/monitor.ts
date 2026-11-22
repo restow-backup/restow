@@ -51,6 +51,7 @@ import {
   endpointQuotaLimits,
   endpointStaleness,
   isInterruptedOnly,
+  ONESHOT_BOOT_TIMEOUT_MS,
   QUOTA_CLEAR_RATIO,
   quotaLevelOf,
   quotaRatio,
@@ -699,7 +700,7 @@ async function alertStorageQuota(deps: EndpointJobDeps, now: Date): Promise<numb
 type RecoveryExpiry = {
   from: "issued" | "pending_approval" | "active" | "finishing";
   to: "expired" | "failed";
-  reason: "expired" | "not_approved" | "silent";
+  reason: "expired" | "not_approved" | "silent" | "oneshot_no_boot";
 };
 
 /**
@@ -713,6 +714,10 @@ export async function expireRecoveries(
 ): Promise<{ expired: number; failed: number; purgedLogs: number }> {
   const approvalDeadline = new Date(now.getTime() - RECOVERY_APPROVAL_TIMEOUT_MS);
   const silenceDeadline = new Date(now.getTime() - RECOVERY_SILENCE_AFTER_EXPIRY_MS);
+  // A released oneshot restore whose recovery environment did not report back after the switch
+  // (docs/BAREMETAL-ONESHOT.md 6.5).
+  const bootDeadline = new Date(now.getTime() - ONESHOT_BOOT_TIMEOUT_MS);
+  const notBooted = sql`(${endpointRecoveries.kind} = 'oneshot' AND ${endpointRecoveries.status} = 'active' AND ${endpointRecoveries.approvedAt} <= ${bootDeadline.toISOString()}::timestamptz AND NOT (coalesce(${endpointRecoveries.oneshot}, '{}'::jsonb) ? 'booted'))`;
   const candidates = await deps.providerDb
     .select({
       id: endpointRecoveries.id,
@@ -721,6 +726,8 @@ export async function expireRecoveries(
       status: endpointRecoveries.status,
       kind: endpointRecoveries.kind,
       usedAt: endpointRecoveries.usedAt,
+      approvedAt: endpointRecoveries.approvedAt,
+      booted: sql<boolean>`coalesce(${endpointRecoveries.oneshot}, '{}'::jsonb) ? 'booted'`,
       hostname: endpoints.hostname,
       displayName: endpoints.displayName,
     })
@@ -729,7 +736,8 @@ export async function expireRecoveries(
     .where(
       sql`(${endpointRecoveries.status} = 'issued' AND ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz)
        OR (${endpointRecoveries.status} = 'pending_approval' AND (${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz OR ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz))
-       OR (${endpointRecoveries.status} IN ('active', 'finishing') AND ${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz)`,
+       OR (${endpointRecoveries.status} IN ('active', 'finishing') AND ${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz)
+       OR ${notBooted}`,
     )
     .limit(500);
   const byTenant = new Map<string, typeof candidates>();
@@ -755,11 +763,17 @@ export async function expireRecoveries(
                       ? "not_approved"
                       : "expired",
                 }
-              : {
-                  from: candidate.status as "active" | "finishing",
-                  to: "failed",
-                  reason: "silent",
-                };
+              : candidate.kind === "oneshot" &&
+                  candidate.status === "active" &&
+                  !candidate.booted &&
+                  candidate.approvedAt !== null &&
+                  candidate.approvedAt <= bootDeadline
+                ? { from: "active", to: "failed", reason: "oneshot_no_boot" }
+                : {
+                    from: candidate.status as "active" | "finishing",
+                    to: "failed",
+                    reason: "silent",
+                  };
         const condition =
           plan.from === "issued"
             ? sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
@@ -767,7 +781,9 @@ export async function expireRecoveries(
               ? plan.reason === "not_approved"
                 ? sql`${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz`
                 : sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
-              : sql`${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz`;
+              : plan.reason === "oneshot_no_boot"
+                ? notBooted
+                : sql`${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz`;
         const [moved] = await tx
           .update(endpointRecoveries)
           .set({
@@ -818,7 +834,9 @@ export async function expireRecoveries(
               ? `The recovery of ${name} failed: nobody released the session within 30 minutes.`
               : plan.reason === "expired"
                 ? `The recovery of ${name} failed: its code expired before the session was released.`
-                : `The recovery of ${name} failed: the recovery ISO stopped reporting.`,
+                : plan.reason === "oneshot_no_boot"
+                  ? `The recovery of ${name} failed: the fresh machine did not report from the recovery environment within 30 minutes after the release.`
+                  : `The recovery of ${name} failed: the recovery ISO stopped reporting.`,
           details: {
             endpointId: candidate.endpointId,
             objectName: name,

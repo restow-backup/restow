@@ -51,7 +51,7 @@ set -Eeuo pipefail
 # ---- The release this script belongs to ---------------------------------------------
 # The release workflow refuses a tag whose version differs from this line
 # (.github/workflows/release.yml, job verify).
-DEFAULT_VERSION="0.5.2"
+DEFAULT_VERSION="0.5.3-rc.1"
 
 RELEASE_REPOSITORY="restow-backup/restow"
 RELEASE_URL_DEFAULT="https://github.com/${RELEASE_REPOSITORY}/releases/download"

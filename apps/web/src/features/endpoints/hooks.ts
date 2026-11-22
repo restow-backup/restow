@@ -16,6 +16,7 @@ import {
   saveTenantAgentPolicy,
 } from "./agent-policy.js";
 import {
+  type ApproveOneshotInput,
   approveRecovery,
   type CreateRebindTokenInput,
   type CreateTaskInput,
@@ -695,6 +696,15 @@ export function useExtendRecoveryCode(endpointId: string) {
 export function useApproveRecovery(endpointId: string) {
   return useRecoveryMutation(endpointId, (recoveryId: string) =>
     approveRecovery(endpointId, recoveryId),
+  );
+}
+
+/** The release of a oneshot session with the admin's decisions and the match code. */
+export function useApproveOneshot(endpointId: string) {
+  return useRecoveryMutation(
+    endpointId,
+    (input: { recoveryId: string; answers: ApproveOneshotInput }) =>
+      approveRecovery(endpointId, input.recoveryId, input.answers),
   );
 }
 

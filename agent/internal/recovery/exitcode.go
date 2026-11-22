@@ -13,7 +13,8 @@ const (
 	// the used code again (the instance refuses it, then rate limits) every
 	// few seconds, and the screen with the result would scroll away; in the
 	// lab the network is cut and every restart waits for an address. The
-	// result stays on the console; a new attempt needs a new code.
+	// result stays on the console; a new attempt needs a new code. A
+	// oneshot restore counts as unattended: its session came along.
 	ExitSessionEnded = 4
 )
 
@@ -22,7 +23,7 @@ func (r *Recover) ExitCode(res *Result, err error) int {
 	if err == nil && res != nil && res.Status == api.RecoverySucceeded {
 		return ExitSucceeded
 	}
-	if r.Answers != nil && r.redeemed() {
+	if (r.Answers != nil || r.Oneshot != nil) && r.redeemed() {
 		return ExitSessionEnded
 	}
 	if res != nil && res.Status == api.RecoveryCancelled {

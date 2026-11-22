@@ -27,6 +27,7 @@ var textDE = map[string]string{
 	"code.mapping_invalid":                  "Die Zuordnung der Platten ist ungültig: {reason}.",
 	"code.nic_driver_missing":               "Der gesicherte Kernel {kernel} hat keinen Treiber für die Netzwerkkarte {nic} ({modalias}); das System startet ohne Netz über diese Karte.",
 	"code.fallback_kernel_driver_missing":   "Der Rückfall-Kernel {kernel} hat keinen Treiber für {modalias} der Platte {target}.",
+	"code.firmware_mode_switched":           "Das System wurde im UEFI-Modus gesichert und startet hier im BIOS-Modus: Seine Platte hat eine BIOS-Boot-Partition, und GRUB für BIOS wird auf {target} installiert.",
 	"code.other_controller_driver_missing":  "An einem anderen Controller hätte der gesicherte Kernel {kernel} keinen Treiber für {modalias} ({module}).",
 	"code.driver_facts_missing":             "Die Modullisten von {kernel} sind nicht bekannt; die Treiber wurden nicht geprüft.",
 	"code.secure_boot_dbx_unknown":          "Die Sperrliste (dbx) dieses Rechners ist nicht bekannt; gesperrte Loader wurden nicht geprüft.",

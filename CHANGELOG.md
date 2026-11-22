@@ -8,6 +8,188 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.5.3-rc.1] - 2026-11-20
+
+Pre-release for testing on real machines. Not for production; the stable release is 0.5.2.
+
+### Summary
+
+Restow 0.5.3-rc.1 brings bare metal recovery onto a fresh machine without the recovery ISO: a
+command run in a root shell of a new server (for example a rented one that cannot start an ISO)
+switches it into the recovery environment, after a release in the web interface, and restores
+the whole machine there. It is a preview, off unless `RESTOW_BAREMETAL_PREVIEW` and the new
+`RESTOW_BAREMETAL_ONESHOT` are both `true`; this pre-release is for the tests on real hardware
+(UEFI and BIOS) before 0.5.3. One database migration adds a column; nothing else changes for an
+installation that leaves the switch off.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+- Bare metal onto a fresh machine without ISO (docs/BAREMETAL-ONESHOT.md), a preview behind
+  `RESTOW_BAREMETAL_PREVIEW` and `RESTOW_BAREMETAL_ONESHOT` (both off by default); in the
+  bare metal wizard of a machine, "Onto a fresh machine (link)". Built in these stages:
+  - O1: the recovery ISO starts without its medium, the way the command on a fresh machine will
+    start it with kexec: the ISO's kernel, its initrd with the live file system and the session
+    data appended as one uncompressed archive, and `live-media=/restow/medium`. A new script in
+    the ISO's initramfs (`init-bottom/restow-oneshot`) hands the session data to the live system
+    (`/run/restow-oneshot`, 0700/0600) and leaves nothing of it in the initramfs. `recover` reads
+    it only with `restow.oneshot=1` on the kernel command line, from a root-owned file with these
+    modes, refuses anything that does not fit (a code, options in an SSH key, an `http://`
+    instance outside QEMU, unknown fields) and redacts the session secret and the passphrase in
+    its log; its output also goes to every console of the fresh machine. The agent reads the
+    kernel, the initrd and the live file system out of the ISO itself (ISO 9660 with Rock Ridge,
+    checked against the image's own checksum list) and builds the initrd (`restow-agent
+    oneshot-payload`, hidden, for the CI). The CI job of the ISO starts it that way in QEMU and
+    checks what arrives (`scripts/recovery-e2e/oneshot-boot.mjs`).
+  - O2: the server side, behind `RESTOW_BAREMETAL_ONESHOT=true` (off by default). Migration 0105
+    adds the recovery kind `oneshot` and its state (`endpoint_recoveries.oneshot`), nothing is
+    rewritten. `POST /api/v1/endpoints/:id/recovery-codes` with `kind: "oneshot"` issues an
+    `OS-…` code with its command, redeemable for 30 minutes, whose session then lasts 4 to 48 hours
+    (default 12) from the issue and always needs the release. The command exchanges it at
+    `POST /agent/v1/recovery/oneshot` (a oneshot code is unknown at the ISO's exchange and a code of
+    the ISO unknown here; the proof has its own prefix) with what it measured on the machine, which
+    is kept apart from what the admin decides. The release needs the admin's answers (network,
+    shrinking, Secure Boot findings as warnings, remote access) and a machine that has shown it
+    can switch (a test load with kexec, or the rescue system's direct mode) and carries no enrolled
+    agent. The session fetches the verified recovery ISO and its signed checksums through
+    `GET …/sessions/current/iso` (the image three times, never after the switch). Credentials and
+    the repository read only after the recovery environment reported back
+    (`POST …/sessions/current/oneshot/booted`); other hardware there ends the session, and a
+    released session that does not report back within 30 minutes fails (monitor).
+  - O3: the command itself. `GET /install/oneshot.sh` (only with `RESTOW_BAREMETAL_ONESHOT`)
+    downloads `restow-agent`, checks it like `linux.sh` (the signature check is a copy a test
+    keeps equal) and starts the hidden `restow-agent oneshot` with the code on stdin, never in
+    the process list. The command only reads until the release: memory (2 GiB at least),
+    `kexec_load_disabled`, lockdown, Secure Boot, Xen PV, the network (addresses, default routes
+    with on-link gateways, name servers; a VLAN, bond, bridge, several default routes or policy
+    routing stop it), the disks, cloud-init's instance data, root's SSH keys (lines with options
+    are left out) and the signs of a machine in use; an enrolled Restow agent stops it (the
+    instance would not release such a machine either). Then it redeems the code, fetches the recovery ISO through the
+    session, accepts it only with the release signature over its checksums (or exactly the list
+    pinned with `RESTOW_SHA256SUMS_SHA256`), the announced hash, the same release as the command
+    and live-build's own list, and loads the ISO's kernel with `kexec_file_load` on trial (and
+    unloads it); the result goes to Restow. The console confirms every disk (the end of its
+    identity, then the erase word) and asks for the passphrase of new LUKS volumes (or reads
+    both from `--answers`); neither leaves the machine except in the session data for `recover`.
+    After the release it builds the initrd in a `memfd`, loads it with the session data and
+    switches with `systemctl kexec`. A rejected, expired or cancelled session, a refused test
+    load or a missing confirmation ends it with nothing changed. It never asks for the
+    credentials. `scripts/recovery-e2e/oneshot-cases.mjs` defines the end-to-end cases O-E1 to
+    O-E6 for the driver that follows.
+  - Hardening of O1 to O3: the command carries the code in the environment of `sh`
+    (`RESTOW_ONESHOT_CODE`, for a root shell) instead of its arguments, and the script refuses a
+    code in its arguments; a oneshot code is only issued for an instance address of scheme, host
+    and port. Until `systemctl kexec`, the point of no return, a cancel (Ctrl+C, hangup, SIGTERM)
+    unloads what was loaded and leaves the machine unchanged; the raw kexec reboot is used only
+    when systemctl is missing or failed otherwise. The kernel and the initrd are hashed while they
+    are copied into memory and compared before `kexec_file_load`. An enrolled Proxmox VE helper
+    stops the command like an enrolled agent. A oneshot code cannot be extended before its
+    exchange, and its session never ends before the code's own end. The release carries the
+    match code the machine shows (refused and audited when it differs); every ISO download of a
+    session is audited; with `RESTOW_BAREMETAL_ONESHOT` or `RESTOW_BAREMETAL_PREVIEW` off the
+    exchange knows no oneshot code and the session's routes and the release refuse.
+  - O4: `recover` in the oneshot mode. The session data answers instead of a person: it brings
+    up the network the command measured (one networkd file per interface, matched by MAC,
+    on-link gateways), trusts the instance by the full key hash the command saw, reports back
+    (`booted`) before it fetches anything else and takes the release's decisions (shrinking,
+    Secure Boot findings as warnings). Every disk the plan erases must be one the console of the
+    fresh machine confirmed. Remote access is turned on only when the release allows it and the
+    keys are exactly the ones the release showed, keys only. After a success the machine restarts
+    after 60 seconds; a failure before the first write restarts it into its own system, a failure
+    after it keeps it in the recovery environment. The direct mode for a provider's rescue system
+    (`--direct`: the script also checks restic) restores from the rescue system itself, after
+    checking that every program is there and no disk of the machine is in use.
+  - O5: taking over the network. With the release's choice "take over the network of this
+    machine", recover finds the network stack of the restored system (netplan, NetworkManager,
+    systemd-networkd or ifupdown; more than one without a clear one is a finding, no guessing),
+    puts its old configuration and every binding to the old MACs aside under
+    `/etc/restow/network-before-restore` (with paths and modes, nothing deleted) and writes the
+    measured network in the stack's own format, on-link gateways included; resolv.conf where it
+    is a plain file. cloud-init of the restored system is limited to the network
+    (`99-restow-restored.cfg`); it brings the network up itself when it knows the new provider's
+    datasource. The written files are checked and the result stands in the verification. A UEFI
+    system with GRUB on a hybrid GPT disk (ESP and BIOS boot partition) now restores onto a BIOS
+    machine when the backup has GRUB's BIOS modules (warning `firmware_mode_switched`).
+  - Hardening of O4 and O5: the direct mode finds a disk in use by device numbers (a root
+    mounted as /dev/root included, and refuses when /, the agent or restic lives on a disk of the
+    machine); recover records the start of the writing beside the session data, so a recover
+    restarted after a crash never restarts the machine into half-written disks; the network
+    takeover is all or nothing (checked, written, read back and verified before anything old is
+    put aside, rolled back on any error) and keeps the files of each restore in a folder of its
+    own; oneshot.sh accepts `--direct` only in that exact form.
+  - O9, first part: the end-to-end cases O-E1 and O-E2 run in CI next to E1 and E2
+    (`scripts/recovery-e2e`, `--cases O-E1,O-E2`). A fresh machine starts from a pinned Debian 12
+    cloud image with cloud-init, runs the command as the UI shows it, the session is released
+    over the API with its match code, and the restored disks must boot there: O-E1 restores E2's
+    source (Ubuntu 24.04, LUKS2 and LVM) onto a UEFI machine with a /32 and an on-link gateway,
+    O-E2 E1's source (Debian 12, md RAID1) onto a BIOS machine with two disks and DHCP; both
+    check that the old network was put aside, O-E1 that the fresh machine's address is in the
+    active configuration. The test instance now hands the API the ISO under test too (a oneshot
+    session fetches it there) and runs with `RESTOW_BAREMETAL_ONESHOT=true`.
+  - O8a: the minimal interface. In the bare metal wizard, beside the recovery ISO, "Onto a fresh
+    machine (link)" appears only when the capabilities say both switches are on
+    (`baremetalOneshot`). Its dialog issues the command once with a copy button, the redeem
+    countdown, the root shell hint (`sudo -i`), the tip to move the public address at the same
+    provider and the variant for a rescue system (`--direct`). The release shows what the machine
+    reported (addresses, gateways, disks with their identity, RAM, the switch-over test, signs of
+    use, warnings, SSH key fingerprints) beside the address the server saw, and asks for the
+    network choice, old public addresses (for backups that used DHCP; new optional field
+    `oldAddresses` of the release), shrinking, Secure Boot findings as warnings, remote access
+    (off) and the six-digit match number, required. The session's steps count as started only
+    from the recovery environment's report; after a success a checklist of what remains outside
+    the machine. The restart after the success can only be stopped at the machine's console.
+
+### Changed
+
+- Tests: the end-to-end source machines of Ubuntu install `linux-image-virtual` with
+  `linux-modules-extra` for the newest kernel instead of `linux-image-generic`, and debootstrap
+  gives up a download that brings nothing for 60 seconds and tries again: the 475 MB of
+  `linux-firmware` from a slow mirror held E2 and P2 until their time limit.
+
+### Fixed
+
+- The restore timeline's "Jump to date" now gives the focus to the entry it found every time:
+  the entry took the focus in a frame of its own while the closing calendar handed it back to its
+  button in a timer, and whichever ran last won (under load, the button).
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images, a new agent and a new recovery ISO. One database migration (0105) adds the recovery
+kind `oneshot` and a nullable column `endpoint_recoveries.oneshot` without a default, so no
+table is rewritten. New optional variable `RESTOW_BAREMETAL_ONESHOT` (api, empty = off);
+the `docker-compose.yml` of 0.5.2 stays.
+
+- This is a pre-release: the updater offers it only on the update channel `beta` (`stable` leaves
+  it out), and its images carry only the tag `0.5.3-rc.1`, not `beta`.
+- The command on a fresh machine downloads the agent of this release from the instance; the
+  agents of existing machines need no update for anything else in this release.
+
+### Known Issues
+
+- The command on a fresh machine has run end to end only in QEMU (O-E1: Ubuntu 24.04 with LUKS2
+  and LVM onto a UEFI machine with a /32 and an on-link gateway; O-E2: Debian 12 with md RAID1
+  onto a BIOS machine with two disks and DHCP). Real providers and real hardware are what this
+  pre-release is for (docs/BAREMETAL-ONESHOT.md 19.4).
+- The cases O-E3 to O-E6 are defined but not run yet.
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on wip/053-oneshot (CI run 44808973282, workflow_dispatch, all recovery jobs):
+the recovery ISO built twice and bit for bit equal; the end-to-end cases E1, E2, P1, P2, O-E1
+and O-E2 in QEMU/KVM passed. O-E1 and O-E2 run the command as the web interface shows it on a
+Debian 12 cloud image, release the session over the API with its match code, and boot the
+restored disks on the fresh machine; their first runs found that `oneshot.sh` handed curl the
+target file as a second URL, so every download failed, fixed in this release. The installer
+test (790) on release/0.5.3.
+
 ## [0.5.2] - 2026-11-20
 
 Beta release. Run it alongside your existing backups, not as your only one, until
