@@ -1173,6 +1173,46 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   `mysql.user` lesen darf (sonst der Hinweis `db_permission_missing`), mit den Kennwort-Hashes als
   Hex (`print_identified_with_as_hex`, MySQL ab 8.0.17), damit die Datei Text bleibt.
 
+### D5 (Entscheidungen, November 2026)
+
+Lucas Flores hat für D5 entschieden (SQLite über den Agenten; SQL Server zieht ins Modul um),
+jeweils wie vorgeschlagen:
+
+- **S1 SQL Server nur über den Agenten auf dem SQL-Rechner.** Sicherung, Prüfung und Restore
+  führt nur der Agent auf dem Windows-Rechner der Instanz aus, denn die `.bak`-Datei schreibt
+  SQL Server selbst auf seinen eigenen Rechner. Anmeldung wie in 0.5.0 integriert als
+  `NT SERVICE\RestowAgent`, oder neu mit einem SQL-Login, dessen Kennwort versiegelt im
+  Geheimnisspeicher liegt (3.2) und den der Agent je Lauf bekommt. Eine SQL-Server-Verbindung
+  mit einem anderen Ausführer (ein anderer Agent, der Server) bekommt nur Healthchecks:
+  PRELOGIN, mit SQL-Login auch Anmeldung, Version und Rechte-Matrix. Die Sicherung sagt dann
+  "braucht den Agenten auf dem SQL-Rechner". Eine UNC-Freigabe als Staging-Ordner gibt es
+  nicht.
+- **S2 Zeitplan.** Die Migration macht aus jedem Job mit eingeschalteter nativer Sicherung je
+  Rechner und Instanz eine Verbindung mit dem Agenten des Rechners als Ausführer und dem
+  Zeitplan "mit dem Job": Der Lauf `sql` bleibt nach der Dateisicherung im Job, auch mit
+  Agenten 0.5.x, und die Auswahl (`instances`, `databases`, `exclude`, `stagingDir`) zieht aus
+  dem Job in die Verbindung. Der Schalter im Job-Dialog wird zum Verweis auf das Modul. Neu
+  angelegte Verbindungen haben einen eigenen Zeitplan (auch stündlich) über die Aufgabe
+  `db_backup`; dafür braucht es einen Agenten ab 0.6.0 (Fähigkeit `db_runner_v1` und
+  `sql_native_v1`), sonst sagt der Dialog das vor dem Speichern. Eine übernommene Verbindung kann
+  der Administrator auf einen eigenen Zeitplan umstellen, nicht zurück.
+- **S3 Preis.** SQL-Server-Datenbanken zählen ab 0.6.0 wie jede andere geschützte Datenbank (E9),
+  auch übernommene. Die Upgrade-Hinweise und der Monatsbericht nennen die neue Position; ohne
+  einen gesetzten Preis für Datenbanken kostet sie nichts.
+- **S4 SQLite: Datei oder Ordner.** Eine Verbindung nennt einen Dateipfad oder einen Ordner mit
+  Muster (Vorgabe `*.db`, `*.sqlite`, `*.sqlite3`), nicht rekursiv, höchstens 50 Dateien; mehr
+  ergibt den Hinweis `db_sqlite_too_many_files` mit den ersten 50. Neue Dateien im Ordner
+  kommen beim nächsten Lauf dazu, als Datei erkannt am Dateikopf `SQLite format 3\0`, nicht an
+  der Endung. Linux, macOS und Windows (die Bibliothek ist reines Go, 4.1). Sonst wie 5.4:
+  Online-Backup-API in den Zustandsordner, `restic backup`, Löschen; Restore immer in eine neue
+  Datei neben der alten oder in einen gewählten Ordner (Vorgabe
+  `<name>.restored-<UTC-Zeit><endung>`), nie über eine vorhandene Datei; Download mit Anleitung.
+
+Weiter wie im Entwurf: Die Tabellen `endpoint_sql_*` bleiben (9), die Modulseite liest beide über
+eine gemeinsame Abfrage; die Prüfung von SQL Server (`sql_verify`, CHECKDB) bleibt bis D6 wie in
+0.5.0; die Routen `/api/v1/endpoints/:id/sql/*` bleiben bestehen, die Rechnerseite bekommt den
+Reiter "Datenbanken" mit den Verbindungen, deren Ausführer dieser Agent ist.
+
 ### Nahtstellen für D3 bis D7
 
 - D2 → D3/D6: `rateDatabase` bekommt Sicherungen und Prüfungen; die Erreichbarkeit
