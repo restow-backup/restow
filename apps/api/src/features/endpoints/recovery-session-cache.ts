@@ -2,6 +2,7 @@ import { RECOVERY_SESSION_CACHE_MS } from "@restow/core";
 import {
   acquireEndpointRepositoryLock,
   type EndpointRecoveryKind,
+  type EndpointRecoveryOneshot,
   type EndpointRecoveryStatus,
   EndpointRepositoryBusyError,
   endpointRecoveries,
@@ -37,6 +38,8 @@ export interface RecoverySessionAccess {
   instanceOrigin: string | null;
   tenantActive: boolean;
   endpointRemoved: boolean;
+  /** Kind `oneshot`: its state (docs/BAREMETAL-ONESHOT.md 7), else null. */
+  oneshot: EndpointRecoveryOneshot | null;
 }
 
 /** The session's state now, from the database; null when there is none. */
@@ -57,6 +60,7 @@ export async function loadRecoverySession(
       finishedAt: endpointRecoveries.finishedAt,
       cancelRequestedAt: endpointRecoveries.cancelRequestedAt,
       instanceOrigin: endpointRecoveries.instanceOrigin,
+      oneshot: endpointRecoveries.oneshot,
       tenantStatus: tenants.status,
       removedAt: endpoints.removedAt,
     })

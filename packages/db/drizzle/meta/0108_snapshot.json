@@ -1,6 +1,6 @@
 {
-  "id": "63045f85-3e3d-4ddb-80e1-544fcedaac56",
-  "prevId": "f1f971bd-e759-45bc-bfb2-52b1d5dc9f93",
+  "id": "f1f971bd-e759-45bc-bfb2-52b1d5dc9f93",
+  "prevId": "eec55e98-e6e5-4632-90c4-b182e1080d3f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6026,19 +6026,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "health_interval_minutes": {
-          "name": "health_interval_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 5
-        },
-        "health": {
-          "name": "health",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "enabled": {
           "name": "enabled",
           "type": "boolean",
@@ -6187,251 +6174,9 @@
           "name": "database_connections_port_ck",
           "value": "\"database_connections\".\"port\" IS NULL OR \"database_connections\".\"port\" BETWEEN 1 AND 65535"
         },
-        "database_connections_health_interval_ck": {
-          "name": "database_connections_health_interval_ck",
-          "value": "\"database_connections\".\"health_interval_minutes\" BETWEEN 1 AND 60"
-        },
         "database_connections_server_ck": {
           "name": "database_connections_server_ck",
           "value": "\"database_connections\".\"executor_kind\" = 'agent' OR (\"database_connections\".\"executor_endpoint_id\" IS NULL AND \"database_connections\".\"auth_method\" = 'password' AND \"database_connections\".\"engine\" IN ('postgresql', 'mysql', 'mariadb'))"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.database_health_samples": {
-      "name": "database_health_samples",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "connection_id": {
-          "name": "connection_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "resolution": {
-          "name": "resolution",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'raw'"
-        },
-        "executor_kind": {
-          "name": "executor_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "checks": {
-          "name": "checks",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "ok_checks": {
-          "name": "ok_checks",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "error_code": {
-          "name": "error_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error_message": {
-          "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "latency_ms": {
-          "name": "latency_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "latency_min_ms": {
-          "name": "latency_min_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "latency_max_ms": {
-          "name": "latency_max_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "server_version": {
-          "name": "server_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "connections_used": {
-          "name": "connections_used",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "connections_used_max": {
-          "name": "connections_used_max",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "connections_max": {
-          "name": "connections_max",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tls_fingerprint": {
-          "name": "tls_fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "instance_key": {
-          "name": "instance_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sizes": {
-          "name": "sizes",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "database_health_samples_connection_at_uq": {
-          "name": "database_health_samples_connection_at_uq",
-          "columns": [
-            {
-              "expression": "connection_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "resolution",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "database_health_samples_tenant_at_idx": {
-          "name": "database_health_samples_tenant_at_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "database_health_samples_tenant_id_tenants_id_fk": {
-          "name": "database_health_samples_tenant_id_tenants_id_fk",
-          "tableFrom": "database_health_samples",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "database_health_samples_connection_id_database_connections_id_fk": {
-          "name": "database_health_samples_connection_id_database_connections_id_fk",
-          "tableFrom": "database_health_samples",
-          "tableTo": "database_connections",
-          "columnsFrom": [
-            "connection_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "database_health_samples_resolution_ck": {
-          "name": "database_health_samples_resolution_ck",
-          "value": "\"database_health_samples\".\"resolution\" IN ('raw', 'hour')"
-        },
-        "database_health_samples_executor_ck": {
-          "name": "database_health_samples_executor_ck",
-          "value": "\"database_health_samples\".\"executor_kind\" IN ('agent', 'server')"
-        },
-        "database_health_samples_checks_ck": {
-          "name": "database_health_samples_checks_ck",
-          "value": "\"database_health_samples\".\"checks\" >= 1 AND \"database_health_samples\".\"ok_checks\" BETWEEN 0 AND \"database_health_samples\".\"checks\""
         }
       },
       "isRLSEnabled": false
@@ -8170,6 +7915,12 @@
         "cancel_requested_at": {
           "name": "cancel_requested_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oneshot": {
+          "name": "oneshot",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -23592,7 +23343,8 @@
       "schema": "public",
       "values": [
         "code",
-        "probe"
+        "probe",
+        "oneshot"
       ]
     },
     "public.endpoint_recovery_status": {
@@ -23665,8 +23417,7 @@
         "sql_restore",
         "sql_verify",
         "sql_inventory",
-        "db_probe",
-        "db_health"
+        "db_probe"
       ]
     },
     "public.endpoint_task_status": {

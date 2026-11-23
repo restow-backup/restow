@@ -1,0 +1,43 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# A restore onto a fresh machine without ISO (docs/BAREMETAL-ONESHOT.md 9.1):
+# the command on that machine started this kernel with kexec and appended the
+# session data to the initrd as /restow/oneshot.json. The script hands it to
+# the live system: initramfs-tools moves /run into it and deletes everything
+# else of the initramfs. A start from the ISO has no such file; then the
+# script does nothing. It carries no code of the command, only the data.
+#
+# initramfs-tools copies /etc/initramfs-tools/scripts into every initramfs it
+# builds; live-build builds the ISO's initramfs after the includes.
+#
+# Tests (test/unit.sh) give a root folder: restow-oneshot --root <dir>.
+PREREQ=""
+case "${1:-}" in
+  prereqs)
+    echo "$PREREQ"
+    exit 0
+    ;;
+  --root)
+    root="$2"
+    ;;
+  *)
+    root=""
+    ;;
+esac
+
+src="$root/restow/oneshot.json"
+dst="$root/run/restow-oneshot"
+[ -f "$src" ] && [ ! -L "$src" ] || exit 0
+
+umask 077
+if mkdir -p "$dst" && chmod 0700 "$dst" &&
+  cp "$src" "$dst/oneshot.json.new" && chmod 0600 "$dst/oneshot.json.new" &&
+  mv -f "$dst/oneshot.json.new" "$dst/oneshot.json"; then
+  echo "restow-oneshot: session data handed to the live system"
+else
+  rm -f "$dst/oneshot.json.new"
+  echo "restow-oneshot: cannot hand over the session data" >&2
+fi
+rm -f "$src"
+exit 0

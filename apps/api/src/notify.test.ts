@@ -88,6 +88,7 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
     preview: { workers: 2, timeoutMs: 10_000 },
     pve: { blockMapCacheBytes: 256 * 1024 * 1024 },
     baremetalPreview: false,
+    baremetalOneshot: false,
     ...overrides,
   };
 }

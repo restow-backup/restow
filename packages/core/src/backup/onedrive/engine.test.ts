@@ -383,6 +383,46 @@ describe("OneDriveBackupEngine", () => {
     expect(harness.progress.updates.map((u) => u.snapshot.phase)).toContain(ONEDRIVE_PHASES.resync);
   });
 
+  it("[upgrade] goes on from the delta link a release before 0.5.0 stored", async () => {
+    // 0.4.x asked for the delta without Prefer: deltashowsharingchanges; 0.5.0 sends it, and
+    // Graph refuses the old link and the resync URL of its 410 alike (the fake's drive delta
+    // contract). 0.5.0 failed every run of the drive from then on.
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      { url: deltaUrl("DELTA1"), respond: { status: 200, json: fixture.incrementalPage } },
+    ]);
+    const before050 = harness.engine(
+      graph.client({
+        fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+          const headers = new Headers(init?.headers ?? {});
+          headers.delete("prefer");
+          return graph.fetch(input, { ...init, headers });
+        }) as typeof fetch,
+      }),
+    );
+    const first = await before050.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    expect(state(await harness.manifest(first))).toMatchObject({
+      deltaLink: expect.stringContaining("DELTA1"),
+    });
+
+    const engine = harness.engine(graph);
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    const resyncs = graph.calls.filter((call) => call.url.includes("token=DELTA1"));
+    expect(resyncs.map((call) => call.url)).toEqual([
+      expect.stringContaining("token=DELTA1"),
+      expect.stringContaining("token=DELTA1-resync"),
+    ]);
+    // Read in full once, content reused: nothing downloaded again.
+    expect(state(await harness.manifest(second))).toMatchObject({ mode: "resync" });
+    expect(second.bytes).toBe(0);
+    expect(graph.callsTo("GET", "item=q3")).toHaveLength(1);
+
+    // The link of that run asks for sharing changes: the next run is incremental again.
+    const third = await engine.run(harness.context({ jobId: "job-3" }), oneDrive, {});
+    expect(state(await harness.manifest(third))).toMatchObject({ mode: "incremental" });
+    expect(third.objectsWritten).toBe(3);
+  });
+
   it("discards what earlier pages produced when 410 strikes mid-walk", async () => {
     const graph = createFakeGraph([
       {

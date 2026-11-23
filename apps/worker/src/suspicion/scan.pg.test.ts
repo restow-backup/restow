@@ -190,7 +190,9 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
       await endpointRun(ago(day * DAY), 280 + (day % 4) * 10);
     }
     const ordinary = await endpointRun(ago(60 * HOUR), 300);
-    const attack = await endpointRun(ago(48 * HOUR), 45_000, { activity: notes });
+    const attack = await endpointRun(ago(48 * HOUR), 45_000, {
+      activity: { ...notes, added: 45_000 },
+    });
     const still = await endpointRun(ago(36 * HOUR), 30_000);
     const clean = await endpointRun(ago(24 * HOUR), 310);
     const again = await endpointRun(ago(12 * HOUR), 40_000);

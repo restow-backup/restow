@@ -1,4 +1,9 @@
-import { isReportEvent, type ReportEvent } from "@restow/core";
+import {
+  ALERT_BUNDLE_SPACING_MINUTES,
+  isReportEvent,
+  isUrgentReportEvent,
+  type ReportEvent,
+} from "@restow/core";
 import { createI18n, failureVariables, type SupportedLanguage } from "@restow/i18n";
 
 /**
@@ -731,6 +736,8 @@ export interface DigestItem {
    * service with it, as the alert mail does. Absent for a queue or another target.
    */
   readonly objectKind?: string | null;
+  /** A red restore check whose only reason is an outdated backup: worded like the alert mail. */
+  readonly outdated?: boolean;
 }
 
 export interface DigestInput {
@@ -740,10 +747,43 @@ export interface DigestInput {
   readonly tenantName?: string | null;
   readonly windowStart: string | null;
   readonly windowEnd: string;
-  readonly window: "hourly" | "daily";
+  /**
+   * The recipient's hourly or daily digest, or a bundle (0.5.2): the alerts that go out at once,
+   * collected for a few minutes so a wave of them is one mail (dispatcher.ts).
+   */
+  readonly window: "hourly" | "daily" | "bundle";
   readonly items: readonly DigestItem[];
   readonly brand?: MailBrand | null;
   readonly test?: boolean;
+}
+
+/**
+ * What a bundle is mostly about, for its subject: the most frequent kind of alert, with "and more"
+ * when there are others ("Restore check failed: 6 objects").
+ */
+function bundleSummary(
+  t: (key: string, values?: Record<string, unknown>) => string,
+  items: readonly DigestItem[],
+): string {
+  const counts = new Map<string, { count: number; urgent: boolean }>();
+  for (const item of items) {
+    const label =
+      item.event === "verify.red" && item.outdated
+        ? t("reports:mail.verifyRedOutdated")
+        : isReportEvent(item.event)
+          ? t(`reports:events.${item.event as ReportEvent}`)
+          : item.event;
+    const entry = counts.get(label) ?? { count: 0, urgent: isUrgentReportEvent(item.event) };
+    counts.set(label, { ...entry, count: entry.count + 1 });
+  }
+  // An urgent alert leads the subject, however few of it there are.
+  const [top, { count }] = [...counts.entries()].sort(
+    (a, b) => Number(b[1].urgent) - Number(a[1].urgent) || b[1].count - a[1].count,
+  )[0] ?? ["", { count: 0 }];
+  return t(counts.size > 1 ? "reports:digest.bundleSummaryMixed" : "reports:digest.bundleSummary", {
+    event: top,
+    count,
+  });
 }
 
 /** At most this many lines in one digest; the rest is counted. */
@@ -783,9 +823,12 @@ export function renderDigest(input: DigestInput): RenderedMessage {
     const lines: { label: string; when: string; target: string }[] = [];
     for (const item of items) {
       if (shown >= DIGEST_MAX_LINES) break;
-      const label = isReportEvent(item.event)
-        ? t(`reports:events.${item.event as ReportEvent}`)
-        : item.event;
+      const label =
+        item.event === "verify.red" && item.outdated
+          ? t("reports:mail.verifyRedOutdated")
+          : isReportEvent(item.event)
+            ? t(`reports:events.${item.event as ReportEvent}`)
+            : item.event;
       const when = formatWhen(item.occurredAt, input.language);
       lines.push({
         label: `${t(`reports:digest.level.${item.level}`)}: ${label}`,
@@ -825,15 +868,21 @@ export function renderDigest(input: DigestInput): RenderedMessage {
   const from = formatWhen(input.windowStart, input.language) ?? "";
   const to = formatWhen(input.windowEnd, input.language) ?? "";
   const prefix = input.test ? t("reports:mail.testPrefix") : "";
-  const heading = `${prefix}${t(
-    input.window === "hourly" ? "reports:digest.hourly" : "reports:digest.daily",
-  )}`;
+  const bundle = input.window === "bundle";
+  const heading = `${prefix}${t(`reports:digest.${input.window}`)}`;
   const intro = t("reports:digest.intro", { count: input.items.length, from, to });
-  const subject =
-    input.audience === "provider" || !input.tenantName
-      ? `${prefix}${t("reports:digest.subjectProvider", { count: input.items.length })}`
-      : `[${input.tenantName}] ${prefix}${t("reports:digest.subject", { count: input.items.length })}`;
-  const footer = t("reports:digest.footer");
+  const provider = input.audience === "provider" || !input.tenantName;
+  const subjectKey = `reports:digest.${bundle ? "bundleSubject" : "subject"}${provider ? "Provider" : ""}`;
+  const subjectText = t(subjectKey, {
+    count: input.items.length,
+    summary: bundle ? bundleSummary(t, input.items) : "",
+  });
+  const subject = provider
+    ? `${prefix}${subjectText}`
+    : `[${input.tenantName}] ${prefix}${subjectText}`;
+  const footer = t(bundle ? "reports:digest.bundleFooter" : "reports:digest.footer", {
+    minutes: ALERT_BUNDLE_SPACING_MINUTES,
+  });
   const content = `<h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(heading)}</h2><p>${escapeHtml(intro)}</p>${htmlParts.join("")}`;
   const html = input.brand
     ? brandedHtml(input.brand, content, footer)

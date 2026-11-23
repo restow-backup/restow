@@ -788,10 +788,15 @@ export const endpointRecoveryStatusEnum = pgEnum("endpoint_recovery_status", [
 
 /**
  * `code`: a recovery code for the ISO (M3). `probe`: a boot probe of the lab (M5, docs/BAREMETAL.md
- * 12.3), which runs the same code exchange and session without an operator. macOS migrations come
- * later.
+ * 12.3), which runs the same code exchange and session without an operator. `oneshot`: a code for
+ * the command on a fresh machine without ISO (0.5.1, docs/BAREMETAL-ONESHOT.md), exchanged before
+ * the machine switches into the recovery environment. macOS migrations come later.
  */
-export const endpointRecoveryKindEnum = pgEnum("endpoint_recovery_kind", ["code", "probe"]);
+export const endpointRecoveryKindEnum = pgEnum("endpoint_recovery_kind", [
+  "code",
+  "probe",
+  "oneshot",
+]);
 
 export type EndpointRecoveryStatus = (typeof endpointRecoveryStatusEnum.enumValues)[number];
 export type EndpointRecoveryKind = (typeof endpointRecoveryKindEnum.enumValues)[number];
@@ -810,6 +815,42 @@ export type EndpointRecoveryHardware = {
     transport: string;
   }[];
   nics: { mac: string; driver: string; link: boolean }[];
+};
+
+/**
+ * The state of a oneshot restore (docs/BAREMETAL-ONESHOT.md 7). What the machine reports is kept
+ * apart from what an admin decides: `reported` and `booted` are written by the session routes only,
+ * `decided` by the admin's approval only, so the approval page never shows a machine's word as an
+ * admin's choice.
+ */
+export type EndpointRecoveryOneshot = {
+  /** The validity of the session from its issue, set when the code is issued (4 to 48 hours). */
+  validityHours: number;
+  /** What the command on the fresh machine reported at the exchange. */
+  reported?: {
+    target: Record<string, unknown>;
+    checks: Record<string, unknown>;
+    sshKeys: { type: string; fingerprint: string; comment: string }[];
+    agentVersion: string;
+  };
+  /** The admin's answers in the approval. */
+  decided?: {
+    networkMode: "takeover" | "keep";
+    confirmShrink: boolean;
+    secureBootWarningsOnly: boolean;
+    remoteAccess: boolean;
+    /**
+     * The public addresses of the old server the admin named (a backup with DHCP does not know
+     * them, docs/BAREMETAL-ONESHOT.md 10.6, decision 22.9); the search of 0.5.2 uses them.
+     */
+    oldAddresses?: string[];
+    at: string;
+    by: string | null;
+  };
+  /** How often the session fetched the ISO (at most three times). */
+  isoDownloads?: number;
+  /** When the recovery environment reported back after the switch, with the hardware it found. */
+  booted?: { at: string; hardware: EndpointRecoveryHardware };
 };
 
 /** The last progress the ISO reported (docs/BAREMETAL.md 9.8). */
@@ -877,6 +918,8 @@ export const endpointRecoveries = pgTable(
      */
     logInKeyBlock: boolean("log_in_key_block").notNull().default(false),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    /** Kind `oneshot` only (docs/BAREMETAL-ONESHOT.md 7). */
+    oneshot: jsonb("oneshot").$type<EndpointRecoveryOneshot>(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -36,6 +37,10 @@ type LinuxEnv struct {
 	Console *os.File
 	// RepoOverride replaces the session's repository (tests only).
 	RepoOverride string
+	// OneshotFile is the session data of a oneshot restore; NetworkDir is
+	// where its networkd files go (/run/systemd/network).
+	OneshotFile string
+	NetworkDir  string
 
 	remote *Remote
 	ops    *LinuxOps
@@ -196,6 +201,95 @@ func (e *LinuxEnv) RemoteKeys(ctx context.Context, keys []string) error {
 	return e.remote.UseKeys(ctx, keys)
 }
 
+// OneshotNetwork implements OneshotEnv.
+func (e *LinuxEnv) OneshotNetwork(ctx context.Context, files []NetworkFile) error {
+	dir := e.NetworkDir
+	if dir == "" {
+		dir = "/run/systemd/network"
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, f := range files {
+		if strings.ContainsAny(f.Name, "/\\") || !strings.HasSuffix(f.Name, ".network") {
+			return fmt.Errorf("network file %q", f.Name)
+		}
+		if err := os.WriteFile(filepath.Join(dir, f.Name), []byte(f.Content), 0o644); err != nil {
+			return err
+		}
+		if e.Log != nil {
+			e.Log("network: " + f.Name + "\n" + f.Content)
+		}
+	}
+	_, err := e.Exec.Run(ctx, RunSpec{Argv: []string{"networkctl", "reload"}, Timeout: time.Minute})
+	return err
+}
+
+// EnableRemoteKeys implements OneshotEnv.
+func (e *LinuxEnv) EnableRemoteKeys(ctx context.Context, keys []string) ([]api.RecoverySSHHostKey, error) {
+	if e.remote == nil {
+		e.remote = &Remote{Exec: e.Exec, RunDir: e.RunDir}
+	}
+	return e.remote.EnableKeys(ctx, keys)
+}
+
+func (e *LinuxEnv) writingMark() string { return filepath.Join(filepath.Dir(e.OneshotFile), "writing") }
+
+// MarkWriting implements OneshotEnv: a new file of root's (0600) next to
+// the session data, never through a link; one there already counts.
+func (e *LinuxEnv) MarkWriting() error {
+	if e.OneshotFile == "" {
+		return errors.New("no session data")
+	}
+	f, err := os.OpenFile(e.writingMark(), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		if e.WritingStarted() {
+			return nil
+		}
+		return fmt.Errorf("%s is no plain file", e.writingMark())
+	}
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(f, "%s\n", time.Now().UTC().Format(time.RFC3339))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		// On the disk before the first write.
+		if d, derr := os.Open(filepath.Dir(e.writingMark())); derr == nil {
+			_ = d.Sync()
+			d.Close()
+		}
+	}
+	return err
+}
+
+// WritingStarted implements OneshotEnv.
+func (e *LinuxEnv) WritingStarted() bool {
+	if e.OneshotFile == "" {
+		return false
+	}
+	st, err := os.Lstat(e.writingMark())
+	return err == nil && st.Mode().IsRegular()
+}
+
+// ForgetOneshot implements OneshotEnv: the session data, the mark of the
+// writing and their folder go.
+func (e *LinuxEnv) ForgetOneshot() error {
+	if e.OneshotFile == "" {
+		return nil
+	}
+	_ = os.Remove(e.writingMark())
+	if err := os.Remove(e.OneshotFile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if filepath.Dir(e.OneshotFile) == OneshotDir {
+		_ = os.Remove(OneshotDir)
+	}
+	return nil
+}
+
 // MainOptions are the flags of restow-agent recover.
 type MainOptions struct {
 	Console     string
@@ -204,6 +298,10 @@ type MainOptions struct {
 	LogFile     string
 	ResticBin   string
 	NotISO      bool
+	// OneshotFile is the session data of a oneshot restore in the
+	// provider's rescue system (direct mode, docs/BAREMETAL-ONESHOT.md
+	// 17.1); it needs NotISO and takes the place of restow.oneshot=1.
+	OneshotFile string
 	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer
@@ -260,6 +358,46 @@ func Main(o MainOptions) int {
 	}
 	defer lf.Close()
 	logBuf := &LogBuffer{File: lf}
+	vendor, _ := os.ReadFile("/sys/class/dmi/id/sys_vendor")
+	isQEMU := strings.TrimSpace(string(vendor)) == "QEMU"
+	var oneshot *OneshotData
+	oneshotPath := OneshotPath
+	direct := o.OneshotFile != ""
+	if direct {
+		if !o.NotISO || cl.Oneshot {
+			fmt.Fprintln(o.Stderr, "--oneshot is the direct mode outside the ISO (with --i-know-this-is-not-the-iso)")
+			return 2
+		}
+		oneshotPath = o.OneshotFile
+	}
+	if cl.Oneshot || direct {
+		if o.AnswersFile != "" {
+			fmt.Fprintln(o.Stderr, "a oneshot restore and --answers exclude each other")
+			return 2
+		}
+		b, err := ReadOneshotFile(oneshotPath)
+		if err == nil {
+			oneshot, err = LoadOneshotData(b, isQEMU)
+		}
+		if err != nil {
+			fmt.Fprintln(out, err)
+			return 2
+		}
+		oneshot.RegisterSecrets()
+		mainConsole := console
+		if mainConsole == "" || mainConsole == "-" {
+			mainConsole = "/dev/tty1"
+		}
+		if ms := openMirrors(mainConsole, oneshot.Consoles); len(ms) > 0 {
+			ws := []io.Writer{out}
+			for _, m := range ms {
+				defer m.Close()
+				ws = append(ws, m)
+			}
+			out = io.MultiWriter(ws...)
+			logBuf.File = io.MultiWriter(append([]io.Writer{lf}, ws[1:]...)...)
+		}
+	}
 	// In a QEMU machine with answers on fw_cfg (the recovery lab, CI) the default menu entry
 	// shows recover on tty1 only: protocol and screen also go to the first serial port, which
 	// the lab records, so a run that stops before it reaches the instance says why.
@@ -268,7 +406,7 @@ func Main(o MainOptions) int {
 		if w := qemuSerialMirror(); w != nil {
 			defer w.Close()
 			mirror = w
-			logBuf.File = io.MultiWriter(lf, w)
+			logBuf.File = io.MultiWriter(logBuf.File, w)
 		}
 	}
 	exe := CmdExec{Runner: cmdrun.ExecRunner{OwnProcessGroup: true}, Log: logBuf.Add}
@@ -277,10 +415,16 @@ func Main(o MainOptions) int {
 		uiOut = io.MultiWriter(out, mirror)
 	}
 	ui := &UI{In: in, Out: uiOut, Lang: LangEN, Serial: strings.HasPrefix(console, "/dev/ttyS")}
-	answers, err := loadAnswers(context.Background(), o.AnswersFile, cl, exe)
-	if err != nil {
-		ui.Raw(err.Error())
-		return 2
+	var answers *Answers
+	if oneshot != nil {
+		// A oneshot restore takes its answers from its session data only.
+		answers = oneshot.Answers()
+	} else {
+		answers, err = loadAnswers(context.Background(), o.AnswersFile, cl, exe)
+		if err != nil {
+			ui.Raw(err.Error())
+			return 2
+		}
 	}
 	resticBin := o.ResticBin
 	if resticBin == "" {
@@ -288,7 +432,10 @@ func Main(o MainOptions) int {
 	}
 	env := &LinuxEnv{Exec: exe, ResticBin: resticBin, RunDir: paths.RecoveryRunDir, TargetRoot: paths.RecoveryTargetRoot,
 		Self: "/proc/self/exe", Log: logBuf.Add, Console: tty}
-	r := &Recover{UI: ui, Env: env, Answers: answers, Cmdline: cl, Version: buildinfo.Version, PlanOnly: o.PlanOnly, PlanOut: o.Stdout, Log: logBuf}
+	if oneshot != nil {
+		env.OneshotFile = oneshotPath
+	}
+	r := &Recover{UI: ui, Env: env, Answers: answers, Oneshot: oneshot, Direct: direct, Cmdline: cl, Version: buildinfo.Version, PlanOnly: o.PlanOnly, PlanOut: o.Stdout, Log: logBuf}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sigs := make(chan os.Signal, 2)

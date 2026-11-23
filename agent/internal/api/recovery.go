@@ -125,6 +125,8 @@ type RecoveryExchangeResponse struct {
 	ExpiresAt          time.Time        `json:"expiresAt"`
 	Endpoint           RecoveryEndpoint `json:"endpoint"`
 	MinRecoveryVersion string           `json:"minRecoveryVersion"`
+	// Oneshot comes with a oneshot exchange (docs/BAREMETAL-ONESHOT.md 6.2).
+	Oneshot *OneshotExchangeExtras `json:"oneshot,omitempty"`
 }
 
 // RecoverySessionState is the answer of GET .../current.
@@ -134,6 +136,8 @@ type RecoverySessionState struct {
 	ExpiresAt       time.Time `json:"expiresAt"`
 	CancelRequested bool      `json:"cancelRequested"`
 	Approved        bool      `json:"approved"`
+	// Oneshot is set for a oneshot session.
+	Oneshot *OneshotCurrent `json:"oneshot,omitempty"`
 }
 
 // RecoveryRestoreSize is the restore size of one mount point (the M2

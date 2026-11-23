@@ -73,6 +73,9 @@ export function RestoreTimeline<T>({
   const baseId = React.useId();
   const scroller = React.useRef<HTMLElement>(null);
   const buttons = React.useRef(new Map<string, HTMLButtonElement>()).current;
+  // The entry a jump lands on: the popover gives the focus to it when it closes, instead of to
+  // its trigger (onCloseAutoFocus).
+  const jumpFocus = React.useRef<string | null>(null);
   const [focused, setFocused] = React.useState<string | null>(null);
   const [announcement, setAnnouncement] = React.useState("");
   const [calendarOpen, setCalendarOpen] = React.useState(false);
@@ -165,8 +168,7 @@ export function RestoreTimeline<T>({
     if (first !== undefined) {
       const id = idOf(first);
       setFocused(id);
-      // After the popover has closed and handed focus back to its trigger.
-      requestAnimationFrame(() => buttons.get(id)?.focus({ preventScroll: true }));
+      jumpFocus.current = id;
     }
     setAnnouncement(
       day.key === localDayKey(date)
@@ -191,7 +193,22 @@ export function RestoreTimeline<T>({
               {t("timeline.jump")}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-auto p-0" data-slot="timeline-calendar">
+          <PopoverContent
+            align="end"
+            className="w-auto p-0"
+            data-slot="timeline-calendar"
+            onCloseAutoFocus={(event) => {
+              // Closed by a jump: the focus goes to the entry it landed on, never back to the
+              // trigger (whose own return of the focus would otherwise race with ours).
+              const id = jumpFocus.current;
+              jumpFocus.current = null;
+              const target = id === null ? undefined : buttons.get(id);
+              if (target) {
+                event.preventDefault();
+                target.focus({ preventScroll: true });
+              }
+            }}
+          >
             <p className="border-b px-4 py-3 text-xs text-muted-foreground">
               {t("timeline.jumpHint")}
             </p>
@@ -222,7 +239,13 @@ export function RestoreTimeline<T>({
         ref={scroller}
         aria-label={label}
         onKeyDown={onKeyDown}
-        className={cn("relative max-h-80 overflow-y-auto lg:max-h-[34rem]", className)}
+        // From lg on as tall as the window allows (what sits above the list: the page header,
+        // the card's title and the jump bar), at least 20rem; a fixed 34rem left a 1440p
+        // window half empty.
+        className={cn(
+          "relative max-h-80 overflow-y-auto lg:max-h-[max(20rem,calc(100dvh-22rem))]",
+          className,
+        )}
       >
         {days.map((day) => {
           const headingId = `${baseId}-heading-${day.key}`;

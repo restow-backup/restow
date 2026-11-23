@@ -96,6 +96,7 @@
         "agent/README.md",
         "docs/AGENT.md",
         "docs/BAREMETAL.md",
+        "docs/BAREMETAL-ONESHOT.md",
         "docs/BAREMETAL-WINDOWS.md",
         "docs/CI.md",
         "docs/GLOSSARY.md",
@@ -107,8 +108,11 @@
         "scripts/recovery-e2e/factory-debs.mjs",
         "scripts/recovery-e2e/lib/qemu.mjs",
         "scripts/recovery-e2e/no-autoactivation.mjs",
+        "scripts/recovery-e2e/oneshot-cases.mjs",
+        "scripts/recovery-e2e/oneshot-cases.test.mjs",
         "scripts/recovery-e2e/run.mjs",
         "scripts/recovery-e2e/run.test.mjs",
+        "scripts/release/rebuild-iso.sh",
         "scripts/release/sign-agent.sh"
       ]
     }

@@ -1,6 +1,6 @@
 {
-  "id": "f1f971bd-e759-45bc-bfb2-52b1d5dc9f93",
-  "prevId": "eec55e98-e6e5-4632-90c4-b182e1080d3f",
+  "id": "eec55e98-e6e5-4632-90c4-b182e1080d3f",
+  "prevId": "72c85cd7-286d-462c-aa32-533dd85f7995",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5178,12 +5178,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "prices": {
-          "name": "prices",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -7915,6 +7909,12 @@
         "cancel_requested_at": {
           "name": "cancel_requested_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oneshot": {
+          "name": "oneshot",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -22726,146 +22726,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.provider_webhooks": {
-      "name": "provider_webhooks",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "provider_id": {
-          "name": "provider_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "secret_ref": {
-          "name": "secret_ref",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "events": {
-          "name": "events",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "failing_since": {
-          "name": "failing_since",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "consecutive_failures": {
-          "name": "consecutive_failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "failure_alerted_at": {
-          "name": "failure_alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_failure": {
-          "name": "last_failure",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "provider_webhooks_provider_idx": {
-          "name": "provider_webhooks_provider_idx",
-          "columns": [
-            {
-              "expression": "provider_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "provider_webhooks_provider_id_providers_id_fk": {
-          "name": "provider_webhooks_provider_id_providers_id_fk",
-          "tableFrom": "provider_webhooks",
-          "tableTo": "providers",
-          "columnsFrom": [
-            "provider_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "provider_webhooks_secret_ref_secrets_id_fk": {
-          "name": "provider_webhooks_secret_ref_secrets_id_fk",
-          "tableFrom": "provider_webhooks",
-          "tableTo": "secrets",
-          "columnsFrom": [
-            "secret_ref"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.webhook_deliveries": {
       "name": "webhook_deliveries",
       "schema": "",
@@ -22881,19 +22741,13 @@
           "name": "tenant_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "webhook_id": {
           "name": "webhook_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
-        },
-        "provider_webhook_id": {
-          "name": "provider_webhook_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "event": {
           "name": "event",
@@ -22997,28 +22851,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "webhook_deliveries_provider_webhook_created_idx": {
-          "name": "webhook_deliveries_provider_webhook_created_idx",
-          "columns": [
-            {
-              "expression": "provider_webhook_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"webhook_deliveries\".\"provider_webhook_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -23047,30 +22879,12 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "webhook_deliveries_provider_webhook_id_provider_webhooks_id_fk": {
-          "name": "webhook_deliveries_provider_webhook_id_provider_webhooks_id_fk",
-          "tableFrom": "webhook_deliveries",
-          "tableTo": "provider_webhooks",
-          "columnsFrom": [
-            "provider_webhook_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "webhook_deliveries_owner_ck": {
-          "name": "webhook_deliveries_owner_ck",
-          "value": "(\"webhook_deliveries\".\"tenant_id\" IS NOT NULL AND \"webhook_deliveries\".\"webhook_id\" IS NOT NULL AND \"webhook_deliveries\".\"provider_webhook_id\" IS NULL) OR (\"webhook_deliveries\".\"tenant_id\" IS NULL AND \"webhook_deliveries\".\"webhook_id\" IS NULL AND \"webhook_deliveries\".\"provider_webhook_id\" IS NOT NULL)"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.webhooks": {
@@ -23337,7 +23151,8 @@
       "schema": "public",
       "values": [
         "code",
-        "probe"
+        "probe",
+        "oneshot"
       ]
     },
     "public.endpoint_recovery_status": {

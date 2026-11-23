@@ -95,6 +95,76 @@ describe("walkDriveDelta", () => {
     expect(graph.calls[1]?.url).toContain("token=FRESH");
   });
 
+  it("starts from the plain delta URL when the Location of the 410 answers 410 too", async () => {
+    // A link stored before 0.5.0 (without Prefer: deltashowsharingchanges): Graph refuses
+    // it with resyncRequired, and the resync URL it names as well.
+    const resyncRequired = graphError(
+      "resyncRequired",
+      "Resync required. Replace any local items with the server's version (including deletes).",
+    );
+    const graph = createFakeGraph([
+      {
+        url: deltaUrl("STALE"),
+        respond: {
+          status: 410,
+          headers: {
+            location: `https://graph.microsoft.com/v1.0${DELTA_PATH.slice(5)}?token=RESYNC`,
+          },
+          json: resyncRequired,
+        },
+      },
+      { url: deltaUrl("RESYNC"), respond: { status: 410, json: resyncRequired } },
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.resyncPage } },
+    ]);
+    const resyncs: string[] = [];
+    const { pages, outcome } = await drain(
+      walkDriveDelta({
+        client: graph.client(),
+        driveId: DRIVE,
+        start: { url: `${DELTA_PATH.slice(5)}?token=STALE`, mode: "incremental" },
+        onResync: (info) => resyncs.push(info.nextUrl),
+      }),
+    );
+    expect(resyncs).toHaveLength(2);
+    expect(resyncs[0]).toContain("token=RESYNC");
+    expect(resyncs[1]).not.toContain("token=");
+    expect(pages.map((p) => [p.mode, p.reset])).toEqual([["resync", false]]);
+    expect(outcome).toMatchObject({ mode: "resync", pages: 1 });
+    expect(outcome.deltaLink).toContain("DELTA-R");
+    expect(graph.calls).toHaveLength(3);
+    // Every attempt asked for the sharing changes.
+    for (const call of graph.calls) {
+      expect(call.headers.prefer ?? call.headers.Prefer).toBe("deltashowsharingchanges");
+    }
+  });
+
+  it("gives up when the plain delta URL answers 410 after the Location did", async () => {
+    const graph = createFakeGraph([
+      {
+        url: deltaUrl("STALE"),
+        respond: {
+          status: 410,
+          headers: {
+            location: `https://graph.microsoft.com/v1.0${DELTA_PATH.slice(5)}?token=RESYNC`,
+          },
+          json: fixture.gone,
+        },
+      },
+      { url: deltaUrl("RESYNC"), respond: { status: 410, json: fixture.gone } },
+      { url: deltaUrl(null), respond: { status: 410, json: fixture.gone } },
+    ]);
+    await expect(
+      drain(
+        walkDriveDelta({
+          client: graph.client(),
+          driveId: DRIVE,
+          start: { url: `${DELTA_PATH.slice(5)}?token=STALE`, mode: "incremental" },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(GraphError);
+    expect(graph.calls).toHaveLength(3);
+  });
+
   it("flags a reset when the 410 arrives after pages were already yielded", async () => {
     const graph = createFakeGraph([
       { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },

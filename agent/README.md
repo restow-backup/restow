@@ -841,6 +841,21 @@ reviewer). On the signing machine:
 scripts/release/sign-agent.sh v0.1.0 --key ~/restow-keys/restow-agent-release
 ```
 
+A release with the recovery ISO (its line `recovery/restow-recovery_<v>_amd64.iso` in
+`agent-SHA256SUMS`) is signed only after a third build of the ISO outside GitHub matched it.
+On a Linux amd64 Docker host (no signing key there), in a clone checked out at the tag:
+
+```sh
+git clone --branch v0.5.0 --depth 1 https://github.com/restow-backup/restow.git && cd restow
+sh scripts/release/rebuild-iso.sh v0.5.0
+```
+
+It takes the agent build of the release run, checks it against the draft's list, builds the
+ISO, compares it and prints the SHA-256. On the signing machine, pass that value:
+`scripts/release/sign-agent.sh v0.5.0 --key <key> --iso-sha256 <SHA-256>` (or `--iso <path>`
+with the ISO itself). The ISO is built the same on hosts started with UEFI and with BIOS
+(integrations/recovery/README.md, "Reproducible build").
+
 The script downloads `agent-SHA256SUMS` with `gh`, shows it (repository, release with the
 short commit, the fingerprint of the release key and the checksum list), signs it with
 `ssh-keygen` (asks for the passphrase), verifies the signature against

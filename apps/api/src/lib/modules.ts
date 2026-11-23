@@ -39,7 +39,7 @@ export type ModuleId = (typeof MODULE_IDS)[number];
 /**
  * The modules a new installation has on when its setup names none: every module but `databases`,
  * which is off unless chosen (docs/DATABASES.md 2.1). An installation that updates got it switched
- * off by its migration (0105), unless a job used the native SQL Server backup, which moves there.
+ * off by its migration (0106), unless a job used the native SQL Server backup, which moves there.
  */
 export const DEFAULT_MODULE_IDS: readonly ModuleId[] = MODULE_IDS.filter(
   (id) => id !== "databases",

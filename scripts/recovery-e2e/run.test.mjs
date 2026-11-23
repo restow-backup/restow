@@ -358,14 +358,43 @@ describe("the answers file", () => {
   });
 
   it("hands the worker the ISO under test as its drop folder, without downloading", () => {
-    const overlay = e2eOverlay("/w/agent", "/w/iso");
+    const overlay = e2eOverlay("/w/agent", "/w/iso", "0.0.0-dev");
     assert.match(
       overlay,
-      /\n {2}worker:\n {4}environment:\n {6}RESTOW_RECOVERY_ISO_DIR: \/srv\/recovery-iso\n/,
+      /\n {2}worker:\n {4}environment:\n(?: {6}.*\n)* {6}RESTOW_RECOVERY_ISO_DIR: \/srv\/recovery-iso\n/,
     );
     assert.match(overlay, /RESTOW_RECOVERY_ISO_FETCH: "false"/);
     assert.match(overlay, / {6}- \/w\/iso:\/srv\/recovery-iso:ro\n/);
     assert.equal(overlay.match(/\/w\/agent:\/srv\/agent:ro/g).length, 2);
+  });
+
+  it("hands the api the same ISO, which a oneshot session fetches from it", () => {
+    const overlay = e2eOverlay("/w/agent", "/w/iso", "0.0.0-dev");
+    const api = overlay.slice(overlay.indexOf("  api:\n"), overlay.indexOf("  worker:\n"));
+    assert.match(api, / {6}RESTOW_RECOVERY_ISO_DIR: \/srv\/recovery-iso\n/);
+    assert.match(api, / {6}RESTOW_RECOVERY_ISO_FETCH: "false"\n/);
+    assert.match(api, / {6}- \/w\/iso:\/srv\/recovery-iso:ro\n/);
+  });
+
+  it("runs the restic of the build under test, whatever version the image has (release run 44324733895)", () => {
+    // A release run hands in the 0.5.0 build; the image's /usr/local/bin/restic points into
+    // /srv/agent/0.0.0-dev/, which the test agent folder does not have: every source machine
+    // failed to enroll with "restic not available".
+    const overlay = e2eOverlay("/w/agent", "/w/iso", "0.5.0");
+    assert.equal(
+      overlay.match(/ {6}RESTIC_BINARY: \/srv\/agent\/0\.5\.0\/linux-amd64\/restic\n/g).length,
+      2,
+    );
+    assert.match(overlay, /\n {2}api:\n {4}environment:\n {6}RESTIC_BINARY: /);
+    // The next release run got past the enrollment; P1's layout check then found no restore
+    // planner (planner_unavailable): its link in the image points into 0.0.0-dev as well.
+    assert.match(
+      overlay,
+      /\n {2}worker:\n {4}environment:\n(?: {6}.*\n)* {6}RESTOW_PLANNER_BIN: \/srv\/agent\/0\.5\.0\/linux-amd64\/restow-agent\n/,
+    );
+    assert.equal(overlay.match(/RESTOW_PLANNER_BIN/g).length, 1);
+    assert.throws(() => e2eOverlay("/w/agent", "/w/iso", "0.5.0\n  evil: x"), /not a version/);
+    assert.throws(() => e2eOverlay("/w/agent", "/w/iso", undefined), /not a version/);
   });
 
   it("reaches the instance through QEMU's host address under a name of its own", () => {

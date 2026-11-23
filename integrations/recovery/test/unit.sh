@@ -438,6 +438,27 @@ grep -qx 'systemctl mask serial-getty@ttyS0.service serial-getty@ttyS1.service >
   "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "no login prompt on the serial consoles"
 grep -q 'ssh_host_' "$WORK/config/hooks/live/9900-restow-clean.hook.chroot" && ok || fail "host keys removed"
 
+# efivarfs in the initramfs on every build host (mdadm's hook adds it only on a host started
+# with UEFI): after mdadm's hook, once, as the last line of conf/modules.
+efihook="$WORK/config/includes.chroot/etc/initramfs-tools/hooks/zz-restow-efivarfs"
+[ -x "$efihook" ] && ok || fail "the efivarfs initramfs hook is not executable"
+[ "$(sh "$efihook" prereqs)" = mdadm ] && ok || fail "the efivarfs hook runs after mdadm's"
+# shellcheck disable=SC2016 # the stub replaces the line that sources initramfs-tools
+sed 's#^\. /usr/share/initramfs-tools/hook-functions$#manual_add_modules() { echo "$1" >>"$DESTDIR/added"; }#' \
+  "$efihook" >"$tmp/efihook"
+grep -q '^manual_add_modules() {' "$tmp/efihook" && ok || fail "the efivarfs hook sources hook-functions differently"
+for case in 'raid1 efivarfs dm-mod|raid1 dm-mod efivarfs ' 'raid1 dm-mod|raid1 dm-mod efivarfs ' '|efivarfs '; do
+  before=${case%%|*}
+  rm -rf "$tmp/destdir"
+  mkdir -p "$tmp/destdir/conf"
+  for module in $before; do echo "$module" >>"$tmp/destdir/conf/modules"; done
+  DESTDIR="$tmp/destdir" sh "$tmp/efihook" && ok || fail "the efivarfs hook failed with: $before"
+  [ "$(tr '\n' ' ' <"$tmp/destdir/conf/modules")" = "${case#*|}" ] && ok ||
+    fail "conf/modules after the efivarfs hook ($before): $(tr '\n' ' ' <"$tmp/destdir/conf/modules")"
+  [ "$(cat "$tmp/destdir/added")" = efivarfs ] && ok || fail "the efivarfs hook adds the module"
+  [ -s "$tmp/destdir/etc/restow-efivarfs" ] && ok || fail "the efivarfs hook leaves its mark"
+done
+
 # --- the source bundle (sources.sh) -------------------------------------------------------------
 
 # The binaries of the lock are looked up in the archives the ISO installs from: main with
@@ -453,6 +474,32 @@ grep -qx 'deb http://snapshot.debian.org/archive/debian-security/$SNAPSHOT_TIMES
 grep -q 'is in no binary index of the snapshot' "$sources" && ok || fail "sources.sh: an unknown binary stops the bundle"
 refuse "sources.sh --check needs --out" sh "$sources" --check
 says "sources.sh --check needs --out" "--out <dir> is needed"
+
+# --- the hand-over of a oneshot restore (docs/BAREMETAL-ONESHOT.md 9.1) -------------------------
+
+oneshot="$WORK/config/includes.chroot/etc/initramfs-tools/scripts/init-bottom/restow-oneshot"
+[ -x "$oneshot" ] && ok || fail "restow-oneshot is not executable (initramfs-tools runs only executable scripts)"
+sed -n 2p "$oneshot" | grep -qx '# SPDX-License-Identifier: GPL-3.0-or-later' && ok || fail "restow-oneshot has no SPDX line"
+[ -z "$(sh "$oneshot" prereqs)" ] && ok || fail "restow-oneshot names prerequisites"
+r="$tmp/oneshot-root"
+mkdir -p "$r/restow"
+printf '{"format":"restow-oneshot-v1"}' >"$r/restow/oneshot.json"
+expect "restow-oneshot hands the data over" sh "$oneshot" --root "$r"
+[ "$(cat "$r/run/restow-oneshot/oneshot.json")" = '{"format":"restow-oneshot-v1"}' ] && ok || fail "restow-oneshot: the data did not arrive"
+[ "$(stat -c %a "$r/run/restow-oneshot/oneshot.json")" = 600 ] && ok || fail "restow-oneshot: the data is not 0600"
+[ "$(stat -c %a "$r/run/restow-oneshot")" = 700 ] && ok || fail "restow-oneshot: the folder is not 0700"
+[ ! -e "$r/restow/oneshot.json" ] && ok || fail "restow-oneshot: the data stayed in the initramfs"
+[ ! -e "$r/run/restow-oneshot/oneshot.json.new" ] && ok || fail "restow-oneshot: a temporary file stayed"
+r="$tmp/oneshot-none"
+mkdir -p "$r"
+expect "restow-oneshot without data" sh "$oneshot" --root "$r"
+[ ! -e "$r/run" ] && ok || fail "restow-oneshot made /run/restow-oneshot without data (a start from the ISO)"
+r="$tmp/oneshot-link"
+mkdir -p "$r/restow"
+printf 'secret' >"$tmp/outside"
+ln -s "$tmp/outside" "$r/restow/oneshot.json"
+expect "restow-oneshot with a link" sh "$oneshot" --root "$r"
+[ ! -e "$r/run/restow-oneshot" ] && ok || fail "restow-oneshot followed a link"
 
 printf '%s passed, %s failed\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

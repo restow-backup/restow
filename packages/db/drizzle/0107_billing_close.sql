@@ -4,7 +4,7 @@
 -- triggers of the closed months and corrections, the tenant policies and the grants come from
 -- sql/rls.sql and roles.ts after the migrations.
 --
--- Applies after 0105_databases (journal entry 106, a `when` later than 0105's: the Drizzle
+-- Applies after 0106_databases (journal entry 107, a `when` later than 0106's: the Drizzle
 -- migrator applies a migration only when its `when` is later than the last applied one's).
 --> statement-breakpoint
 CREATE TABLE "billing_corrections" (

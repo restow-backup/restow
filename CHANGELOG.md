@@ -17,7 +17,7 @@ private repository.
   Backups, health checks and restore checks of the module follow in the next stages; nothing is
   backed up yet.
   - A new module `databases` in Installation › Modules and the setup wizard, off unless chosen.
-    Migration 0105 switches it off in installations that update, unless a backup job (or one of
+    Migration 0106 switches it off in installations that update, unless a backup job (or one of
     its members) has the native SQL Server backup on, which moves into the module later.
   - "Add database" takes a URL (`postgresql://`, `mysql://`, `mariadb://`, `sqlserver://`),
     `host:port`, a bare host or the path of an SQLite file; a user and a password in the URL move
@@ -94,7 +94,7 @@ private repository.
     budget per tenant (`RESTOW_DB_HEALTH_PUBLIC_CHECKS_PER_TENANT_HOUR`, default 600 an hour), and
     a tenant has at most `RESTOW_DB_SERVER_CONNECTIONS_PER_TENANT` (default 20) connections on the
     Restow server (422 `database-server-connection-limit` beyond it).
-  - History in `database_health_samples` (migration 0108): raw samples 14 days, then hourly means
+  - History in `database_health_samples` (migration 0109): raw samples 14 days, then hourly means
     and extremes 400 days, folded in bounded batches. The events of a connection are read from
     its newest samples (ranges over 14 days by the hour).
   - Alerts `database.unreachable` (three failed checks in a row, once per episode) and
@@ -126,7 +126,7 @@ private repository.
     and a restore guide without secrets; "Back up now" on the database page.
   - Retention per database decided by the server from the runs' reports (30 daily, 12 weekly,
     12 monthly). The application images carry `postgresql-client-18` from the PGDG archive (key
-    pinned in the repository). Migration 0109 (`database_runs`, `database_backups`).
+    pinned in the repository). Migration 0110 (`database_runs`, `database_backups`).
 - Backups and restores of MySQL and MariaDB schemas (docs/DATABASES.md, stage D4 of 0.6.0), by the
   Restow server or an agent (not under Windows), like PostgreSQL:
   - One restic snapshot per selected schema (`mysqldump` or `mariadb-dump` with
@@ -159,7 +159,7 @@ private repository.
     MariaDB 11.8 client from MariaDB's archive (key pinned in the repository), about 120 MB per
     image; on arm64 the MySQL programs are stripped of their symbols. Every release carries the
     source code of exactly these client versions (GPL-2.0) as `restow-db-clients_<v>_sources.tar`
-    and `.txt`. Migration 0110 (`database_backups.engine_options`).
+    and `.txt`. Migration 0111 (`database_backups.engine_options`).
 - Monthly billing close (Service Provider; integration API contract 1.11.0, additive): every
   tenant's billed quantities (protected mailboxes, stored data, servers, clients, VMs,
   containers, file shares) are sampled once a day, counted exactly like `GET /provider/billing`,
@@ -202,11 +202,381 @@ private repository.
 
 ### Upgrade Notes
 
-- Database migrations 0105 (databases module), 0106 (billing close) and 0107 (provider webhooks,
-  the prices of each daily sample), applied in this order. 0107 checks every row of `webhook_deliveries` once when it adds the owner constraint;
+- Database migrations 0106 (databases module), 0107 (billing close) and 0108 (provider webhooks,
+  the prices of each daily sample), applied in this order. 0108 checks every row of `webhook_deliveries` once when it adds the owner constraint;
   the table only keeps 30 days of deliveries.
 - The worker needs `RESTOW_MASTER_KEY` (it already does) to sign the provider webhooks'
   deliveries.
+
+## [0.5.3-rc.1] - 2026-11-20
+
+Pre-release for testing on real machines. Not for production; the stable release is 0.5.2.
+
+### Summary
+
+Restow 0.5.3-rc.1 brings bare metal recovery onto a fresh machine without the recovery ISO: a
+command run in a root shell of a new server (for example a rented one that cannot start an ISO)
+switches it into the recovery environment, after a release in the web interface, and restores
+the whole machine there. It is a preview, off unless `RESTOW_BAREMETAL_PREVIEW` and the new
+`RESTOW_BAREMETAL_ONESHOT` are both `true`; this pre-release is for the tests on real hardware
+(UEFI and BIOS) before 0.5.3. One database migration adds a column; nothing else changes for an
+installation that leaves the switch off.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+- Bare metal onto a fresh machine without ISO (docs/BAREMETAL-ONESHOT.md), a preview behind
+  `RESTOW_BAREMETAL_PREVIEW` and `RESTOW_BAREMETAL_ONESHOT` (both off by default); in the
+  bare metal wizard of a machine, "Onto a fresh machine (link)". Built in these stages:
+  - O1: the recovery ISO starts without its medium, the way the command on a fresh machine will
+    start it with kexec: the ISO's kernel, its initrd with the live file system and the session
+    data appended as one uncompressed archive, and `live-media=/restow/medium`. A new script in
+    the ISO's initramfs (`init-bottom/restow-oneshot`) hands the session data to the live system
+    (`/run/restow-oneshot`, 0700/0600) and leaves nothing of it in the initramfs. `recover` reads
+    it only with `restow.oneshot=1` on the kernel command line, from a root-owned file with these
+    modes, refuses anything that does not fit (a code, options in an SSH key, an `http://`
+    instance outside QEMU, unknown fields) and redacts the session secret and the passphrase in
+    its log; its output also goes to every console of the fresh machine. The agent reads the
+    kernel, the initrd and the live file system out of the ISO itself (ISO 9660 with Rock Ridge,
+    checked against the image's own checksum list) and builds the initrd (`restow-agent
+    oneshot-payload`, hidden, for the CI). The CI job of the ISO starts it that way in QEMU and
+    checks what arrives (`scripts/recovery-e2e/oneshot-boot.mjs`).
+  - O2: the server side, behind `RESTOW_BAREMETAL_ONESHOT=true` (off by default). Migration 0105
+    adds the recovery kind `oneshot` and its state (`endpoint_recoveries.oneshot`), nothing is
+    rewritten. `POST /api/v1/endpoints/:id/recovery-codes` with `kind: "oneshot"` issues an
+    `OS-…` code with its command, redeemable for 30 minutes, whose session then lasts 4 to 48 hours
+    (default 12) from the issue and always needs the release. The command exchanges it at
+    `POST /agent/v1/recovery/oneshot` (a oneshot code is unknown at the ISO's exchange and a code of
+    the ISO unknown here; the proof has its own prefix) with what it measured on the machine, which
+    is kept apart from what the admin decides. The release needs the admin's answers (network,
+    shrinking, Secure Boot findings as warnings, remote access) and a machine that has shown it
+    can switch (a test load with kexec, or the rescue system's direct mode) and carries no enrolled
+    agent. The session fetches the verified recovery ISO and its signed checksums through
+    `GET …/sessions/current/iso` (the image three times, never after the switch). Credentials and
+    the repository read only after the recovery environment reported back
+    (`POST …/sessions/current/oneshot/booted`); other hardware there ends the session, and a
+    released session that does not report back within 30 minutes fails (monitor).
+  - O3: the command itself. `GET /install/oneshot.sh` (only with `RESTOW_BAREMETAL_ONESHOT`)
+    downloads `restow-agent`, checks it like `linux.sh` (the signature check is a copy a test
+    keeps equal) and starts the hidden `restow-agent oneshot` with the code on stdin, never in
+    the process list. The command only reads until the release: memory (2 GiB at least),
+    `kexec_load_disabled`, lockdown, Secure Boot, Xen PV, the network (addresses, default routes
+    with on-link gateways, name servers; a VLAN, bond, bridge, several default routes or policy
+    routing stop it), the disks, cloud-init's instance data, root's SSH keys (lines with options
+    are left out) and the signs of a machine in use; an enrolled Restow agent stops it (the
+    instance would not release such a machine either). Then it redeems the code, fetches the recovery ISO through the
+    session, accepts it only with the release signature over its checksums (or exactly the list
+    pinned with `RESTOW_SHA256SUMS_SHA256`), the announced hash, the same release as the command
+    and live-build's own list, and loads the ISO's kernel with `kexec_file_load` on trial (and
+    unloads it); the result goes to Restow. The console confirms every disk (the end of its
+    identity, then the erase word) and asks for the passphrase of new LUKS volumes (or reads
+    both from `--answers`); neither leaves the machine except in the session data for `recover`.
+    After the release it builds the initrd in a `memfd`, loads it with the session data and
+    switches with `systemctl kexec`. A rejected, expired or cancelled session, a refused test
+    load or a missing confirmation ends it with nothing changed. It never asks for the
+    credentials. `scripts/recovery-e2e/oneshot-cases.mjs` defines the end-to-end cases O-E1 to
+    O-E6 for the driver that follows.
+  - Hardening of O1 to O3: the command carries the code in the environment of `sh`
+    (`RESTOW_ONESHOT_CODE`, for a root shell) instead of its arguments, and the script refuses a
+    code in its arguments; a oneshot code is only issued for an instance address of scheme, host
+    and port. Until `systemctl kexec`, the point of no return, a cancel (Ctrl+C, hangup, SIGTERM)
+    unloads what was loaded and leaves the machine unchanged; the raw kexec reboot is used only
+    when systemctl is missing or failed otherwise. The kernel and the initrd are hashed while they
+    are copied into memory and compared before `kexec_file_load`. An enrolled Proxmox VE helper
+    stops the command like an enrolled agent. A oneshot code cannot be extended before its
+    exchange, and its session never ends before the code's own end. The release carries the
+    match code the machine shows (refused and audited when it differs); every ISO download of a
+    session is audited; with `RESTOW_BAREMETAL_ONESHOT` or `RESTOW_BAREMETAL_PREVIEW` off the
+    exchange knows no oneshot code and the session's routes and the release refuse.
+  - O4: `recover` in the oneshot mode. The session data answers instead of a person: it brings
+    up the network the command measured (one networkd file per interface, matched by MAC,
+    on-link gateways), trusts the instance by the full key hash the command saw, reports back
+    (`booted`) before it fetches anything else and takes the release's decisions (shrinking,
+    Secure Boot findings as warnings). Every disk the plan erases must be one the console of the
+    fresh machine confirmed. Remote access is turned on only when the release allows it and the
+    keys are exactly the ones the release showed, keys only. After a success the machine restarts
+    after 60 seconds; a failure before the first write restarts it into its own system, a failure
+    after it keeps it in the recovery environment. The direct mode for a provider's rescue system
+    (`--direct`: the script also checks restic) restores from the rescue system itself, after
+    checking that every program is there and no disk of the machine is in use.
+  - O5: taking over the network. With the release's choice "take over the network of this
+    machine", recover finds the network stack of the restored system (netplan, NetworkManager,
+    systemd-networkd or ifupdown; more than one without a clear one is a finding, no guessing),
+    puts its old configuration and every binding to the old MACs aside under
+    `/etc/restow/network-before-restore` (with paths and modes, nothing deleted) and writes the
+    measured network in the stack's own format, on-link gateways included; resolv.conf where it
+    is a plain file. cloud-init of the restored system is limited to the network
+    (`99-restow-restored.cfg`); it brings the network up itself when it knows the new provider's
+    datasource. The written files are checked and the result stands in the verification. A UEFI
+    system with GRUB on a hybrid GPT disk (ESP and BIOS boot partition) now restores onto a BIOS
+    machine when the backup has GRUB's BIOS modules (warning `firmware_mode_switched`).
+  - Hardening of O4 and O5: the direct mode finds a disk in use by device numbers (a root
+    mounted as /dev/root included, and refuses when /, the agent or restic lives on a disk of the
+    machine); recover records the start of the writing beside the session data, so a recover
+    restarted after a crash never restarts the machine into half-written disks; the network
+    takeover is all or nothing (checked, written, read back and verified before anything old is
+    put aside, rolled back on any error) and keeps the files of each restore in a folder of its
+    own; oneshot.sh accepts `--direct` only in that exact form.
+  - O9, first part: the end-to-end cases O-E1 and O-E2 run in CI next to E1 and E2
+    (`scripts/recovery-e2e`, `--cases O-E1,O-E2`). A fresh machine starts from a pinned Debian 12
+    cloud image with cloud-init, runs the command as the UI shows it, the session is released
+    over the API with its match code, and the restored disks must boot there: O-E1 restores E2's
+    source (Ubuntu 24.04, LUKS2 and LVM) onto a UEFI machine with a /32 and an on-link gateway,
+    O-E2 E1's source (Debian 12, md RAID1) onto a BIOS machine with two disks and DHCP; both
+    check that the old network was put aside, O-E1 that the fresh machine's address is in the
+    active configuration. The test instance now hands the API the ISO under test too (a oneshot
+    session fetches it there) and runs with `RESTOW_BAREMETAL_ONESHOT=true`.
+  - O8a: the minimal interface. In the bare metal wizard, beside the recovery ISO, "Onto a fresh
+    machine (link)" appears only when the capabilities say both switches are on
+    (`baremetalOneshot`). Its dialog issues the command once with a copy button, the redeem
+    countdown, the root shell hint (`sudo -i`), the tip to move the public address at the same
+    provider and the variant for a rescue system (`--direct`). The release shows what the machine
+    reported (addresses, gateways, disks with their identity, RAM, the switch-over test, signs of
+    use, warnings, SSH key fingerprints) beside the address the server saw, and asks for the
+    network choice, old public addresses (for backups that used DHCP; new optional field
+    `oldAddresses` of the release), shrinking, Secure Boot findings as warnings, remote access
+    (off) and the six-digit match number, required. The session's steps count as started only
+    from the recovery environment's report; after a success a checklist of what remains outside
+    the machine. The restart after the success can only be stopped at the machine's console.
+
+### Changed
+
+- Tests: the end-to-end source machines of Ubuntu install `linux-image-virtual` with
+  `linux-modules-extra` for the newest kernel instead of `linux-image-generic`, and debootstrap
+  gives up a download that brings nothing for 60 seconds and tries again: the 475 MB of
+  `linux-firmware` from a slow mirror held E2 and P2 until their time limit.
+
+### Fixed
+
+- The restore timeline's "Jump to date" now gives the focus to the entry it found every time:
+  the entry took the focus in a frame of its own while the closing calendar handed it back to its
+  button in a timer, and whichever ran last won (under load, the button).
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images, a new agent and a new recovery ISO. One database migration (0105) adds the recovery
+kind `oneshot` and a nullable column `endpoint_recoveries.oneshot` without a default, so no
+table is rewritten. New optional variable `RESTOW_BAREMETAL_ONESHOT` (api, empty = off);
+the `docker-compose.yml` of 0.5.2 stays.
+
+- This is a pre-release: the updater offers it only on the update channel `beta` (`stable` leaves
+  it out), and its images carry only the tag `0.5.3-rc.1`, not `beta`.
+- The command on a fresh machine downloads the agent of this release from the instance; the
+  agents of existing machines need no update for anything else in this release.
+
+### Known Issues
+
+- The command on a fresh machine has run end to end only in QEMU (O-E1: Ubuntu 24.04 with LUKS2
+  and LVM onto a UEFI machine with a /32 and an on-link gateway; O-E2: Debian 12 with md RAID1
+  onto a BIOS machine with two disks and DHCP). Real providers and real hardware are what this
+  pre-release is for (docs/BAREMETAL-ONESHOT.md 19.4).
+- The cases O-E3 to O-E6 are defined but not run yet.
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on wip/053-oneshot (CI run 44808973282, workflow_dispatch, all recovery jobs):
+the recovery ISO built twice and bit for bit equal; the end-to-end cases E1, E2, P1, P2, O-E1
+and O-E2 in QEMU/KVM passed. O-E1 and O-E2 run the command as the web interface shows it on a
+Debian 12 cloud image, release the session over the API with its match code, and boot the
+restored disks on the fresh machine; their first runs found that `oneshot.sh` handed curl the
+target file as a second URL, so every download failed, fixed in this release. The installer
+test (790) on release/0.5.3.
+
+## [0.5.2] - 2026-11-20
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.2 bundles alert mails: a weekly restore check that rated dozens of SharePoint sites red
+sent one mail per site, now the alerts that come in close together arrive in one mail per
+recipient, at most one every 30 minutes; signs of an attack still go out at once. It also records
+which options a OneDrive or SharePoint delta link was asked with, so a later change of them reads
+the drive in full once instead of failing with 410 as 0.5.0 did, and tests the state a previous
+release stored. Dependencies are updated. No database migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
+
+### Changed
+
+- Alert mails are bundled per recipient: an alert mail that goes out at once (the recipient's mode
+  is "immediately", or the event is critical such as `verify.red`) waits five minutes, and the
+  next one to the same address at least 30 minutes after the last; then everything waiting for
+  that address goes out in one mail ("Restore check failed: 6 objects", with the list). A weekly
+  restore check that rated dozens of SharePoint sites red used to send one mail per site.
+  Signs of an attack (`backup.suspicious`, `endpoint.suspicious_snapshot`), the bare metal
+  recovery events, the freed disk reserve and failed deliveries still go out at once and take the
+  waiting alerts along. Webhooks, the bell and test sends are not held (docs/NOTIFICATIONS.md,
+  "Bundled alert mails").
+
+- Tests: the Graph fake refuses a drive delta link asked with other `Prefer` options than the
+  ones it was issued with, the way Graph does (410 `resyncRequired`, the `Location` refused
+  too); an `[upgrade]` test backs up a OneDrive the way 0.4.x did and then the way this release
+  does; `packages/core/src/graph/delta-options.test.ts` holds the options of every delta stream
+  with their version, so a change of them fails until it comes with a new version and an
+  upgrade test (docs/TESTING.md, "Regeln"). The OneDrive failure of 0.5.0 fails each of the
+  three.
+
+- Dependencies (Dependabot #108, #109, #110): better-auth and its passkey plugin 1.7.25, hono
+  4.13.19 and @hono/node-server 2.1.8, nodemailer 10.6.0, mailparser 3.14.5, smtp-server 3.21.6,
+  sanitize-html 2.18.2, @aws-sdk/client-s3 3.1170.0, @tanstack/react-query 5.107.1,
+  react-hook-form 7.92.0, react-resizable-panels 4.24.0, lucide-react 1.73.0, commander 15.1.0;
+  for the build vite 8.3.8, tailwindcss 4.3.5, @vitejs/plugin-react 6.3.0, biome 2.6.7; in CI
+  docker/login-action 4.8.0. The journal test of a report whose parse runs over its time limit
+  now sets a limit of 50 ms: mailparser 3.14.5 decodes its 24 MB in a few hundred
+  milliseconds.
+- Tests: the run drawer's test of the live channel no longer depends on the machine's speed (its
+  detail poll runs on a test clock).
+
+### Fixed
+
+- OneDrive and SharePoint libraries: a snapshot now records the version of the options its
+  delta link was asked with (`deltaVersion`, `DRIVE_DELTA_VERSION` = 2, the
+  `Prefer: deltashowsharingchanges` of 0.5.0). When a later release changes those options, the
+  next run reads the drive in full once instead of meeting a 410 first; snapshots of 0.5.0 and
+  0.5.1 count as version 2 and go on incrementally. Users, groups and mail folders: a delta whose
+  resync URL is refused as well now starts once more from the initial URL, as the drive delta
+  does since 0.5.1.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.1 stays. Pull the images of 0.5.2 and restart as for any update.
+
+- Alert mails that go out at once now arrive up to five minutes later than before, and at most one
+  every 30 minutes per recipient (docs/NOTIFICATIONS.md, "Bundled alert mails"). Webhooks and the
+  bell are unchanged. Hourly and daily digests are unchanged.
+- OneDrive and SharePoint libraries go on incrementally: the snapshots of 0.5.0 and 0.5.1 count as
+  the current delta options.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these changes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.2: the full test suite of the API against PostgreSQL 16 on the
+alert bundling branch (4658), among them six new tests of bundled alert mails and two of the
+bundle's mail text; the tests of the reports, updates and provider notifications of the API on
+this branch (444); the Graph, OneDrive and report tests of `@restow/core` (293); the journal receiver tests of `ee/api` with mailparser 3.14.5, five runs in a row;
+the install script's test (790); the release check (`scripts/ci/check-release.mjs --tag
+v0.5.2`); the web tests (5103), among them the run drawer's test of the live channel, which
+failed on busy machines when the drawer's 4 s poll fell into it and now keeps that interval on a
+clock of its own (with a 4.5 s wait it fails as in CI without the change, and passes with it).
+
+## [0.5.1] - 2026-11-20
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.5.1 is a hotfix of 0.5.0: after the update to 0.5.0 every backup of a OneDrive or a
+SharePoint library failed with "410 (resyncRequired)", and this release fixes it. It also stops a
+`chown -R` over a data folder from raising "Suspicious backup", lets the file restore columns use
+the full height of a tall window, and keeps the release text within GitHub's limit. No database
+migration, no new setting.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- OneDrive and SharePoint libraries: every backup after the update to 0.5.0 failed with "Graph
+  GET …/root/delta?… failed with 410 (resyncRequired)". 0.5.0 asks every delta page for sharing
+  changes (`Prefer: deltashowsharingchanges`); Graph refuses a delta link stored without that
+  header, and the resync URL it names in the 410's `Location` as well. The walk gave up after
+  that second 410 and kept the old link, so each run failed the same way. It now starts once more
+  from the plain delta URL, which carries no token Graph could refuse: the first run after the
+  update reads the drive in full, the next ones continue with a link that asks for sharing
+  changes. Until then, "Back up now › Full backup" on an affected OneDrive or library gets past
+  it (a run still retrying from a checkpoint is cancelled first).
+- Ransomware signals: the amount of change of a machine, a file share or a Proxmox VE container
+  counted every file restic's summary called changed, also files whose owner, mode or ctime alone
+  changed. A deploy that ran `chown -R` over 2,500 unchanged documents raised "Suspicious backup"
+  with 2,867 new or changed files where the activity report of the same run had 11. The file
+  count now takes the new files and the files with new content of the activity report
+  (`restic diff`), and restic's summary only where a run has no report; a count is compared with
+  the object's earlier counts of the same kind (docs/RANSOMWARE.md, "Signals per kind of
+  object"). Earlier runs are counted the same way when they serve as the baseline, so no
+  migration is needed. Bytes added and the other signals are unchanged.
+- Release: the publish job of 0.5.0 stopped at GitHub's limit for a release text (125,000
+  characters; the notes had 264,000) after everything else was done, and the release was
+  published by hand with shortened notes. `scripts/ci/release-notes.mjs --max-chars` now points
+  to CHANGELOG.md at the tag for the longest sections, never Summary, Breaking Changes, Security,
+  Upgrade Notes, Known Issues or Verification, until the notes fit with room for the workflow's
+  own part (images, digests, the `released:` line the updater reads); the workflow checks the
+  final length before it signs the checksums.
+- File restore and the restore points of a machine, a container or a file share: the list of
+  machines stopped at 40rem and the list of restore points at 34rem, so on a tall window (1440p)
+  both scrolled with half the window empty below them. From `xl` (machines) and `lg` (restore
+  points) on they now reach down to the window's bottom edge like the folder list beside them,
+  at least 24rem and 20rem; on narrower windows, where the columns stack, they stay as short as
+  before.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New images; no database migration, no new or changed environment variable, and the
+`docker-compose.yml` of 0.5.0 stays. Pull the images of 0.5.1 and restart as for any update.
+
+- The first backup of each OneDrive and SharePoint library after the update reads the drive in
+  full, once (the stored delta link of 0.4.x cannot be used with 0.5.0's request for sharing
+  changes). It takes longer than an incremental run; deduplication keeps the storage it adds
+  small. The runs after it are incremental again.
+- A "Suspicious backup" that 0.5.0 raised for a change of owner or mode alone stays as it is:
+  check it as the alert says and mark it as a false alarm, which releases the retention hold.
+- The agents, restow-pve and the recovery ISO change in nothing but their version: an update of
+  the agents is offered as usual and is not needed for these fixes. The public demo's
+  `deploy/demo` is unchanged.
+
+### Known Issues
+
+- The known issues of 0.5.0 still apply.
+
+### Verification
+
+Before the tag, on release/0.5.1: the OneDrive and Graph tests of `@restow/core` (228), among
+them two new ones that replay a stored link and its resync URL both refused with 410 and fail
+with the fix taken out; the ransomware tests of `@restow/core` (46) and the suspicion tests of
+the worker against PostgreSQL 16 (22); the web tests of machines, restores and the kit (834)
+and the web build; the CI script tests (198) and the install script's test (790); the release
+check (`scripts/ci/check-release.mjs --tag v0.5.1`). The CI ran green on each of the four
+branches merged here.
 
 ## [0.5.0] - 2026-11-18
 
@@ -1481,6 +1851,11 @@ Breaking Changes and Upgrade Notes before you update.
 
 ### Fixed
 
+- Release build: the image build checked the signed agent (`agent/prebuilt`) against the whole
+  signed `SHA256SUMS`, whose line of the recovery ISO names no file of the image, and stopped
+  there. Every other file is still checked against it. The recovery ISO is now built the same on
+  a host started with UEFI and one started with BIOS (mdadm's initramfs hook adds `efivarfs` only
+  on the former; `integrations/recovery/README.md`, "Reproducible build").
 - Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
   ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
   taint mode, and the storage plugin handed the archive directory from restow-pve to

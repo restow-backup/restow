@@ -1,5 +1,6 @@
 import { Readable } from "node:stream";
 import { Hono } from "hono";
+import { config } from "../../config.js";
 import { clientIp } from "../../lib/request.js";
 import { ProblemError } from "../../problem.js";
 import { SlidingWindowRateLimiter } from "../apikeys/rate-limit.js";
@@ -26,6 +27,10 @@ import { recoveryIsoResponse, servableRecoveryIso } from "./recovery-iso.js";
  * checksums of the binaries before they run anything.
  *
  *   GET /install/linux.sh | macos.sh | windows.ps1   the install script for the system
+ *   GET /install/oneshot.sh                          the command of a restore onto a fresh machine
+ *                                                    without an ISO (docs/BAREMETAL-ONESHOT.md 8.1;
+ *                                                    only with RESTOW_BAREMETAL_ONESHOT). No code in
+ *                                                    it: the admin passes the code as its argument.
  *   GET /install/agent/<version>/SHA256SUMS[.sig]    the signed checksums of a release, byte for byte
  *   GET /install/agent/<version>/<os>-<arch>/<file>  restow-agent, restic, THIRD_PARTY_NOTICES.txt, SHA256SUMS
  *   GET /install/recovery/<version>/<file>           the recovery ISO the installation offers, from the
@@ -44,8 +49,14 @@ import { recoveryIsoResponse, servableRecoveryIso } from "./recovery-iso.js";
  */
 export const installRoutes = new Hono();
 
-for (const name of ["linux.sh", "macos.sh", "windows.ps1"] as const) {
+for (const name of ["linux.sh", "macos.sh", "windows.ps1", "oneshot.sh"] as const) {
   installRoutes.get(`/${name}`, async (c) => {
+    if (name === "oneshot.sh" && !(config.baremetalPreview && config.baremetalOneshot)) {
+      throw new ProblemError(404, "Not Found", {
+        detail:
+          "Bare metal onto a fresh machine is not switched on in this installation (RESTOW_BAREMETAL_ONESHOT).",
+      });
+    }
     const template = await readInstallScript(name);
     if (template === null) {
       throw new ProblemError(404, "Install script not available", {

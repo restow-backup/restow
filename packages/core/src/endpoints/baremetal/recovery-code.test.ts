@@ -10,10 +10,13 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalOrigin,
   formatMatchCode,
+  formatOneshotCode,
   formatRecoveryCode,
   generateRecoveryCode,
   hashRecoveryCodeProof,
+  normalizeOneshotCode,
   normalizeRecoveryCode,
+  oneshotCodeProof,
   RECOVERY_CODE_ALPHABET,
   RECOVERY_CODE_LENGTH,
   recoveryCodeProof,
@@ -36,6 +39,14 @@ interface Vectors {
   proof: { origin: string; code: string; codeProof: string; codeHash: string }[];
   matchCode: { sessionSecret: string; sessionSecretSha256: string; matchCode: string }[];
   spkiCheck: { spkiSha256: string; spkiCheck: string }[];
+  oneshotNormalize: { input: string; normalized: string | null; display: string | null }[];
+  oneshotProof: {
+    origin: string;
+    code: string;
+    codeProof: string;
+    codeHash: string;
+    recoveryProof: string;
+  }[];
 }
 
 const vectors = JSON.parse(readFileSync(VECTORS, "utf8")) as Vectors;
@@ -76,6 +87,25 @@ describe("recovery code vectors shared with the agent", () => {
 
   it.each(vectors.spkiCheck)("groups the check value of $spkiSha256", (entry) => {
     expect(spkiCheckOf(entry.spkiSha256)).toBe(entry.spkiCheck);
+  });
+});
+
+describe("oneshot code vectors shared with the agent (docs/BAREMETAL-ONESHOT.md 6.1)", () => {
+  it.each(vectors.oneshotNormalize)("normalizes $input", (entry) => {
+    const normalized = normalizeOneshotCode(entry.input);
+    expect(normalized).toBe(entry.normalized);
+    if (normalized !== null) {
+      expect(formatOneshotCode(normalized)).toBe(entry.display);
+    }
+  });
+
+  it.each(vectors.oneshotProof)("proves $code for $origin with its own prefix", (entry) => {
+    const proof = oneshotCodeProof(entry.origin, entry.code);
+    expect(proof).toBe(entry.codeProof);
+    expect(hashRecoveryCodeProof(proof)).toBe(entry.codeHash);
+    // The same code as a recovery code proves something else: neither exchange takes the other's.
+    expect(recoveryCodeProof(entry.origin, entry.code)).toBe(entry.recoveryProof);
+    expect(entry.recoveryProof).not.toBe(entry.codeProof);
   });
 });
 

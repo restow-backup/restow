@@ -349,6 +349,10 @@ Distribution").
 - Ein neues Repository für einen bestehenden Rechner (nach Verdacht, dass das
   Repository-Passwort abgeflossen ist, Abschnitt 16.2): Kandidat für 0.5.x.
 - arm64-ISO, Raspberry Pi, Netzboot (PXE) des ISO, WLAN, VLAN, Bonding im ISO.
+- Wiederherstellung auf einen frisch angelegten Rechner, der kein ISO starten kann (viele
+  virtuelle Server bei Cloud-Anbietern): ein Befehl auf dem neuen Rechner, Freigabe in der
+  Oberfläche, Recovery-Umgebung per `kexec` im Arbeitsspeicher, Übernahme des Netzes des Ziels.
+  Entwurf für 0.5.1 in docs/BAREMETAL-ONESHOT.md.
 - Nicht-systemd-Init (OpenRC, runit, SysV) als Quellsystem: Sicherung und Manifest ja,
   Startprobe nein, Wiederherstellung "nicht geprüft".
 - macOS: Wiederherstellung des Systems, systemweiter Einstellungen (`/Library/Preferences`,

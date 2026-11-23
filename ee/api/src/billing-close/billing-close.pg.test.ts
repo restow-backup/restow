@@ -231,7 +231,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the monthly billing close against Postgr
     await sample(leaving, "2026-03-02", 8);
     await owner.update(tenants).set({ status: "deleting" }).where(eq(tenants.id, leaving));
     await sample(own, "2026-03-05", 50);
-    // These samples were written as before migration 0107, without the prices of their day:
+    // These samples were written as before migration 0108, without the prices of their day:
     // for them the close falls back to the prices in force when it runs.
     await setPrices({ currency: "EUR", mailboxPrice: 3, storagePrice: 10, storageUnit: "TB" });
 

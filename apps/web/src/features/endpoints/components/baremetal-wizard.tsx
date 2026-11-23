@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, Download, KeyRound, Link2 } from "lucide-react";
+import { ArrowLeft, Download, KeyRound, Link2, Server } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -20,6 +20,7 @@ import {
 import {
   useBaremetal,
   useEndpoint,
+  useEndpointCapabilities,
   useEndpointFormat,
   useRecoveries,
   useRecovery,
@@ -30,6 +31,7 @@ import { endpointDetailTo } from "../paths.js";
 import { endpointName, recoveryOpen } from "../presenters.js";
 import { CommandBox } from "./enroll-dialog.js";
 import { MinimumSizes } from "./minimum-sizes.js";
+import { OneshotDialog } from "./oneshot.js";
 import { RebindDialog } from "./rebind-dialog.js";
 import { RecoveryCodeDialog } from "./recovery-code-dialog.js";
 import { RecoveryLive } from "./recovery-live.js";
@@ -510,14 +512,18 @@ export function BaremetalWizardView({
   baremetal,
   iso,
   openRecoveryId,
+  oneshot = false,
 }: {
   detail: EndpointDetail;
   baremetal: Baremetal;
   iso: RecoveryIso;
   openRecoveryId: string | null;
+  /** The restore onto a fresh machine without an ISO is switched on (capabilities). */
+  oneshot?: boolean;
 }) {
   const { t } = useTranslation("endpoints");
   const [coding, setCoding] = React.useState(false);
+  const [linking, setLinking] = React.useState(false);
   const [rebinding, setRebinding] = React.useState(false);
   const [recoveryId, setRecoveryId] = React.useState<string | null>(openRecoveryId);
   React.useEffect(() => {
@@ -580,6 +586,30 @@ export function BaremetalWizardView({
             {t("recovery.issue")}
           </Button>
         </div>
+        {oneshot ? (
+          <div className="grid gap-2 border-t pt-3" data-slot="wizard-oneshot">
+            <p className="text-sm text-muted-foreground">{t("recovery.oneshot.intro")}</p>
+            <div>
+              <Button
+                variant="outline"
+                onClick={() => setLinking(true)}
+                data-action="open-oneshot"
+                disabled={snapshots.length > 0 && selected === null}
+              >
+                <Server aria-hidden="true" />
+                {t("recovery.oneshot.action")}
+              </Button>
+            </div>
+            <OneshotDialog
+              endpointId={detail.id}
+              machineName={name}
+              snapshotId={selected?.snapshotId ?? baremetal.latest?.snapshotId ?? undefined}
+              open={linking}
+              onOpenChange={setLinking}
+              onIssued={(issued) => setRecoveryId(issued.id)}
+            />
+          </div>
+        ) : null}
         <RecoveryCodeDialog
           endpointId={detail.id}
           machineName={name}
@@ -627,6 +657,7 @@ export function BaremetalWizardPage({ endpointId }: { endpointId: string }) {
   const baremetal = useBaremetal(endpointId);
   const iso = useRecoveryIso();
   const recoveries = useRecoveries(endpointId);
+  const capabilities = useEndpointCapabilities();
   if (detail.isPending || baremetal.isPending || iso.isPending) {
     return null;
   }
@@ -662,6 +693,7 @@ export function BaremetalWizardPage({ endpointId }: { endpointId: string }) {
           baremetal={baremetal.data as Baremetal}
           iso={iso.data as RecoveryIso}
           openRecoveryId={followedRecoveryOf(recoveries.data)?.id ?? null}
+          oneshot={capabilities.data?.baremetalOneshot === true}
         />
       ) : open ? (
         <div className="grid gap-4" data-slot="baremetal-recovery-only">

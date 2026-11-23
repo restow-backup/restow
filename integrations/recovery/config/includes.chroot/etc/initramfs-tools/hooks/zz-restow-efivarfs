@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# efivarfs in the initramfs of the recovery ISO, whatever firmware the build host started with.
+# mdadm's hook force-loads efivarfs only when the build host has /sys/firmware/efi (for Intel
+# RST, Debian bug 962844); the build container sees the host's /sys. So an ISO built on a host
+# started with UEFI differed from one built on a host started with BIOS in exactly that module
+# and its line in conf/modules (the third build of release 0.5.0, docs/BAREMETAL.md 8.5). This
+# hook runs after mdadm's and leaves the module in the image and its name once, as the last
+# line of conf/modules, on every host. etc/restow-efivarfs in the initramfs shows that it ran
+# (test/check-image.sh; a host started with UEFI gives the same conf/modules without it).
+PREREQ="mdadm"
+prereqs() {
+  echo "$PREREQ"
+}
+case "${1:-}" in
+  prereqs)
+    prereqs
+    exit 0
+    ;;
+esac
+
+# shellcheck source=/dev/null # initramfs-tools' helpers, in the image only
+. /usr/share/initramfs-tools/hook-functions
+
+manual_add_modules efivarfs
+modules="$DESTDIR/conf/modules"
+if [ -f "$modules" ]; then
+  grep -vx 'efivarfs' "$modules" >"$modules.restow" || true
+  cat "$modules.restow" >"$modules"
+  rm -f "$modules.restow"
+fi
+echo efivarfs >>"$modules"
+mkdir -p "$DESTDIR/etc"
+echo "efivarfs: zz-restow-efivarfs" >"$DESTDIR/etc/restow-efivarfs"

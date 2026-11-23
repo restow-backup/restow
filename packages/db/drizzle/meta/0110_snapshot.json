@@ -1,6 +1,6 @@
 {
-  "id": "f83d1dfa-72fa-44dd-b59d-a8067948ec4d",
-  "prevId": "104dab8c-b5ff-4d4f-ad74-7c4d3a83d31a",
+  "id": "104dab8c-b5ff-4d4f-ad74-7c4d3a83d31a",
+  "prevId": "63045f85-3e3d-4ddb-80e1-544fcedaac56",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5940,13 +5940,6 @@
           "notNull": true,
           "default": "'{}'::jsonb"
         },
-        "engine_options": {
-          "name": "engine_options",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
         "tool_version": {
           "name": "tool_version",
           "type": "text",
@@ -8733,6 +8726,12 @@
         "cancel_requested_at": {
           "name": "cancel_requested_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oneshot": {
+          "name": "oneshot",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -24155,7 +24154,8 @@
       "schema": "public",
       "values": [
         "code",
-        "probe"
+        "probe",
+        "oneshot"
       ]
     },
     "public.endpoint_recovery_status": {

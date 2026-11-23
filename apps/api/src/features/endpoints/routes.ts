@@ -47,8 +47,10 @@ import {
 } from "./recovery-codes.js";
 import { cancelRemoval, listRemovals, removeEndpoint } from "./removal.js";
 import {
+  type ApproveOneshotInput,
   agentPolicyLevelSchema,
   agentUpdatesSchema,
+  approveOneshotSchema,
   browseQuerySchema,
   createDownloadSchema,
   createRebindTokenSchema,
@@ -165,14 +167,17 @@ import {
  *   POST   /:id/baremetal/probe                 plan a boot probe of the newest whole machine backup
  *                                               in the lab now (docs/BAREMETAL.md 12.3; admins)
  *   POST   /:id/recovery-codes                  issue a recovery code for the ISO, shown once (bare metal,
- *                                               docs/BAREMETAL.md 9.2; admins, recent sign-in)
+ *                                               docs/BAREMETAL.md 9.2; admins, recent sign-in); with
+ *                                               `kind: "oneshot"` the code and command for a fresh
+ *                                               machine (docs/BAREMETAL-ONESHOT.md 6.1)
  *   POST   /:id/recovery-codes/:codeId/revoke   revoke a code nobody redeemed (admins)
  *   POST   /:id/recovery-codes/:codeId/extend   extend a code and its session, at most 48 hours after
  *                                               it was issued (admins, recent sign-in)
  *   GET    /:id/recoveries                      the machine's codes and sessions (admins)
  *   GET    /:id/recoveries/:recoveryId?logAfter=&logLimit=  one with match code, hardware, progress,
  *                                               SSH host keys, verification and a page of its log
- *   POST   /:id/recoveries/:recoveryId/approve  release a session after its exchange (admins, recent sign-in)
+ *   POST   /:id/recoveries/:recoveryId/approve  release a session after its exchange (admins, recent sign-in);
+ *                                               a oneshot session with the admin's answers in the body
  *   POST   /:id/recoveries/:recoveryId/cancel   reject a waiting session or end a running one (admins)
  *   PUT    /:id/recoveries/:recoveryId/ssh-keys public SSH keys for the ISO's remote access (admins,
  *                                               recent sign-in)
@@ -264,7 +269,11 @@ endpointsRoutes.get("/", restorer, async (c) => {
 
 // Static paths first, so "tokens" is never read as an endpoint id.
 endpointsRoutes.get("/capabilities", restorer, (c) =>
-  c.json({ baremetalPreview: appConfig.baremetalPreview }),
+  c.json({
+    baremetalPreview: appConfig.baremetalPreview,
+    // Bare metal onto a fresh machine without an ISO (docs/BAREMETAL-ONESHOT.md, 0.5.1).
+    baremetalOneshot: appConfig.baremetalPreview && appConfig.baremetalOneshot,
+  }),
 );
 
 endpointsRoutes.get("/tokens", admin, async (c) => {
@@ -561,10 +570,27 @@ endpointsRoutes.get("/:id/recoveries/:recoveryId", admin, async (c) => {
 
 endpointsRoutes.post("/:id/recoveries/:recoveryId/approve", admin, async (c) => {
   const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  // A session for a fresh machine is released with the admin's answers
+  // (docs/BAREMETAL-ONESHOT.md 6.3); a session of the ISO without a body.
   // Releasing hands the ISO the repository password: a sign-in from the last minutes.
   assertRecentSignIn(c.get("auth").session);
+  const raw = await c.req.text();
+  let answers: ApproveOneshotInput | null = null;
+  if (raw.trim() !== "") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new ProblemError(400, "Bad Request", { detail: "The body is not JSON." });
+    }
+    // An empty object is no answer (what the web app sends for a session of the ISO).
+    const empty = parsed !== null && typeof parsed === "object" && Object.keys(parsed).length === 0;
+    answers = empty ? null : parseOrProblem(approveOneshotSchema, parsed);
+  }
   try {
-    return c.json(await approveRecovery(db, c.get("tenantId"), id, recoveryId, actorOf(c)));
+    return c.json(
+      await approveRecovery(db, c.get("tenantId"), id, recoveryId, actorOf(c), answers),
+    );
   } catch (error) {
     return retryAfterOnBusy(c, error);
   }

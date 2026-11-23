@@ -137,6 +137,18 @@ func GatherFacts(ctx context.Context, rr ResticReader, m *baremetal.Manifest, sn
 		}
 		f.MokFiles = append(f.MokFiles, fact)
 	}
+	if m.Linux.Firmware.Mode == "uefi" {
+		// GRUB's modules for BIOS: a UEFI system on a hybrid GPT disk can
+		// then start on a BIOS machine (docs/BAREMETAL-ONESHOT.md 14).
+		has := false
+		for _, p := range []string{"/usr/lib/grub/i386-pc/modinfo.sh", "/usr/lib/grub/i386-pc/boot.img"} {
+			if _, err := rr.Dump(ctx, snapshot, p, 1<<20); err == nil {
+				has = true
+				break
+			}
+		}
+		f.GrubBIOS = &has
+	}
 	if len(sizes) > 0 {
 		for k, v := range sizes {
 			f.RestoreSizes[k] = baremetal.RestoreSize{Bytes: v.Bytes, Files: v.Files, Inodes: v.Inodes}

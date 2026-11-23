@@ -576,7 +576,7 @@ Zeitzone die der Installation: `settings.time_zone`, sonst `RESTOW_TIME_ZONE`, s
 Europe/Berlin (@restow/core `resolveInstallationTimeZone`, eingestellt unter Installation › Server).
 Tage und Monate sind Kalendertage in dieser Zone.
 
-**Tabellen** (Migrationen 0106 und 0107, alle nur für die Installationsrolle, `TABLE_ACCESS`
+**Tabellen** (Migrationen 0107 und 0108, alle nur für die Installationsrolle, `TABLE_ACCESS`
 "installation"; die mit `tenant_id` tragen zusätzlich die Mandanten-Policy aus `sql/rls.sql` als
 zweite Linie):
 
@@ -586,7 +586,7 @@ zweite Linie):
   Anzahl. JSONB, damit eine neue bepreiste Menge keine Migration braucht. Gezählt wird genau wie
   in der Schätzung (`readTenantFigures` in `apps/api/src/features/settings/pricing-estimate.ts`),
   für jeden Mandanten, auch ohne Preis: Ein Preis, der erst später im Monat gesetzt wird, gilt
-  beim Abschluss für den ganzen Monat. In `prices` (Migration 0107) die Preise, die an dem Tag
+  beim Abschluss für den ganzen Monat. In `prices` (Migration 0108) die Preise, die an dem Tag
   gelten: je abgerechneter Zeile Stückpreis und Herkunft (der eigene Preis des Mandanten, wenn das
   Gate `tenants.additional` offen ist und er einen hat, sonst der der Installation), dazu
   Währung, Speichereinheit und -rundung, die Preise der Installation und ob eigene Preise galten.
@@ -648,7 +648,7 @@ Stückpreis und Herkunft), eine spätere Preisänderung ändert ihn nicht. Eine 
 im Monat zählt ab dem Monatsende: Es gilt der Preis des letzten gemessenen Tages. Ein Abschluss,
 der wegen eines Ausfalls Tage später läuft, rechnet trotzdem mit den Preisen des Monatsendes;
 wer die Preise am 1. ändert, ändert den Vormonat nicht. Nur Messungen ohne festgehaltene Preise
-(vor Migration 0107 geschrieben) nehmen die Preise, die beim Abschluss gelten.
+(vor Migration 0108 geschrieben) nehmen die Preise, die beim Abschluss gelten.
 
 **Randfälle.** Ein Mandant ohne Kundennummer steht mit `customerNumber: null` im Abschluss
 (`?customerNumber=` findet ihn nicht, `?tenant=` schon); die Kundennummer wird beim Abschluss
@@ -714,7 +714,7 @@ Pfad), keine Zahlen eines Mandanten: die liest das Tool unter `url`, auditiert.
 ### Webhooks des Providers (0.6.0)
 
 Neben den Webhooks je Mandant hat der Provider eigene (Service Provider, `provider_webhooks`,
-Migration 0107, nur für die Installationsrolle): für Ereignisse der Installation, nicht eines
+Migration 0108, nur für die Installationsrolle): für Ereignisse der Installation, nicht eines
 Mandanten, zuerst `billing.period_closed`. Ein Mandanten-Webhook taugt dafür nicht (der Mandant
 bekäme die Abrechnung seines Providers), die Empfänger des Providers bekommen nur Mails.
 

@@ -628,7 +628,7 @@ E10 (alle Editionen) entschieden.
 ### D1 (umgesetzt)
 
 - **Modul:** `databases` in `MODULE_IDS` (apps/api und apps/web `lib/modules.ts`), Migration
-  `0105_databases` (Tabellen `database_connections`, `databases`, `database_probes`, Aufgabe
+  `0106_databases` (Tabellen `database_connections`, `databases`, `database_probes`, Aufgabe
   `db_probe`, Modul aus außer bei SQL-Server-Sicherung in einem Job oder Mitglied; für die eine
   Anweisung wird FORCE ROW LEVEL SECURITY auf `backup_jobs` und `backup_job_members` aufgehoben).
   Der Einrichtungsassistent lässt das Modul ohne Auswahl aus. Menüpunkt unter "Server & Clients"
@@ -772,7 +772,7 @@ E10 (alle Editionen) entschieden.
   Agent kürzt vor dem Senden, was nicht passt (`api.FitDBProbeResult`): zuerst Rechte-Zeilen von
   hinten (`grantsTruncated`), dann die Größen einer Prüfung; passt es dann noch nicht, meldet er
   einen Fehler ohne Fakten (`db_probe_failed`).
-- **Verlauf:** Tabelle `database_health_samples` (Migration `0108_database_health`): eine Zeile je
+- **Verlauf:** Tabelle `database_health_samples` (Migration `0109_database_health`): eine Zeile je
   Prüfung, nach 14 Tagen eine je Stunde (Summen, Mittel und Extreme, letzte Version, Startzeit,
   Zertifikat, Größen), 400 Tage. Je Verbindung, Zeitpunkt und Auflösung gibt es eine Zeile
   (eindeutiger Index); eine zweimal geschickte Prüfung zählt einmal. Das Zusammenfassen läuft in
@@ -852,7 +852,7 @@ Lucas Flores hat für D3 entschieden (PostgreSQL: Sicherung, Restore, Download):
   der Lauf festhält (nie über ein Muster). Abgelehnt wird, wenn `CREATEDB` fehlt
   (`db_permission_missing`) oder der Name schon vergeben ist (`db_restore_name_taken`). Der Name
   hat höchstens 63 Bytes, Vorgabe `<name>_restored_<UTC-Zeit>`.
-- **Weiter:** eine Migration `0109` mit `database_runs` (Lauf: Sicherung oder Restore, Status,
+- **Weiter:** eine Migration `0110` mit `database_runs` (Lauf: Sicherung oder Restore, Status,
   Ausführer, Zeiten, Fehler, einmaliges Zugangsdatenpaket) und `database_backups`, Aufgaben
   `db_backup` und `db_restore`; je Verbindung ein Repository `db/<verbindung>` mit eigenem
   restic-Kennwort; der Agent schreibt über eine eigene REST-Route nur anhängend; die Aufbewahrung
@@ -1086,7 +1086,7 @@ auf eine andere Verbindung, Download mit Anleitung), jeweils wie vorgeschlagen:
   --default-character-set=utf8mb4 --no-tablespaces --skip-add-locks`, bei MySQL zusätzlich
   `--set-gtid-purged=OFF --column-statistics=0`; die Schemas `mysql`, `sys`,
   `information_schema` und `performance_schema` nie. Zeichensatz und Sortierung des Schemas stehen
-  an der Sicherung (`database_backups.engine_options`, Migration 0110). Nicht transaktionale
+  an der Sicherung (`database_backups.engine_options`, Migration 0111). Nicht transaktionale
   Tabellen meldet der Lauf als `db_nontransactional_tables` (höchstens 20 Namen und die Zahl der
   übrigen). Benutzer und Rechte einmal je Instanz als `<engine>/users.sql`: MariaDB mit
   `mariadb-dump --system=users`, MySQL aus `SHOW CREATE USER` und `SHOW GRANTS` über Restows

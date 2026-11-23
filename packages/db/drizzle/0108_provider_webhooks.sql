@@ -1,4 +1,4 @@
--- 0.6.0, after 0106_billing_close (docs/ARCHITECTURE.md, "Webhooks des Providers" and
+-- 0.6.0, after 0107_billing_close (docs/ARCHITECTURE.md, "Webhooks des Providers" and
 -- "Monatsabschluss der Abrechnung"): the provider's own webhooks, their deliveries in
 -- webhook_deliveries (tenant_id and webhook_id become nullable; exactly one owner per row, checked
 -- by webhook_deliveries_owner_ck, which every existing row meets), and the prices in force on
@@ -6,7 +6,7 @@
 -- back to the prices at the close for them). The check scans webhook_deliveries once; the
 -- worker prunes it after 30 days, so it is small.
 --
--- Journal entry 107 with a `when` later than 0106_billing_close's.
+-- Journal entry 108 with a `when` later than 0107_billing_close's.
 --> statement-breakpoint
 CREATE TABLE "provider_webhooks" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

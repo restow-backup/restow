@@ -162,6 +162,11 @@ export interface Config {
    */
   baremetalPreview: boolean;
   /**
+   * `RESTOW_BAREMETAL_ONESHOT`: bare metal onto a fresh machine without ISO
+   * (docs/BAREMETAL-ONESHOT.md), off unless `true` until its web interface is done (0.5.1).
+   */
+  baremetalOneshot: boolean;
+  /**
    * `RESTOW_PUBLIC_TLS_SPKI`: the SHA-256 (64 hex digits) of the public key of the certificate the
    * recovery ISO sees at the public address, for an installation behind a load balancer with
    * another certificate (docs/BAREMETAL.md 9.2). Unset: the server measures its own address when
@@ -464,6 +469,7 @@ export function loadConfig(env: Env = process.env): Config {
         positiveInt(env, "PVE_BLOCK_MAP_CACHE_MB", DEFAULT_PVE_BLOCK_MAP_CACHE_MB) * 1024 * 1024,
     },
     baremetalPreview: (str(env, "RESTOW_BAREMETAL_PREVIEW") ?? "").toLowerCase() !== "false",
+    baremetalOneshot: (str(env, "RESTOW_BAREMETAL_ONESHOT") ?? "").toLowerCase() === "true",
     publicTlsSpki: spkiHash(str(env, "RESTOW_PUBLIC_TLS_SPKI")),
     recoveryIsoDir: str(env, "RESTOW_RECOVERY_ISO_DIR") ?? null,
     recoveryIsoStoreDir: recoveryIsoStoreDir(env),

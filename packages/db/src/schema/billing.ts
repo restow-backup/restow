@@ -95,7 +95,7 @@ export const billingSamples = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     day: date("day", { mode: "string" }).notNull(),
     quantities: jsonb("quantities").$type<BillingSampleQuantities>().notNull(),
-    /** The prices in force that day (0.6.0, migration 0107); null on samples written before. */
+    /** The prices in force that day (0.6.0, migration 0108); null on samples written before. */
     prices: jsonb("prices").$type<BillingSamplePrices>(),
     ...createdOnly(),
   },

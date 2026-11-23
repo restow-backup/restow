@@ -32,6 +32,10 @@ const (
 	SourceMedia
 	// SourceFile is a file given with --answers in the shell.
 	SourceFile
+	// SourceOneshot is the session data of a oneshot restore
+	// (docs/BAREMETAL-ONESHOT.md 9.2): the answers come from it and from
+	// the decisions of the release, never from a file.
+	SourceOneshot
 )
 
 func (s Source) String() string {
@@ -42,6 +46,8 @@ func (s Source) String() string {
 		return "medium"
 	case SourceFile:
 		return "file"
+	case SourceOneshot:
+		return "oneshot"
 	}
 	return "unknown"
 }
@@ -77,6 +83,8 @@ type Answers struct {
 	// Medium is the medium they were read from (SourceMedia; not part of
 	// the file): its disk is never a target (10.20).
 	Medium *AnswersMedium `json:"-"`
+	// CAPEM is the instance's CA itself (SourceOneshot; not part of a file).
+	CAPEM []byte `json:"-"`
 }
 
 // AnswersProbe is the probe block of the lab's answers (docs/BAREMETAL.md

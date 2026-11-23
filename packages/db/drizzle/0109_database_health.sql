@@ -5,7 +5,7 @@
 -- table, an enum value used by no statement here and two columns with a constant default or none:
 -- nothing is rewritten.
 --
--- Numbered 0108 after the billing migrations 0106 and 0107 of the same release.
+-- Numbered 0109 after the billing migrations 0107 and 0108 of the same release.
 --> statement-breakpoint
 ALTER TYPE "public"."endpoint_task_kind" ADD VALUE 'db_health';--> statement-breakpoint
 CREATE TABLE "database_health_samples" (

@@ -304,9 +304,13 @@ image).
      `restow-agent.exe` and `restic.exe` and reminding of the Defender submission
      (maintainer step, see docs/WINDOWS-AGENT.md section 15).
    - **agent-signature** (environment `agent-release-signing`): waits until the
-     maintainer rebuilt the recovery ISO from the tag on a Docker host of their own and ran
-     `scripts/release/sign-agent.sh vX.Y.Z --key <private key> --iso <rebuilt ISO>` on the
-     signing machine (it refuses when the rebuilt ISO's SHA-256 differs from the line) (it signs `agent-SHA256SUMS`, checks the signature against the
+     maintainer rebuilt the recovery ISO from the tag on a Linux amd64 Docker host of their
+     own (`scripts/release/rebuild-iso.sh vX.Y.Z` in a clone at the tag: it takes this
+     run's agent build, checks it against the draft's list, builds and compares, and
+     prints the SHA-256) and ran
+     `scripts/release/sign-agent.sh vX.Y.Z --key <private key> --iso-sha256 <that SHA-256>`
+     (or `--iso <rebuilt ISO>`) on the signing machine (it refuses when the rebuilt ISO's
+     SHA-256 differs from the line) (it signs `agent-SHA256SUMS`, checks the signature against the
      committed public key, uploads `agent-SHA256SUMS.sig` and approves this job); then
      checks that the signature covers exactly this build. The script runs from any
      directory and needs no clone: without a clone that has the tag it reads the tag and

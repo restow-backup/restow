@@ -890,8 +890,8 @@
     },
     "matrix": {
       "title": "Was jeder Empfänger erhält",
-      "description": "Haken Sie je Empfänger die Ereignisse an und wählen Sie je Schweregrad, ob Mails sofort kommen oder gesammelt in einer stündlichen oder täglichen Sammelmail.",
-      "criticalNote": "Kritische Ereignisse kommen immer sofort und erreichen immer die Inhaber und die verpflichtenden Empfänger; ihre Zellen sind gesperrt.",
+      "description": "Haken Sie je Empfänger die Ereignisse an und wählen Sie je Schweregrad, ob Mails sofort kommen oder gesammelt in einer stündlichen oder täglichen Sammelmail. Sofort heißt: Alarme, die kurz nacheinander eintreffen, kommen gebündelt in einer Mail, höchstens alle 30 Minuten eine.",
+      "criticalNote": "Kritische Ereignisse kommen nie in die stündliche oder tägliche Sammelmail und erreichen immer die Inhaber und die verpflichtenden Empfänger; ihre Zellen sind gesperrt. Hinweise auf einen Angriff gehen ohne jede Wartezeit hinaus.",
       "deliveryFor": "{level} für {recipient}",
       "reports": "Zusammenfassungen",
       "lockedHint": "Immer an: Inhaber und verpflichtende Empfänger erhalten immer kritische Ereignisse und fehlgeschlagene Zustellungen."

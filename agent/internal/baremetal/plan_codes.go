@@ -39,6 +39,7 @@ const (
 
 	WarnNICDriverMissing              = "nic_driver_missing"
 	WarnFallbackKernelDriverMissing   = "fallback_kernel_driver_missing"
+	WarnFirmwareModeSwitched          = "firmware_mode_switched"
 	WarnOtherControllerDriverMissing  = "other_controller_driver_missing"
 	WarnDriverFactsMissing            = "driver_facts_missing"
 	WarnSecureBootDBXUnknown          = "secure_boot_dbx_unknown"
@@ -131,6 +132,7 @@ var planMessages = map[string]string{
 	WarnGrowNotLast:                   "Partition {partition} is marked to grow but is not the last one on {disk}; it keeps its size.",
 	WarnFSNotRecreated:                "File system {fs} ({type}) is not recreated; its partition stays empty.",
 	WarnBIOSBootDisk:                  "Select {target} as the boot disk in the BIOS (or as the boot volume of the controller).",
+	WarnFirmwareModeSwitched:          "The system was backed up in UEFI mode and starts here in BIOS mode: its disk has a BIOS boot partition, and GRUB for BIOS is installed on {target}.",
 	WarnLUKSTokensNotRestored:         "The tokens of LUKS volume {luks} ({tokens}) are bound to the old hardware and are not restored; set them up again after the start.",
 	WarnKeyfileRegenerated:            "The key file {path} of LUKS volume {luks} is created new; the old one from the backup does not open the new volume.",
 	WarnUntestedDistribution:          "{os} is not among the tested distributions; the restore may need manual work after the start.",

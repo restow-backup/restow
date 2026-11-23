@@ -293,7 +293,7 @@ export async function closePeriod(
       byTenant.set(sample.tenantId, list);
     }
     // The prices at the close only stand in for samples that did not record theirs (written
-    // before 0.6.0's migration 0107); the month's end is what counts.
+    // before 0.6.0's migration 0108); the month's end is what counts.
     const pricing = await getPricing(tx);
     const overridesEnabled = await featureEnabled(TENANT_PRICING_FEATURE, tx);
     const monthEnd = monthEndPrices(samples)?.prices ?? null;

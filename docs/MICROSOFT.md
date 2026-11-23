@@ -427,7 +427,11 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   eine Abfrage je Seite über den Index `directory_memberships_user_idx`).
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1): je Element die Freigabe-Facette (`sharedScope`, `sharedBy`, `sharedDateTime`).
-  Jede Delta-Seite fragt mit `Prefer: deltashowsharingchanges` (ab 0.5.0):
+  Jede Delta-Seite fragt mit `Prefer: deltashowsharingchanges` (ab 0.5.0; Graph bindet einen
+  Delta-Link an diese Optionen und lehnt einen ohne sie gespeicherten mit 410 `resyncRequired` ab,
+  auch die Resync-URL aus dem `Location`-Kopf; ab 0.5.1 beginnt der Lauf dann einmal von der
+  reinen Delta-URL, ab 0.5.2 trägt der Sicherungsstand die Version der Optionen,
+  `DRIVE_DELTA_VERSION`, und ein Link anderer Version wird vor dem Lauf verworfen):
   Ohne den Header lässt OneDrive for Business/SharePoint ein Element, an dem sich nur die Freigabe
   geändert hat, aus dem Delta weg, und ein inkrementeller Lauf behielte die alte Freigabe für
   immer. Ein so gemeldetes Element (`@microsoft.graph.sharedChanged: "True"`) liest der Lauf

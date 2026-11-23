@@ -204,8 +204,12 @@ type Executor struct {
 	// OnRelease runs once the repository access ended (a probe: the line
 	// for the lab and the wait for the network to go).
 	OnRelease func(ctx context.Context)
-	Log       func(string)
-	Now       func() time.Time
+	// Network is the takeover of the fresh machine's network in a oneshot
+	// restore (docs/BAREMETAL-ONESHOT.md 10.4): it runs right after the
+	// release, before the fixups and the boot steps of the post phase.
+	Network *NetworkTakeover
+	Log     func(string)
+	Now     func() time.Time
 	// TargetDevices are the target disks of the mapping (their device
 	// paths); isolated steps see these and what sits on them.
 	TargetDevices []string
@@ -581,6 +585,17 @@ func (x *Executor) release(ctx context.Context) {
 	if x.OnRelease != nil {
 		x.OnRelease(ctx)
 	}
+	if x.Network != nil && x.rootfs != nil {
+		fx, err := x.Network.Apply(x.rootfs)
+		x.report.Fixups = append(x.report.Fixups, fx...)
+		if err != nil {
+			x.log("network takeover: %v", err)
+			x.Network.Problems = append(x.Network.Problems, err.Error())
+		}
+		for _, n := range x.Network.Problems {
+			x.log("network takeover: %s", n)
+		}
+	}
 }
 
 func (x *Executor) progress(ctx context.Context, phase string, step, total int, bytesDone, totalBytes, files, totalFiles int64, msg string) {
@@ -700,9 +715,31 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 		if x.Verifier != nil {
 			x.report.Checks = x.Verifier.Verify(ctx, x)
 		}
+		x.networkFindings()
 		return nil
 	}
 	return x.program(ctx, s, args)
+}
+
+// networkFindings adds what the check of the network takeover found to the
+// check of point 9 (docs/BAREMETAL-ONESHOT.md 10.5): the verification keeps
+// its ten checks.
+func (x *Executor) networkFindings() {
+	if x.Network == nil || x.Network.Plan == nil && len(x.Network.Problems) == 0 {
+		return
+	}
+	for _, c := range x.report.Checks {
+		if c.ID != CheckMountPoints {
+			continue
+		}
+		if x.Network.Plan != nil {
+			c.Set("networkStack", string(x.Network.Plan.Stack))
+			c.Set("networkByCloudInit", x.Network.Plan.CloudInitNetwork)
+		}
+		for _, p := range x.Network.Problems {
+			c.FailT(ProblemVerifyFailed, "network", nil, "detail", "detail", "network: "+p)
+		}
+	}
 }
 
 // adoptCheck (adopt phase, 10.7): the adopted device carries the

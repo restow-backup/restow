@@ -59,6 +59,7 @@ const VALUES = {
   vmid: 300,
   node: "pve1",
   hostname: "web-01",
+  gateway: "192.0.2.1",
   id: "abcd1234",
   path: "/etc",
   index: 1,
