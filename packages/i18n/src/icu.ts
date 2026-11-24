@@ -69,6 +69,8 @@ export class PortableIcu extends ICU {
 
   clearCache(): void {
     super.clearCache();
-    this.formatters.clear();
+    // i18next-icu 2.7.1 clears its cache from its own constructor (init), before this class's
+    // fields exist: the map is undefined then, and there is nothing to clear yet.
+    this.formatters?.clear();
   }
 }
