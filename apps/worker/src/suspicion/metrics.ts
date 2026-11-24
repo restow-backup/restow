@@ -14,7 +14,8 @@
  * counts a file whose owner, mode or ctime alone changed, so a `chown -R` over a data folder
  * looked like thousands of changed files (0.5.1). Without a report the summary counts.
  *   m365        the items a mailbox, OneDrive or IMAP backup wrote and the bytes it stored; a
- *               OneDrive backup's activity report
+ *               OneDrive or SharePoint backup's activity report, whose files with new content
+ *               count instead of the objects written (without the files it caught up on, 0.5.4)
  *
  * The compression and deduplication of the new data (docs/RANSOMWARE.md, "Compression and
  * deduplication"), as far as the source reports them:
@@ -140,15 +141,24 @@ export function pveRunMetrics(kind: string, stats: unknown): RunMetrics {
   };
 }
 
-/** A mailbox, OneDrive or IMAP backup job (`jobs.payload.result`). */
+/**
+ * A mailbox, OneDrive or IMAP backup job (`jobs.payload.result`). A OneDrive or SharePoint run
+ * with an activity report counts the files with new content (new and changed), not the objects
+ * it wrote: folders, metadata and the files it caught up on (0.5.4: an earlier run failed on
+ * them) stay out, the same rule as a restic run's content count (`itemsBasis`).
+ */
 export function m365RunMetrics(result: unknown): RunMetrics {
   const r = record(result);
   const c = record(r.chunkStats);
+  const activity = parseActivityReport(r.activity);
+  const written = num(r.objectsWritten);
   return {
-    itemsChanged: num(r.objectsWritten),
+    ...(activity
+      ? { itemsChanged: activity.added + activity.modified, itemsBasis: "content" as const }
+      : { itemsChanged: written }),
     itemsTotal: num(r.objectsTotal),
     bytesAdded: num(r.bytes),
-    activity: parseActivityReport(r.activity),
+    activity,
     ...chunkShape(c.bytesIn, c.bytesNew, c.bytesSampled, c.bytesSampledCompressed),
   };
 }

@@ -12,7 +12,13 @@
  * The result is stored in `restore_point_suspicions`. A suspicious restore point that opens an
  * episode (the object's previous judged restore point was clean, a false alarm, or there was
  * none) raises `backup.suspicious` in the same transaction: bell, rules, e-mail and webhooks.
- * The ones that follow it in the same episode are marked, not announced again.
+ * The ones that follow it in the same episode are marked, not announced again. An unusual one
+ * (0.5.4: only the amount of change was far off) raises the warning `backup.unusual_change` the
+ * same way and holds nothing.
+ *
+ * Once per judgement, a `suspicious` one from before 0.5.4 whose findings are the amount of change
+ * alone becomes `unusual` (`reclassified_at`, audited as `suspicion.reclassified`), and its
+ * retention hold ends with it (docs/RANSOMWARE.md, "Results, episodes and alerts").
  *
  * Nothing is judged while the installation switched the detection off; runs from that time are
  * not judged later either (only the last three days are looked at).
@@ -23,13 +29,16 @@
  * detection is on.
  */
 import {
+  type ActivityReport,
   evaluateSuspicion,
+  looksEncrypted,
   opensSuspicionEpisode,
   type RansomwareSettings,
   type RunMetrics,
   resolveRansomwareSettings,
   type SuspicionFinding,
   type SuspicionObjectKind,
+  VOLUME_FINDING_CODES,
 } from "@restow/core";
 import {
   type Database,
@@ -39,10 +48,12 @@ import {
   pveGuests,
   restorePointSuspicions,
   SUSPICION_HOLDS_SQL,
+  type SuspicionBreakdownJson,
   settings as settingsTable,
   suspicionHolds,
 } from "@restow/db";
 import { and, desc, eq, lt, type SQL, sql } from "drizzle-orm";
+import { appendAuditEntry } from "../audit.js";
 import { endpointName } from "../endpoints/monitor.js";
 import { type WorkerRuntime, withTenantTx } from "../handlers/framework.js";
 import type { TenantTx } from "../progress.js";
@@ -254,7 +265,8 @@ async function agedOutOf(db: Database, source: KindSource, since: Date): Promise
 
 /**
  * The metrics of the object's earlier runs that count for its baseline, newest first: every
- * run of its current backup chain but those judged suspicious and not called a false alarm.
+ * run of its current backup chain but those judged suspicious or unusual and not called a false
+ * alarm: a jump nobody confirmed as normal does not become the new normal.
  */
 async function baselineOf(
   tx: TenantTx,
@@ -273,7 +285,13 @@ async function baselineOf(
     ),
   );
   return result.rows
-    .filter((earlier) => !(earlier.verdict === "suspicious" && earlier.false_alarm_at === null))
+    .filter(
+      (earlier) =>
+        !(
+          (earlier.verdict === "suspicious" || earlier.verdict === "unusual") &&
+          earlier.false_alarm_at === null
+        ),
+    )
     .slice(0, settings.baselineRuns)
     .map(source.metrics);
 }
@@ -358,6 +376,10 @@ export function describeFinding(finding: SuspicionFinding): string {
 export interface SuspicionPassSummary {
   judged: number;
   suspicious: number;
+  /** Restore points judged unusual (0.5.4): the amount of change alone. */
+  unusual: number;
+  /** Earlier `suspicious` judgements of the amount of change alone that became `unusual`. */
+  reclassified: number;
   alerts: number;
   /** Unresolved retention holds announced again (`backup.suspicious_hold`). */
   reminders: number;
@@ -480,6 +502,7 @@ async function judge(
     const history = await baselineOf(tx, source, row, settings);
     const current = source.metrics(row);
     const result = evaluateSuspicion({ current, history, settings });
+    const breakdown = changeBreakdown(current.activity, settings);
     const [previous] = await tx
       .select({
         verdict: restorePointSuspicions.verdict,
@@ -516,6 +539,7 @@ async function judge(
           newBytes: current.newBytes ?? null,
           compressionRatio: current.compressionRatio ?? null,
           dedupRatio: current.dedupRatio ?? null,
+          breakdown,
         },
         signaturesVersion: result.signaturesVersion,
       })
@@ -525,10 +549,14 @@ async function judge(
       return;
     }
     summary.judged++;
-    if (result.verdict !== "suspicious") {
+    if (result.verdict === "none") {
       return;
     }
-    summary.suspicious++;
+    if (result.verdict === "unusual") {
+      summary.unusual++;
+    } else {
+      summary.suspicious++;
+    }
     const opens = opensSuspicionEpisode(
       result.verdict,
       previous
@@ -543,14 +571,17 @@ async function judge(
       return;
     }
     const object = await describeObject(tx, source.kind, row.object_id);
+    const unusual = result.verdict === "unusual";
     await raiseEvents(
       tx,
       [
         {
           tenantId: row.tenant_id,
-          level: "error",
-          event: "backup.suspicious",
-          message: `The restore point of ${object.name} from ${at.toISOString()} shows signs of ransomware: ${result.findings.map(describeFinding).join("; ")}. Check the system before restoring; the newest restore point without findings is marked in the restore views.${settings.retentionHold.enabled ? " Retention of this object is paused: no restore point of it is deleted until an administrator marks the finding as a false alarm or releases the hold." : ""}`,
+          level: unusual ? "warning" : "error",
+          event: unusual ? "backup.unusual_change" : "backup.suspicious",
+          message: unusual
+            ? `The restore point of ${object.name} from ${at.toISOString()} changed far more than usual: ${result.findings.map(describeFinding).join("; ")}. No sign of encryption was found (no encrypted-looking samples, known ransomware names, renamed extensions or mass deletions); a backlog, a migration or a large upload look the same. Retention goes on.`
+            : `The restore point of ${object.name} from ${at.toISOString()} shows signs of ransomware: ${result.findings.map(describeFinding).join("; ")}. Check the system before restoring; the newest restore point without findings is marked in the restore views.${settings.retentionHold.enabled ? " Retention of this object is paused: no restore point of it is deleted until an administrator marks the finding as a false alarm or releases the hold." : ""}`,
           details: {
             ...object.ref,
             objectKind: source.kind,
@@ -561,8 +592,9 @@ async function judge(
             restorePointAt: at.toISOString(),
             suspicionId: inserted.id,
             findings: result.findings,
+            ...(breakdown ? { breakdown } : {}),
             signaturesVersion: result.signaturesVersion,
-            retentionHeld: settings.retentionHold.enabled,
+            retentionHeld: !unusual && settings.retentionHold.enabled,
           },
         },
       ],
@@ -574,6 +606,118 @@ async function judge(
       .where(eq(restorePointSuspicions.id, inserted.id));
     summary.alerts++;
   });
+}
+
+/**
+ * What a run changed, for the alert and the mail (0.5.4): new and changed files, the files it
+ * caught up on, removed and renamed ones, and how many sampled files looked encrypted. Null
+ * without an activity report (VMs, mailboxes, an older agent).
+ */
+export function changeBreakdown(
+  activity: ActivityReport | null,
+  settings: RansomwareSettings,
+): SuspicionBreakdownJson | null {
+  if (!activity) {
+    return null;
+  }
+  // Only samples the entropy signal can judge count (compressed formats say nothing).
+  const judged = activity.entropy
+    .map((sample) => looksEncrypted(sample, settings.entropy.highBits))
+    .filter((high): high is boolean => high !== null);
+  const sampled = judged.length;
+  const sampledEncrypted = judged.filter(Boolean).length;
+  return {
+    added: activity.added,
+    modified: activity.modified,
+    caughtUp: activity.caughtUp,
+    removed: activity.removed,
+    renamed: activity.renamed,
+    sampled,
+    sampledEncrypted,
+  };
+}
+
+/** Judgements one pass turns from `suspicious` to `unusual` at most; the next pass takes the rest. */
+const RECLASSIFY_BATCH = 200;
+
+/**
+ * 0.5.4, once per judgement: a `suspicious` restore point whose findings are the amount of change
+ * alone (and nobody called a false alarm) becomes `unusual`. Its retention hold ends with it, since
+ * only `suspicious` ones hold (packages/db suspicion-holds.ts); each one is audited
+ * (`suspicion.reclassified`, actor `system`). A content finding next to the amount keeps it
+ * suspicious.
+ */
+export async function reclassifyVolumeOnly(deps: SuspicionDeps, now: Date): Promise<number> {
+  const volume = sql.join(
+    VOLUME_FINDING_CODES.map((code) => sql`${code}`),
+    sql`, `,
+  );
+  const due = await deps.providerDb.execute<{ id: string; tenant_id: string }>(sql`
+    SELECT id, tenant_id
+    FROM restore_point_suspicions
+    WHERE verdict = 'suspicious'
+      AND false_alarm_at IS NULL
+      AND reclassified_at IS NULL
+      AND jsonb_array_length(findings) > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(findings) AS finding
+        WHERE finding->>'code' NOT IN (${volume})
+      )
+    ORDER BY created_at
+    LIMIT ${RECLASSIFY_BATCH}
+  `);
+  let reclassified = 0;
+  for (const row of due.rows) {
+    if (deps.runtime.shutdownSignal.aborted) {
+      break;
+    }
+    const done = await withTenantTx(deps.db, row.tenant_id, async (tx) => {
+      const [updated] = await tx
+        .update(restorePointSuspicions)
+        .set({ verdict: "unusual", reclassifiedAt: now })
+        .where(
+          and(
+            eq(restorePointSuspicions.id, row.id),
+            eq(restorePointSuspicions.verdict, "suspicious"),
+            sql`${restorePointSuspicions.falseAlarmAt} IS NULL`,
+          ),
+        )
+        .returning({
+          objectKind: restorePointSuspicions.objectKind,
+          objectId: restorePointSuspicions.objectId,
+          restorePointId: restorePointSuspicions.restorePointId,
+          restorePointAt: restorePointSuspicions.restorePointAt,
+          findings: restorePointSuspicions.findings,
+          holdReleasedAt: restorePointSuspicions.holdReleasedAt,
+        });
+      if (!updated) {
+        return false;
+      }
+      await appendAuditEntry(tx, {
+        tenantId: row.tenant_id,
+        actor: "system",
+        action: "suspicion.reclassified",
+        target: row.id,
+        targetType: "restore_point_suspicion",
+        details: {
+          from: "suspicious",
+          to: "unusual",
+          reason: "volume_only",
+          objectKind: updated.objectKind,
+          objectId: updated.objectId,
+          restorePointId: updated.restorePointId,
+          restorePointAt: updated.restorePointAt.toISOString(),
+          findings: updated.findings.map((finding) => finding.code),
+          holdEnded: updated.holdReleasedAt === null,
+        },
+      });
+      return true;
+    });
+    if (done) {
+      reclassified++;
+    }
+  }
+  return reclassified;
 }
 
 /** The installation's thresholds. */
@@ -659,9 +803,24 @@ export async function suspicionPass(
   deps: SuspicionDeps,
   limits: SuspicionPassLimits = DEFAULT_LIMITS,
 ): Promise<SuspicionPassSummary> {
-  const summary: SuspicionPassSummary = { judged: 0, suspicious: 0, alerts: 0, reminders: 0 };
+  const summary: SuspicionPassSummary = {
+    judged: 0,
+    suspicious: 0,
+    unusual: 0,
+    reclassified: 0,
+    alerts: 0,
+    reminders: 0,
+  };
   const settings = await loadRansomwareSettings(deps.providerDb);
   const now = deps.runtime.now();
+  // Before the reminders, so a hold that ends with it is not announced again.
+  try {
+    summary.reclassified = await reclassifyVolumeOnly(deps, now);
+  } catch (error) {
+    deps.runtime.logger.warn("earlier findings of the amount of change could not be reclassified", {
+      errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error),
+    });
+  }
   // Holds stay until an administrator resolves them, even with the detection switched off.
   try {
     summary.reminders = await remindRetentionHolds(deps, settings, now);

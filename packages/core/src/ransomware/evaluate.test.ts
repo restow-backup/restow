@@ -8,6 +8,9 @@ import {
   opensSuspicionEpisode,
   type RunMetrics,
   ratioThreshold,
+  SUSPICION_FINDING_CODES,
+  VOLUME_FINDING_CODES,
+  verdictOf,
 } from "./evaluate.js";
 import { DEFAULT_RANSOMWARE_SETTINGS, resolveRansomwareSettings } from "./settings.js";
 import { RANSOMWARE_SIGNATURES_VERSION } from "./signatures.js";
@@ -21,6 +24,7 @@ function activity(overrides: Partial<ActivityReport> = {}): ActivityReport {
     modified: 20,
     removed: 0,
     renamed: 0,
+    caughtUp: 0,
     extensions: [{ value: "docx", count: 15 }],
     names: [],
     entropy: [],
@@ -91,13 +95,14 @@ describe("judging a restore point", () => {
     expect(result.signals.changeRate).toBe("learning");
   });
 
-  it("flags a change far above the object's own baseline, with the numbers", () => {
+  it("calls a change far above the object's own baseline unusual, with the numbers (0.5.4)", () => {
     const result = evaluateSuspicion({
       current: run(40_000, 30 * 1024 ** 3),
       history,
       settings,
     });
-    expect(result.verdict).toBe("suspicious");
+    // The amount alone is no sign of encryption: a warning, no retention hold.
+    expect(result.verdict).toBe("unusual");
     expect(result.signals.changeRate).toBe("fired");
     expect(result.findings.map((f) => f.code)).toEqual(["change_rate_items", "change_rate_bytes"]);
     expect(result.findings[0]).toMatchObject({ value: 40_000, baseline: 308 });
@@ -296,6 +301,28 @@ describe("episodes", () => {
       true,
     );
     expect(opensSuspicionEpisode("none", null)).toBe(false);
+  });
+
+  it("announce unusual restore points once, and a suspicious one after them again (0.5.4)", () => {
+    expect(opensSuspicionEpisode("unusual", null)).toBe(true);
+    expect(opensSuspicionEpisode("unusual", { verdict: "unusual", falseAlarm: false })).toBe(false);
+    expect(opensSuspicionEpisode("unusual", { verdict: "suspicious", falseAlarm: false })).toBe(
+      false,
+    );
+    expect(opensSuspicionEpisode("suspicious", { verdict: "unusual", falseAlarm: false })).toBe(
+      true,
+    );
+    expect(opensSuspicionEpisode("unusual", { verdict: "unusual", falseAlarm: true })).toBe(true);
+  });
+
+  it("judge by what the findings say: content signs are suspicious, the amount alone unusual", () => {
+    expect(verdictOf([])).toBe("none");
+    expect(verdictOf([{ code: "change_rate_items" }, { code: "change_rate_bytes" }])).toBe(
+      "unusual",
+    );
+    for (const code of SUSPICION_FINDING_CODES.filter((c) => !VOLUME_FINDING_CODES.includes(c))) {
+      expect(verdictOf([{ code: "change_rate_items" }, { code }])).toBe("suspicious");
+    }
   });
 
   it("end with the release of the retention hold", () => {

@@ -2,7 +2,10 @@
   "badge": {
     "suspicious": "Verdächtig",
     "falseAlarm": "Fehlalarm",
-    "hint": "{appName} hat in diesem Sicherungsstand Anzeichen von Ransomware gefunden. Öffnen Sie ihn für die Gründe."
+    "hint": "{appName} hat in diesem Sicherungsstand Anzeichen von Ransomware gefunden. Öffnen Sie ihn für die Gründe.",
+    "unusual": "Ungewöhnlich viele Änderungen",
+    "normal": "Als normal markiert",
+    "unusualHint": "Weit mehr Änderungen als üblich, aber kein Anzeichen von Verschlüsselung. Die Aufbewahrung läuft weiter."
   },
   "object": {
     "suspicious": "Verdächtig",
@@ -25,7 +28,11 @@
     "limits": "{appName} beurteilt, was die Sicherung an Änderungen gesehen hat: Mengen, Namen und einige Stichproben von Dateien. Ein Befund ist ein Grund nachzusehen, kein Beweis, und ein Sicherungsstand ohne Befund beweist nicht, dass keine Dateien verschlüsselt wurden.",
     "close": "Schließen",
     "open": "Gründe anzeigen",
-    "loadFailed": "Die Befunde konnten nicht geladen werden."
+    "loadFailed": "Die Befunde konnten nicht geladen werden.",
+    "unusualTitle": "Ungewöhnlich viele Änderungen",
+    "unusualIntro": "Diese Sicherung hat weit mehr geändert als bei diesem Objekt üblich, aber keines der Anzeichen von Ransomware hat angeschlagen: keine verschlüsselt wirkenden Dateien, keine bekannten Ransomware-Namen, keine umbenannten Endungen, keine massenhaften Löschungen. Ein nachgeholter Rückstand, eine Migration oder ein großer Upload sehen genauso aus. Die Aufbewahrung läuft weiter.",
+    "breakdown": "Was sich geändert hat",
+    "reclassified": "Zuerst als verdächtig bewertet; am {time} als ungewöhnlich viele Änderungen neu eingestuft (nur die Menge war auffällig). Der Halt der Aufbewahrung endete damit."
   },
   "findings": {
     "change_rate_items": "{value} neue oder geänderte Dateien, sonst etwa {baseline} (Alarm über {threshold})",
@@ -67,7 +74,10 @@
     "by": "Fehlalarm, markiert von {who} am {time}",
     "revoke": "Fehlalarm zurücknehmen",
     "revoked": "Der Befund zählt wieder",
-    "revokeFailed": "Der Fehlalarm konnte nicht zurückgenommen werden"
+    "revokeFailed": "Der Fehlalarm konnte nicht zurückgenommen werden",
+    "normalAction": "Als normal markieren",
+    "normalTitle": "Als normal markieren",
+    "normalDescription": "Die Menge an Änderungen dieser Sicherung von {object} gilt ab jetzt als normal: Sie zählt zum Vergleichswert des Objekts, dieselbe Menge warnt nicht mehr. Wird im Audit protokolliert."
   },
   "settings": {
     "title": "Ransomware-Erkennung",
@@ -140,5 +150,14 @@
     "falseAlarmFailed": "Die Befunde konnten nicht als Fehlalarm markiert werden",
     "cancel": "Abbrechen",
     "releasedBy": "Aufbewahrung freigegeben von {who} am {time}"
+  },
+  "breakdown": {
+    "added": "Neue Dateien: {count}",
+    "modified": "Dateien mit neuem Inhalt: {count}",
+    "caughtUp": "Nachgeholt (eine frühere Sicherung konnte sie nicht lesen, seitdem unverändert): {count}",
+    "removed": "Entfernt: {count}",
+    "renamed": "Umbenannte Endungen: {count}",
+    "sampled": "Stichproben, die verschlüsselt wirken: {encrypted} von {count}",
+    "noSamples": "Keine Stichprobe ließ sich beurteilen (komprimierte Formate sagen nichts)."
   }
 }

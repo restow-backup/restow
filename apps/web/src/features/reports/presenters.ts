@@ -114,6 +114,7 @@ export const EVENT_GROUPS: Record<
   ],
   recoverability: [
     "backup.suspicious",
+    "backup.unusual_change",
     "backup.suspicious_hold",
     "verify.red",
     "verify.yellow",

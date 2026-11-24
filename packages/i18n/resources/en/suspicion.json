@@ -2,7 +2,10 @@
   "badge": {
     "suspicious": "Suspicious",
     "falseAlarm": "False alarm",
-    "hint": "{appName} found signs of ransomware in this restore point. Open it for the reasons."
+    "hint": "{appName} found signs of ransomware in this restore point. Open it for the reasons.",
+    "unusual": "Unusually many changes",
+    "normal": "Marked as normal",
+    "unusualHint": "Far more changes than usual, but no sign of encryption. Retention goes on."
   },
   "object": {
     "suspicious": "Suspicious",
@@ -25,7 +28,11 @@
     "limits": "{appName} judges what the backup saw change: amounts, names and a few sampled files. A finding is a reason to look, not a proof, and a clean result does not prove that no files were encrypted.",
     "close": "Close",
     "open": "Show the reasons",
-    "loadFailed": "The findings could not be loaded."
+    "loadFailed": "The findings could not be loaded.",
+    "unusualTitle": "Unusually many changes",
+    "unusualIntro": "This backup changed far more than the object usually does, but none of the signs of ransomware fired: no files that look encrypted, no known ransomware names, no renamed extensions, no mass deletions. A backlog that finally came through, a migration or a large upload look the same. Retention goes on.",
+    "breakdown": "What changed",
+    "reclassified": "Judged suspicious at first; reclassified as unusually many changes on {time} (only the amount of change was off). Its retention hold ended with it."
   },
   "findings": {
     "change_rate_items": "{value} new or changed files, usually about {baseline} (alert above {threshold})",
@@ -67,7 +74,10 @@
     "by": "False alarm, marked by {who} on {time}",
     "revoke": "Undo the false alarm",
     "revoked": "The finding counts again",
-    "revokeFailed": "The false alarm could not be undone"
+    "revokeFailed": "The false alarm could not be undone",
+    "normalAction": "Mark as normal",
+    "normalTitle": "Mark as normal",
+    "normalDescription": "The amount of change of this backup of {object} counts as normal from now on: it joins the object's baseline, so the same amount no longer warns. Audited."
   },
   "settings": {
     "title": "Ransomware detection",
@@ -140,5 +150,14 @@
     "falseAlarmFailed": "The findings could not be marked as a false alarm",
     "cancel": "Cancel",
     "releasedBy": "Hold released by {who} on {time}"
+  },
+  "breakdown": {
+    "added": "New files: {count}",
+    "modified": "Files with new content: {count}",
+    "caughtUp": "Caught up (an earlier backup could not read them, not changed since): {count}",
+    "removed": "Removed: {count}",
+    "renamed": "Renamed extensions: {count}",
+    "sampled": "Sampled files that look encrypted: {encrypted} of {count}",
+    "noSamples": "No sampled file could be judged (compressed formats say nothing)."
   }
 }

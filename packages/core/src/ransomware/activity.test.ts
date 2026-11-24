@@ -20,6 +20,7 @@ describe("parsing a runner's report", () => {
       modified: 3,
       removed: 2,
       renamed: 1,
+      caughtUp: 5,
       extensions: [{ value: "locked", count: 9 }],
       names: [{ value: "HOW_TO_DECRYPT.txt", count: 4 }],
       entropy: [{ path: "/a.txt", ext: ".TXT", size: 10, head: 7.99, tail: null }],
@@ -31,11 +32,16 @@ describe("parsing a runner's report", () => {
       modified: 3,
       removed: 2,
       renamed: 1,
+      caughtUp: 5,
       extensions: [{ value: "locked", count: 9 }],
       names: [{ value: "HOW_TO_DECRYPT.txt", count: 4 }],
       entropy: [{ path: "/a.txt", ext: "txt", size: 10, head: 7.99, tail: null }],
       truncated: true,
     });
+  });
+
+  it("counts nothing caught up from a runner that does not tell it apart (before 0.5.4)", () => {
+    expect(parseActivityReport({ v: 1, added: 3 })?.caughtUp).toBe(0);
   });
 
   it("is null for nothing usable: an older runner sends no report", () => {

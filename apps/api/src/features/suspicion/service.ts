@@ -29,6 +29,7 @@ import {
   type RestorePointSuspicion,
   restorePointSuspicions,
   SUSPICION_HOLDS_SQL,
+  type SuspicionBreakdownJson,
   settings,
   suspicionHolds,
 } from "@restow/db";
@@ -64,10 +65,15 @@ export interface SuspicionDto {
   runId: string;
   restorePointId: string;
   restorePointAt: string;
-  verdict: "none" | "suspicious";
+  /** `unusual` (0.5.4): only the amount of change was far off; a warning, it holds nothing. */
+  verdict: "none" | "unusual" | "suspicious";
   /** Suspicious and nobody called it a false alarm. */
   active: boolean;
   findings: RestorePointSuspicion["findings"];
+  /** What the run changed (0.5.4 on, runs with an activity report); null otherwise. */
+  breakdown: SuspicionBreakdownJson | null;
+  /** When an earlier suspicious judgement of the amount of change alone became unusual. */
+  reclassifiedAt: string | null;
   signals: Record<string, string>;
   signaturesVersion: string;
   alerted: boolean;
@@ -140,6 +146,8 @@ export function suspicionDto(row: RestorePointSuspicion): SuspicionDto {
     verdict: row.verdict,
     active: isActive(row),
     findings: row.findings,
+    breakdown: row.metrics.breakdown ?? null,
+    reclassifiedAt: row.reclassifiedAt?.toISOString() ?? null,
     signals: row.signals,
     signaturesVersion: row.signaturesVersion,
     alerted: row.alertedAt !== null,
@@ -434,7 +442,7 @@ export async function markFalseAlarm(
     if (!row) {
       throw NOT_FOUND();
     }
-    if (row.verdict !== "suspicious") {
+    if (row.verdict === "none") {
       throw new ProblemError(409, "Nothing to call a false alarm", {
         detail: "This restore point has no findings.",
       });

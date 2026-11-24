@@ -55,7 +55,11 @@ antivirus: a finding is a reason to look, and a restore point without findings p
 
 ## Signals
 
-A restore point is **suspicious** when at least one signal fires. Every finding carries the
+A restore point is **suspicious** when a signal fires that speaks of what ransomware does to
+content: deletions, renamed extensions, known names, entropy, compression and deduplication. When
+only the amount of change fires, it is **unusual** (since 0.5.4): a warning that holds nothing,
+because a backlog that finally came through, a migration or a large upload look the same (see
+[Unusual amounts of change](#unusual-amounts-of-change)). Every finding carries the
 numbers that made it (the measured value, the threshold it crossed, the object's usual value or
 the share), so the admin can see at a glance how far off it is.
 
@@ -88,6 +92,22 @@ The bound is `max(median + 8 × spread, 5 × median, floor)`, where the spread i
 absolute deviation scaled to a standard deviation (× 1.4826) but never less than a tenth of the
 median, so a perfectly steady object does not alert on noise. The median and the MAD are robust:
 one large monthly job in the history does not move them the way a mean would.
+
+### Files caught up on
+
+Since 0.5.4 a OneDrive or SharePoint backup tells the files it **caught up on** apart from the ones
+that changed: a file that is new against the previous restore point, or has other content than it,
+although the source did not change it since. Either an earlier run failed on it (the file is on the
+run's retry list) or the source's own `lastModifiedDateTime` lies before the previous restore point
+was taken (the client's `fileSystemInfo` does not count: an uploading program sets it as it likes).
+Such files count in the activity report's `caughtUp`, not in `added` or `modified`, so the amount of
+change does not see them; their names still count for the known extensions and ransom notes, and
+the alert and the reasons dialog list them. A drive run with an activity report counts the files
+with new content (new and changed) for the amount of change, not the objects it wrote (folders and
+metadata stay out), like a restic run's content count.
+
+Not yet for mailboxes, IMAP accounts, machines and file shares: there a backlog that comes through
+still counts as change (only `unusual`, see below).
 
 ### Names
 
@@ -226,7 +246,7 @@ a used-up quota refuses fails as usual.
 | File share | files new + changed (content, from the activity report; else the runner statistics), bytes added | runner 0.4.0 and newer (`restic diff` against the parent) | runner 0.4.0 and newer (files on the share) | yes |
 | Proxmox VE container | bytes added; files new + changed from nodes 0.4.0 on | not available | not available | from nodes 0.4.x on |
 | Proxmox VE VM | bytes uploaded (changed blocks) | not available | not available | yes (server side, every node) |
-| OneDrive, SharePoint site | items written, bytes added | OneDrive: yes (delta items: new, changed, gone, renamed) | OneDrive: yes (first downloads) | yes |
+| OneDrive, SharePoint site | files new + changed (content, without the files caught up on, 0.5.4), bytes added | OneDrive: yes (delta items: new, changed, gone, renamed) | OneDrive: yes (first downloads) | yes |
 | Mailbox, IMAP account | items written, bytes added | not available | not available | yes |
 
 Files new and changed of a restic run (machine, file share, container) count content from 0.5.1
@@ -244,6 +264,26 @@ A signal that has no data says **not available**, never "clean": an older agent 
 activity report, a first backup (there is nothing to compare with), a previous snapshot that
 retention removed, or a kind that has no such data. The reasons dialog of a restore point lists
 every signal with its state (finding, no finding, learning, not available, switched off).
+
+## Unusual amounts of change
+
+A restore point whose only findings are `change_rate_items` and `change_rate_bytes` is
+`unusual`, not `suspicious` (0.5.4). It raises `backup.unusual_change` (group "Restore readiness",
+severity warning) once per episode, **holds no retention**, and does not count against the "last
+clean restore point". It stays out of the baseline until an administrator marks it as normal (the
+false alarm of an unusual restore point), so a jump nobody confirmed does not become the new normal.
+A suspicious restore point after unusual ones is announced again: it is graver.
+
+The alert and the reasons dialog break the run down: new files, files with new content, files
+caught up on, removed and renamed files, and how many of the sampled files looked encrypted
+(`metrics.breakdown` of the judgement, `details.breakdown` of the event).
+
+**After the update to 0.5.4** the worker turns every `suspicious` judgement whose findings are the
+amount of change alone, and that nobody called a false alarm, into `unusual`, once
+(`reclassified_at`, audited as `suspicion.reclassified` with actor `system`). Its retention hold
+ends with it. Judgements with a content finding next to the amount stay suspicious. Notification
+rules and recipients that listed `backup.suspicious` list `backup.unusual_change` as well
+(migration `0106_suspicion_unusual`); webhooks keep their list.
 
 ## The activity report (agent protocol)
 

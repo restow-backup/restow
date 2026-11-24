@@ -2522,7 +2522,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(106);
+      expect(Number(applied[0]?.count)).toBe(journal.entries.length);
       const { rows: column } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
@@ -2909,3 +2909,122 @@ describe.skipIf(!adminUrl)(
     }, 120_000);
   },
 );
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.4: unusual amounts of change (0106)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_unusual_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_unusual_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), object: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0105_recovery_oneshot");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("keeps every judgement, allows unusual and tells whoever hears of suspicious backups", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await pool.query(
+        `INSERT INTO provider_notification_recipients (provider_id, email, events)
+         VALUES ($1, 'noc@provider.example', ARRAY['backup.suspicious', 'backup.failed']),
+                ($1, 'billing@provider.example', ARRAY['backup.failed'])`,
+        [providerId],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO report_rules (tenant_id, name, trigger, events)
+           VALUES ($1, 'Ransomware', 'event', ARRAY['backup.suspicious']),
+                  ($1, 'Failures', 'event', ARRAY['backup.failed'])`,
+          [ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO restore_point_suspicions (tenant_id, object_kind, object_id, run_id,
+             restore_point_id, restore_point_at, verdict, findings, metrics, signatures_version)
+           VALUES ($1, 'm365', $2, $3, 'p', now(), 'suspicious',
+             '[{"code":"change_rate_items","value":539,"threshold":500}]'::jsonb, '{}'::jsonb, 'v')`,
+          [ids.tenant, ids.object, randomUUID()],
+        );
+      });
+
+      await runMigrations(url);
+
+      const { rows: column } = await pool.query(
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_name = 'restore_point_suspicions' AND column_name = 'reclassified_at'`,
+      );
+      expect(column).toEqual([
+        { data_type: "timestamp with time zone", is_nullable: "YES", column_default: null },
+      ]);
+      const { rows: recipients } = await pool.query<{ email: string; events: string[] }>(
+        "SELECT email, events FROM provider_notification_recipients ORDER BY email",
+      );
+      expect(recipients).toEqual([
+        { email: "billing@provider.example", events: ["backup.failed"] },
+        {
+          email: "noc@provider.example",
+          events: ["backup.suspicious", "backup.failed", "backup.unusual_change"],
+        },
+      ]);
+      await asTenant(pool, ids.tenant, async (client) => {
+        const rules = await client.query<{ name: string; events: string[] }>(
+          "SELECT name, events FROM report_rules ORDER BY name",
+        );
+        expect(rules.rows).toEqual([
+          { name: "Failures", events: ["backup.failed"] },
+          { name: "Ransomware", events: ["backup.suspicious", "backup.unusual_change"] },
+        ]);
+        // The judgement stays as it was: the worker reclassifies it, audited, not the migration.
+        const kept = await client.query(
+          "SELECT verdict, reclassified_at FROM restore_point_suspicions",
+        );
+        expect(kept.rows).toEqual([{ verdict: "suspicious", reclassified_at: null }]);
+        await client.query("UPDATE restore_point_suspicions SET verdict = 'unusual'");
+        await expect(
+          client.query("UPDATE restore_point_suspicions SET verdict = 'odd'"),
+        ).rejects.toMatchObject({ code: "23514" });
+      });
+      // Both tables force RLS again after the migration.
+      const { rows: forced } = await pool.query<{ relname: string; relforcerowsecurity: boolean }>(
+        `SELECT relname, relforcerowsecurity FROM pg_class
+          WHERE relname IN ('report_rules', 'tenant_notification_recipients') ORDER BY relname`,
+      );
+      expect(forced.every((row) => row.relforcerowsecurity)).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});

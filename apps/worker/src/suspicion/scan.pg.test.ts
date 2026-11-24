@@ -65,6 +65,7 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
         alerted_at: Date | null;
         restore_point_id: string;
         object_kind: string;
+        metrics: Record<string, unknown>;
       }>("SELECT * FROM restore_point_suspicions WHERE run_id = $1", [runId])
     )[0];
 
@@ -177,6 +178,8 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     expect(await suspicionPass(deps)).toEqual({
       judged: 0,
       suspicious: 0,
+      unusual: 0,
+      reclassified: 0,
       alerts: 0,
       reminders: 0,
     });
@@ -199,7 +202,15 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
 
     const summary = await suspicionPass(deps);
     // The run of the first test is judged now as well: six.
-    expect(summary).toEqual({ judged: 6, suspicious: 3, alerts: 2, reminders: 0 });
+    // 0.5.4: the amount of change alone is unusual, not suspicious.
+    expect(summary).toEqual({
+      judged: 6,
+      suspicious: 1,
+      unusual: 2,
+      reclassified: 0,
+      alerts: 2,
+      reminders: 0,
+    });
 
     expect(await judgement(ordinary)).toMatchObject({
       verdict: "none",
@@ -214,15 +225,24 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
       "ransom_notes",
     ]);
     expect(first?.alerted_at).not.toBeNull();
-    // The same episode: marked, not announced again.
-    expect(await judgement(still)).toMatchObject({ verdict: "suspicious", alerted_at: null });
+    // What the run changed is kept with the judgement (0.5.4).
+    expect(first?.metrics).toMatchObject({ breakdown: { added: 45_000, caughtUp: 0 } });
+    // Only far more changes after it, no sign of encryption: unusual, and within the episode
+    // the suspicious one opened it is not announced (it is not graver).
+    expect(await judgement(still)).toMatchObject({ verdict: "unusual", alerted_at: null });
     // The suspicious ones stay out of the baseline: an ordinary day is still ordinary.
     expect((await judgement(clean))?.verdict).toBe("none");
-    // A clean restore point ended the episode: the next finding is news.
+    // A clean restore point ended the episode: the next finding is news, as a warning.
+    expect(await judgement(again)).toMatchObject({ verdict: "unusual" });
     expect((await judgement(again))?.alerted_at).not.toBeNull();
+    const warned = await q<{ level: string; details: Record<string, unknown> }>(
+      "SELECT level, details FROM notifications WHERE event = 'backup.unusual_change'",
+    );
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatchObject({ level: "warning", details: { retentionHeld: false } });
 
     const raised = await alerts();
-    expect(raised).toHaveLength(2);
+    expect(raised).toHaveLength(1);
     expect(raised[0]?.details).toMatchObject({
       endpointId,
       objectKind: "endpoint",
@@ -246,6 +266,8 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     expect(await suspicionPass(deps)).toEqual({
       judged: 0,
       suspicious: 0,
+      unusual: 0,
+      reclassified: 0,
       alerts: 0,
       reminders: 0,
     });
@@ -542,7 +564,8 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
       objectKind: "endpoint",
       objectName: "Fileserver",
       heldDays: 15,
-      restorePoints: 3,
+      // The attack alone: the two of only far more changes are unusual and hold nothing (0.5.4).
+      restorePoints: 1,
     });
     expect((await suspicionPass(deps)).reminders).toBe(0);
     // And again once the reminder itself is that old.
@@ -581,12 +604,62 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
       endpointId,
     ]);
     const before = (await alerts()).length;
-    const next = await endpointRun(ago(HOUR / 2), 50_000);
+    // Ransom notes again: suspicious (the amount alone would only be unusual, 0.5.4).
+    const next = await endpointRun(ago(HOUR / 2), 50_000, {
+      activity: { ...notes, added: 50_000 },
+    });
     const summary = await suspicionPass(deps);
     expect(summary.reminders).toBe(0);
     expect(await judgement(next)).toMatchObject({ verdict: "suspicious" });
     expect((await judgement(next))?.alerted_at).not.toBeNull();
     expect((await alerts()).length).toBe(before + 1);
+  });
+
+  it("turns an earlier suspicious judgement of the amount of change alone into unusual, once and audited (0.5.4)", async () => {
+    const insert = async (findings: unknown[]) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO restore_point_suspicions (tenant_id, object_kind, object_id, run_id, restore_point_id,
+           restore_point_at, verdict, findings, metrics, signatures_version, created_at)
+         VALUES ($1, 'm365', $2, $3, 'p', $4, 'suspicious', $5::jsonb, '{}'::jsonb, 'v', $4)
+         RETURNING id`,
+        [tenantId, randomUUID(), randomUUID(), ago(30 * DAY), JSON.stringify(findings)],
+      );
+      return row?.id as string;
+    };
+    const volume = await insert([
+      { code: "change_rate_items", value: 539, threshold: 500, baseline: 3 },
+    ]);
+    const content = await insert([
+      { code: "change_rate_items", value: 900, threshold: 500, baseline: 3 },
+      { code: "high_entropy", value: 6, threshold: 3, share: 0.75 },
+    ]);
+    const summary = await suspicionPass(deps);
+    expect(summary.reclassified).toBeGreaterThanOrEqual(1);
+    const rows = await q<{ id: string; verdict: string; reclassified_at: Date | null }>(
+      "SELECT id, verdict, reclassified_at FROM restore_point_suspicions WHERE id = ANY($1)",
+      [[volume, content]],
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(volume)).toMatchObject({ verdict: "unusual" });
+    expect(byId.get(volume)?.reclassified_at).not.toBeNull();
+    // A sign in the content next to the amount keeps it suspicious, and its hold.
+    expect(byId.get(content)).toMatchObject({ verdict: "suspicious", reclassified_at: null });
+    const audited = await q<{ actor: string; details: Record<string, unknown> }>(
+      "SELECT actor, details FROM audit_log WHERE action = 'suspicion.reclassified' AND target = $1",
+      [volume],
+    );
+    expect(audited).toHaveLength(1);
+    expect(audited[0]).toMatchObject({
+      actor: "system",
+      details: { from: "suspicious", to: "unusual", reason: "volume_only", holdEnded: true },
+    });
+    // Once: the next pass leaves it alone.
+    await suspicionPass(deps);
+    expect(
+      await q("SELECT 1 FROM audit_log WHERE action = 'suspicion.reclassified' AND target = $1", [
+        volume,
+      ]),
+    ).toHaveLength(1);
   });
 
   /** A clock that moves only when told, for the time a pass may take. */
@@ -601,6 +674,8 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     expect(await suspicionPass(deps, { batch: 2, budgetMs: 0, clock: stoppedClock })).toEqual({
       judged: 2,
       suspicious: 0,
+      unusual: 0,
+      reclassified: 0,
       alerts: 0,
       reminders: 0,
     });
@@ -610,6 +685,8 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     expect(await suspicionPass(deps, { batch: 2, budgetMs: 60_000, clock: stoppedClock })).toEqual({
       judged: 9,
       suspicious: 0,
+      unusual: 0,
+      reclassified: 0,
       alerts: 0,
       reminders: 0,
     });
@@ -645,15 +722,16 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
       // Without the cursor the stopped clock would read the broken run for ever.
       expect(
         await suspicionPass(counting, { batch: 1, budgetMs: 60_000, clock: stoppedClock }),
-      ).toEqual({ judged: 1, suspicious: 0, alerts: 0, reminders: 0 });
+      ).toEqual({ judged: 1, suspicious: 0, unusual: 0, reclassified: 0, alerts: 0, reminders: 0 });
     } finally {
       await q("ALTER TABLE restore_point_suspicions DROP CONSTRAINT test_refuses_ck");
     }
     expect(await judgement(broken as string)).toBeUndefined();
     expect(await judgement(fine as string)).toBeDefined();
-    // The retention holds due for a reminder; machines: the broken run, the fine one, the empty
-    // batch and the count of the aged-out; every other kind: an empty batch and the count.
-    expect(reads).toBe(1 + 4 + 3 * 2);
+    // The judgements to reclassify (0.5.4), the retention holds due for a reminder; machines: the
+    // broken run, the fine one, the empty batch and the count of the aged-out; every other kind:
+    // an empty batch and the count.
+    expect(reads).toBe(1 + 1 + 4 + 3 * 2);
     // The next pass tries it again.
     await suspicionPass(deps);
     expect(await judgement(broken as string)).toBeDefined();
