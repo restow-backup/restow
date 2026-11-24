@@ -178,6 +178,41 @@ function formatBytes(bytes: number, language: SupportedLanguage): string {
 }
 
 /**
+ * What a judged backup run changed (`details.breakdown`, apps/worker suspicion, 0.5.4), as one
+ * line: new, changed, caught up, removed and renamed files and the sampled files that looked
+ * encrypted. Empty without a breakdown (VMs, mailboxes, an older agent).
+ */
+export function breakdownLine(
+  value: unknown,
+  language: SupportedLanguage,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "";
+  }
+  const raw = value as Record<string, unknown>;
+  const n = (key: string) => (typeof raw[key] === "number" ? (raw[key] as number) : 0);
+  const count = (key: string) => formatCount(n(key), language);
+  const parts = [
+    t("suspicion:breakdown.added", { count: count("added") }),
+    t("suspicion:breakdown.modified", { count: count("modified") }),
+  ];
+  if (n("caughtUp") > 0)
+    parts.push(t("suspicion:breakdown.caughtUp", { count: count("caughtUp") }));
+  if (n("removed") > 0) parts.push(t("suspicion:breakdown.removed", { count: count("removed") }));
+  if (n("renamed") > 0) parts.push(t("suspicion:breakdown.renamed", { count: count("renamed") }));
+  parts.push(
+    n("sampled") > 0
+      ? t("suspicion:breakdown.sampled", {
+          encrypted: count("sampledEncrypted"),
+          count: count("sampled"),
+        })
+      : t("suspicion:breakdown.noSamples"),
+  );
+  return parts.join("; ");
+}
+
+/**
  * The findings of a suspicious restore point (`backup.suspicious`, apps/worker suspicion), one
  * sentence each in the reader's language, the numbers formatted (bytes for the change in bytes).
  */
@@ -510,15 +545,21 @@ export function renderAlert(input: AlertInput): RenderedMessage {
       ),
     ]);
   }
-  if (event === "backup.suspicious") {
-    // Which restore point, and why it looks like ransomware at work: one line per finding.
+  if (event === "backup.suspicious" || event === "backup.unusual_change") {
+    // Which restore point, and why it looks like ransomware at work (or only changed a lot):
+    // one line per finding, then what the run changed (0.5.4).
     const at = formatWhen(text(details.restorePointAt), input.language);
     if (at) rows.push([t("reports:mail.restorePoint"), `${at} UTC`]);
     const lines = suspicionFindingLines(details.findings, input.language, (key, values) =>
       i18n.exists(key) ? t(key, values) : t("suspicion:findings.unknown", values),
     );
     if (lines.length > 0) rows.push([t("reports:mail.findings"), lines.join("; ")]);
-    if (details.retentionHeld === true) {
+    const breakdown = breakdownLine(details.breakdown, input.language, t);
+    if (breakdown) rows.push([t("reports:mail.changes"), breakdown]);
+    if (event === "backup.unusual_change") {
+      rows.push([t("reports:mail.assessment"), t("reports:mail.unusualAssessment")]);
+      rows.push([t("reports:mail.retention"), t("reports:mail.retentionGoesOn")]);
+    } else if (details.retentionHeld === true) {
       rows.push([t("reports:mail.retention"), t("reports:mail.retentionPaused")]);
     }
   }

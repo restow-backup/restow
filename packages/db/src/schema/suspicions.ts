@@ -42,6 +42,22 @@ export type SuspicionMetricsJson = {
   compressionRatio?: number | null;
   /** New / processed; near 1.0: nothing deduplicated. */
   dedupRatio?: number | null;
+  /**
+   * What the run changed (judgements from 0.5.4 on, runs with an activity report): new and
+   * changed files, the files it caught up on, removed and renamed ones, sampled files and how
+   * many of them looked encrypted.
+   */
+  breakdown?: SuspicionBreakdownJson | null;
+};
+
+export type SuspicionBreakdownJson = {
+  added: number;
+  modified: number;
+  caughtUp: number;
+  removed: number;
+  renamed: number;
+  sampled: number;
+  sampledEncrypted: number;
 };
 
 /**
@@ -81,7 +97,8 @@ export const restorePointSuspicions = pgTable(
     runId: uuid("run_id").notNull(),
     restorePointId: text("restore_point_id").notNull(),
     restorePointAt: timestamp("restore_point_at", { withTimezone: true }).notNull(),
-    verdict: text("verdict").$type<"none" | "suspicious">().notNull(),
+    // `unusual` since 0.5.4: only the amount of change was far off (a warning, no retention hold).
+    verdict: text("verdict").$type<"none" | "unusual" | "suspicious">().notNull(),
     findings: jsonb("findings").$type<SuspicionFindingJson[]>().notNull().default([]),
     signals: jsonb("signals").$type<Record<string, string>>().notNull().default({}),
     metrics: jsonb("metrics").$type<SuspicionMetricsJson>().notNull(),
@@ -101,6 +118,9 @@ export const restorePointSuspicions = pgTable(
     holdReleasedBy: text("hold_released_by"),
     holdReleaseNote: text("hold_release_note"),
     holdRemindedAt: timestamp("hold_reminded_at", { withTimezone: true }),
+    // 0.5.4: when a `suspicious` judgement of the amount of change alone became `unusual` (once,
+    // by the worker, audited as `suspicion.reclassified`); its retention hold ended with it.
+    reclassifiedAt: timestamp("reclassified_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
@@ -116,7 +136,10 @@ export const restorePointSuspicions = pgTable(
       "restore_point_suspicions_kind_ck",
       sql`${t.objectKind} IN ('endpoint', 'file_share', 'pve_guest', 'm365')`,
     ),
-    check("restore_point_suspicions_verdict_ck", sql`${t.verdict} IN ('none', 'suspicious')`),
+    check(
+      "restore_point_suspicions_verdict_ck",
+      sql`${t.verdict} IN ('none', 'unusual', 'suspicious')`,
+    ),
     check(
       "restore_point_suspicions_note_ck",
       sql`${t.falseAlarmNote} IS NULL OR char_length(${t.falseAlarmNote}) <= 1000`,

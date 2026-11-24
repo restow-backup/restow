@@ -117,7 +117,30 @@ export interface SuspicionFinding {
   examples?: string[];
 }
 
-export type SuspicionVerdict = "none" | "suspicious";
+/**
+ * The judgement of a restore point (0.5.4): `suspicious` when a finding speaks of what ransomware
+ * does to content (encrypted-looking samples, known extensions or notes, extension renames, mass
+ * deletions, new data that does not compress or deduplicate), `unusual` when only the amount of
+ * change is far above the object's own (a warning, no retention hold: a backlog, a migration, a
+ * large upload look the same), `none` without findings.
+ */
+export type SuspicionVerdict = "none" | "unusual" | "suspicious";
+
+/** The findings that only measure how much changed; alone they make a restore point unusual. */
+export const VOLUME_FINDING_CODES: readonly SuspicionFindingCode[] = [
+  "change_rate_items",
+  "change_rate_bytes",
+];
+
+/** The verdict of a set of findings (see {@link SuspicionVerdict}). */
+export function verdictOf(findings: readonly Pick<SuspicionFinding, "code">[]): SuspicionVerdict {
+  if (findings.length === 0) {
+    return "none";
+  }
+  return findings.every((finding) => VOLUME_FINDING_CODES.includes(finding.code))
+    ? "unusual"
+    : "suspicious";
+}
 
 export interface SuspicionResult {
   verdict: SuspicionVerdict;
@@ -471,7 +494,7 @@ export function evaluateSuspicion(input: {
   };
   const findings = SUSPICION_SIGNALS.flatMap((signal) => judged[signal].findings);
   return {
-    verdict: findings.length > 0 ? "suspicious" : "none",
+    verdict: verdictOf(findings),
     findings,
     signals: Object.fromEntries(
       SUSPICION_SIGNALS.map((signal) => [signal, judged[signal].state]),
@@ -488,23 +511,30 @@ export interface PreviousJudgement {
   released?: boolean;
 }
 
+const VERDICT_RANK: Readonly<Record<SuspicionVerdict, number>> = {
+  none: 0,
+  unusual: 1,
+  suspicious: 2,
+};
+
 /**
- * Whether a suspicious restore point opens a new episode and is alerted (docs/RANSOMWARE.md,
- * "Alerts"): yes, unless the object's previous judged restore point was suspicious as well and
- * nobody called that one a false alarm. An episode ends with a clean restore point, a false
- * alarm or the release of its retention hold, so one attack that spans several backups raises one
- * alert, not one per backup, and a finding after a release is announced again.
+ * Whether a suspicious or unusual restore point opens a new episode and is alerted
+ * (docs/RANSOMWARE.md, "Alerts"): yes, unless the object's previous judged restore point was at
+ * least as grave and nobody called it a false alarm or released its hold. An episode ends with a
+ * clean restore point, a false alarm or the release of its retention hold, so one attack that
+ * spans several backups raises one alert, not one per backup, and a finding after a release is
+ * announced again. A suspicious restore point after unusual ones is announced: it is graver.
  */
 export function opensSuspicionEpisode(
   verdict: SuspicionVerdict,
   previous: PreviousJudgement | null,
 ): boolean {
-  if (verdict !== "suspicious") {
+  if (verdict === "none") {
     return false;
   }
   return !(
     previous &&
-    previous.verdict === "suspicious" &&
+    VERDICT_RANK[previous.verdict] >= VERDICT_RANK[verdict] &&
     !previous.falseAlarm &&
     previous.released !== true
   );

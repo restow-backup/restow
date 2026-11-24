@@ -140,6 +140,50 @@ describe("signs of ransomware in a restore view", () => {
     expect(text()).toContain("c1ea0000");
   });
 
+  it("marks only an unusual amount of change in amber, with what changed and no hint (0.5.4)", async () => {
+    rendered = await render(
+      <ShareRestorePoints share={shareFixture()} onShowRuns={() => undefined} />,
+      {
+        routes: routes([
+          judgement({
+            verdict: "unusual",
+            active: false,
+            findings: [{ code: "change_rate_items", value: 539, threshold: 500, baseline: 3 }],
+            signals: { changeRate: "fired", names: "clear", entropy: "clear" },
+            breakdown: {
+              added: 2,
+              modified: 1,
+              caughtUp: 536,
+              removed: 0,
+              renamed: 0,
+              sampled: 8,
+              sampledEncrypted: 0,
+            },
+            reclassifiedAt: iso(-100),
+          }),
+        ]),
+      },
+    );
+    await flush(4);
+    // Not suspicious: no hint at a last clean restore point, the restore point is not avoided.
+    expect(slot("last-clean-hint")).toBeNull();
+    const [newest] = [...document.querySelectorAll('[data-slot="snapshot-list"] li')];
+    const badge = newest?.querySelector('[data-slot="suspicion-badge"]');
+    expect(badge?.textContent).toBe("Unusually many changes");
+    expect(badge?.querySelector('[data-tone="warning"]')).not.toBeNull();
+
+    await click(badge?.querySelector("button") ?? null);
+    await flush(2);
+    const dialog = slot("suspicion-dialog") as HTMLElement;
+    expect(dialog.textContent).toContain("none of the signs of ransomware fired");
+    expect(slot("suspicion-breakdown")?.textContent).toContain("536");
+    expect(slot("suspicion-breakdown")?.textContent).toContain(
+      "Sampled files that look encrypted: 0 of 8",
+    );
+    expect(slot("reclassified-mark")).not.toBeNull();
+    expect(buttonByText(dialog, "Mark as normal")).not.toBeNull();
+  });
+
   it("explains the findings and records a false alarm with a note", async () => {
     let sent: unknown = null;
     rendered = await render(

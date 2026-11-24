@@ -218,6 +218,7 @@ export class OneDriveBackupEngine<Db = unknown> implements BackupEngine<Db> {
       driveId,
       writer,
       previous,
+      ...(previous ? { previousAt: previous.createdAt } : {}),
       plan,
       settings: this.settings,
       logger: logger.child({ driveId }),

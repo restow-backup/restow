@@ -511,6 +511,9 @@ class SiteBackupRun {
       driveId: drive.id,
       writer,
       previous: previousObjects ? { objects: previousObjects } : null,
+      ...(previousObjects && this.input.previous
+        ? { previousAt: this.input.previous.createdAt }
+        : {}),
       plan,
       settings: this.input.settings,
       logger: logger.child({ driveId: drive.id, library: folder }),

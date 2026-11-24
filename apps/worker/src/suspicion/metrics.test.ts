@@ -119,6 +119,21 @@ describe("the numbers of a run, per kind", () => {
       dedupRatio: null,
     });
   });
+
+  it("counts a drive's files with new content, not the files it caught up on (0.5.4)", () => {
+    expect(
+      m365RunMetrics({
+        objectsWritten: 560,
+        objectsTotal: 9000,
+        bytes: 100,
+        activity: { v: 1, added: 2, modified: 1, caughtUp: 536, removed: 0 },
+      }),
+    ).toMatchObject({
+      itemsChanged: 3,
+      itemsBasis: "content",
+      activity: { added: 2, modified: 1, caughtUp: 536 },
+    });
+  });
 });
 
 describe("compression and deduplication of the new data, per source", () => {

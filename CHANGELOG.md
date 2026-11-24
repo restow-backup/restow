@@ -8,6 +8,39 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Changed
+
+- Ransomware detection (docs/RANSOMWARE.md, "Unusual amounts of change"): a restore point whose
+  only findings are the amount of change (files or bytes far above the object's own) is now
+  **unusual**, not suspicious. It raises the new warning `backup.unusual_change` ("Unusually many
+  changes (no signs of encryption)") once per episode, shows an amber badge, and holds no retention.
+  Suspicious, with the alert `backup.suspicious` and the retention hold, stays for findings that
+  speak of what ransomware does to content: files that look encrypted, known ransomware names or
+  notes, renamed extensions, mass deletions, new data that does not compress or deduplicate.
+  An unusual restore point can be marked as normal (the false alarm of it, audited).
+- The alert, its mail and the reasons dialog break a run down: new files, files with new content,
+  files caught up on, removed and renamed files, and how many sampled files looked encrypted.
+
+### Fixed
+
+- A OneDrive or SharePoint backup that finally read files an earlier run had failed on counted them
+  as new files, so a backlog of a few hundred files looked like ransomware and paused retention.
+  Files the run catches up on (on the retry list, or last changed at the source before the previous
+  restore point) count apart now (`caughtUp` in the activity report), and a drive run's amount of
+  change counts files with new content instead of every object it wrote.
+
+### Upgrade Notes
+
+- Migration `0106_suspicion_unusual`: the verdict `unusual` and the column
+  `restore_point_suspicions.reclassified_at` (nullable, nothing rewritten); notification rules and
+  recipients that list `backup.suspicious` get `backup.unusual_change` added (webhooks keep their
+  list).
+- After the update the worker turns every suspicious judgement whose findings are the amount of
+  change alone, and that nobody marked as a false alarm, into unusual, once, audited as
+  `suspicion.reclassified`; its retention hold ends with it.
+
 ## [0.5.3-rc.1] - 2026-11-20
 
 Pre-release for testing on real machines. Not for production; the stable release is 0.5.2.

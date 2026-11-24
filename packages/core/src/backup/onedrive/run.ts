@@ -391,11 +391,16 @@ export function compareWithPrevious(
  * files new, changed (a changed `path` with it is a rename), renamed without a change of
  * content, and gone, against the previous snapshot. Folders, shortcuts and versions do not count.
  * The entropy samples the run measured while it downloaded join the report.
+ *
+ * `caughtUp` names the files this run caught up on (0.5.4): an earlier run failed on them, or
+ * the source last changed them before the previous snapshot was taken, so the previous snapshot
+ * lacked them or held an older copy. They count apart from new and changed files.
  */
 export function driveActivity(
   previous: ReadonlyMap<string, ManifestObject>,
   objects: readonly ManifestObject[],
   collector: ActivityCollector = new ActivityCollector(),
+  caughtUp: (id: string) => boolean = () => false,
 ): ActivityReport {
   const isFile = (object: ManifestObject) => object.type === ONEDRIVE_OBJECT_TYPES.file;
   const present = new Set<string>();
@@ -403,7 +408,10 @@ export function driveActivity(
     if (!isFile(object) || object.id === undefined) continue;
     present.add(object.id);
     const before = previous.get(object.id);
-    if (!before || !isFile(before)) {
+    const contentChanged = !before || !isFile(before) || before.sha256 !== object.sha256;
+    if (contentChanged && caughtUp(object.id)) {
+      collector.fileCaughtUp(object.path);
+    } else if (!before || !isFile(before)) {
       collector.fileAdded(object.path);
     } else if (before.sha256 !== object.sha256) {
       collector.fileModified(object.path, before.path !== object.path ? before.path : undefined);
@@ -495,6 +503,11 @@ export interface RunInput {
   readonly writer: SnapshotWriter;
   /** The last committed snapshot of this drive (its objects, paths relative to the drive), if any. */
   readonly previous: Pick<SnapshotManifest, "objects"> | null;
+  /**
+   * When that snapshot was taken (epoch ms): a file the source last changed before it, which the
+   * snapshot lacked or held older, is one this run catches up on (docs/RANSOMWARE.md).
+   */
+  readonly previousAt?: number;
   readonly plan: RunPlan;
   readonly settings: RunSettings;
   readonly logger: Logger;
@@ -523,6 +536,11 @@ export class DriveBackupRun {
   private readonly sourceProbe: DriveSourceProbe | undefined;
   private readonly tree: DriveTree;
   private readonly previousById = new Map<string, ManifestObject>();
+  private readonly previousAt: number | undefined;
+  /** The files an earlier run failed on (the retry list this run started with). */
+  private readonly retriedIds: ReadonlySet<string>;
+  /** When the source last changed each file this run downloaded (Graph's own time, epoch ms). */
+  private readonly sourceModified = new Map<string, number>();
   private readonly pool = new ContentPool();
   private readonly activity = new ActivityCollector();
 
@@ -564,6 +582,8 @@ export class DriveBackupRun {
     this.retryOverflow = input.plan.retryOverflow;
     this.lastCheckpointAt = this.now();
     this.sink = input.sink ?? writerSink(input.writer, input.driveId);
+    this.previousAt = input.previousAt;
+    this.retriedIds = new Set(input.plan.retryIds);
     this.sourceProbe = input.sourceProbe;
 
     for (const object of input.previous?.objects ?? []) {
@@ -730,6 +750,20 @@ export class DriveBackupRun {
     this.logger.info("restarted the enumeration from scratch", { droppedObjects: dropped.length });
   }
 
+  /**
+   * Whether this run caught up on the file rather than saw it change (docs/RANSOMWARE.md): an
+   * earlier run failed on it (the retry list this run started with), or the source last changed
+   * it before the previous snapshot was taken. The source's own `lastModifiedDateTime` counts,
+   * not the client's `fileSystemInfo`, which an uploading program sets as it likes.
+   */
+  private caughtUpOn(id: string): boolean {
+    if (this.retriedIds.has(id)) {
+      return true;
+    }
+    const modified = this.sourceModified.get(id);
+    return this.previousAt !== undefined && modified !== undefined && modified < this.previousAt;
+  }
+
   /** The drive's final objects into the sink, and the state the next run continues from. */
   private finish(outcome: DriveWalkOutcome): DriveRunOutcome {
     const tree = this.tree.materialize({ cascadeDeletions: true });
@@ -740,7 +774,7 @@ export class DriveBackupRun {
     // A first backup has nothing to compare with: every file would be "new".
     const activity =
       this.previousById.size > 0
-        ? driveActivity(this.previousById, tree.objects, this.activity)
+        ? driveActivity(this.previousById, tree.objects, this.activity, (id) => this.caughtUpOn(id))
         : undefined;
 
     const state: OneDriveManifestState = {
@@ -1065,6 +1099,12 @@ export class DriveBackupRun {
       this.activity.addEntropy(entropySampleOf(path, content.size, head, tail));
     }
     this.tree.put(fileObject(stored, path, content, { now, contentType }), placement);
+    const sourceModified = stored.lastModifiedDateTime
+      ? Date.parse(stored.lastModifiedDateTime)
+      : Number.NaN;
+    if (!Number.isNaN(sourceModified)) {
+      this.sourceModified.set(item.id, sourceModified);
+    }
     this.downloaded++;
     this.bytesSinceCheckpoint += content.size;
     this.ctx.progress.advance(1, content.size);

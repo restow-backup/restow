@@ -376,6 +376,47 @@ describe("renderAlert", () => {
     }
   });
 
+  it("calls only far more changes than usual a warning, with what changed and retention going on (0.5.4)", () => {
+    const unusual = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Ransomware",
+        payload: {
+          event: "backup.unusual_change",
+          occurredAt: "2026-11-24T11:34:00.000Z",
+          details: {
+            objectName: "Frauke Weißmann",
+            restorePointAt: "2026-11-24T11:32:00.000Z",
+            findings: [{ code: "change_rate_items", value: 539, threshold: 500, baseline: 3 }],
+            breakdown: {
+              added: 2,
+              modified: 1,
+              caughtUp: 536,
+              removed: 0,
+              renamed: 0,
+              sampled: 8,
+              sampledEncrypted: 0,
+            },
+            retentionHeld: false,
+          },
+        },
+      });
+    const english = unusual("en");
+    expect(english.subject).toBe(
+      "[Contoso] Unusually many changes (no signs of encryption): Frauke Weißmann",
+    );
+    expect(english.text).toContain("What changed: New files: 2; Files with new content: 1;");
+    expect(english.text).toContain("Caught up (an earlier backup could not read them");
+    expect(english.text).toContain("Sampled files that look encrypted: 0 of 8");
+    expect(english.text).toContain("Retention: Goes on");
+    expect(english.text).not.toContain("Paused");
+    const german = unusual("de");
+    expect(german.subject).toContain("Ungewöhnlich viele Änderungen");
+    expect(german.text).toContain("Nachgeholt (eine frühere Sicherung konnte sie nicht lesen");
+    expect(german.text).toContain("Einordnung: Kein Anzeichen von Verschlüsselung");
+  });
+
   it("says since when retention of a held object is paused", () => {
     const reminder = (language: "en" | "de") =>
       renderAlert({

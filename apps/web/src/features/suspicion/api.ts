@@ -32,6 +32,17 @@ export interface SuspicionFinding {
   examples?: string[];
 }
 
+/** What a backup run changed (`metrics.breakdown` on the server). */
+export interface SuspicionBreakdown {
+  added: number;
+  modified: number;
+  caughtUp: number;
+  removed: number;
+  renamed: number;
+  sampled: number;
+  sampledEncrypted: number;
+}
+
 export interface Suspicion {
   id: string;
   objectKind: SuspicionObjectKind;
@@ -39,10 +50,15 @@ export interface Suspicion {
   runId: string;
   restorePointId: string;
   restorePointAt: string;
-  verdict: "none" | "suspicious";
+  /** `unusual` (0.5.4): only the amount of change was far off; a warning that holds nothing. */
+  verdict: "none" | "unusual" | "suspicious";
   /** Suspicious, and nobody called it a false alarm. */
   active: boolean;
   findings: SuspicionFinding[];
+  /** What the run changed (0.5.4 on, runs with an activity report). */
+  breakdown?: SuspicionBreakdown | null;
+  /** When an earlier suspicious judgement of the amount of change alone became unusual. */
+  reclassifiedAt?: string | null;
   signals: Partial<Record<Signal, SignalState>>;
   signaturesVersion: string;
   alerted: boolean;

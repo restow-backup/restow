@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime } from "@/lib/format";
 
 import "../i18n";
-import { SIGNALS, type SignalState, type Suspicion } from "../api";
+import { SIGNALS, type SignalState, type Suspicion, type SuspicionBreakdown } from "../api";
 import { useMarkFalseAlarm, useRevokeFalseAlarm, useSuspicionScope } from "../hooks";
 import { findingMessage } from "../presenters";
 
@@ -45,8 +45,32 @@ export function FindingList({ judgement }: { judgement: Suspicion }) {
   );
 }
 
+/** What the run changed (0.5.4): new, changed, caught up, removed, renamed, and the samples. */
+export function BreakdownList({ breakdown }: { breakdown: SuspicionBreakdown }) {
+  const { t } = useTranslation("suspicion");
+  const lines: string[] = [
+    t("breakdown.added", { count: breakdown.added }),
+    t("breakdown.modified", { count: breakdown.modified }),
+  ];
+  if (breakdown.caughtUp > 0) lines.push(t("breakdown.caughtUp", { count: breakdown.caughtUp }));
+  if (breakdown.removed > 0) lines.push(t("breakdown.removed", { count: breakdown.removed }));
+  if (breakdown.renamed > 0) lines.push(t("breakdown.renamed", { count: breakdown.renamed }));
+  lines.push(
+    breakdown.sampled > 0
+      ? t("breakdown.sampled", { encrypted: breakdown.sampledEncrypted, count: breakdown.sampled })
+      : t("breakdown.noSamples"),
+  );
+  return (
+    <ul className="list-disc space-y-1 pl-5 text-sm" data-slot="suspicion-breakdown">
+      {lines.map((line) => (
+        <li key={line}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * Why a restore point is suspicious (or was): its findings with their numbers, which signals
+ * Why a restore point is suspicious or unusual (or was): its findings with their numbers, which signals
  * could be judged, the limits of the detection, and the false alarm: an administrator can mark
  * it (with a note, audited) or take a mark back.
  */
@@ -69,6 +93,9 @@ export function SuspicionDialog({
   const [confirming, setConfirming] = React.useState(false);
   const noteId = React.useId();
   const time = formatDateTime(judgement.restorePointAt, i18n.language) ?? judgement.restorePointAt;
+  const unusual = judgement.verdict === "unusual";
+  // Suspicious and not resolved, or unusual and not marked as normal: it can be marked.
+  const markable = judgement.active || (unusual && judgement.falseAlarm === null);
 
   React.useEffect(() => {
     if (!open) {
@@ -102,15 +129,33 @@ export function SuspicionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg" data-slot="suspicion-dialog">
         <DialogHeader>
-          <DialogTitle>{t("details.title")}</DialogTitle>
+          <DialogTitle>{unusual ? t("details.unusualTitle") : t("details.title")}</DialogTitle>
           <DialogDescription>{t("details.restorePoint", { time })}</DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-4">
+          {unusual ? (
+            <p className="text-sm" data-slot="unusual-intro">
+              {t("details.unusualIntro")}
+            </p>
+          ) : null}
           {judgement.findings.length > 0 ? (
             <section className="space-y-2">
               <h3 className="text-sm font-medium">{t("details.findings")}</h3>
               <FindingList judgement={judgement} />
             </section>
+          ) : null}
+          {judgement.breakdown ? (
+            <section className="space-y-2">
+              <h3 className="text-sm font-medium">{t("details.breakdown")}</h3>
+              <BreakdownList breakdown={judgement.breakdown} />
+            </section>
+          ) : null}
+          {judgement.reclassifiedAt ? (
+            <p className="text-sm text-muted-foreground" data-slot="reclassified-mark">
+              {t("details.reclassified", {
+                time: formatDateTime(judgement.reclassifiedAt, i18n.language) ?? "",
+              })}
+            </p>
           ) : null}
           {judgement.falseAlarm ? (
             <p className="text-sm text-muted-foreground" data-slot="false-alarm-mark">
@@ -152,9 +197,13 @@ export function SuspicionDialog({
           <p className="text-xs text-muted-foreground">{t("details.limits")}</p>
           {confirming ? (
             <div className="space-y-2 rounded-md border p-3" data-slot="false-alarm-form">
-              <p className="text-sm font-medium">{t("falseAlarm.title")}</p>
+              <p className="text-sm font-medium">
+                {unusual ? t("falseAlarm.normalTitle") : t("falseAlarm.title")}
+              </p>
               <p className="text-sm text-muted-foreground">
-                {t("falseAlarm.description", { object: objectName })}
+                {unusual
+                  ? t("falseAlarm.normalDescription", { object: objectName })
+                  : t("falseAlarm.description", { object: objectName })}
               </p>
               <Label htmlFor={noteId}>{t("falseAlarm.note")}</Label>
               <Textarea
@@ -179,9 +228,9 @@ export function SuspicionDialog({
             </>
           ) : (
             <>
-              {canMarkFalseAlarm && judgement.active ? (
+              {canMarkFalseAlarm && markable ? (
                 <Button variant="outline" onClick={() => setConfirming(true)}>
-                  {t("falseAlarm.action")}
+                  {unusual ? t("falseAlarm.normalAction") : t("falseAlarm.action")}
                 </Button>
               ) : null}
               {canMarkFalseAlarm && judgement.falseAlarm ? (
