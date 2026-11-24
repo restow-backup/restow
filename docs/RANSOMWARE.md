@@ -283,7 +283,7 @@ amount of change alone, and that nobody called a false alarm, into `unusual`, on
 (`reclassified_at`, audited as `suspicion.reclassified` with actor `system`). Its retention hold
 ends with it. Judgements with a content finding next to the amount stay suspicious. Notification
 rules and recipients that listed `backup.suspicious` list `backup.unusual_change` as well
-(migration `0106_suspicion_unusual`); webhooks keep their list.
+(migration `0106_suspicion_unusual`), so a webhook a rule delivers to gets it too.
 
 ## The activity report (agent protocol)
 

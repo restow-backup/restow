@@ -1,6 +1,6 @@
 {
   "name": "@restow/core",
-  "version": "0.5.3-rc.1",
+  "version": "0.5.4",
   "private": true,
   "type": "module",
   "description": "Restow open storage format: content-defined chunking, per-tenant crypto and the encrypted pack store.",

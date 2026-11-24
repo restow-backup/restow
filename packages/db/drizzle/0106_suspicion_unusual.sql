@@ -11,8 +11,9 @@ ALTER TABLE "restore_point_suspicions" ADD CONSTRAINT "restore_point_suspicions_
 -- Data migration: whoever is told about `backup.suspicious` is told about the new warning
 -- `backup.unusual_change` as well, which takes over the findings of the amount of change alone.
 -- Rules and tenant recipients force RLS even for their owner (sql/rls.sql), so the force is lifted
--- for this update; sql/rls.sql applies it again after every migration run. Webhooks keep their
--- list: a receiver opts into a new event type itself.
+-- for this update; sql/rls.sql applies it again after every migration run. A webhook that a rule
+-- delivers to follows its rule; webhook subscriptions name wire events (job.*, verify.completed)
+-- and are not touched.
 ALTER TABLE "report_rules" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "tenant_notification_recipients" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 UPDATE "report_rules" SET "events" = array_append("events", 'backup.unusual_change')
