@@ -12,6 +12,7 @@ export const REPORT_EVENTS = [
   "backup.overdue",
   "backup.succeeded",
   "backup.suspicious",
+  "backup.unusual_change",
   "backup.suspicious_hold",
   "restore.failed",
   "restore.completed",
@@ -103,6 +104,11 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // the object's baseline, mass deletions or extension renames, known ransomware extensions or
   // ransom notes, sampled files that look encrypted. Once per object and episode.
   "backup.suspicious": { group: "recoverability", level: "error", critical: true },
+  // 0.5.4: a backup changed far more than the object usually does, without any sign of what
+  // ransomware does to content (no encrypted-looking samples, known extensions, notes, renames,
+  // mass deletions or incompressible data): a backlog, a migration or a large upload look the
+  // same. A warning without a retention hold, once per object and episode.
+  "backup.unusual_change": { group: "recoverability", level: "warning" },
   // Retention of an object with a suspicious restore point is still paused after
   // `retentionHold.reminderDays` (14), and every that many days after: nobody resolved it.
   "backup.suspicious_hold": { group: "recoverability", level: "warning" },

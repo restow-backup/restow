@@ -182,6 +182,31 @@ try {
         if (-not (Test-Path $key)) { return $false }
         return $null -ne (Get-ItemProperty -Path $key -Name $Name -ErrorAction SilentlyContinue)
     }
+    # Why a setup failed (0.5.4): some hosted runners end the install with 0x851A001A, "Wait on
+    # the Database Engine recovery handle failed". One known cause is a disk whose physical sector
+    # is larger than 4 KiB, which SQL Server refuses; the sector sizes of the runner's disks, the
+    # tail of the setup summary and of the instance's error log tell whether that is it.
+    function Write-SetupDiagnostics([string]$Instance) {
+        foreach ($drive in @('C:', 'D:')) {
+            if (-not (Test-Path "$drive\")) { continue }
+            Write-Host "---- sector sizes of $drive"
+            fsutil fsinfo sectorinfo $drive 2>&1 |
+                Select-String 'LogicalBytesPerSector|PhysicalBytesPerSectorForAtomicity|PhysicalBytesPerSectorForPerformance' |
+                ForEach-Object { Write-Host $_.Line.Trim() }
+        }
+        $summary = Get-ChildItem 'C:\Program Files\Microsoft SQL Server\*\Setup Bootstrap\Log\Summary.txt' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime | Select-Object -Last 1
+        if ($summary) {
+            Write-Host "---- $($summary.FullName) (end)"
+            Get-Content $summary.FullName -Tail 40 | ForEach-Object { Write-Host $_ }
+        }
+        $errorLog = Get-ChildItem "C:\Program Files\Microsoft SQL Server\MSSQL*.$Instance\MSSQL\Log\ERRORLOG" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($errorLog) {
+            Write-Host "---- $($errorLog.FullName) (end)"
+            Get-Content $errorLog.FullName -Tail 40 | ForEach-Object { Write-Host $_ }
+        }
+    }
     $media = Join-Path $WorkDir 'media'
     if (-not ((Test-Instance 'SQLEXPRESS') -and (Test-Instance 'RESTOWB'))) {
         New-Item -ItemType Directory -Force -Path $media | Out-Null
@@ -209,7 +234,10 @@ try {
             $setupArgs = @('/Q', '/ACTION=Install', '/FEATURES=SQLEngine', "/INSTANCENAME=$inst", "/SQLSYSADMINACCOUNTS=$runner",
                 '/IACCEPTSQLSERVERLICENSETERMS', '/UPDATEENABLED=0', '/TCPENABLED=0', '/NPENABLED=0')
             $p = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
-            if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "setup of $inst ended with exit code $($p.ExitCode)" }
+            if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
+                Write-SetupDiagnostics $inst
+                throw ("setup of $inst ended with exit code $($p.ExitCode) (0x{0:X8})" -f $p.ExitCode)
+            }
         }
         # Nothing from Microsoft stays behind for an artifact or a cache.
         Remove-Item -Recurse -Force $media -ErrorAction SilentlyContinue

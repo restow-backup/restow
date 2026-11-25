@@ -602,6 +602,7 @@ describe("toStoredBackupResult", () => {
       modified: 1,
       removed: 0,
       renamed: 0,
+      caughtUp: 0,
       extensions: [],
       names: [],
       entropy: [],

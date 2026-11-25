@@ -6,6 +6,9 @@
  * summary, never a file list:
  *
  *   added, modified, removed   file counts against the previous restore point
+ *   caughtUp                   files the previous restore point lacked or held stale although
+ *                              they were not changed since: an earlier backup could not read
+ *                              them (0.5.4; not part of `added` or `modified`)
  *   renamed                    files whose extension changed or got one appended
  *                              (`report.docx` → `report.docx.locked`)
  *   extensions                 the most frequent extensions of added and modified files
@@ -38,6 +41,14 @@ export interface ActivityReport {
   modified: number;
   removed: number;
   renamed: number;
+  /**
+   * Files this backup caught up on (0.5.4): new or with other content than the previous
+   * restore point although the source did not change them since it, because an earlier backup
+   * failed on them (its retry list) or never got to them. Counted apart from `added` and
+   * `modified`, so a backlog that finally comes through does not look like an attack. 0 from a
+   * runner that does not tell them apart.
+   */
+  caughtUp: number;
   extensions: ActivityCount[];
   names: ActivityCount[];
   entropy: EntropySample[];
@@ -118,6 +129,7 @@ export function parseActivityReport(value: unknown): ActivityReport | null {
     modified: count(raw.modified),
     removed: count(raw.removed),
     renamed: count(raw.renamed),
+    caughtUp: count(raw.caughtUp),
     extensions: counts(raw.extensions, ACTIVITY_MAX_EXTENSIONS),
     names: counts(raw.names, ACTIVITY_MAX_NAMES),
     entropy: samples(raw.entropy),
@@ -168,6 +180,7 @@ export class ActivityCollector {
   private modified = 0;
   private removed = 0;
   private renamed = 0;
+  private caughtUp = 0;
   private readonly extensions = new Map<string, number>();
   private readonly names = new Map<string, number>();
   private readonly entropy: EntropySample[] = [];
@@ -209,6 +222,17 @@ export class ActivityCollector {
     }
   }
 
+  /**
+   * A file new or with other content than the previous restore point that the source did not
+   * change since it: an earlier backup failed on it or never reached it. Its name still counts
+   * (a known ransomware extension or a note stays visible), its number does not join `added` or
+   * `modified`.
+   */
+  fileCaughtUp(path: string): void {
+    this.caughtUp++;
+    this.countName(path, true);
+  }
+
   filesRemoved(n: number): void {
     this.removed += Math.max(0, Math.floor(n));
   }
@@ -231,6 +255,7 @@ export class ActivityCollector {
       modified: this.modified,
       removed: this.removed,
       renamed: this.renamed,
+      caughtUp: this.caughtUp,
       extensions: top(this.extensions, ACTIVITY_MAX_EXTENSIONS),
       names: top(this.names, ACTIVITY_MAX_NAMES),
       entropy: [...this.entropy],

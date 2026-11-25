@@ -11,6 +11,7 @@ export const REPORT_EVENTS = [
   "backup.overdue",
   "backup.succeeded",
   "backup.suspicious",
+  "backup.unusual_change",
   "backup.suspicious_hold",
   "restore.failed",
   "restore.completed",

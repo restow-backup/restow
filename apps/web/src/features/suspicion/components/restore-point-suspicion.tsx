@@ -40,7 +40,7 @@ export function RestorePointSuspicion<P extends PointRef>({
     <div className="space-y-2" data-slot="restore-point-suspicion">
       <RetentionHoldNotice target={target} objectName={objectName} />
       <LastCleanHint points={points} judgements={judgements} onPick={onPick} />
-      {selected && judgement?.verdict === "suspicious" ? (
+      {selected && judgement && judgement.verdict !== "none" ? (
         <div className="flex flex-wrap items-center gap-2">
           <SuspicionBadge judgement={judgement} objectName={objectName} />
           <SelectedPointNote point={selected} points={points} judgements={judgements} />

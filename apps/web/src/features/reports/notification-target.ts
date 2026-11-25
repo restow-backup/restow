@@ -38,6 +38,11 @@ export interface TargetViewer {
 const text = (value: unknown): string | null =>
   typeof value === "string" && value.length > 0 ? value : null;
 
+/** The ransomware events that point at a restore point (suspicious, its hold, unusual: 0.5.4). */
+function isSuspicionEvent(event: string): boolean {
+  return event.startsWith("backup.suspicious") || event === "backup.unusual_change";
+}
+
 export function notificationTarget(
   item: Pick<BellNotification, "event" | "details" | "tenantId">,
   viewer: TargetViewer,
@@ -120,12 +125,12 @@ export function notificationTarget(
   }
   // A file share: its restore points, where the suspicious ones are marked.
   const shareId = text(details.fileShareId);
-  if (shareId && item.event.startsWith("backup.suspicious")) {
+  if (shareId && isSuspicionEvent(item.event)) {
     return at(`${FILE_SHARES_PATH}/${encodeURIComponent(shareId)}?tab=restore-points`);
   }
   // A suspicious mailbox or OneDrive: the explorer at that account, its restore points marked.
   const objectId = text(details.protectedObjectId);
-  if (objectId && item.event.startsWith("backup.suspicious")) {
+  if (objectId && isSuspicionEvent(item.event)) {
     return at(`${RESTORE_PATHS.explorer}?object=${encodeURIComponent(objectId)}`);
   }
   // An alert of the archive capture: the archive page at the section that shows it.

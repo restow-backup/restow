@@ -47,6 +47,41 @@ describe("what a OneDrive run changed, for the ransomware signals", () => {
     expect(report.extensions).toContainEqual({ value: "locked", count: 2 });
   });
 
+  it("counts the files it caught up on apart from new and changed ones (0.5.4)", () => {
+    const previous = new Map(
+      [file("a", "Docs/a.docx", "1"), file("b", "Docs/b.docx", "2")].map((object) => [
+        object.id as string,
+        object,
+      ]),
+    );
+    const caughtUp = new Set(["late", "b", "note"]);
+    const report = driveActivity(
+      previous,
+      [
+        // Changed since the previous snapshot: still a change.
+        file("a", "Docs/a.docx", "9"),
+        // The previous snapshot held an older copy the source had replaced before it.
+        file("b", "Docs/b.docx", "8"),
+        // An earlier run failed on it; it came through now.
+        file("late", "Docs/old-report.pdf", "7"),
+        // New since the previous snapshot.
+        file("new", "Docs/new.xlsx", "6"),
+        // Caught up on, but a ransom note's name stays visible.
+        file("note", "Docs/HOW_TO_DECRYPT.txt", "5"),
+      ],
+      new ActivityCollector(),
+      (id) => caughtUp.has(id),
+    );
+    expect(report).toMatchObject({ added: 1, modified: 1, caughtUp: 3, removed: 0 });
+    expect(report.names).toEqual([{ value: "HOW_TO_DECRYPT.txt", count: 1 }]);
+  });
+
+  it("never counts an unchanged file as caught up", () => {
+    const previous = new Map([[`a`, file("a", "Docs/a.docx", "1")]]);
+    const report = driveActivity(previous, [file("a", "Docs/a.docx", "1")], undefined, () => true);
+    expect(report).toMatchObject({ added: 0, modified: 0, caughtUp: 0 });
+  });
+
   it("keeps the entropy samples the run measured", () => {
     const collector = new ActivityCollector();
     collector.addEntropy({ path: "Docs/x.txt", ext: "txt", size: 10, head: 7.99, tail: null });

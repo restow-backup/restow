@@ -697,8 +697,8 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Hinweis: Die Erkennung ist laut docs/RANSOMWARE.md nur mit nachgestellten Angriffen geprüft, nicht gegen echte Schadsoftware.
 
 ### RETAIN-012
-- Aussage: Ein verdächtiger Sicherungsstand löst `backup.suspicious` einmal je Episode aus. Eine Aufbewahrungssperre, die nach 14 Tagen noch offen ist, wird mit `backup.suspicious_hold` erneut gemeldet.
-- Fundstelle: docs/RANSOMWARE.md (Abschnitte „Results, episodes and alerts“ und „Retention hold“, „It never goes on silently“)
+- Aussage: Ein verdächtiger Sicherungsstand löst `backup.suspicious` einmal je Episode aus. Eine Aufbewahrungssperre, die nach 14 Tagen noch offen ist, wird mit `backup.suspicious_hold` erneut gemeldet. Seit 0.5.4 löst ein Sicherungsstand, bei dem nur die Menge der Änderungen auffällt (ohne inhaltliches Anzeichen), die Warnung `backup.unusual_change` aus und hält die Aufbewahrung nicht an.
+- Fundstelle: docs/RANSOMWARE.md (Abschnitte „Results, episodes and alerts“, „Unusual amounts of change“ und „Retention hold“, „It never goes on silently“)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: apps/worker/src/suspicion/scan.pg.test.ts
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
