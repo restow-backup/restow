@@ -686,6 +686,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Tests: packages/core/src/storage/write-once.test.ts, apps/worker/src/pve/maintenance.pg.test.ts, packages/core/src/endpoints/restic-rest.test.ts
 - Belegt gegen: Simulator (Verzeichnis, das Überschreiben und Löschen wie eine WORM-Freigabe ablehnt, Job test in ci.yml; keine echte WORM-Freigabe eines NAS)
 - Stand: belegt
+- Hinweis: Bis 0.5.4 brach jede Sicherung, die länger als 22,5 Minuten lief, auf einem solchen Repository ab (restic erneuert seine Sperre durch Löschen der alten Sperrdatei; gefunden auf einer Synology-Freigabe mit WriteOnce). Seit 0.5.5 wird das abgelehnte Entfernen einer Sperrdatei als erledigt beantwortet. Ein Lauf über 22,5 Minuten gegen eine echte WORM-Freigabe steht noch aus.
 
 ### RETAIN-011
 - Aussage: Solange ein Objekt einen verdächtigen Sicherungsstand hat, den niemand aufgelöst hat, löscht die Aufbewahrung keinen Sicherungsstand dieses Objekts. Die Sperre endet nur durch einen Administrator, nie durch einen späteren sauberen Sicherungsstand.

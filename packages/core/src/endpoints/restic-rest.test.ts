@@ -259,7 +259,7 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(missing.response.status).toBe(404);
   });
 
-  it("answers 403 when the storage refuses deletes (write-once share), so restic stops at once [RETAIN-010]", async () => {
+  it("answers 403 when the storage refuses deletes (write-once share), so restic stops at once, but a lock as released [RETAIN-010]", async () => {
     // A 500 restic would try again for a quarter of an hour per file (restic unlock on a
     // write-once share: the PVE pass held up for an hour); a 403 it takes as final.
     class WriteOnceStorage extends MemoryStorage {
@@ -272,13 +272,39 @@ describe("restic REST protocol on the storage abstraction", () => {
     const storage = new WriteOnceStorage();
     const lock = Buffer.from("lock");
     await call(storage, "maintenance", "POST", `/locks/${sha256(lock)}`, { body: lock });
-    const refused = await call(storage, "maintenance", "DELETE", `/locks/${sha256(lock)}`);
+    // A lock is answered as released: restic renews its lock every 5 minutes by removing the
+    // old one, and ends the whole backup when that keeps failing for 22.5 minutes.
+    const kept = await call(storage, "maintenance", "DELETE", `/locks/${sha256(lock)}`);
+    expect(kept.response.status).toBe(200);
+    expect(kept.allowed).toEqual([{ action: "delete", bytes: 0 }]);
+    expect(storage.files.size).toBe(1);
+    // The agent's own lock too, and its record stays with the file, so a later `restic unlock`
+    // of the same agent is answered the same way and is no attempt on a foreign lock.
+    const locks = lockRegistry();
+    const agentLock = Buffer.from("lock of the agent");
+    await call(storage, "agent", "POST", `/locks/${sha256(agentLock)}`, { body: agentLock, locks });
+    for (let i = 0; i < 2; i++) {
+      const released = await call(storage, "agent", "DELETE", `/locks/${sha256(agentLock)}`, {
+        locks,
+      });
+      expect(released.response.status).toBe(200);
+      expect(released.denied).toEqual([]);
+    }
+    expect(locks.names).toEqual(new Set([sha256(agentLock)]));
+    // A foreign lock stays refused.
+    const foreign = await call(storage, "agent", "DELETE", `/locks/${sha256(lock)}`, { locks });
+    expect(foreign.response.status).toBe(403);
+    expect(foreign.denied).toEqual([{ action: "delete", reason: "foreign_lock" }]);
+    // Everything else is refused for good.
+    const pack = Buffer.from("pack");
+    await call(storage, "maintenance", "POST", `/data/${sha256(pack)}`, { body: pack });
+    const refused = await call(storage, "maintenance", "DELETE", `/data/${sha256(pack)}`);
     expect(refused.response.status).toBe(403);
     expect((await refused.text()).toString()).toContain("refuses deletes");
-    expect(storage.files.size).toBe(1);
+    expect(storage.files.size).toBe(3);
     const repository = await call(storage, "maintenance", "DELETE", "/");
     expect(repository.response.status).toBe(403);
-    expect((await repository.text()).toString()).toContain("refuses to delete 1 objects");
+    expect((await repository.text()).toString()).toContain("refuses to delete 3 objects");
     // Anything else still fails as before (the listener answers 500).
     class BrokenStorage extends MemoryStorage {
       override async delete(): Promise<void> {

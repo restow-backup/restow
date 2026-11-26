@@ -8,6 +8,20 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [Unreleased]
+
+### Fixed
+
+- Backups on write-once storage (a NAS share with WORM, for example a Synology WriteOnce share,
+  or a bucket whose retention locks every object) no longer end after 22.5 minutes with
+  "Fatal: unable to save snapshot: context canceled" (exit code 130). restic renews its lock
+  every 5 minutes by removing the old lock file; the storage refused that, Restow passed the
+  refusal on as 403, and restic stopped the run when its lock could not be renewed. A refused
+  removal of a lock file is now answered as done (the file stays and goes stale), for machines,
+  Proxmox VE containers, file shares and the server's own restic runs alike; the server's pass
+  before maintenance leaves such locks in place instead of failing. Shorter backups were not
+  affected.
+
 ## [0.5.4] - 2026-11-24
 
 ### Summary
