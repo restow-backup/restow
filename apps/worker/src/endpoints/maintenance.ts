@@ -16,7 +16,9 @@
  */
 import {
   ensureEndpointPasswordFile,
+  isDeleteRefused,
   listLockFiles,
+  lockedErrorOf,
   locksToRemove,
   type RepositoryAccess,
   removeLockFiles,
@@ -67,12 +69,25 @@ export async function clearClientLocks(
       .map((row) => row.name),
   );
   const present = await listLockFiles(access.storage, access.prefix);
-  const removed = locksToRemove(present, {
+  const stale = locksToRemove(present, {
     agentLocks: clientLocks,
     agentActive: clientActive,
     now,
   });
-  await removeLockFiles(access.storage, access.prefix, removed);
+  // One by one: a lock the storage refuses to delete (write-once storage) stays, keeps its
+  // record (so the client's own `restic unlock` of it is answered as its own, see
+  // core/endpoints/restic-rest.ts) and is judged by its age; any other failure ends the pass.
+  const removed: string[] = [];
+  for (const name of stale) {
+    try {
+      await removeLockFiles(access.storage, access.prefix, [name]);
+      removed.push(name);
+    } catch (error) {
+      if (!isDeleteRefused(error) && lockedErrorOf(error) === null) {
+        throw error;
+      }
+    }
+  }
   const stillThere = new Set(
     present.map((lock) => lock.name).filter((name) => !removed.includes(name)),
   );

@@ -123,6 +123,12 @@ export interface ResticRestOptions {
   onStorageFull?: (event: { resource: ResticResource }) => void;
   /** Called for every request the authorization matrix refused. */
   onDenied?: (event: { action: ResticAction; resource: ResticResource; reason: string }) => void;
+  /**
+   * Called when a lock file could not be removed because the storage refuses deletes (a
+   * write-once share, a bucket whose retention locks every object) and was answered as released
+   * all the same (see the delete case of {@link handleResticRequest}).
+   */
+  onLockKept?: (event: { resource: ResticResource; key: string }) => void;
   /** The agent's lock files (see {@link ResticLockRegistry}); without it the agent deletes no lock. */
   locks?: ResticLockRegistry;
   /**
@@ -617,6 +623,24 @@ export async function handleResticRequest(
       try {
         await storage.delete(key);
       } catch (error) {
+        if (
+          resource.kind === "object" &&
+          resource.type === "locks" &&
+          (isDeleteRefused(error) || lockedErrorOf(error) !== null)
+        ) {
+          // A lock file on storage that refuses deletes (a write-once share, a bucket whose
+          // retention locks every object): answered as released. restic renews its lock every
+          // 5 minutes by writing a new one and removing the old one, and stops the whole run
+          // when the renewal keeps failing (after 22.5 minutes), so a refusal here would end
+          // every longer backup. The file stays and is stale 30 minutes after its last renewal;
+          // nothing that needs an exclusive lock (forget, prune, unlock) runs on such storage
+          // (docs/STORAGE.md, "Write-once storage"). No space was freed. The agent's record stays
+          // with the file, so a later `restic unlock` of the same agent is answered the same way
+          // instead of being refused as an attempt on someone else's lock.
+          options.onLockKept?.({ resource, key });
+          await options.onAllowed?.({ action, resource, bytes: 0 });
+          return new Response(null, { status: 200 });
+        }
         if (isDeleteRefused(error) || deletionsHeldErrorOf(error)) {
           // A write-once share, or deleting paused (restore mode): final, so restic gives up
           // at once instead of trying again.

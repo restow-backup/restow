@@ -896,9 +896,18 @@ found at runtime.
   the tenant). The settings are kept and apply again once the backups go to another repository.
 - **Repositories only grow.** Space never comes back; plan the capacity accordingly (Capacity
   planning shows the growth).
-- **Lock files stay.** restic writes a lock file for every backup and cannot remove it; Restow
-  judges locks by their age (stale after 30 minutes), runs no `restic unlock` there, and a restore
-  check runs `restic check --no-lock` (docs/PVE.md, "Retention" and "Restore check").
+- **Lock files stay, and are answered as removed.** restic writes a lock file for every run and
+  renews it every 5 minutes by writing a new one and removing the old one; when the renewal keeps
+  failing it stops the run after 22.5 minutes. So a removal the storage refuses (EPERM, EACCES,
+  EROFS, Object Lock) is answered with 200 for a lock file, and only for a lock file
+  (`packages/core/src/endpoints/restic-rest.ts`): restic carries on, the file stays and is stale
+  30 minutes after its last renewal. An agent's or runner's record of its own lock stays with the
+  file, so its later `restic unlock` is answered the same way and is no attempt on a foreign
+  lock; the server's pass before maintenance leaves such locks where they are as well. Until
+  0.5.5 the refusal reached restic as 403, and every backup longer than 22.5 minutes on
+  write-once storage ended with "context canceled" (exit code 130). Restow judges locks by their
+  age (stale after 30 minutes), runs no `restic unlock` there, and a restore check runs
+  `restic check --no-lock` (docs/PVE.md, "Retention" and "Restore check").
 - **A new chain goes to a fresh prefix.** A restic repository that must begin a new chain (a
   container after "Reset repository" or after the repository repair found it lost; a file share
   whose prefix holds data without `config` that no restore point refers to) cannot move the old

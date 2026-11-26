@@ -8,6 +8,65 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.5.5] - 2026-11-26
+
+### Summary
+
+Restow 0.5.5 lets backups on write-once storage (a NAS share with WORM, such as a Synology
+WriteOnce share, or a bucket whose retention locks every object) run longer than 22.5 minutes.
+Until now every such run ended with "Fatal: unable to save snapshot: context canceled" (exit code
+130), on Windows, macOS and Linux machines, Proxmox VE containers and file shares alike, because
+restic could not renew its lock.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+Nothing.
+
+### Changed
+
+- A lock file the storage refuses to delete stays and keeps its record; the server's clean-up of
+  locks before maintenance leaves it in place instead of failing (docs/STORAGE.md, "Write-once
+  storage").
+
+### Fixed
+
+- Backups on write-once storage (a NAS share with WORM, for example a Synology WriteOnce share,
+  or a bucket whose retention locks every object) no longer end after 22.5 minutes with
+  "Fatal: unable to save snapshot: context canceled" (exit code 130). restic renews its lock
+  every 5 minutes by removing the old lock file; the storage refused that, Restow passed the
+  refusal on as 403, and restic stopped the run when its lock could not be renewed. A refused
+  removal of a lock file is now answered as done (the file stays and goes stale), for machines,
+  Proxmox VE containers, file shares and the server's own restic runs alike; the server's pass
+  before maintenance leaves such locks in place instead of failing. Shorter backups were not
+  affected.
+
+### Security
+
+Nothing new. Data and snapshot files on write-once storage stay undeletable; only the removal of
+a lock file is answered as done, and an agent still cannot touch another agent's or the server's
+lock.
+
+### Upgrade Notes
+
+New images; the `docker-compose.yml` of 0.5.2 stays, and there is no database migration. The fix
+is on the server: the agents of existing machines need no update. An installation on 0.5.4 or
+0.5.3-rc.1 updates as well (channel `beta` or `stable`). Lock files that earlier runs left on
+write-once storage stay where they are and are stale; they block nothing.
+
+### Known Issues
+
+- The fix has been checked against a directory that refuses deletes like a WORM share; a run of
+  more than 22.5 minutes against a real WORM share of a NAS is still to be done.
+- The known issues of 0.5.4 still apply.
+
+### Verification
+
+To be filled by the release pipeline.
+
 ## [0.5.4] - 2026-11-24
 
 ### Summary
