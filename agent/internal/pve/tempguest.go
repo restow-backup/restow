@@ -501,6 +501,7 @@ func (b *BootTester) owned(ctx context.Context, kind string, vmid int, m *tempMa
 	if err != nil {
 		return ownershipUnknown, "the guests of the cluster are unknown: " + err.Error()
 	}
+	members := b.poolMembers()
 	var res *Resource
 	for i := range guests {
 		if guests[i].VMID == vmid {
@@ -510,7 +511,7 @@ func (b *BootTester) owned(ctx context.Context, kind string, vmid int, m *tempMa
 	if res != nil && res.Node != b.State.NodeName {
 		return notOurs, "it runs on node " + res.Node
 	}
-	if res != nil && res.Pool == BootTestPool && tempTagged(*res) {
+	if res != nil && inTempPool(*res, members) && tempTagged(*res) {
 		return ours, ""
 	}
 	if m == nil {
@@ -525,7 +526,7 @@ func (b *BootTester) owned(ctx context.Context, kind string, vmid int, m *tempMa
 		// task the marker names, and no other restore runs for the VMID.
 		return b.ownedWhileCreated(ctx, vmid, m)
 	}
-	if res == nil || res.Pool != BootTestPool {
+	if res == nil || !inTempPool(*res, members) {
 		return notOurs, "it is not in the pool " + BootTestPool
 	}
 	if m.CTime != 0 && metaCTime(conf) == m.CTime {
@@ -785,9 +786,10 @@ func (b *BootTester) Cleanup(ctx context.Context) bool {
 		return false
 	}
 	// A tagged guest of this node in the pool is ours (owned): one that stays is tried again.
+	members := b.poolMembers()
 	done := true
 	for _, g := range guests {
-		if g.Node != b.State.NodeName || g.Pool != BootTestPool || skip[g.VMID] {
+		if g.Node != b.State.NodeName || !inTempPool(g, members) || skip[g.VMID] {
 			continue
 		}
 		if !tempTagged(g) {
@@ -814,6 +816,49 @@ func (b *BootTester) leftovers() bool {
 		}
 	}
 	return false
+}
+
+// pveUserConfig holds the cluster's users, groups and pools (tests point it elsewhere).
+const pveUserConfig = "/etc/pve/user.cfg"
+
+// poolMembers are the VMIDs of the pool BootTestPool as /etc/pve/user.cfg names them
+// (`pool:<id>:<comment>:<vmid,...>:<storage,...>:`), read as root. The cluster's resource list
+// names a guest's pool only to a caller with Pool.Audit on it, which the node's API token does not
+// need for backups (RequiredPrivileges): without this every temporary guest looked as if it were
+// outside the pool and was left behind. Empty when the file cannot be read; the resource list's
+// own pool still counts then.
+func (b *BootTester) poolMembers() map[int]bool {
+	path := b.UserConfig
+	if path == "" {
+		path = pveUserConfig
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return parsePoolMembers(string(data), BootTestPool)
+}
+
+// parsePoolMembers reads the VMIDs of one pool from the text of a user.cfg.
+func parsePoolMembers(text, pool string) map[int]bool {
+	out := map[int]bool{}
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Split(strings.TrimSpace(line), ":")
+		if len(fields) < 4 || fields[0] != "pool" || fields[1] != pool {
+			continue
+		}
+		for _, id := range strings.Split(fields[3], ",") {
+			if n, err := strconv.Atoi(strings.TrimSpace(id)); err == nil {
+				out[n] = true
+			}
+		}
+	}
+	return out
+}
+
+// inTempPool: the guest is in the pool of temporary guests, by the resource list or user.cfg.
+func inTempPool(g Resource, members map[int]bool) bool {
+	return g.Pool == BootTestPool || members[g.VMID]
 }
 
 // tempTagged: the guest carries the tag and the name of a temporary guest of one purpose.

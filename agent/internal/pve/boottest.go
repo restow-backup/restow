@@ -203,7 +203,9 @@ type BootTester struct {
 	SysNet string
 	// StorageConfig is the cluster's storage configuration (default /etc/pve/storage.cfg).
 	StorageConfig string
-	Logf          func(string, ...any)
+	// UserConfig is the cluster's user and pool configuration (default /etc/pve/user.cfg).
+	UserConfig string
+	Logf       func(string, ...any)
 	// Poll is the interval of the status checks (default 5 s); TaskPoll the restore task's.
 	Poll     time.Duration
 	TaskPoll time.Duration

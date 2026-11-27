@@ -598,6 +598,7 @@ func newTester(t *testing.T, f *fakeNode) *BootTester {
 		MemAvailable:   func() (uint64, error) { return 64 << 30, nil },
 		ARCReclaimable: func() uint64 { return 0 },
 		BackupRunning:  func() bool { return false },
+		UserConfig:     filepath.Join(root, "user.cfg"),
 		Poll:           time.Millisecond, TaskPoll: time.Millisecond,
 		Now: (&steppingClock{now: time.Unix(1_900_000_000, 0)}).Now,
 	}
@@ -937,6 +938,40 @@ func TestCleanupRemovesOnlyTheBootTestsLeftovers(t *testing.T) {
 	}
 	if b.readMarker(9104) != nil {
 		t.Fatal("the marker that names another guest is kept")
+	}
+}
+
+// The node's API token has no Pool.Audit, so the cluster's resource list names no pool for the
+// temporary guests (pmx02, November 2026: thirty containers left behind). user.cfg, read as
+// root, names the pool's members; a guest it does not name stays.
+func TestCleanupFindsThePoolInUserCfgWhenTheAPIHidesIt(t *testing.T) {
+	f := newFakeNode()
+	b := newTester(t, f)
+	tagged := func(name string) map[string]string {
+		return map[string]string{"hostname": name, "tags": BootTestTag}
+	}
+	f.guests[125] = &fakeGuest{kind: "ct", node: "pve1", pool: "", conf: tagged("restow-boottest-112")}
+	f.guests[154] = &fakeGuest{kind: "ct", node: "pve1", pool: "", conf: tagged("restow-boottest-109")}
+	f.guests[160] = &fakeGuest{kind: "ct", node: "pve1", pool: "", conf: tagged("restow-boottest-110")}
+	cfg := "user:root@pam:1:0:::root@example.com:::\n" +
+		"pool:restow-restore:Restow restores:125,154:local-2:\n" +
+		"pool:prod::160::\n"
+	if err := os.WriteFile(b.UserConfig, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !b.Cleanup(context.Background()) {
+		t.Fatal("cleanup not done")
+	}
+	for _, gone := range []int{125, 154} {
+		if _, ok := f.guests[gone]; ok {
+			t.Errorf("%d not removed", gone)
+		}
+	}
+	if _, ok := f.guests[160]; !ok {
+		t.Error("160 (in another pool) removed")
+	}
+	if got := parsePoolMembers(cfg, "prod"); !got[160] || len(got) != 1 {
+		t.Errorf("prod members %v", got)
 	}
 }
 

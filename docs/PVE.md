@@ -892,7 +892,12 @@ The monthly restore test of a backup job (`restoreTest`) and a boot test restore
   in the pool without that proof is never touched (real restores land there too; a VMID may
   have been given to another guest since): its marker is dropped and the log says why. When
   PVE cannot be asked (the node boots, pveproxy restarts, an API error), that proves nothing
-  either way: the guest is not touched, its marker stays, and the service tries again.
+  either way: the guest is not touched, its marker stays, and the service tries again. Whether
+  a guest is in `restow-restore` comes from the cluster's resource list or from
+  `/etc/pve/user.cfg`, which the service reads as root: the resource list names a guest's pool
+  only to a caller with `Pool.Audit` on it, which the node's token does not hold. Until 0.5.6
+  the resource list alone counted, so every temporary guest looked as if it were outside the
+  pool and stayed behind.
 - **Removal in every case.** Also after a failed restore, a restore with warnings, a wait that
   ended or a cancelled test: a restore task that still runs is stopped first (and waited for, at
   most two minutes), then `qm|pct unlock`, `set --protection 0`, `stop`, and `qm destroy --purge
