@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PveGuest, PveOverview } from "@/features/pve/api";
 import { ContainerRestorePoints, containerName } from "@/features/pve/container-files";
 import { usePveOverview } from "@/features/pve/use-overview";
+import { FillHeight } from "@/features/restore/files/restore-point-browser";
 import { ApiError } from "@/lib/api";
 import { useHasRole, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -145,47 +146,57 @@ export function FileRestorePage({
     );
   }
 
+  // From the extra-large breakpoint on the page fills the window below the top bar (less the
+  // shell's padding) and never scrolls itself: the list of machines, the restore points and the
+  // files scroll inside their cards, and the actions under the files stay in view.
   return (
-    <div className="space-y-6">
-      {header}
-      <div className={`grid items-start gap-4 ${FILE_RESTORE_GRID}`}>
-        <MachinePicker
-          machines={list}
-          machinesPending={machines.isPending}
-          selectedMachine={selectedMachine}
-          containers={guests.containers}
-          vms={guests.vms}
-          selectedContainer={containerId}
-          onSelect={choose}
-        />
-        {containerId ? (
-          <ContainerRestorePoints
-            key={containerId}
-            guestId={containerId}
-            kind={chosenGuest?.kind ?? "ct"}
+    <FillHeight>
+      <div
+        className="space-y-6 xl:flex xl:h-[calc(100dvh-var(--shell-header-height)-3rem)] xl:flex-col xl:gap-6 xl:space-y-0"
+        data-slot="file-restore-page"
+      >
+        {header}
+        <div
+          className={`grid items-start gap-4 ${FILE_RESTORE_GRID} xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)] xl:items-stretch`}
+        >
+          <MachinePicker
+            machines={list}
+            machinesPending={machines.isPending}
+            selectedMachine={selectedMachine}
+            containers={guests.containers}
+            vms={guests.vms}
+            selectedContainer={containerId}
+            onSelect={choose}
           />
-        ) : selectedMachine ? (
-          <MachineRestorePoints
-            key={selectedMachine}
-            machineId={selectedMachine}
-            administers={administers}
-          />
-        ) : (
-          <EmptyState
-            variant="plain"
-            icon={FolderSearch}
-            title={t(
-              hasContainers ? "fileRestore.pickWithContainers.title" : "fileRestore.pick.title",
-            )}
-            description={t(
-              hasContainers
-                ? "fileRestore.pickWithContainers.description"
-                : "fileRestore.pick.description",
-            )}
-          />
-        )}
+          {containerId ? (
+            <ContainerRestorePoints
+              key={containerId}
+              guestId={containerId}
+              kind={chosenGuest?.kind ?? "ct"}
+            />
+          ) : selectedMachine ? (
+            <MachineRestorePoints
+              key={selectedMachine}
+              machineId={selectedMachine}
+              administers={administers}
+            />
+          ) : (
+            <EmptyState
+              variant="plain"
+              icon={FolderSearch}
+              title={t(
+                hasContainers ? "fileRestore.pickWithContainers.title" : "fileRestore.pick.title",
+              )}
+              description={t(
+                hasContainers
+                  ? "fileRestore.pickWithContainers.description"
+                  : "fileRestore.pick.description",
+              )}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </FillHeight>
   );
 }
 
@@ -278,8 +289,11 @@ function MachinePicker({
   const searchLabel = withPve ? t("fileRestore.searchWithContainers") : t("fileRestore.search");
 
   return (
-    <Card className="gap-0 overflow-hidden py-0" data-slot="machine-picker">
-      <CardHeader className="gap-3 border-b py-4">
+    <Card
+      className="gap-0 overflow-hidden py-0 xl:flex xl:min-h-0 xl:flex-col"
+      data-slot="machine-picker"
+    >
+      <CardHeader className="shrink-0 gap-3 border-b py-4">
         <CardTitle className="text-base">
           {withPve ? t("fileRestore.sourcesWithContainers") : t("fileRestore.sources")}
         </CardTitle>
@@ -300,7 +314,7 @@ function MachinePicker({
       </CardHeader>
       {/* From xl on the list reaches down to the window's bottom edge, like the restore points
           and the folder list beside it; below xl the columns stack and it stays short. */}
-      <CardContent className="max-h-64 overflow-y-auto p-0 xl:max-h-[max(24rem,calc(100dvh-20rem))]">
+      <CardContent className="max-h-64 overflow-y-auto p-0 xl:max-h-none xl:min-h-0 xl:flex-1">
         {nothing ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">
             {withPve ? t("fileRestore.noMatchWithContainers") : t("fileRestore.noMatch")}
@@ -563,7 +577,7 @@ function MachineRestorePoints({
     return <Skeleton className="h-64 w-full" aria-busy="true" />;
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 xl:flex xl:min-h-0 xl:flex-col xl:gap-4 xl:space-y-0">
       <BackupDeletionNotice detail={query.data} />
       <SnapshotsTab
         detail={query.data}
