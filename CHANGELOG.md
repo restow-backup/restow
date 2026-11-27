@@ -8,6 +8,63 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.5.6] - 2026-11-27
+
+### Summary
+
+Restow 0.5.6 removes the temporary guests of Proxmox VE boot tests and restore checks again:
+until now every one stayed behind with its volumes, a complete copy of the container each
+time, because the node could not see that they were in the pool `restow-restore`. The file
+restore page also fits the window now, with "Download as ZIP" and "Restore to the machine"
+always in view.
+
+### Breaking Changes
+
+None. The integration API contract stays at 1.10.0.
+
+### Added
+
+Nothing.
+
+### Changed
+
+- File restore: from the extra-large breakpoint on the page fits the window; the list of
+  machines, the restore points and the files scroll inside their cards, and "Download as ZIP"
+  and "Restore to the machine" stay in view under the files.
+
+### Fixed
+
+- Proxmox VE: the temporary guests of boot tests and restore checks (`restow-boottest-<vmid>`,
+  `restow-restorecheck-<vmid>`) are removed again. The node checked their pool in the cluster's
+  resource list, which names a pool only to a caller with `Pool.Audit`, a privilege the node's
+  API token does not hold; every temporary guest looked as if it were outside `restow-restore`
+  and stayed, with its volumes (a complete copy of the container each time). The node now also
+  reads the pool's members from `/etc/pve/user.cfg` as root. Leftovers of earlier tests go
+  when the service starts and before the next boot test.
+
+### Security
+
+Nothing new. The node still removes a guest only with proof that it is its own temporary guest
+(on this node, in `restow-restore`, with the tag and name, or its marker); reading the pool from
+`/etc/pve/user.cfg` only adds the membership the resource list hides from the token.
+
+### Upgrade Notes
+
+New images, a new agent for Proxmox VE nodes (`restow-pve`) and a new recovery ISO; the
+`docker-compose.yml` of 0.5.2 stays, and there is no database migration. The Proxmox VE nodes
+update with the server (docs/UPDATING.md, "Nodes and agents"); a node that was not reachable
+then is updated by hand with `/opt/restow-pve/bin/restow-pve update`. The leftovers of earlier
+boot tests and restore checks go when the updated service starts. The agents of machines need
+no update.
+
+### Known Issues
+
+- The known issues of 0.5.5 still apply.
+
+### Verification
+
+To be filled by the release pipeline.
+
 ## [0.5.5] - 2026-11-26
 
 ### Summary
