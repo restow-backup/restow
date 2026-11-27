@@ -14,7 +14,6 @@ import {
   toggleAll,
   toggleItem,
 } from "@/features/endpoints/presenters";
-
 import {
   judgementsById,
   LastCleanHint,
@@ -23,6 +22,7 @@ import {
   SuspicionBadge,
   useObjectSuspicions,
 } from "@/features/suspicion";
+import { cn } from "@/lib/utils";
 
 import { type FileSourceAdapter, newestFirst, type RestorePointView } from "./adapter.js";
 import { BrowserBody, type FolderPages, PathBar, SelectionBar } from "./file-browser.js";
@@ -37,6 +37,24 @@ const NO_SELECTION: Selection = new Map();
 export const SNAPSHOTS_GRID = "lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)]";
 
 /**
+ * Whether the browser fills the height its page gives it (from the extra-large breakpoint on):
+ * the timeline and the file list then scroll inside their cards and the selection bar with
+ * "Download as ZIP" and the restore stays in view under the list, without the page scrolling.
+ * The file restore page provides it; a machine's or a container's own page does not, and the
+ * browser keeps its fixed list height there.
+ */
+const FillHeightContext = React.createContext(false);
+
+export function FillHeight({ children }: { children: React.ReactNode }) {
+  return <FillHeightContext.Provider value={true}>{children}</FillHeightContext.Provider>;
+}
+
+/** Whether the surrounding page asked the browser to fill its height ({@link FillHeight}). */
+export function useFillHeight(): boolean {
+  return React.useContext(FillHeightContext);
+}
+
+/**
  * The restore points of a source and a browser for the files in one of them (docs/FILESHARES.md
  * 12.4). Ticked files and folders can be downloaded as a ZIP or restored the way the source
  * restores (the adapter's dialog). Every browse and download is audited by the server.
@@ -47,6 +65,7 @@ export function RestorePointBrowser<P extends RestorePointView>({
   adapter: FileSourceAdapter<P>;
 }) {
   const { t } = useTranslation("endpoints");
+  const fill = useFillHeight();
   const points = adapter.useRestorePoints();
   const [pointId, setPointId] = React.useState<string | null>(null);
   const [path, setPath] = React.useState("/");
@@ -142,7 +161,13 @@ export function RestorePointBrowser<P extends RestorePointView>({
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn(
+        "space-y-4",
+        fill && "xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:gap-4 xl:space-y-0",
+      )}
+      data-slot="restore-point-browser"
+    >
       {adapter.suspicion ? (
         <RetentionHoldNotice
           target={adapter.suspicion.target}
@@ -150,13 +175,24 @@ export function RestorePointBrowser<P extends RestorePointView>({
         />
       ) : null}
       <LastCleanHint points={list} judgements={judgements} onPick={pick} />
-      <div className={`grid items-start gap-4 ${SNAPSHOTS_GRID}`}>
-        <Card className="gap-0 overflow-hidden py-0" data-slot="snapshots-card">
-          <CardHeader className="border-b py-4">
+      <div
+        className={cn(
+          "grid items-start gap-4",
+          SNAPSHOTS_GRID,
+          fill && "xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)] xl:items-stretch",
+        )}
+      >
+        <Card
+          className={cn("gap-0 overflow-hidden py-0", fill && "xl:flex xl:min-h-0 xl:flex-col")}
+          data-slot="snapshots-card"
+        >
+          <CardHeader className="shrink-0 border-b py-4">
             <CardTitle className="text-base">{t("snapshots.title")}</CardTitle>
             <CardDescription>{t("snapshots.description", { count: list.length })}</CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent
+            className={cn("p-0", fill && "xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:*:flex-1")}
+          >
             <RestoreTimeline
               items={list}
               idOf={(item: P) => item.id}
@@ -166,14 +202,21 @@ export function RestorePointBrowser<P extends RestorePointView>({
               renderDetails={renderDetails}
               label={adapter.timelineLabel}
               slot="snapshot-list"
+              className={fill ? "xl:max-h-none xl:min-h-0 xl:flex-1" : undefined}
             />
           </CardContent>
         </Card>
 
-        <Card className="min-w-0 gap-0 overflow-hidden py-0" data-slot="browser-card">
+        <Card
+          className={cn(
+            "min-w-0 gap-0 overflow-hidden py-0",
+            fill && "xl:flex xl:min-h-0 xl:flex-col",
+          )}
+          data-slot="browser-card"
+        >
           {point ? (
             <>
-              <CardHeader className="gap-2 border-b py-4">
+              <CardHeader className="shrink-0 gap-2 border-b py-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <CardTitle className="text-base">
                     {t("browser.title", { id: point.shortId })}
@@ -192,10 +235,14 @@ export function RestorePointBrowser<P extends RestorePointView>({
                   }}
                 />
               </CardHeader>
-              {/* A fixed height: the list scrolls inside, so the path bar and the actions
-                below stay where they are from folder to folder (#60). */}
+              {/* A fixed height, or with FillHeight the room the card leaves: the list scrolls
+                inside, so the path bar and the actions below stay where they are from folder to
+                folder (#60). */}
               <CardContent
-                className="h-96 overflow-y-auto overscroll-contain p-0 xl:h-[max(24rem,calc(100dvh-26rem))]"
+                className={cn(
+                  "h-96 overflow-y-auto overscroll-contain p-0",
+                  fill ? "xl:h-auto xl:min-h-0 xl:flex-1" : "xl:h-[max(24rem,calc(100dvh-26rem))]",
+                )}
                 data-slot="browser-list"
               >
                 <BrowserBody
